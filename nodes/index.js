@@ -4,6 +4,9 @@ export { PORT_TYPES, areTypesCompatible } from "./PortTypes.js";
 
 // Import all node types
 import { MathNode } from "./MathNode.js";
+import { PowerNode } from "./PowerNode.js";
+import { AbsNode } from "./AbsNode.js";
+import { CompareNode } from "./CompareNode.js";
 import { Vec2Node } from "./Vec2Node.js";
 import { VectorNode } from "./VectorNode.js";
 import { ColorNode } from "./ColorNode.js";
@@ -31,6 +34,9 @@ import { BuiltinZFarNode } from "./BuiltinZFarNode.js";
 // Export NODE_TYPES object
 export const NODE_TYPES = {
   math: MathNode,
+  power: PowerNode,
+  abs: AbsNode,
+  compare: CompareNode,
   vec2: Vec2Node,
   vector: VectorNode,
   color: ColorNode,

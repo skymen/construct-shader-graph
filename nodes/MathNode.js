@@ -11,18 +11,28 @@ export const MathNode = new NodeType(
   {
     webgl1: {
       dependency: "",
-      execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = ${inputs[0]} + ${inputs[1]};`,
+      execution: (inputs, outputs, node) => {
+        const op = node.operation || "+";
+        return `    float ${outputs[0]} = ${inputs[0]} ${op} ${inputs[1]};`;
+      },
     },
     webgl2: {
       dependency: "",
-      execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = ${inputs[0]} + ${inputs[1]};`,
+      execution: (inputs, outputs, node) => {
+        const op = node.operation || "+";
+        return `    float ${outputs[0]} = ${inputs[0]} ${op} ${inputs[1]};`;
+      },
     },
     webgpu: {
       dependency: "",
-      execution: (inputs, outputs) =>
-        `    var ${outputs[0]}: f32 = ${inputs[0]} + ${inputs[1]};`,
+      execution: (inputs, outputs, node) => {
+        const op = node.operation || "+";
+        return `    var ${outputs[0]}: f32 = ${inputs[0]} ${op} ${inputs[1]};`;
+      },
     },
   }
 );
+
+// Add operation options to the node type
+MathNode.hasOperation = true;
+MathNode.operationOptions = ["+", "-", "*", "/"];

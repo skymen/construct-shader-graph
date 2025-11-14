@@ -119,6 +119,11 @@ class Node {
       nodeType.inputs.length === 0 && nodeType.outputs.length > 0;
     this.isSelected = false;
 
+    // Initialize operation for nodes that have it
+    if (nodeType.hasOperation) {
+      this.operation = nodeType.operationOptions[0];
+    }
+
     // Create ports based on node type definition
     this.inputPorts = nodeType.inputs.map(
       (inputDef, index) => new Port(this, "input", index, inputDef)
@@ -138,7 +143,9 @@ class Node {
         this.inputPorts.length,
         this.outputPorts.length
       );
-      this.height = 50 + maxPorts * 40 + 10;
+      // Add extra space for operation dropdown if node has operations
+      const dropdownSpace = nodeType.hasOperation ? 30 : 0;
+      this.height = 50 + dropdownSpace + maxPorts * 40 + 10;
     }
 
     this.isDragging = false;
@@ -171,6 +178,21 @@ class Node {
 
   getAllPorts() {
     return [...this.inputPorts, ...this.outputPorts];
+  }
+
+  getOperationDropdownBounds() {
+    if (!this.nodeType.hasOperation) return null;
+
+    const headerHeight = 30;
+    const dropdownHeight = 25;
+    const padding = 10;
+
+    return {
+      x: this.x + padding,
+      y: this.y + headerHeight + 5,
+      width: this.width - padding * 2,
+      height: dropdownHeight,
+    };
   }
 }
 
@@ -904,6 +926,77 @@ class BlueprintSystem {
       this.activeWire = null;
       this.render();
     }
+  }
+
+  showOperationMenu(node, dropdownBounds) {
+    // Create a temporary menu for operation selection
+    const menu = document.createElement("div");
+    menu.className = "operation-menu";
+    menu.style.position = "fixed";
+    menu.style.left = `${
+      dropdownBounds.x * this.camera.zoom + this.camera.x
+    }px`;
+    menu.style.top = `${
+      (dropdownBounds.y + dropdownBounds.height) * this.camera.zoom +
+      this.camera.y
+    }px`;
+    menu.style.background = "#2a2a2a";
+    menu.style.border = "2px solid #4a4a4a";
+    menu.style.borderRadius = "4px";
+    menu.style.padding = "5px";
+    menu.style.zIndex = "10000";
+    menu.style.minWidth = "80px";
+
+    node.nodeType.operationOptions.forEach((op) => {
+      const option = document.createElement("div");
+      option.textContent = op;
+      option.style.padding = "8px 12px";
+      option.style.cursor = "pointer";
+      option.style.color = "#fff";
+      option.style.fontSize = "14px";
+      option.style.borderRadius = "3px";
+      option.style.textAlign = "center";
+
+      if (node.operation === op) {
+        option.style.background = "#4a90e2";
+      }
+
+      option.addEventListener("mouseenter", () => {
+        if (node.operation !== op) {
+          option.style.background = "#3a3a3a";
+        }
+      });
+
+      option.addEventListener("mouseleave", () => {
+        if (node.operation !== op) {
+          option.style.background = "transparent";
+        }
+      });
+
+      option.addEventListener("click", () => {
+        node.operation = op;
+        document.body.removeChild(menu);
+        this.render();
+      });
+
+      menu.appendChild(option);
+    });
+
+    // Close menu when clicking outside
+    const closeMenu = (e) => {
+      if (!menu.contains(e.target)) {
+        if (document.body.contains(menu)) {
+          document.body.removeChild(menu);
+        }
+        document.removeEventListener("mousedown", closeMenu);
+      }
+    };
+
+    setTimeout(() => {
+      document.addEventListener("mousedown", closeMenu);
+    }, 0);
+
+    document.body.appendChild(menu);
   }
 
   getFilteredNodeTypes() {
@@ -1868,6 +1961,22 @@ class BlueprintSystem {
       return;
     }
 
+    // Check if clicking on an operation dropdown
+    for (const node of this.nodes) {
+      if (node.nodeType.hasOperation) {
+        const dropdown = node.getOperationDropdownBounds();
+        if (
+          pos.x >= dropdown.x &&
+          pos.x <= dropdown.x + dropdown.width &&
+          pos.y >= dropdown.y &&
+          pos.y <= dropdown.y + dropdown.height
+        ) {
+          this.showOperationMenu(node, dropdown);
+          return;
+        }
+      }
+    }
+
     // Check if clicking on a value box for editable ports
     for (const node of this.nodes) {
       for (const port of node.inputPorts) {
@@ -2519,6 +2628,46 @@ class BlueprintSystem {
       ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(node.title, node.x + node.width / 2, node.y + 22);
+
+      // Operation dropdown (if node has operations)
+      if (node.nodeType.hasOperation) {
+        const dropdown = node.getOperationDropdownBounds();
+
+        // Dropdown background
+        ctx.fillStyle = "#1a1a1a";
+        ctx.strokeStyle = "#4a4a4a";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(
+          dropdown.x,
+          dropdown.y,
+          dropdown.width,
+          dropdown.height,
+          4
+        );
+        ctx.fill();
+        ctx.stroke();
+
+        // Dropdown text
+        ctx.fillStyle = "#fff";
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          node.operation || node.nodeType.operationOptions[0],
+          dropdown.x + dropdown.width / 2,
+          dropdown.y + dropdown.height / 2 + 4
+        );
+
+        // Dropdown arrow
+        ctx.fillStyle = "#888";
+        ctx.font = "10px sans-serif";
+        ctx.textAlign = "right";
+        ctx.fillText(
+          "▼",
+          dropdown.x + dropdown.width - 5,
+          dropdown.y + dropdown.height / 2 + 3
+        );
+      }
 
       // Ports
       node.inputPorts.forEach((port) => this.drawPort(port));

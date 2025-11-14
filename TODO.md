@@ -1,3 +1,5 @@
 - allow copy/pasting/duplicating nodes
 - actually add all of the nodes
 - make number inputs draggable
+- fix float/percent value type
+- zoom out with command scroll is horrible
