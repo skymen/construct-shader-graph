@@ -1195,11 +1195,8 @@ class BlueprintSystem {
       if (this.searchFilterType === "input") {
         // We were dragging from an input port
         // Connect to a compatible output port on the new node
-        const compatibleOutput = newNode.outputPorts.find(
-          (port) =>
-            port.portType === this.searchFilterPort.portType ||
-            port.portType === "any" ||
-            this.searchFilterPort.portType === "any"
+        const compatibleOutput = newNode.outputPorts.find((port) =>
+          this.searchFilterPort.canConnectTo(port)
         );
         if (compatibleOutput) {
           // Create a new wire from the output to the input
@@ -1207,15 +1204,18 @@ class BlueprintSystem {
           this.wires.push(wire);
           compatibleOutput.connections.push(wire);
           this.searchFilterPort.connections.push(wire);
+
+          // Resolve generic types
+          this.resolveGenericsForConnection(
+            compatibleOutput,
+            this.searchFilterPort
+          );
         }
       } else {
         // We were dragging from an output port
         // Connect to a compatible input port on the new node
-        const compatibleInput = newNode.inputPorts.find(
-          (port) =>
-            port.portType === this.searchFilterPort.portType ||
-            port.portType === "any" ||
-            this.searchFilterPort.portType === "any"
+        const compatibleInput = newNode.inputPorts.find((port) =>
+          this.searchFilterPort.canConnectTo(port)
         );
         if (compatibleInput) {
           // Remove existing connection if any
@@ -1232,6 +1232,12 @@ class BlueprintSystem {
           this.wires.push(wire);
           this.searchFilterPort.connections.push(wire);
           compatibleInput.connections.push(wire);
+
+          // Resolve generic types
+          this.resolveGenericsForConnection(
+            this.searchFilterPort,
+            compatibleInput
+          );
         }
       }
     }
@@ -1925,18 +1931,21 @@ class BlueprintSystem {
       const index = wire.startPort.connections.indexOf(wire);
       if (index > -1) wire.startPort.connections.splice(index, 1);
 
-      // Clear resolved generics if needed
+      // Re-evaluate resolved generics if needed
       if (isGenericType(wire.startPort.portType)) {
-        wire.startPort.node.clearResolvedGeneric(wire.startPort.portType);
+        this.reevaluateGenericType(
+          wire.startPort.node,
+          wire.startPort.portType
+        );
       }
     }
     if (wire.endPort) {
       const index = wire.endPort.connections.indexOf(wire);
       if (index > -1) wire.endPort.connections.splice(index, 1);
 
-      // Clear resolved generics if needed
+      // Re-evaluate resolved generics if needed
       if (isGenericType(wire.endPort.portType)) {
-        wire.endPort.node.clearResolvedGeneric(wire.endPort.portType);
+        this.reevaluateGenericType(wire.endPort.node, wire.endPort.portType);
       }
     }
     // Remove from wires array
@@ -1944,20 +1953,208 @@ class BlueprintSystem {
     if (wireIndex > -1) this.wires.splice(wireIndex, 1);
   }
 
+  reevaluateGenericType(node, genericType, visited = new Set()) {
+    // Prevent infinite loops
+    const nodeKey = `${node.id}_${genericType}`;
+    if (visited.has(nodeKey)) return;
+    visited.add(nodeKey);
+
+    // Get all ports with this generic type
+    const genericPorts = node
+      .getAllPorts()
+      .filter((port) => port.portType === genericType);
+
+    // Find all connected concrete types
+    const connectedConcreteTypes = new Set();
+    const connectedGenericNodes = [];
+
+    genericPorts.forEach((port) => {
+      port.connections.forEach((wire) => {
+        const connectedPort =
+          wire.startPort === port ? wire.endPort : wire.startPort;
+        if (connectedPort) {
+          // Check if the connected port is generic
+          if (isGenericType(connectedPort.portType)) {
+            // Track connected generic nodes for re-evaluation
+            connectedGenericNodes.push({
+              node: connectedPort.node,
+              genericType: connectedPort.portType,
+            });
+
+            // Also check if it has a concrete resolution we can use
+            const resolvedType = connectedPort.node.resolveGenericType(
+              connectedPort.portType
+            );
+            if (resolvedType) {
+              const resolvedTypeDef = PORT_TYPES[resolvedType];
+              if (
+                !resolvedTypeDef?.isComposite &&
+                !isGenericType(resolvedType)
+              ) {
+                connectedConcreteTypes.add(resolvedType);
+              }
+            }
+          } else {
+            // Non-generic port - use its type directly
+            const connectedType = connectedPort.portType;
+            const connectedTypeDef = PORT_TYPES[connectedType];
+
+            // Only consider concrete types (not composite)
+            if (!connectedTypeDef?.isComposite) {
+              connectedConcreteTypes.add(connectedType);
+            }
+          }
+        }
+      });
+    });
+
+    const oldResolution = node.resolvedGenerics[genericType];
+    let resolutionChanged = false;
+
+    // If no concrete types found, clear the resolution
+    if (connectedConcreteTypes.size === 0) {
+      if (oldResolution) {
+        delete node.resolvedGenerics[genericType];
+        resolutionChanged = true;
+      }
+    }
+    // If exactly one concrete type, use it
+    else if (connectedConcreteTypes.size === 1) {
+      const concreteType = Array.from(connectedConcreteTypes)[0];
+
+      if (oldResolution !== concreteType) {
+        node.resolvedGenerics[genericType] = concreteType;
+        resolutionChanged = true;
+
+        // Propagate new resolution
+        this.propagateGenericResolution(node, genericType, concreteType);
+      }
+    }
+    // If multiple concrete types, this is an error state (shouldn't happen)
+    // Keep the first one found
+    else {
+      const concreteType = Array.from(connectedConcreteTypes)[0];
+      if (oldResolution !== concreteType) {
+        node.resolvedGenerics[genericType] = concreteType;
+        resolutionChanged = true;
+      }
+    }
+
+    // Always re-evaluate connected generic nodes if our resolution changed
+    if (resolutionChanged) {
+      connectedGenericNodes.forEach(
+        ({ node: connectedNode, genericType: connectedGenericType }) => {
+          this.reevaluateGenericType(
+            connectedNode,
+            connectedGenericType,
+            visited
+          );
+        }
+      );
+    }
+  }
+
   resolveGenericsForConnection(outputPort, inputPort) {
-    // Resolve generics for both nodes
+    // Get the actual types (resolved if generic)
     const outputType = outputPort.getResolvedType();
     const inputType = inputPort.getResolvedType();
 
-    // Update output node's generics
-    if (isGenericType(outputPort.portType)) {
-      outputPort.node.updateResolvedGenerics(outputPort.portType, inputType);
+    // Determine the concrete type to use for resolution
+    // If one side is composite and the other is concrete, use the concrete type
+    const outputTypeDef = PORT_TYPES[outputType];
+    const inputTypeDef = PORT_TYPES[inputType];
+
+    let concreteTypeForOutput = inputType;
+    let concreteTypeForInput = outputType;
+
+    // If input is composite but output is concrete, use output's concrete type
+    if (inputTypeDef?.isComposite && !outputTypeDef?.isComposite) {
+      concreteTypeForOutput = outputType;
     }
 
-    // Update input node's generics
-    if (isGenericType(inputPort.portType)) {
-      inputPort.node.updateResolvedGenerics(inputPort.portType, outputType);
+    // If output is composite but input is concrete, use input's concrete type
+    if (outputTypeDef?.isComposite && !inputTypeDef?.isComposite) {
+      concreteTypeForInput = inputType;
     }
+
+    // If both are composite, we can't resolve (shouldn't happen with proper filtering)
+    if (outputTypeDef?.isComposite && inputTypeDef?.isComposite) {
+      return;
+    }
+
+    // Update output node's generics with the concrete type
+    if (isGenericType(outputPort.portType)) {
+      const wasUpdated = outputPort.node.updateResolvedGenerics(
+        outputPort.portType,
+        concreteTypeForOutput
+      );
+
+      // Propagate resolution to connected generic ports
+      if (wasUpdated) {
+        this.propagateGenericResolution(
+          outputPort.node,
+          outputPort.portType,
+          concreteTypeForOutput
+        );
+      }
+    }
+
+    // Update input node's generics with the concrete type
+    if (isGenericType(inputPort.portType)) {
+      const wasUpdated = inputPort.node.updateResolvedGenerics(
+        inputPort.portType,
+        concreteTypeForInput
+      );
+
+      // Propagate resolution to connected generic ports
+      if (wasUpdated) {
+        this.propagateGenericResolution(
+          inputPort.node,
+          inputPort.portType,
+          concreteTypeForInput
+        );
+      }
+    }
+  }
+
+  propagateGenericResolution(node, genericType, concreteType) {
+    // Get all ports of this node with the same generic type
+    const genericPorts = node
+      .getAllPorts()
+      .filter((port) => port.portType === genericType);
+
+    // For each generic port, propagate to connected nodes
+    genericPorts.forEach((port) => {
+      port.connections.forEach((wire) => {
+        const connectedPort =
+          wire.startPort === port ? wire.endPort : wire.startPort;
+
+        if (connectedPort && isGenericType(connectedPort.portType)) {
+          // Check if the connected node hasn't resolved this generic yet
+          const connectedNode = connectedPort.node;
+          const currentResolution = connectedNode.resolveGenericType(
+            connectedPort.portType
+          );
+
+          if (!currentResolution) {
+            // Resolve the connected node's generic
+            const wasUpdated = connectedNode.updateResolvedGenerics(
+              connectedPort.portType,
+              concreteType
+            );
+
+            // Recursively propagate
+            if (wasUpdated) {
+              this.propagateGenericResolution(
+                connectedNode,
+                connectedPort.portType,
+                concreteType
+              );
+            }
+          }
+        }
+      });
+    });
   }
 
   onMouseDown(e) {
@@ -2093,6 +2290,9 @@ class BlueprintSystem {
         port.connections = [];
         // Start dragging from the output port
         this.activeWire = existingWire;
+
+        this.disconnectWire(existingWire);
+
         this.activeWire.endPort = null;
         this.activeWire.tempEndX = pos.x;
         this.activeWire.tempEndY = pos.y;
@@ -2608,35 +2808,58 @@ class BlueprintSystem {
       ctx.fillText(label, pos.x - 15, pos.y + 4);
     }
 
-    // Draw tooltip for hovered port with no connections
-    if (isHovered && port.connections.length === 0 && !port.isEditable) {
-      const typeName = PORT_TYPES[port.portType]?.name || port.portType;
-      const tooltipText = typeName;
+    // Draw tooltip for hovered port
+    if (isHovered && !port.isEditable) {
+      // Show tooltip if: no connections OR is a generic type
+      const shouldShowTooltip =
+        port.connections.length === 0 || isGenericType(port.portType);
 
-      // Measure text for tooltip background
-      ctx.font = "11px sans-serif";
-      const textWidth = ctx.measureText(tooltipText).width;
-      const padding = 6;
-      const tooltipWidth = textWidth + padding * 2;
-      const tooltipHeight = 18;
+      if (shouldShowTooltip) {
+        let tooltipText;
 
-      // Position tooltip above the port
-      const tooltipX = pos.x - tooltipWidth / 2;
-      const tooltipY = pos.y - port.radius - tooltipHeight - 5;
+        if (isGenericType(port.portType)) {
+          const resolvedType = port.getResolvedType();
+          const genericName = PORT_TYPES[port.portType]?.name || port.portType;
 
-      // Draw tooltip background
-      ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
-      ctx.strokeStyle = portColor;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight, 3);
-      ctx.fill();
-      ctx.stroke();
+          if (resolvedType !== port.portType) {
+            // Generic is resolved - show both
+            const resolvedName = PORT_TYPES[resolvedType]?.name || resolvedType;
+            tooltipText = `${genericName} (${resolvedName})`;
+          } else {
+            // Generic is unresolved
+            tooltipText = genericName;
+          }
+        } else {
+          // Regular type
+          const typeName = PORT_TYPES[port.portType]?.name || port.portType;
+          tooltipText = typeName;
+        }
 
-      // Draw tooltip text
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "center";
-      ctx.fillText(tooltipText, pos.x, tooltipY + 13);
+        // Measure text for tooltip background
+        ctx.font = "11px sans-serif";
+        const textWidth = ctx.measureText(tooltipText).width;
+        const padding = 6;
+        const tooltipWidth = textWidth + padding * 2;
+        const tooltipHeight = 18;
+
+        // Position tooltip above the port
+        const tooltipX = pos.x - tooltipWidth / 2;
+        const tooltipY = pos.y - port.radius - tooltipHeight - 5;
+
+        // Draw tooltip background
+        ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+        ctx.strokeStyle = portColor;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight, 3);
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw tooltip text
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.fillText(tooltipText, pos.x, tooltipY + 13);
+      }
     }
   }
 
