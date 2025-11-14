@@ -42,7 +42,9 @@ class Port {
 
     const x = this.type === "input" ? node.x : node.x + node.width;
     const spacing = 40;
-    const startY = node.y + 50;
+    // Add extra offset if node has operation dropdown
+    const dropdownOffset = node.nodeType.hasOperation ? 30 : 0;
+    const startY = node.y + 50 + dropdownOffset;
     const y = startY + this.index * spacing;
     return { x, y };
   }
@@ -121,7 +123,7 @@ class Node {
 
     // Initialize operation for nodes that have it
     if (nodeType.hasOperation) {
-      this.operation = nodeType.operationOptions[0];
+      this.operation = nodeType.operationOptions[0].value;
     }
 
     // Create ports based on node type definition
@@ -186,10 +188,11 @@ class Node {
     const headerHeight = 30;
     const dropdownHeight = 25;
     const padding = 10;
+    const topMargin = 10; // Margin above the dropdown
 
     return {
       x: this.x + padding,
-      y: this.y + headerHeight + 5,
+      y: this.y + headerHeight + topMargin,
       width: this.width - padding * 2,
       height: dropdownHeight,
     };
@@ -933,48 +936,56 @@ class BlueprintSystem {
     const menu = document.createElement("div");
     menu.className = "operation-menu";
     menu.style.position = "fixed";
-    menu.style.left = `${
-      dropdownBounds.x * this.camera.zoom + this.camera.x
-    }px`;
-    menu.style.top = `${
+
+    // Convert world coordinates to screen coordinates
+    const rect = this.canvas.getBoundingClientRect();
+    const screenX =
+      dropdownBounds.x * this.camera.zoom + this.camera.x + rect.left;
+    const screenY =
       (dropdownBounds.y + dropdownBounds.height) * this.camera.zoom +
-      this.camera.y
-    }px`;
+      this.camera.y +
+      rect.top;
+    const menuWidth = dropdownBounds.width * this.camera.zoom;
+
+    menu.style.left = `${screenX}px`;
+    menu.style.top = `${screenY}px`;
+    menu.style.width = `${menuWidth}px`;
     menu.style.background = "#2a2a2a";
     menu.style.border = "2px solid #4a4a4a";
     menu.style.borderRadius = "4px";
-    menu.style.padding = "5px";
+    menu.style.padding = "2px";
     menu.style.zIndex = "10000";
-    menu.style.minWidth = "80px";
+    menu.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.5)";
 
     node.nodeType.operationOptions.forEach((op) => {
       const option = document.createElement("div");
-      option.textContent = op;
-      option.style.padding = "8px 12px";
+      option.textContent = op.label;
+      option.style.padding = "6px 8px";
       option.style.cursor = "pointer";
       option.style.color = "#fff";
       option.style.fontSize = "14px";
       option.style.borderRadius = "3px";
       option.style.textAlign = "center";
+      option.style.userSelect = "none";
 
-      if (node.operation === op) {
+      if (node.operation === op.value) {
         option.style.background = "#4a90e2";
       }
 
       option.addEventListener("mouseenter", () => {
-        if (node.operation !== op) {
+        if (node.operation !== op.value) {
           option.style.background = "#3a3a3a";
         }
       });
 
       option.addEventListener("mouseleave", () => {
-        if (node.operation !== op) {
+        if (node.operation !== op.value) {
           option.style.background = "transparent";
         }
       });
 
       option.addEventListener("click", () => {
-        node.operation = op;
+        node.operation = op.value;
         document.body.removeChild(menu);
         this.render();
       });
@@ -2648,14 +2659,22 @@ class BlueprintSystem {
         ctx.fill();
         ctx.stroke();
 
+        // Get the label for the current operation
+        const currentOp = node.nodeType.operationOptions.find(
+          (op) => op.value === node.operation
+        );
+        const displayText = currentOp
+          ? currentOp.label
+          : node.nodeType.operationOptions[0].label;
+
         // Dropdown text
         ctx.fillStyle = "#fff";
-        ctx.font = "12px sans-serif";
+        ctx.font = "14px sans-serif";
         ctx.textAlign = "center";
         ctx.fillText(
-          node.operation || node.nodeType.operationOptions[0],
+          displayText,
           dropdown.x + dropdown.width / 2,
-          dropdown.y + dropdown.height / 2 + 4
+          dropdown.y + dropdown.height / 2 + 5
         );
 
         // Dropdown arrow

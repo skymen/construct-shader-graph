@@ -35,4 +35,9 @@ export const MathNode = new NodeType(
 
 // Add operation options to the node type
 MathNode.hasOperation = true;
-MathNode.operationOptions = ["+", "-", "*", "/"];
+MathNode.operationOptions = [
+  { value: "+", label: "+" },
+  { value: "-", label: "−" },
+  { value: "*", label: "×" },
+  { value: "/", label: "÷" },
+];

@@ -35,4 +35,11 @@ export const CompareNode = new NodeType(
 
 // Add operation options to the node type
 CompareNode.hasOperation = true;
-CompareNode.operationOptions = [">", ">=", "==", "!=", "<=", "<"];
+CompareNode.operationOptions = [
+  { value: ">", label: ">" },
+  { value: ">=", label: "≥" },
+  { value: "==", label: "=" },
+  { value: "!=", label: "≠" },
+  { value: "<=", label: "≤" },
+  { value: "<", label: "<" },
+];
