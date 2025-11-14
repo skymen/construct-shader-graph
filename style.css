@@ -90,10 +90,36 @@ button:hover {
 
 /* Node styles are drawn on canvas, but we'll use these colors in JS */
 :root {
-    --node-bg: #2d2d2d;
-    --node-border: #4a4a4a;
-    --node-header: #3a3a3a;
-    --port-color: #4a90e2;
-    --wire-color: #4a90e2;
+  --node-bg: #2d2d2d;
+  --node-border: #4a4a4a;
+  --node-header: #3a3a3a;
+  --port-color: #4a90e2;
+  --wire-color: #4a90e2;
+}
+
+/* Port value input field */
+#portValueInput {
+  position: fixed;
+  background: #1a1a1a;
+  color: #fff;
+  border: 2px solid #4a90e2;
+  padding: 0;
+  font-size: 11px;
+  font-family: monospace;
+  border-radius: 3px;
+  outline: none;
+  text-align: center;
+  z-index: 10000;
+  display: none;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+  box-sizing: border-box;
+}
+
+#portValueInput:focus {
+  border-color: #6ab0ff;
+  box-shadow: 0 0 5px rgba(74, 144, 226, 0.5);
 }
 

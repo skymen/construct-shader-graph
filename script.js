@@ -2,11 +2,12 @@
 
 // Port type definitions with colors
 const PORT_TYPES = {
-  float: { color: "#4a90e2", name: "Float" },
-  vector: { color: "#e2a44a", name: "Vector" },
-  color: { color: "#e24a90", name: "Color" },
-  texture: { color: "#90e24a", name: "Texture" },
-  any: { color: "#888888", name: "Any" },
+  float: { color: "#4a90e2", name: "Float", editable: true, defaultValue: 0.0 },
+  int: { color: "#4a9fe2", name: "Int", editable: true, defaultValue: 0 },
+  vector: { color: "#e2a44a", name: "Vector", editable: false },
+  color: { color: "#e24a90", name: "Color", editable: false },
+  texture: { color: "#90e24a", name: "Texture", editable: false },
+  any: { color: "#888888", name: "Any", editable: false },
 };
 
 // Node type definitions
@@ -79,6 +80,15 @@ class Port {
     this.radius = 8;
     this.portType = portDef.type; // The data type (float, vector, etc.)
     this.name = portDef.name;
+
+    // Store value for editable input ports
+    const portTypeInfo = PORT_TYPES[this.portType];
+    if (type === "input" && portTypeInfo?.editable) {
+      this.value = portTypeInfo.defaultValue;
+      this.isEditable = true;
+    } else {
+      this.isEditable = false;
+    }
   }
 
   getPosition() {
@@ -88,6 +98,40 @@ class Port {
     const startY = node.y + 50;
     const y = startY + this.index * spacing;
     return { x, y };
+  }
+
+  getValueBoxBounds(ctx) {
+    if (!this.isEditable || this.type !== "input") return null;
+    const pos = this.getPosition();
+    const width = 50;
+    const height = 20;
+
+    // Measure the actual label width
+    let labelWidth = 30; // Default fallback
+    if (ctx) {
+      ctx.save();
+      ctx.font = "12px sans-serif";
+      labelWidth = ctx.measureText(this.name).width + 5; // Add small padding
+      ctx.restore();
+    }
+
+    return {
+      x: pos.x + 15 + labelWidth,
+      y: pos.y - height / 2,
+      width,
+      height,
+    };
+  }
+
+  isPointInValueBox(px, py, ctx) {
+    const bounds = this.getValueBoxBounds(ctx);
+    if (!bounds) return false;
+    return (
+      px >= bounds.x &&
+      px <= bounds.x + bounds.width &&
+      py >= bounds.y &&
+      py <= bounds.y + bounds.height
+    );
   }
 
   isPointInside(px, py) {
@@ -293,9 +337,11 @@ class BlueprintSystem {
     this.draggedRerouteNode = null;
     this.lastClickTime = 0;
     this.lastClickPos = { x: 0, y: 0 };
+    this.editingPort = null;
 
     this.setupCanvas();
     this.setupEventListeners();
+    this.setupInputField();
     this.render();
   }
 
@@ -308,6 +354,89 @@ class BlueprintSystem {
     };
     resize();
     window.addEventListener("resize", resize);
+  }
+
+  setupInputField() {
+    // Create a hidden input field for editing port values
+    this.inputField = document.createElement("input");
+    this.inputField.type = "text";
+    this.inputField.id = "portValueInput";
+    this.inputField.style.position = "fixed";
+    this.inputField.style.display = "none";
+    document.body.appendChild(this.inputField);
+
+    this.inputField.addEventListener("blur", () => {
+      this.finishEditingPort();
+    });
+
+    this.inputField.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        this.finishEditingPort();
+      } else if (e.key === "Escape") {
+        this.cancelEditingPort();
+      }
+    });
+
+    // Prevent input from interfering with canvas events
+    this.inputField.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+    });
+  }
+
+  startEditingPort(port) {
+    if (!port.isEditable || port.connections.length > 0) return;
+
+    this.editingPort = port;
+    const bounds = port.getValueBoxBounds(this.ctx);
+    const rect = this.canvas.getBoundingClientRect();
+
+    this.inputField.value = port.value.toString();
+    this.inputField.style.left = `${rect.left + window.scrollX + bounds.x}px`;
+    this.inputField.style.top = `${rect.top + window.scrollY + bounds.y}px`;
+    this.inputField.style.width = `${bounds.width}px`;
+    this.inputField.style.height = `${bounds.height}px`;
+    this.inputField.style.display = "block";
+    this.inputField.style.visibility = "visible";
+    this.inputField.style.opacity = "1";
+    this.inputField.style.pointerEvents = "auto";
+
+    // Use setTimeout to ensure the input is rendered before focusing
+    setTimeout(() => {
+      this.inputField.focus();
+      this.inputField.select();
+    }, 0);
+  }
+
+  finishEditingPort() {
+    if (!this.editingPort) return;
+
+    const value = this.inputField.value;
+    if (this.editingPort.portType === "int") {
+      const intValue = parseInt(value);
+      if (!isNaN(intValue)) {
+        this.editingPort.value = intValue;
+      }
+    } else if (this.editingPort.portType === "float") {
+      const floatValue = parseFloat(value);
+      if (!isNaN(floatValue)) {
+        this.editingPort.value = floatValue;
+      }
+    }
+
+    this.hideInputField();
+    this.render();
+  }
+
+  cancelEditingPort() {
+    this.hideInputField();
+  }
+
+  hideInputField() {
+    this.inputField.style.display = "none";
+    this.inputField.style.visibility = "hidden";
+    this.inputField.style.opacity = "0";
+    this.inputField.style.pointerEvents = "none";
+    this.editingPort = null;
   }
 
   setupEventListeners() {
@@ -461,6 +590,20 @@ class BlueprintSystem {
       return;
     }
 
+    // Check if clicking on a value box for editable ports
+    for (const node of this.nodes) {
+      for (const port of node.inputPorts) {
+        if (
+          port.isEditable &&
+          port.connections.length === 0 &&
+          port.isPointInValueBox(pos.x, pos.y, this.ctx)
+        ) {
+          this.startEditingPort(port);
+          return;
+        }
+      }
+    }
+
     // Check if clicking on a port
     const port = this.findPortAtPosition(pos.x, pos.y);
     if (port) {
@@ -543,11 +686,31 @@ class BlueprintSystem {
     } else if (this.hoveredPort) {
       this.canvas.style.cursor = "pointer";
     } else {
-      const node = this.findNodeAtPosition(pos.x, pos.y);
-      if (node && node.isPointInHeader(pos.x, pos.y)) {
-        this.canvas.style.cursor = "move";
+      // Check if hovering over a value box
+      let overValueBox = false;
+      for (const node of this.nodes) {
+        for (const port of node.inputPorts) {
+          if (
+            port.isEditable &&
+            port.connections.length === 0 &&
+            port.isPointInValueBox(pos.x, pos.y, this.ctx)
+          ) {
+            overValueBox = true;
+            break;
+          }
+        }
+        if (overValueBox) break;
+      }
+
+      if (overValueBox) {
+        this.canvas.style.cursor = "text";
       } else {
-        this.canvas.style.cursor = "default";
+        const node = this.findNodeAtPosition(pos.x, pos.y);
+        if (node && node.isPointInHeader(pos.x, pos.y)) {
+          this.canvas.style.cursor = "move";
+        } else {
+          this.canvas.style.cursor = "default";
+        }
       }
     }
 
@@ -734,12 +897,78 @@ class BlueprintSystem {
     ctx.fillStyle = "#aaa";
     ctx.font = "12px sans-serif";
     const label = port.name;
+
     if (port.type === "input") {
       ctx.textAlign = "left";
+
+      // Draw label
       ctx.fillText(label, pos.x + 15, pos.y + 4);
+
+      // Draw value box for editable ports with no connections
+      if (
+        port.isEditable &&
+        port.connections.length === 0 &&
+        this.editingPort !== port
+      ) {
+        const bounds = port.getValueBoxBounds(ctx);
+        const valueStr =
+          port.portType === "float"
+            ? port.value.toFixed(2)
+            : port.value.toString();
+
+        // Draw value box background
+        ctx.fillStyle = "#1a1a1a";
+        ctx.strokeStyle = "#4a4a4a";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 3);
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw value text
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "11px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          valueStr,
+          bounds.x + bounds.width / 2,
+          bounds.y + bounds.height / 2 + 4
+        );
+      }
     } else {
       ctx.textAlign = "right";
       ctx.fillText(label, pos.x - 15, pos.y + 4);
+    }
+
+    // Draw tooltip for hovered port with no connections
+    if (isHovered && port.connections.length === 0 && !port.isEditable) {
+      const typeName = PORT_TYPES[port.portType]?.name || port.portType;
+      const tooltipText = typeName;
+
+      // Measure text for tooltip background
+      ctx.font = "11px sans-serif";
+      const textWidth = ctx.measureText(tooltipText).width;
+      const padding = 6;
+      const tooltipWidth = textWidth + padding * 2;
+      const tooltipHeight = 18;
+
+      // Position tooltip above the port
+      const tooltipX = pos.x - tooltipWidth / 2;
+      const tooltipY = pos.y - port.radius - tooltipHeight - 5;
+
+      // Draw tooltip background
+      ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+      ctx.strokeStyle = portColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight, 3);
+      ctx.fill();
+      ctx.stroke();
+
+      // Draw tooltip text
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.fillText(tooltipText, pos.x, tooltipY + 13);
     }
   }
 
