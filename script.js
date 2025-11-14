@@ -1,147 +1,6 @@
 // Blueprint Node System
-
-// Port type definitions with colors
-const PORT_TYPES = {
-  float: { color: "#4a90e2", name: "Float", editable: true, defaultValue: 0.0 },
-  int: { color: "#4a9fe2", name: "Int", editable: true, defaultValue: 0 },
-  vector: { color: "#e2a44a", name: "Vector", editable: false },
-  color: { color: "#e24a90", name: "Color", editable: false },
-  texture: { color: "#90e24a", name: "Texture", editable: false },
-  any: { color: "#888888", name: "Any", editable: false },
-};
-
-// Node type definitions
-class NodeType {
-  constructor(
-    name,
-    inputs,
-    outputs,
-    color = "#3a3a3a",
-    dependency = "",
-    execution = null
-  ) {
-    this.name = name;
-    this.inputs = inputs; // Array of {name, type}
-    this.outputs = outputs; // Array of {name, type}
-    this.color = color;
-    this.dependency = dependency; // GLSL code added once outside main
-    this.execution = execution; // Function(inputVars, outputVars) => GLSL code
-  }
-}
-
-// Define available node types
-const NODE_TYPES = {
-  math: new NodeType(
-    "Math",
-    [
-      { name: "A", type: "float" },
-      { name: "B", type: "float" },
-    ],
-    [{ name: "Result", type: "float" }],
-    "#3a4a3a",
-    "", // No dependency
-    (inputs, outputs) =>
-      `    float ${outputs[0]} = ${inputs[0]} + ${inputs[1]};`
-  ),
-  vector: new NodeType(
-    "Vector",
-    [
-      { name: "X", type: "float" },
-      { name: "Y", type: "float" },
-      { name: "Z", type: "float" },
-    ],
-    [{ name: "Vector", type: "vector" }],
-    "#4a3a3a",
-    "",
-    (inputs, outputs) =>
-      `    vec3 ${outputs[0]} = vec3(${inputs[0]}, ${inputs[1]}, ${inputs[2]});`
-  ),
-  color: new NodeType(
-    "Color",
-    [
-      { name: "R", type: "float" },
-      { name: "G", type: "float" },
-      { name: "B", type: "float" },
-    ],
-    [{ name: "Color", type: "color" }],
-    "#3a3a4a",
-    "",
-    (inputs, outputs) =>
-      `    vec3 ${outputs[0]} = vec3(${inputs[0]}, ${inputs[1]}, ${inputs[2]});`
-  ),
-  texture: new NodeType(
-    "Texture Sample",
-    [
-      { name: "Texture", type: "texture" },
-      { name: "UV", type: "vector" },
-    ],
-    [{ name: "Color", type: "color" }],
-    "#3a4a4a",
-    "",
-    (inputs, outputs) =>
-      `    vec3 ${outputs[0]} = texture(${inputs[0]}, ${inputs[1]}.xy).rgb;`
-  ),
-  output: new NodeType(
-    "Output",
-    [
-      { name: "Color", type: "color" },
-      { name: "Alpha", type: "float" },
-    ],
-    [],
-    "#4a3a3a",
-    "",
-    (inputs, outputs) => `    fragColor = vec4(${inputs[0]}, ${inputs[1]});`
-  ),
-  // Variable nodes - no inputs, only outputs
-  varFloat: new NodeType(
-    "Float Variable",
-    [],
-    [{ name: "Value", type: "float" }],
-    PORT_TYPES.float.color,
-    "",
-    (inputs, outputs, node) => {
-      const value = node.outputPorts[0].value || 0.0;
-      return `    float ${outputs[0]} = ${value.toFixed(2)};`;
-    }
-  ),
-  varInt: new NodeType(
-    "Int Variable",
-    [],
-    [{ name: "Value", type: "int" }],
-    PORT_TYPES.int.color,
-    "",
-    (inputs, outputs, node) => {
-      const value = node.outputPorts[0].value || 0;
-      return `    int ${outputs[0]} = ${value};`;
-    }
-  ),
-  varVector: new NodeType(
-    "Vector Variable",
-    [],
-    [{ name: "Value", type: "vector" }],
-    PORT_TYPES.vector.color,
-    "",
-    (inputs, outputs) =>
-      `    vec3 ${outputs[0]} = vec3(0.0, 0.0, 0.0); // Variable`
-  ),
-  varColor: new NodeType(
-    "Color Variable",
-    [],
-    [{ name: "Value", type: "color" }],
-    PORT_TYPES.color.color,
-    "",
-    (inputs, outputs) =>
-      `    vec3 ${outputs[0]} = vec3(1.0, 1.0, 1.0); // Variable`
-  ),
-  varTexture: new NodeType(
-    "Texture Variable",
-    [],
-    [{ name: "Value", type: "texture" }],
-    PORT_TYPES.texture.color,
-    "",
-    (inputs, outputs) => `    sampler2D ${outputs[0]} = uTexture; // Variable`
-  ),
-};
+import { NODE_TYPES, PORT_TYPES } from "./nodes/index.js";
+import JSZip from "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
 
 class Port {
   constructor(node, type, index, portDef) {
@@ -1235,7 +1094,82 @@ class BlueprintSystem {
     return portToVarName;
   }
 
-  exportGLSL() {
+  async loadBoilerplate(target) {
+    const files = {
+      webgl1: "./shaders/boilerplate-webgl1.glsl",
+      webgl2: "./shaders/boilerplate-webgl2.glsl",
+      webgpu: "./shaders/boilerplate-webgpu.wgsl",
+    };
+
+    try {
+      const response = await fetch(files[target]);
+      return await response.text();
+    } catch (error) {
+      console.error(`Failed to load boilerplate for ${target}:`, error);
+      return "";
+    }
+  }
+
+  generateShader(target, levels, portToVarName) {
+    let shader = "";
+
+    // Collect unique dependencies for this target
+    const dependencies = new Set();
+    for (const level of levels) {
+      for (const node of level) {
+        const dep = node.nodeType.getDependency(target);
+        if (dep) {
+          dependencies.add(dep);
+        }
+      }
+    }
+
+    // Add dependencies
+    if (dependencies.size > 0) {
+      shader += "\n// Function dependencies\n";
+      for (const dep of dependencies) {
+        shader += dep + "\n\n";
+      }
+    }
+
+    // Generate execution code for each node in order
+    const isWebGPU = target === "webgpu";
+
+    if (!isWebGPU) {
+      shader += "\nvoid main() {\n";
+    }
+
+    for (const level of levels) {
+      for (const node of level) {
+        const execution = node.nodeType.getExecution(target);
+        if (execution) {
+          // Get input variable names
+          const inputVars = node.inputPorts.map(
+            (port) => portToVarName.get(port) || "0.0"
+          );
+
+          // Get output variable names
+          const outputVars = node.outputPorts.map((port) =>
+            portToVarName.get(port)
+          );
+
+          // Generate code
+          const code = execution(inputVars, outputVars, node);
+          shader += code + "\n";
+        }
+      }
+    }
+
+    if (!isWebGPU) {
+      shader += "}\n";
+    } else {
+      shader += "}\n"; // Close the fragment function
+    }
+
+    return shader;
+  }
+
+  async exportGLSL() {
     const graph = this.buildDependencyGraph();
 
     if (!graph) {
@@ -1249,67 +1183,38 @@ class BlueprintSystem {
     );
     const portToVarName = this.generateVariableNames(levels);
 
-    // Collect unique dependencies
-    const dependencies = new Set();
-    for (const level of levels) {
-      for (const node of level) {
-        if (node.nodeType.dependency) {
-          dependencies.add(node.nodeType.dependency);
-        }
-      }
+    // Create ZIP file
+    const zip = new JSZip();
+
+    // Generate shaders for all targets
+    const targets = ["webgl1", "webgl2", "webgpu"];
+
+    for (const target of targets) {
+      const boilerplate = await this.loadBoilerplate(target);
+      const shaderCode = this.generateShader(target, levels, portToVarName);
+      const fullShader = boilerplate + shaderCode;
+
+      const extension = target === "webgpu" ? "wgsl" : "frag";
+      const filename = `shader-${target}.${extension}`;
+
+      zip.file(filename, fullShader);
+
+      // Also log to console
+      console.log(`Generated ${target.toUpperCase()} Shader:`);
+      console.log(fullShader);
+      console.log("---");
     }
 
-    // Build GLSL shader
-    let glsl = "";
-
-    // Add boilerplate
-    glsl += "#version 330 core\n\n";
-    glsl += "// Generated shader from Blueprint System\n\n";
-    glsl += "out vec4 fragColor;\n";
-    glsl += "in vec2 vUV;\n\n";
-    glsl += "// Uniforms (add as needed)\n";
-    glsl += "uniform sampler2D uTexture;\n\n";
-
-    // Add dependencies
-    if (dependencies.size > 0) {
-      glsl += "// Function dependencies\n";
-      for (const dep of dependencies) {
-        glsl += dep + "\n\n";
-      }
-    }
-
-    // Start main function
-    glsl += "void main() {\n";
-
-    // Generate execution code for each node in order
-    for (const level of levels) {
-      for (const node of level) {
-        if (node.nodeType.execution) {
-          // Get input variable names
-          const inputVars = node.inputPorts.map(
-            (port) => portToVarName.get(port) || "0.0"
-          );
-
-          // Get output variable names
-          const outputVars = node.outputPorts.map((port) =>
-            portToVarName.get(port)
-          );
-
-          // Generate code
-          const code = node.nodeType.execution(inputVars, outputVars, node);
-          glsl += code + "\n";
-        }
-      }
-    }
-
-    glsl += "}\n";
-
-    // Download the shader
-    this.downloadFile("shader.frag", glsl);
-
-    // Also show in console
-    console.log("Generated GLSL Shader:");
-    console.log(glsl);
+    // Generate and download ZIP
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "shaders.zip";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   downloadFile(filename, content) {

@@ -1,0 +1,9 @@
+{
+  "name": "construct-shader-graph",
+  "version": "1.0.0",
+  "description": "Visual shader graph editor",
+  "type": "module",
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}
