@@ -1,0 +1,99 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    background: #1a1a1a;
+    color: #fff;
+}
+
+#app {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+#toolbar {
+  background: #2a2a2a;
+  padding: 15px 20px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  flex-wrap: wrap;
+}
+
+#toolbar h1 {
+  font-size: 20px;
+  margin-right: 20px;
+}
+
+#nodeButtons {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+button {
+  background: #4a90e2;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+button:hover {
+  background: #357abd;
+}
+
+.node-type-btn {
+  background: #5a5a5a;
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+.node-type-btn:hover {
+  background: #6a6a6a;
+}
+
+#clearBtn {
+    background: #e74c3c;
+}
+
+#clearBtn:hover {
+    background: #c0392b;
+}
+
+#canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #1a1a1a;
+}
+
+#canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: default;
+}
+
+/* Node styles are drawn on canvas, but we'll use these colors in JS */
+:root {
+    --node-bg: #2d2d2d;
+    --node-border: #4a4a4a;
+    --node-header: #3a3a3a;
+    --port-color: #4a90e2;
+    --wire-color: #4a90e2;
+}
+
