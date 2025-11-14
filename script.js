@@ -247,6 +247,7 @@ class Node {
     this.headerColor = nodeType.color;
     this.isVariable =
       nodeType.inputs.length === 0 && nodeType.outputs.length > 0;
+    this.isSelected = false;
 
     // Create ports based on node type definition
     this.inputPorts = nodeType.inputs.map(
@@ -311,6 +312,7 @@ class RerouteNode {
     this.index = index;
     this.radius = 6;
     this.isDragging = false;
+    this.isSelected = false;
   }
 
   isPointInside(px, py) {
@@ -435,6 +437,13 @@ class BlueprintSystem {
     this.lastClickTime = 0;
     this.lastClickPos = { x: 0, y: 0 };
     this.editingPort = null;
+
+    // Selection state
+    this.selectedNodes = new Set();
+    this.selectedRerouteNodes = new Set();
+    this.isBoxSelecting = false;
+    this.boxSelectStart = null;
+    this.boxSelectEnd = null;
 
     this.setupCanvas();
     this.setupEventListeners();
@@ -617,6 +626,16 @@ class BlueprintSystem {
 
   getFilteredNodeTypes() {
     let nodeTypes = Object.entries(NODE_TYPES);
+
+    // Filter out output node if one already exists
+    const hasOutputNode = this.nodes.some(
+      (node) => node.nodeType === NODE_TYPES.output
+    );
+    if (hasOutputNode) {
+      nodeTypes = nodeTypes.filter(
+        ([key, nodeType]) => nodeType !== NODE_TYPES.output
+      );
+    }
 
     // If we're filtering by port type
     if (this.searchFilterPort && this.searchFilterType) {
@@ -818,9 +837,16 @@ class BlueprintSystem {
     this.canvas.addEventListener("mouseup", (e) => this.onMouseUp(e));
     this.canvas.addEventListener("contextmenu", (e) => this.onContextMenu(e));
 
+    // Keyboard events
+    document.addEventListener("keydown", (e) => this.onKeyDown(e));
+
     document.getElementById("clearBtn").addEventListener("click", () => {
       this.nodes = [];
       this.wires = [];
+      this.selectedNodes.clear();
+      this.selectedRerouteNodes.clear();
+      // Re-add the output node
+      this.addNode(600, 300, NODE_TYPES.output);
       this.render();
       this.updateDependencyList();
     });
@@ -851,6 +877,87 @@ class BlueprintSystem {
   closeSidebar() {
     const sidebar = document.getElementById("sidebar");
     sidebar.classList.remove("open");
+  }
+
+  // Selection management
+  clearSelection() {
+    this.selectedNodes.forEach((node) => (node.isSelected = false));
+    this.selectedRerouteNodes.forEach((rn) => (rn.isSelected = false));
+    this.selectedNodes.clear();
+    this.selectedRerouteNodes.clear();
+  }
+
+  selectNode(node, addToSelection = false) {
+    if (!addToSelection) {
+      this.clearSelection();
+    }
+    node.isSelected = true;
+    this.selectedNodes.add(node);
+  }
+
+  deselectNode(node) {
+    node.isSelected = false;
+    this.selectedNodes.delete(node);
+  }
+
+  selectRerouteNode(rerouteNode, addToSelection = false) {
+    if (!addToSelection) {
+      this.clearSelection();
+    }
+    rerouteNode.isSelected = true;
+    this.selectedRerouteNodes.add(rerouteNode);
+  }
+
+  deselectRerouteNode(rerouteNode) {
+    rerouteNode.isSelected = false;
+    this.selectedRerouteNodes.delete(rerouteNode);
+  }
+
+  deleteSelected() {
+    // Delete selected nodes and their wires (except output node)
+    this.selectedNodes.forEach((node) => {
+      // Don't delete the output node
+      if (node.nodeType === NODE_TYPES.output) {
+        return;
+      }
+
+      // Remove all wires connected to this node
+      const connectedWires = [];
+      node.getAllPorts().forEach((port) => {
+        connectedWires.push(...port.connections);
+      });
+
+      connectedWires.forEach((wire) => {
+        this.disconnectWire(wire);
+      });
+
+      // Remove the node
+      this.nodes = this.nodes.filter((n) => n !== node);
+    });
+
+    // Delete selected reroute nodes
+    this.selectedRerouteNodes.forEach((rerouteNode) => {
+      rerouteNode.wire.removeRerouteNode(rerouteNode);
+    });
+
+    this.clearSelection();
+    this.render();
+    this.updateDependencyList();
+  }
+
+  onKeyDown(e) {
+    // Ignore if typing in input fields
+    if (
+      document.activeElement.tagName === "INPUT" ||
+      document.activeElement.tagName === "TEXTAREA"
+    ) {
+      return;
+    }
+
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      this.deleteSelected();
+    }
   }
 
   buildDependencyGraph() {
@@ -1234,6 +1341,7 @@ class BlueprintSystem {
   onMouseDown(e) {
     const pos = this.getMousePos(e);
     const currentTime = Date.now();
+    const isMultiSelect = e.metaKey || e.ctrlKey; // Command on Mac, Ctrl on Windows/Linux
 
     // Check for double-click on wire
     const timeSinceLastClick = currentTime - this.lastClickTime;
@@ -1276,8 +1384,37 @@ class BlueprintSystem {
     // Check if clicking on a reroute node
     const rerouteNode = this.findRerouteNodeAtPosition(pos.x, pos.y);
     if (rerouteNode) {
-      this.draggedRerouteNode = rerouteNode;
-      rerouteNode.isDragging = true;
+      // Handle selection
+      if (isMultiSelect) {
+        if (rerouteNode.isSelected) {
+          this.deselectRerouteNode(rerouteNode);
+        } else {
+          this.selectRerouteNode(rerouteNode, true);
+        }
+      } else {
+        if (!rerouteNode.isSelected) {
+          this.selectRerouteNode(rerouteNode, false);
+        }
+      }
+
+      // Start dragging if selected
+      if (rerouteNode.isSelected) {
+        this.draggedRerouteNode = rerouteNode;
+        rerouteNode.isDragging = true;
+
+        // Store initial positions for all selected reroute nodes
+        this.selectedRerouteNodes.forEach((rn) => {
+          rn.dragStartX = rn.x;
+          rn.dragStartY = rn.y;
+        });
+
+        // Store drag offsets for all selected nodes
+        this.selectedNodes.forEach((node) => {
+          node.dragOffsetX = rerouteNode.x - node.x;
+          node.dragOffsetY = rerouteNode.y - node.y;
+        });
+      }
+      this.render();
       return;
     }
 
@@ -1327,18 +1464,58 @@ class BlueprintSystem {
       return;
     }
 
-    // Check if clicking on a node header
+    // Check if clicking on a node
     const node = this.findNodeAtPosition(pos.x, pos.y);
-    if (node && node.isPointInHeader(pos.x, pos.y)) {
-      this.draggedNode = node;
-      node.isDragging = true;
-      node.dragOffsetX = pos.x - node.x;
-      node.dragOffsetY = pos.y - node.y;
+    if (node) {
+      // Handle selection
+      if (isMultiSelect) {
+        if (node.isSelected) {
+          this.deselectNode(node);
+        } else {
+          this.selectNode(node, true);
+        }
+      } else {
+        if (!node.isSelected) {
+          this.selectNode(node, false);
+        }
+      }
 
-      // Move to front
-      this.nodes = this.nodes.filter((n) => n !== node);
-      this.nodes.push(node);
+      // Start dragging if on header and node is selected
+      if (node.isPointInHeader(pos.x, pos.y) && node.isSelected) {
+        this.draggedNode = node;
+        node.isDragging = true;
+        node.dragOffsetX = pos.x - node.x;
+        node.dragOffsetY = pos.y - node.y;
+
+        // Store drag offsets for all selected nodes
+        this.selectedNodes.forEach((selectedNode) => {
+          selectedNode.dragOffsetX = pos.x - selectedNode.x;
+          selectedNode.dragOffsetY = pos.y - selectedNode.y;
+        });
+
+        // Store initial positions for all selected reroute nodes
+        this.selectedRerouteNodes.forEach((rn) => {
+          rn.dragOffsetX = pos.x - rn.x;
+          rn.dragOffsetY = pos.y - rn.y;
+        });
+
+        // Move to front
+        this.nodes = this.nodes.filter((n) => n !== node);
+        this.nodes.push(node);
+      }
+
+      this.render();
+      return;
     }
+
+    // Start box selection if clicking on empty space
+    if (!isMultiSelect) {
+      this.clearSelection();
+    }
+    this.isBoxSelecting = true;
+    this.boxSelectStart = { x: pos.x, y: pos.y };
+    this.boxSelectEnd = { x: pos.x, y: pos.y };
+    this.render();
   }
 
   onMouseMove(e) {
@@ -1347,18 +1524,89 @@ class BlueprintSystem {
     // Update hovered port
     this.hoveredPort = this.findPortAtPosition(pos.x, pos.y);
 
-    // Drag reroute node
-    if (this.draggedRerouteNode) {
-      this.draggedRerouteNode.x = pos.x;
-      this.draggedRerouteNode.y = pos.y;
+    // Box selection
+    if (this.isBoxSelecting) {
+      this.boxSelectEnd = { x: pos.x, y: pos.y };
+
+      // Update selection based on box
+      const minX = Math.min(this.boxSelectStart.x, this.boxSelectEnd.x);
+      const maxX = Math.max(this.boxSelectStart.x, this.boxSelectEnd.x);
+      const minY = Math.min(this.boxSelectStart.y, this.boxSelectEnd.y);
+      const maxY = Math.max(this.boxSelectStart.y, this.boxSelectEnd.y);
+
+      // Select nodes within box
+      this.nodes.forEach((node) => {
+        const inBox =
+          node.x < maxX &&
+          node.x + node.width > minX &&
+          node.y < maxY &&
+          node.y + node.height > minY;
+
+        if (inBox && !node.isSelected) {
+          this.selectNode(node, true);
+        } else if (!inBox && node.isSelected && !this.selectedNodes.has(node)) {
+          // Only deselect if it wasn't previously selected before box selection
+          this.deselectNode(node);
+        }
+      });
+
+      // Select reroute nodes within box
+      this.wires.forEach((wire) => {
+        wire.rerouteNodes.forEach((rn) => {
+          const inBox =
+            rn.x >= minX && rn.x <= maxX && rn.y >= minY && rn.y <= maxY;
+
+          if (inBox && !rn.isSelected) {
+            this.selectRerouteNode(rn, true);
+          } else if (
+            !inBox &&
+            rn.isSelected &&
+            !this.selectedRerouteNodes.has(rn)
+          ) {
+            this.deselectRerouteNode(rn);
+          }
+        });
+      });
+
       this.render();
       return;
     }
 
-    // Drag node
+    // Drag reroute nodes (including all selected ones and nodes)
+    if (this.draggedRerouteNode) {
+      const deltaX = pos.x - this.draggedRerouteNode.x;
+      const deltaY = pos.y - this.draggedRerouteNode.y;
+
+      // Move all selected reroute nodes
+      this.selectedRerouteNodes.forEach((rn) => {
+        rn.x += deltaX;
+        rn.y += deltaY;
+      });
+
+      // Move all selected nodes
+      this.selectedNodes.forEach((node) => {
+        node.x = pos.x - node.dragOffsetX;
+        node.y = pos.y - node.dragOffsetY;
+      });
+
+      this.render();
+      return;
+    }
+
+    // Drag nodes (including all selected ones and reroute nodes)
     if (this.draggedNode) {
-      this.draggedNode.x = pos.x - this.draggedNode.dragOffsetX;
-      this.draggedNode.y = pos.y - this.draggedNode.dragOffsetY;
+      // Move all selected nodes together
+      this.selectedNodes.forEach((node) => {
+        node.x = pos.x - node.dragOffsetX;
+        node.y = pos.y - node.dragOffsetY;
+      });
+
+      // Move all selected reroute nodes
+      this.selectedRerouteNodes.forEach((rn) => {
+        rn.x = pos.x - rn.dragOffsetX;
+        rn.y = pos.y - rn.dragOffsetY;
+      });
+
       this.render();
       return;
     }
@@ -1499,6 +1747,13 @@ class BlueprintSystem {
       }
     }
 
+    // Stop box selection
+    if (this.isBoxSelecting) {
+      this.isBoxSelecting = false;
+      this.boxSelectStart = null;
+      this.boxSelectEnd = null;
+    }
+
     // Stop dragging reroute node
     if (this.draggedRerouteNode) {
       this.draggedRerouteNode.isDragging = false;
@@ -1589,8 +1844,14 @@ class BlueprintSystem {
 
     // Draw reroute nodes
     wire.rerouteNodes.forEach((rerouteNode) => {
-      ctx.fillStyle = rerouteNode.isDragging ? "#6ab0ff" : wireColor;
-      ctx.strokeStyle = "#2d2d2d";
+      ctx.fillStyle =
+        rerouteNode.isDragging || rerouteNode.isSelected
+          ? "#6ab0ff"
+          : wireColor;
+      ctx.strokeStyle =
+        rerouteNode.isDragging || rerouteNode.isSelected
+          ? "#6ab0ff"
+          : "#2d2d2d";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(rerouteNode.x, rerouteNode.y, rerouteNode.radius, 0, Math.PI * 2);
@@ -1718,9 +1979,10 @@ class BlueprintSystem {
       gradient.addColorStop(1, this.adjustBrightness(baseColor, -20));
 
       ctx.fillStyle = gradient;
-      ctx.strokeStyle = node.isDragging
-        ? "#ffffff"
-        : this.adjustBrightness(baseColor, -30);
+      ctx.strokeStyle =
+        node.isDragging || node.isSelected
+          ? "#6ab0ff"
+          : this.adjustBrightness(baseColor, -30);
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.roundRect(node.x, node.y, node.width, node.height, node.height / 2);
@@ -1759,7 +2021,8 @@ class BlueprintSystem {
       // Regular nodes
       // Node body
       ctx.fillStyle = "#2d2d2d";
-      ctx.strokeStyle = node.isDragging ? "#4a90e2" : "#4a4a4a";
+      ctx.strokeStyle =
+        node.isDragging || node.isSelected ? "#6ab0ff" : "#4a4a4a";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.roundRect(node.x, node.y, node.width, node.height, 8);
@@ -1831,6 +2094,23 @@ class BlueprintSystem {
 
     // Draw nodes
     this.nodes.forEach((node) => this.drawNode(node));
+
+    // Draw box selection
+    if (this.isBoxSelecting && this.boxSelectStart && this.boxSelectEnd) {
+      ctx.strokeStyle = "#4a90e2";
+      ctx.fillStyle = "rgba(74, 144, 226, 0.1)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+
+      const x = Math.min(this.boxSelectStart.x, this.boxSelectEnd.x);
+      const y = Math.min(this.boxSelectStart.y, this.boxSelectEnd.y);
+      const width = Math.abs(this.boxSelectEnd.x - this.boxSelectStart.x);
+      const height = Math.abs(this.boxSelectEnd.y - this.boxSelectStart.y);
+
+      ctx.fillRect(x, y, width, height);
+      ctx.strokeRect(x, y, width, height);
+      ctx.setLineDash([]);
+    }
   }
 }
 
@@ -1838,6 +2118,5 @@ class BlueprintSystem {
 const canvas = document.getElementById("canvas");
 const blueprint = new BlueprintSystem(canvas);
 
-// Add a couple of starter nodes
-blueprint.addNode(150, 150, NODE_TYPES.math);
-blueprint.addNode(450, 200, NODE_TYPES.vector);
+// Add default output node
+blueprint.addNode(600, 300, NODE_TYPES.output);
