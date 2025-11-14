@@ -1,4 +1,3 @@
 - allow copy/pasting/duplicating nodes
-- allow to define uniforms with default values
 - actually add all of the nodes
 - make number inputs draggable

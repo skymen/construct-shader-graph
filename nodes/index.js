@@ -11,12 +11,6 @@ import { TextureFrontNode } from "./TextureFrontNode.js";
 import { TextureBackNode } from "./TextureBackNode.js";
 import { TextureDepthNode } from "./TextureDepthNode.js";
 import { OutputNode } from "./OutputNode.js";
-import { FloatVariableNode } from "./FloatVariableNode.js";
-import { IntVariableNode } from "./IntVariableNode.js";
-import { BooleanVariableNode } from "./BooleanVariableNode.js";
-import { Vec2VariableNode } from "./Vec2VariableNode.js";
-import { VectorVariableNode } from "./VectorVariableNode.js";
-import { ColorVariableNode } from "./ColorVariableNode.js";
 
 // Import built-in parameter nodes
 import { BuiltinSrcStartNode } from "./BuiltinSrcStartNode.js";
@@ -44,12 +38,6 @@ export const NODE_TYPES = {
   textureBack: TextureBackNode,
   textureDepth: TextureDepthNode,
   output: OutputNode,
-  varFloat: FloatVariableNode,
-  varInt: IntVariableNode,
-  varBoolean: BooleanVariableNode,
-  varVec2: Vec2VariableNode,
-  varVector: VectorVariableNode,
-  varColor: ColorVariableNode,
 
   // Built-in parameters
   builtinSrcStart: BuiltinSrcStartNode,
