@@ -4,7 +4,7 @@ import { PORT_TYPES } from "./PortTypes.js";
 export const ColorVariableNode = new NodeType(
   "Color Variable",
   [],
-  [{ name: "Value", type: "color" }],
+  [{ name: "Value", type: "vec3" }],
   PORT_TYPES.color.color,
   {
     webgl1: {

@@ -2,7 +2,7 @@ import { NodeType } from "./NodeType.js";
 
 export const OutputNode = new NodeType(
   "Output",
-  [{ name: "Color", type: "color" }],
+  [{ name: "Color", type: "vec4" }],
   [],
   "#4a3a3a",
   {

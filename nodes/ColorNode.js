@@ -1,13 +1,13 @@
 import { NodeType } from "./NodeType.js";
 
 export const ColorNode = new NodeType(
-  "Color",
+  "Color (Vec3)",
   [
     { name: "R", type: "float" },
     { name: "G", type: "float" },
     { name: "B", type: "float" },
   ],
-  [{ name: "Color", type: "color" }],
+  [{ name: "Color", type: "vec3" }],
   "#3a3a4a",
   {
     webgl1: {

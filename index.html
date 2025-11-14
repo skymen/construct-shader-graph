@@ -14,6 +14,17 @@
         <button id="exportBtn">Export</button>
       </div>
       <div id="main-content">
+        <div id="uniform-sidebar">
+          <div id="uniform-sidebar-header">
+            <h2>Uniforms</h2>
+          </div>
+          <div id="uniform-sidebar-content">
+            <button id="addUniformBtn" class="add-uniform-btn">
+              + Add Uniform
+            </button>
+            <div id="uniform-list"></div>
+          </div>
+        </div>
         <div id="canvas-container">
           <canvas id="canvas"></canvas>
         </div>
@@ -32,6 +43,27 @@
     <div id="searchMenu" class="search-menu">
       <input type="text" id="searchInput" placeholder="Search nodes..." />
       <div id="searchResults" class="search-results"></div>
+    </div>
+    <div id="uniformModal" class="uniform-modal">
+      <div class="uniform-modal-content">
+        <h3>Add Uniform</h3>
+        <label>
+          Name:
+          <input type="text" id="uniformNameInput" placeholder="myUniform" />
+        </label>
+        <label>
+          Type:
+          <select id="uniformTypeSelect">
+            <option value="float">Float</option>
+            <option value="percent">Percent</option>
+            <option value="color">Color (Vec3)</option>
+          </select>
+        </label>
+        <div class="uniform-modal-buttons">
+          <button id="uniformModalCancel">Cancel</button>
+          <button id="uniformModalAdd">Add</button>
+        </div>
+      </div>
     </div>
     <script type="module" src="script.js"></script>
   </body>

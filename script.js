@@ -1,5 +1,7 @@
 // Blueprint Node System
 import { NODE_TYPES, PORT_TYPES, areTypesCompatible } from "./nodes/index.js";
+import { UniformFloatNode } from "./nodes/UniformFloatNode.js";
+import { UniformColorNode } from "./nodes/UniformColorNode.js";
 import JSZip from "jszip";
 
 // Import boilerplate files as raw text
@@ -323,9 +325,14 @@ class BlueprintSystem {
     this.panStart = { x: 0, y: 0 };
 
     this.setupCanvas();
+    // Uniforms
+    this.uniforms = [];
+    this.uniformIdCounter = 1;
+
     this.setupEventListeners();
     this.setupInputField();
     this.setupSearchMenu();
+    this.setupUniformSidebar();
     this.render();
   }
 
@@ -410,6 +417,243 @@ class BlueprintSystem {
     this.searchMenu.addEventListener("mousedown", (e) => {
       e.stopPropagation();
     });
+  }
+
+  setupUniformSidebar() {
+    this.uniformModal = document.getElementById("uniformModal");
+    this.uniformNameInput = document.getElementById("uniformNameInput");
+    this.uniformTypeSelect = document.getElementById("uniformTypeSelect");
+    this.uniformList = document.getElementById("uniform-list");
+
+    // Add uniform button
+    document.getElementById("addUniformBtn").addEventListener("click", () => {
+      this.showUniformModal();
+    });
+
+    // Modal buttons
+    document
+      .getElementById("uniformModalCancel")
+      .addEventListener("click", () => {
+        this.hideUniformModal();
+      });
+
+    document.getElementById("uniformModalAdd").addEventListener("click", () => {
+      this.addUniform();
+    });
+
+    // Close modal on outside click
+    this.uniformModal.addEventListener("mousedown", (e) => {
+      if (e.target === this.uniformModal) {
+        this.hideUniformModal();
+      }
+    });
+
+    // Enter key to add
+    this.uniformNameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        this.addUniform();
+      } else if (e.key === "Escape") {
+        this.hideUniformModal();
+      }
+    });
+  }
+
+  showUniformModal() {
+    this.uniformNameInput.value = "";
+    this.uniformTypeSelect.value = "float";
+    this.uniformModal.classList.add("visible");
+    setTimeout(() => this.uniformNameInput.focus(), 0);
+  }
+
+  hideUniformModal() {
+    this.uniformModal.classList.remove("visible");
+  }
+
+  addUniform() {
+    const name = this.uniformNameInput.value.trim();
+    const type = this.uniformTypeSelect.value;
+
+    if (!name) {
+      alert("Please enter a uniform name");
+      return;
+    }
+
+    // Check for duplicate names
+    if (this.uniforms.some((u) => u.name === name)) {
+      alert("A uniform with this name already exists");
+      return;
+    }
+
+    const uniform = {
+      id: this.uniformIdCounter++,
+      name: name,
+      type: type, // 'float', 'percent', or 'color'
+      value:
+        type === "color"
+          ? { r: 1, g: 1, b: 1 }
+          : type === "percent"
+          ? 0.5
+          : 0.0,
+    };
+
+    this.uniforms.push(uniform);
+    this.hideUniformModal();
+    this.renderUniformList();
+  }
+
+  deleteUniform(id) {
+    this.uniforms = this.uniforms.filter((u) => u.id !== id);
+    this.renderUniformList();
+  }
+
+  updateUniformValue(id, value) {
+    const uniform = this.uniforms.find((u) => u.id === id);
+    if (uniform) {
+      uniform.value = value;
+    }
+  }
+
+  renderUniformList() {
+    this.uniformList.innerHTML = "";
+
+    this.uniforms.forEach((uniform) => {
+      const item = document.createElement("div");
+      item.className = "uniform-item";
+
+      const header = document.createElement("div");
+      header.className = "uniform-item-header";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "uniform-item-name";
+      nameSpan.textContent = uniform.name;
+
+      const typeSpan = document.createElement("span");
+      typeSpan.className = "uniform-item-type";
+      typeSpan.textContent =
+        uniform.type === "percent"
+          ? "Percent (Float)"
+          : uniform.type === "color"
+          ? "Color (Vec3)"
+          : "Float";
+
+      const controls = document.createElement("div");
+      controls.className = "uniform-item-controls";
+
+      const createNodeBtn = document.createElement("button");
+      createNodeBtn.className = "uniform-delete-btn";
+      createNodeBtn.style.background = "#4a90e2";
+      createNodeBtn.textContent = "Create Node";
+      createNodeBtn.addEventListener("click", () =>
+        this.createUniformNode(uniform)
+      );
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "uniform-delete-btn";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.addEventListener("click", () => this.deleteUniform(uniform.id));
+
+      controls.appendChild(createNodeBtn);
+      controls.appendChild(deleteBtn);
+      header.appendChild(nameSpan);
+      header.appendChild(typeSpan);
+      header.appendChild(controls);
+
+      item.appendChild(header);
+
+      // Value control
+      const valueControl = document.createElement("div");
+      valueControl.className = "uniform-value-control";
+
+      if (uniform.type === "float") {
+        const input = document.createElement("input");
+        input.type = "number";
+        input.step = "0.01";
+        input.value = uniform.value;
+        input.addEventListener("input", (e) => {
+          this.updateUniformValue(uniform.id, parseFloat(e.target.value) || 0);
+        });
+        valueControl.appendChild(input);
+      } else if (uniform.type === "percent") {
+        const percentDisplay = document.createElement("div");
+        percentDisplay.className = "uniform-percent-display";
+
+        const slider = document.createElement("input");
+        slider.type = "range";
+        slider.min = "0";
+        slider.max = "1";
+        slider.step = "0.01";
+        slider.value = uniform.value;
+
+        const percentText = document.createElement("span");
+        percentText.textContent = `${Math.round(uniform.value * 100)}%`;
+
+        slider.addEventListener("input", (e) => {
+          const val = parseFloat(e.target.value);
+          this.updateUniformValue(uniform.id, val);
+          percentText.textContent = `${Math.round(val * 100)}%`;
+        });
+
+        percentDisplay.appendChild(slider);
+        percentDisplay.appendChild(percentText);
+        valueControl.appendChild(percentDisplay);
+      } else if (uniform.type === "color") {
+        const colorInput = document.createElement("input");
+        colorInput.type = "color";
+        const rgbToHex = (r, g, b) => {
+          const toHex = (n) =>
+            Math.round(n * 255)
+              .toString(16)
+              .padStart(2, "0");
+          return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+        };
+        colorInput.value = rgbToHex(
+          uniform.value.r,
+          uniform.value.g,
+          uniform.value.b
+        );
+
+        colorInput.addEventListener("input", (e) => {
+          const hex = e.target.value;
+          const r = parseInt(hex.substr(1, 2), 16) / 255;
+          const g = parseInt(hex.substr(3, 2), 16) / 255;
+          const b = parseInt(hex.substr(5, 2), 16) / 255;
+          this.updateUniformValue(uniform.id, { r, g, b });
+        });
+        valueControl.appendChild(colorInput);
+      }
+
+      item.appendChild(valueControl);
+      this.uniformList.appendChild(item);
+    });
+  }
+
+  createUniformNode(uniform) {
+    // Determine node type based on uniform type
+    let nodeType;
+    if (uniform.type === "color") {
+      nodeType = UniformColorNode;
+    } else {
+      // Both 'float' and 'percent' use UniformFloatNode
+      nodeType = UniformFloatNode;
+    }
+
+    // Create node at center of viewport
+    const centerX = (-this.camera.x + this.canvas.width / 2) / this.camera.zoom;
+    const centerY =
+      (-this.camera.y + this.canvas.height / 2) / this.camera.zoom;
+
+    const node = new Node(centerX, centerY, this.nodeIdCounter++, nodeType);
+    node.uniformName = uniform.name;
+    node.uniformId = uniform.id;
+
+    // Update node title to show uniform name
+    node.nodeType = {
+      ...nodeType,
+      name: `Uniform: ${uniform.name}`,
+    };
+
+    this.nodes.push(node);
+    this.render();
   }
 
   startEditingPort(port) {
@@ -1114,6 +1358,40 @@ class BlueprintSystem {
     return boilerplates[target] || "";
   }
 
+  generateUniformDeclarations(target) {
+    if (this.uniforms.length === 0) return "";
+
+    let declarations = "\n// Uniforms\n";
+
+    if (target === "webgpu") {
+      // WebGPU uses a uniform block
+      declarations += "struct Uniforms {\n";
+      this.uniforms.forEach((uniform) => {
+        if (uniform.type === "color") {
+          declarations += `  ${uniform.name}: vec3<f32>,\n`;
+        } else {
+          // float and percent are both float
+          declarations += `  ${uniform.name}: f32,\n`;
+        }
+      });
+      declarations += "}\n";
+      declarations +=
+        "@group(0) @binding(0) var<uniform> uniforms: Uniforms;\n\n";
+    } else {
+      // WebGL 1 and 2 use individual uniform declarations
+      this.uniforms.forEach((uniform) => {
+        if (uniform.type === "color") {
+          declarations += `uniform vec3 ${uniform.name};\n`;
+        } else {
+          declarations += `uniform float ${uniform.name};\n`;
+        }
+      });
+      declarations += "\n";
+    }
+
+    return declarations;
+  }
+
   generateShader(target, levels, portToVarName) {
     let shader = "";
 
@@ -1199,8 +1477,9 @@ class BlueprintSystem {
 
     for (const target of targets) {
       const boilerplate = this.getBoilerplate(target);
+      const uniformDeclarations = this.generateUniformDeclarations(target);
       const shaderCode = this.generateShader(target, levels, portToVarName);
-      const fullShader = boilerplate + shaderCode;
+      const fullShader = boilerplate + uniformDeclarations + shaderCode;
 
       const extension = target === "webgpu" ? "wgsl" : "frag";
       const filename = `shader-${target}.${extension}`;
