@@ -6,24 +6,26 @@ export { PORT_TYPES } from "./PortTypes.js";
 import { MathNode } from "./MathNode.js";
 import { VectorNode } from "./VectorNode.js";
 import { ColorNode } from "./ColorNode.js";
-import { TextureNode } from "./TextureNode.js";
+import { TextureFrontNode } from "./TextureFrontNode.js";
+import { TextureBackNode } from "./TextureBackNode.js";
+import { TextureDepthNode } from "./TextureDepthNode.js";
 import { OutputNode } from "./OutputNode.js";
 import { FloatVariableNode } from "./FloatVariableNode.js";
 import { IntVariableNode } from "./IntVariableNode.js";
 import { VectorVariableNode } from "./VectorVariableNode.js";
 import { ColorVariableNode } from "./ColorVariableNode.js";
-import { TextureVariableNode } from "./TextureVariableNode.js";
 
 // Export NODE_TYPES object
 export const NODE_TYPES = {
   math: MathNode,
   vector: VectorNode,
   color: ColorNode,
-  texture: TextureNode,
+  textureFront: TextureFrontNode,
+  textureBack: TextureBackNode,
+  textureDepth: TextureDepthNode,
   output: OutputNode,
   varFloat: FloatVariableNode,
   varInt: IntVariableNode,
   varVector: VectorVariableNode,
   varColor: ColorVariableNode,
-  varTexture: TextureVariableNode,
 };

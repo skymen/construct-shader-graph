@@ -1,0 +1,6 @@
+- multi selection should use shift instead
+- allow copy/pasting/duplicating nodes
+- allow to define uniforms with default values
+- actually add all of the nodes
+- add more default value for more types (vector, color)
+- make number inputs draggable

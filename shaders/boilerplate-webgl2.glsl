@@ -1,11 +1,31 @@
 #version 300 es
-precision mediump float;
 
-// Generated shader from Blueprint System
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+#define highmedp highp
+#else
+#define highmedp mediump
+#endif
 
-in vec2 vUV;
-out vec4 fragColor;
+precision lowp float;
 
-// Uniforms (add as needed)
-uniform sampler2D uTexture;
+uniform lowp sampler2D samplerFront;
+uniform mediump vec2 srcStart;
+uniform mediump vec2 srcEnd;
+uniform mediump vec2 srcOriginStart;
+uniform mediump vec2 srcOriginEnd;
+uniform mediump vec2 layoutStart;
+uniform mediump vec2 layoutEnd;
+uniform lowp sampler2D samplerBack;
+uniform lowp sampler2D samplerDepth;
+uniform mediump vec2 destStart;
+uniform mediump vec2 destEnd;
+uniform highmedp float seconds;
+uniform mediump vec2 pixelSize;
+uniform mediump float layerScale;
+uniform mediump float layerAngle;
+uniform mediump float devicePixelRatio;
+uniform mediump float zNear;
+uniform mediump float zFar;
 
+in mediump vec2 vTex;
+out lowp vec4 outColor;

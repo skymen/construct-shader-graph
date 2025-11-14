@@ -1130,6 +1130,10 @@ class BlueprintSystem {
 
     if (!isWebGPU) {
       shader += "\nvoid main() {\n";
+    } else {
+      shader += "\n@fragment\n";
+      shader += "fn main(input : FragmentInput) -> FragmentOutput {\n";
+      shader += "    var output : FragmentOutput;\n";
     }
 
     for (const level of levels) {
