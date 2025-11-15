@@ -865,6 +865,10 @@ class BlueprintSystem {
         dragFromHandle = false;
       });
 
+      // Name and info container
+      const nameContainer = document.createElement("div");
+      nameContainer.className = "uniform-name-container";
+
       // Editable name input
       const nameInput = document.createElement("input");
       nameInput.type = "text";
@@ -900,25 +904,49 @@ class BlueprintSystem {
       });
       nameInput.addEventListener("click", (e) => e.stopPropagation());
 
+      // Info line (variable name + type)
+      const infoLine = document.createElement("div");
+      infoLine.className = "uniform-info-line";
+
       // Show variable name if different from display name
-      const variableNameHint = document.createElement("small");
-      variableNameHint.className = "uniform-variable-name";
-      variableNameHint.style.color = "#888";
-      variableNameHint.style.fontSize = "11px";
-      variableNameHint.style.marginLeft = "8px";
       if (uniform.variableName !== uniform.name) {
-        variableNameHint.textContent = `(${uniform.variableName})`;
+        const variableNameHint = document.createElement("small");
+        variableNameHint.className = "uniform-variable-name";
+        variableNameHint.textContent = `${uniform.variableName}`;
         variableNameHint.title = "Variable name used in shader code";
+        infoLine.appendChild(variableNameHint);
+
+        const separator = document.createElement("span");
+        separator.textContent = " • ";
+        separator.style.color = "#666";
+        infoLine.appendChild(separator);
       }
 
       const typeSpan = document.createElement("span");
-      typeSpan.className = "uniform-item-type";
+      typeSpan.className = "uniform-item-type-inline";
       typeSpan.textContent = uniform.type === "color" ? "Color" : "Float";
+      infoLine.appendChild(typeSpan);
 
-      // Show description as tooltip if it exists
-      if (uniform.description) {
-        typeSpan.title = uniform.description;
-      }
+      // Description (editable)
+      const descSeparator = document.createElement("span");
+      descSeparator.textContent = " • ";
+      descSeparator.style.color = "#666";
+      infoLine.appendChild(descSeparator);
+
+      const descInput = document.createElement("input");
+      descInput.type = "text";
+      descInput.className = "uniform-description-input";
+      descInput.value = uniform.description ?? "";
+      descInput.placeholder = "Add description...";
+      descInput.addEventListener("change", (e) => {
+        uniform.description = e.target.value.trim();
+      });
+      descInput.addEventListener("click", (e) => e.stopPropagation());
+      descInput.addEventListener("mousedown", (e) => e.stopPropagation());
+      infoLine.appendChild(descInput);
+
+      nameContainer.appendChild(nameInput);
+      nameContainer.appendChild(infoLine);
 
       const controls = document.createElement("div");
       controls.className = "uniform-item-controls";
@@ -931,9 +959,7 @@ class BlueprintSystem {
 
       controls.appendChild(deleteBtn);
       header.appendChild(dragHandle);
-      header.appendChild(nameInput);
-      header.appendChild(variableNameHint);
-      header.appendChild(typeSpan);
+      header.appendChild(nameContainer);
       header.appendChild(controls);
 
       item.appendChild(header);
@@ -943,38 +969,42 @@ class BlueprintSystem {
       valueControl.className = "uniform-value-control";
 
       if (uniform.type === "float") {
-        // Number input (always shown)
+        const floatContainer = document.createElement("div");
+        floatContainer.className = "uniform-float-compact";
+
+        // Number input and percent checkbox on same line
+        const inputRow = document.createElement("div");
+        inputRow.className = "uniform-input-row";
+
         const numberInput = document.createElement("input");
         numberInput.type = "number";
         numberInput.step = "0.01";
         numberInput.value = uniform.value;
-        numberInput.style.width = "100%";
-        numberInput.style.marginBottom = "8px";
+        numberInput.className = "uniform-number-input-compact";
 
         numberInput.addEventListener("input", (e) => {
           const val = parseFloat(e.target.value) || 0;
           this.updateUniformValue(uniform.id, val);
           if (uniform.isPercent && slider) {
             slider.value = Math.min(1, Math.max(0, val));
+            percentText.textContent = `${Math.round(val * 100)}%`;
           }
         });
 
         numberInput.addEventListener("mousedown", (e) => e.stopPropagation());
         numberInput.addEventListener("click", (e) => e.stopPropagation());
 
-        valueControl.appendChild(numberInput);
-
-        // Is Percent checkbox
+        // Is Percent checkbox (compact)
         const percentCheckbox = document.createElement("label");
-        percentCheckbox.className = "checkbox-label";
-        percentCheckbox.style.marginBottom = "8px";
+        percentCheckbox.className = "checkbox-label-compact";
 
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.checked = uniform.isPercent || false;
 
         const checkboxLabel = document.createElement("span");
-        checkboxLabel.textContent = "Is Percent";
+        checkboxLabel.textContent = "%";
+        checkboxLabel.title = "Is Percent";
 
         checkbox.addEventListener("change", (e) => {
           uniform.isPercent = checkbox.checked;
@@ -988,11 +1018,14 @@ class BlueprintSystem {
 
         percentCheckbox.appendChild(checkbox);
         percentCheckbox.appendChild(checkboxLabel);
-        valueControl.appendChild(percentCheckbox);
+
+        inputRow.appendChild(numberInput);
+        inputRow.appendChild(percentCheckbox);
+        floatContainer.appendChild(inputRow);
 
         // Percent slider (shown only if isPercent is true)
         const percentSliderContainer = document.createElement("div");
-        percentSliderContainer.className = "uniform-percent-display";
+        percentSliderContainer.className = "uniform-percent-display-compact";
         percentSliderContainer.style.display = uniform.isPercent
           ? "flex"
           : "none";
@@ -1006,6 +1039,7 @@ class BlueprintSystem {
 
         const percentText = document.createElement("span");
         percentText.textContent = `${Math.round(uniform.value * 100)}%`;
+        percentText.className = "percent-text-compact";
 
         slider.addEventListener("input", (e) => {
           const val = parseFloat(e.target.value);
@@ -1019,7 +1053,9 @@ class BlueprintSystem {
 
         percentSliderContainer.appendChild(slider);
         percentSliderContainer.appendChild(percentText);
-        valueControl.appendChild(percentSliderContainer);
+        floatContainer.appendChild(percentSliderContainer);
+
+        valueControl.appendChild(floatContainer);
       } else if (uniform.type === "color") {
         const colorInput = document.createElement("input");
         colorInput.type = "color";
