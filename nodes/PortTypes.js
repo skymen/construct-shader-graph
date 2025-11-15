@@ -12,9 +12,24 @@ export const PORT_TYPES = {
   },
 
   // Vector types
-  vec2: { color: "#e2a44a", name: "Vec2", editable: false },
-  vec3: { color: "#e2844a", name: "Vec3", editable: false },
-  vec4: { color: "#e24a6a", name: "Vec4", editable: false },
+  vec2: {
+    color: "#e2a44a",
+    name: "Vec2",
+    editable: true,
+    defaultValue: [0.0, 0.0],
+  },
+  vec3: {
+    color: "#e2844a",
+    name: "Vec3",
+    editable: true,
+    defaultValue: [1.0, 1.0, 1.0],
+  },
+  vec4: {
+    color: "#e24a6a",
+    name: "Vec4",
+    editable: true,
+    defaultValue: [1.0, 1.0, 1.0, 1.0],
+  },
 
   // Special types
   texture: { color: "#90e24a", name: "Texture", editable: false },
@@ -25,7 +40,7 @@ export const PORT_TYPES = {
     name: "Vector",
     editable: false,
     isComposite: true,
-    includes: ["vec2", "vec3", "vec4", "color"], // color is vec3
+    includes: ["vec2", "vec3", "vec4"],
   },
   any: {
     color: "#888888",

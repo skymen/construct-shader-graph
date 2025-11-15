@@ -58,8 +58,22 @@ class Port {
   getValueBoxBounds(ctx) {
     if (!this.isEditable || this.type !== "input") return null;
     const pos = this.getPosition();
-    const width = 50;
-    const height = 20;
+    const resolvedType = this.getResolvedType();
+
+    // Determine width and height based on type
+    let width = 50;
+    let height = 20;
+
+    if (resolvedType === "vec2") {
+      width = 130; // Two number inputs side by side
+      height = 24;
+    } else if (resolvedType === "vec3") {
+      width = 50; // Color swatch
+      height = 20;
+    } else if (resolvedType === "vec4") {
+      width = 50; // Color swatch with alpha
+      height = 20;
+    }
 
     // Measure the actual label width
     let labelWidth = 30; // Default fallback
@@ -130,6 +144,28 @@ class Port {
       outputResolvedType !== outputPort.portType ? outputResolvedType : null,
       inputResolvedType !== inputPort.portType ? inputResolvedType : null
     );
+  }
+
+  // Update editability based on resolved type (for generic types)
+  updateEditability() {
+    if (this.type !== "input") return;
+
+    const resolvedType = this.getResolvedType();
+    const portTypeInfo = PORT_TYPES[resolvedType];
+
+    // If the resolved type is editable and we don't have connections, make it editable
+    if (portTypeInfo?.editable && this.connections.length === 0) {
+      if (!this.isEditable) {
+        this.isEditable = true;
+        // Initialize value if not already set
+        if (this.value === undefined) {
+          this.value = portTypeInfo.defaultValue;
+        }
+      }
+    } else if (this.connections.length > 0) {
+      // If we have connections, we're not editable
+      this.isEditable = false;
+    }
   }
 }
 
@@ -482,6 +518,129 @@ class BlueprintSystem {
     // Prevent input from interfering with canvas events
     this.inputField.addEventListener("mousedown", (e) => {
       e.stopPropagation();
+    });
+
+    // Create vec2 editor (two number inputs side by side)
+    this.vec2Editor = document.createElement("div");
+    this.vec2Editor.id = "vec2Editor";
+    this.vec2Editor.style.position = "fixed";
+    this.vec2Editor.style.display = "none";
+    this.vec2Editor.style.background = "#1a1a1a";
+    this.vec2Editor.style.border = "1px solid #4a4a4a";
+    this.vec2Editor.style.borderRadius = "3px";
+    this.vec2Editor.style.padding = "4px";
+    this.vec2Editor.style.gap = "4px";
+    this.vec2Editor.style.flexDirection = "row";
+    this.vec2Editor.style.alignItems = "center";
+    this.vec2Editor.innerHTML = `
+      <input type="number" id="vec2X" step="0.01" style="width: 60px; background: #2a2a2a; border: 1px solid #3a3a3a; color: white; padding: 2px 4px; border-radius: 2px;">
+      <input type="number" id="vec2Y" step="0.01" style="width: 60px; background: #2a2a2a; border: 1px solid #3a3a3a; color: white; padding: 2px 4px; border-radius: 2px;">
+    `;
+    document.body.appendChild(this.vec2Editor);
+
+    this.vec2Editor.addEventListener("mousedown", (e) => e.stopPropagation());
+    this.vec2Editor.addEventListener(
+      "blur",
+      (e) => {
+        if (!this.vec2Editor.contains(e.relatedTarget)) {
+          this.finishEditingPort();
+        }
+      },
+      true
+    );
+
+    // Add keydown listeners for vec2 inputs
+    const setupVec2Listeners = () => {
+      const vec2X = document.getElementById("vec2X");
+      const vec2Y = document.getElementById("vec2Y");
+
+      const handleVec2Keydown = (e) => {
+        if (e.key === "Enter") {
+          this.finishEditingPort();
+        } else if (e.key === "Escape") {
+          this.cancelEditingPort();
+        }
+      };
+
+      vec2X.addEventListener("keydown", handleVec2Keydown);
+      vec2Y.addEventListener("keydown", handleVec2Keydown);
+    };
+    setupVec2Listeners();
+
+    // Create vec3 editor (color picker)
+    this.vec3Editor = document.createElement("div");
+    this.vec3Editor.id = "vec3Editor";
+    this.vec3Editor.style.position = "fixed";
+    this.vec3Editor.style.display = "none";
+    this.vec3Editor.innerHTML = `
+      <input type="color" id="vec3Color" style="width: 100px; height: 30px; border: 1px solid #4a4a4a; border-radius: 3px; cursor: pointer;">
+    `;
+    document.body.appendChild(this.vec3Editor);
+
+    this.vec3Editor.addEventListener("mousedown", (e) => e.stopPropagation());
+    this.vec3Editor.addEventListener(
+      "blur",
+      (e) => {
+        if (!this.vec3Editor.contains(e.relatedTarget)) {
+          this.finishEditingPort();
+        }
+      },
+      true
+    );
+
+    // Add change listener for vec3 color picker
+    const vec3Color = document.getElementById("vec3Color");
+    vec3Color.addEventListener("change", () => {
+      this.finishEditingPort();
+    });
+
+    // Create vec4 editor (color picker with alpha)
+    this.vec4Editor = document.createElement("div");
+    this.vec4Editor.id = "vec4Editor";
+    this.vec4Editor.style.position = "fixed";
+    this.vec4Editor.style.display = "none";
+    this.vec4Editor.style.background = "#1a1a1a";
+    this.vec4Editor.style.border = "1px solid #4a4a4a";
+    this.vec4Editor.style.borderRadius = "3px";
+    this.vec4Editor.style.padding = "4px";
+    this.vec4Editor.style.gap = "4px";
+    this.vec4Editor.style.flexDirection = "column";
+    this.vec4Editor.innerHTML = `
+      <input type="color" id="vec4Color" style="width: 100px; height: 30px; border: 1px solid #3a3a3a; border-radius: 3px; cursor: pointer;">
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <label style="color: white; font-size: 11px;">Alpha:</label>
+        <input type="range" id="vec4Alpha" min="0" max="1" step="0.01" value="1" style="flex: 1;">
+        <span id="vec4AlphaValue" style="color: white; font-size: 11px; min-width: 30px;">1.00</span>
+      </div>
+    `;
+    document.body.appendChild(this.vec4Editor);
+
+    this.vec4Editor.addEventListener("mousedown", (e) => e.stopPropagation());
+    this.vec4Editor.addEventListener(
+      "blur",
+      (e) => {
+        if (!this.vec4Editor.contains(e.relatedTarget)) {
+          this.finishEditingPort();
+        }
+      },
+      true
+    );
+
+    // Update alpha value display and add change listener for vec4
+    const alphaSlider = document.getElementById("vec4Alpha");
+    const alphaValue = document.getElementById("vec4AlphaValue");
+    const vec4Color = document.getElementById("vec4Color");
+
+    alphaSlider.addEventListener("input", () => {
+      alphaValue.textContent = parseFloat(alphaSlider.value).toFixed(2);
+    });
+
+    vec4Color.addEventListener("change", () => {
+      this.finishEditingPort();
+    });
+
+    alphaSlider.addEventListener("change", () => {
+      this.finishEditingPort();
     });
   }
 
@@ -1911,8 +2070,10 @@ class BlueprintSystem {
   startEditingPort(port) {
     if (!port.isEditable || port.connections.length > 0) return;
 
+    const resolvedType = port.getResolvedType();
+
     // For boolean types, just toggle the value directly
-    if (port.portType === "boolean") {
+    if (resolvedType === "boolean") {
       port.value = !port.value;
       this.render();
       this.onShaderChanged();
@@ -1929,36 +2090,111 @@ class BlueprintSystem {
     const screenWidth = bounds.width * this.camera.zoom;
     const screenHeight = bounds.height * this.camera.zoom;
 
-    this.inputField.value = port.value.toString();
-    this.inputField.style.left = `${rect.left + window.scrollX + screenX}px`;
-    this.inputField.style.top = `${rect.top + window.scrollY + screenY}px`;
-    this.inputField.style.width = `${screenWidth}px`;
-    this.inputField.style.height = `${screenHeight}px`;
-    this.inputField.style.display = "block";
-    this.inputField.style.visibility = "visible";
-    this.inputField.style.opacity = "1";
-    this.inputField.style.pointerEvents = "auto";
+    // Handle different editor types based on resolved type
+    if (resolvedType === "vec2") {
+      this.vec2Editor.style.left = `${rect.left + window.scrollX + screenX}px`;
+      this.vec2Editor.style.top = `${rect.top + window.scrollY + screenY}px`;
+      this.vec2Editor.style.display = "flex";
 
-    // Use setTimeout to ensure the input is rendered before focusing
-    setTimeout(() => {
-      this.inputField.focus();
-      this.inputField.select();
-    }, 0);
+      const vec2X = document.getElementById("vec2X");
+      const vec2Y = document.getElementById("vec2Y");
+      vec2X.value = port.value[0];
+      vec2Y.value = port.value[1];
+
+      setTimeout(() => vec2X.focus(), 0);
+    } else if (resolvedType === "vec3") {
+      this.vec3Editor.style.left = `${rect.left + window.scrollX + screenX}px`;
+      this.vec3Editor.style.top = `${rect.top + window.scrollY + screenY}px`;
+      this.vec3Editor.style.display = "block";
+
+      const vec3Color = document.getElementById("vec3Color");
+      const r = Math.round(port.value[0] * 255);
+      const g = Math.round(port.value[1] * 255);
+      const b = Math.round(port.value[2] * 255);
+      vec3Color.value = `#${r.toString(16).padStart(2, "0")}${g
+        .toString(16)
+        .padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+
+      setTimeout(() => vec3Color.click(), 0);
+    } else if (resolvedType === "vec4") {
+      this.vec4Editor.style.left = `${rect.left + window.scrollX + screenX}px`;
+      this.vec4Editor.style.top = `${rect.top + window.scrollY + screenY}px`;
+      this.vec4Editor.style.display = "flex";
+
+      const vec4Color = document.getElementById("vec4Color");
+      const vec4Alpha = document.getElementById("vec4Alpha");
+      const vec4AlphaValue = document.getElementById("vec4AlphaValue");
+
+      const r = Math.round(port.value[0] * 255);
+      const g = Math.round(port.value[1] * 255);
+      const b = Math.round(port.value[2] * 255);
+      vec4Color.value = `#${r.toString(16).padStart(2, "0")}${g
+        .toString(16)
+        .padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+      vec4Alpha.value = port.value[3];
+      vec4AlphaValue.textContent = port.value[3].toFixed(2);
+
+      setTimeout(() => vec4Color.click(), 0);
+    } else {
+      // Default text input for float, int
+      this.inputField.value = port.value.toString();
+      this.inputField.style.left = `${rect.left + window.scrollX + screenX}px`;
+      this.inputField.style.top = `${rect.top + window.scrollY + screenY}px`;
+      this.inputField.style.width = `${screenWidth}px`;
+      this.inputField.style.height = `${screenHeight}px`;
+      this.inputField.style.display = "block";
+      this.inputField.style.visibility = "visible";
+      this.inputField.style.opacity = "1";
+      this.inputField.style.pointerEvents = "auto";
+
+      setTimeout(() => {
+        this.inputField.focus();
+        this.inputField.select();
+      }, 0);
+    }
   }
 
   finishEditingPort() {
     if (!this.editingPort) return;
 
-    const value = this.inputField.value;
-    if (this.editingPort.portType === "int") {
-      const intValue = parseInt(value);
-      if (!isNaN(intValue)) {
-        this.editingPort.value = intValue;
+    const resolvedType = this.editingPort.getResolvedType();
+
+    if (resolvedType === "vec2") {
+      const vec2X = document.getElementById("vec2X");
+      const vec2Y = document.getElementById("vec2Y");
+      const x = parseFloat(vec2X.value);
+      const y = parseFloat(vec2Y.value);
+      if (!isNaN(x) && !isNaN(y)) {
+        this.editingPort.value = [x, y];
       }
-    } else if (this.editingPort.portType === "float") {
-      const floatValue = parseFloat(value);
-      if (!isNaN(floatValue)) {
-        this.editingPort.value = floatValue;
+    } else if (resolvedType === "vec3") {
+      const vec3Color = document.getElementById("vec3Color");
+      const hex = vec3Color.value;
+      const r = parseInt(hex.substr(1, 2), 16) / 255;
+      const g = parseInt(hex.substr(3, 2), 16) / 255;
+      const b = parseInt(hex.substr(5, 2), 16) / 255;
+      this.editingPort.value = [r, g, b];
+    } else if (resolvedType === "vec4") {
+      const vec4Color = document.getElementById("vec4Color");
+      const vec4Alpha = document.getElementById("vec4Alpha");
+      const hex = vec4Color.value;
+      const r = parseInt(hex.substr(1, 2), 16) / 255;
+      const g = parseInt(hex.substr(3, 2), 16) / 255;
+      const b = parseInt(hex.substr(5, 2), 16) / 255;
+      const a = parseFloat(vec4Alpha.value);
+      this.editingPort.value = [r, g, b, a];
+    } else {
+      const value = this.inputField.value;
+      if (resolvedType === "int") {
+        const intValue = parseInt(value);
+        if (!isNaN(intValue)) {
+          this.editingPort.value = intValue;
+        }
+      } else if (resolvedType === "float") {
+        const floatValue = parseFloat(value);
+        if (!isNaN(floatValue)) {
+          this.editingPort.value = floatValue;
+        }
       }
     }
 
@@ -1976,6 +2212,9 @@ class BlueprintSystem {
     this.inputField.style.visibility = "hidden";
     this.inputField.style.opacity = "0";
     this.inputField.style.pointerEvents = "none";
+    this.vec2Editor.style.display = "none";
+    this.vec3Editor.style.display = "none";
+    this.vec4Editor.style.display = "none";
     this.editingPort = null;
   }
 
@@ -3537,6 +3776,9 @@ class BlueprintSystem {
           wire.startPort.portType
         );
       }
+
+      // Update editability after disconnection
+      wire.startPort.updateEditability();
     }
     if (wire.endPort) {
       const index = wire.endPort.connections.indexOf(wire);
@@ -3546,6 +3788,9 @@ class BlueprintSystem {
       if (isGenericType(wire.endPort.portType)) {
         this.reevaluateGenericType(wire.endPort.node, wire.endPort.portType);
       }
+
+      // Update editability after disconnection
+      wire.endPort.updateEditability();
     }
     // Remove from wires array
     const wireIndex = this.wires.indexOf(wire);
@@ -3697,6 +3942,9 @@ class BlueprintSystem {
           concreteTypeForOutput
         );
       }
+
+      // Update editability after connection
+      outputPort.updateEditability();
     }
 
     // Update input node's generics with the concrete type
@@ -3714,6 +3962,9 @@ class BlueprintSystem {
           concreteTypeForInput
         );
       }
+
+      // Update editability after connection
+      inputPort.updateEditability();
     }
   }
 
@@ -3725,6 +3976,9 @@ class BlueprintSystem {
 
     // For each generic port, propagate to connected nodes
     genericPorts.forEach((port) => {
+      // Update editability for this port
+      port.updateEditability();
+
       port.connections.forEach((wire) => {
         const connectedPort =
           wire.startPort === port ? wire.endPort : wire.startPort;
@@ -4382,29 +4636,86 @@ class BlueprintSystem {
         this.editingPort !== port
       ) {
         const bounds = port.getValueBoxBounds(ctx);
-        const valueStr =
-          port.portType === "float"
-            ? port.value.toFixed(2)
-            : port.value.toString();
+        const resolvedType = port.getResolvedType();
+        let valueStr;
 
-        // Draw value box background
-        ctx.fillStyle = "#1a1a1a";
-        ctx.strokeStyle = "#4a4a4a";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 3);
-        ctx.fill();
-        ctx.stroke();
+        if (resolvedType === "float") {
+          valueStr = port.value.toFixed(2);
+        } else if (resolvedType === "vec2") {
+          valueStr = `${port.value[0].toFixed(2)}, ${port.value[1].toFixed(2)}`;
+        } else if (resolvedType === "vec3") {
+          // Show as color swatch
+          const r = Math.round(port.value[0] * 255);
+          const g = Math.round(port.value[1] * 255);
+          const b = Math.round(port.value[2] * 255);
 
-        // Draw value text
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "11px monospace";
-        ctx.textAlign = "center";
-        ctx.fillText(
-          valueStr,
-          bounds.x + bounds.width / 2,
-          bounds.y + bounds.height / 2 + 4
-        );
+          // Draw color swatch
+          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+          ctx.strokeStyle = "#4a4a4a";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 3);
+          ctx.fill();
+          ctx.stroke();
+
+          // Skip text rendering for vec3
+          valueStr = null;
+        } else if (resolvedType === "vec4") {
+          // Show as color swatch with alpha
+          const r = Math.round(port.value[0] * 255);
+          const g = Math.round(port.value[1] * 255);
+          const b = Math.round(port.value[2] * 255);
+          const a = port.value[3];
+
+          // Draw checkerboard pattern for transparency
+          const checkSize = 4;
+          for (let x = 0; x < bounds.width; x += checkSize) {
+            for (let y = 0; y < bounds.height; y += checkSize) {
+              const isEven =
+                (Math.floor(x / checkSize) + Math.floor(y / checkSize)) % 2 ===
+                0;
+              ctx.fillStyle = isEven ? "#888" : "#666";
+              ctx.fillRect(bounds.x + x, bounds.y + y, checkSize, checkSize);
+            }
+          }
+
+          // Draw color with alpha
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+          ctx.beginPath();
+          ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 3);
+          ctx.fill();
+
+          // Draw border
+          ctx.strokeStyle = "#4a4a4a";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          // Skip text rendering for vec4
+          valueStr = null;
+        } else {
+          valueStr = port.value.toString();
+        }
+
+        // Draw value box background and text for non-color types
+        if (valueStr !== null) {
+          ctx.fillStyle = "#1a1a1a";
+          ctx.strokeStyle = "#4a4a4a";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 3);
+          ctx.fill();
+          ctx.stroke();
+
+          // Draw value text
+          ctx.fillStyle = "#ffffff";
+          ctx.font = "11px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            valueStr,
+            bounds.x + bounds.width / 2,
+            bounds.y + bounds.height / 2 + 4
+          );
+        }
       }
     } else {
       ctx.textAlign = "right";
