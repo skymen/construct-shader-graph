@@ -2,13 +2,35 @@
 // Basic port types
 export const PORT_TYPES = {
   // Scalar types
-  float: { color: "#4a90e2", name: "Float", editable: true, defaultValue: 0.0 },
-  int: { color: "#4a9fe2", name: "Int", editable: true, defaultValue: 0 },
+  float: {
+    color: "#4a90e2",
+    name: "Float",
+    editable: true,
+    defaultValue: 0.0,
+    toShaderValue: (value, shaderFormat) => {
+      // Floats are the same in all shader languages
+      return value.toString();
+    },
+  },
+  int: {
+    color: "#4a9fe2",
+    name: "Int",
+    editable: true,
+    defaultValue: 0,
+    toShaderValue: (value, shaderFormat) => {
+      // Ints are the same in all shader languages
+      return value.toString();
+    },
+  },
   boolean: {
     color: "#9f4ae2",
     name: "Boolean",
     editable: true,
     defaultValue: false,
+    toShaderValue: (value, shaderFormat) => {
+      // Booleans are the same in all shader languages
+      return value ? "true" : "false";
+    },
   },
 
   // Vector types
@@ -17,18 +39,39 @@ export const PORT_TYPES = {
     name: "Vec2",
     editable: true,
     defaultValue: [0.0, 0.0],
+    toShaderValue: (value, shaderFormat) => {
+      if (shaderFormat === "webgpu") {
+        return `vec2<f32>(${value[0]}, ${value[1]})`;
+      }
+      // webgl1 and webgl2
+      return `vec2(${value[0]}, ${value[1]})`;
+    },
   },
   vec3: {
     color: "#e2844a",
     name: "Vec3",
     editable: true,
     defaultValue: [1.0, 1.0, 1.0],
+    toShaderValue: (value, shaderFormat) => {
+      if (shaderFormat === "webgpu") {
+        return `vec3<f32>(${value[0]}, ${value[1]}, ${value[2]})`;
+      }
+      // webgl1 and webgl2
+      return `vec3(${value[0]}, ${value[1]}, ${value[2]})`;
+    },
   },
   vec4: {
     color: "#e24a6a",
     name: "Vec4",
     editable: true,
     defaultValue: [1.0, 1.0, 1.0, 1.0],
+    toShaderValue: (value, shaderFormat) => {
+      if (shaderFormat === "webgpu") {
+        return `vec4<f32>(${value[0]}, ${value[1]}, ${value[2]}, ${value[3]})`;
+      }
+      // webgl1 and webgl2
+      return `vec4(${value[0]}, ${value[1]}, ${value[2]}, ${value[3]})`;
+    },
   },
 
   // Special types
@@ -112,6 +155,16 @@ export function isGenericType(type) {
 // Helper function to get allowed types for a generic
 export function getAllowedTypesForGeneric(genericType) {
   return PORT_TYPES[genericType]?.allowedTypes || [];
+}
+
+// Helper function to convert a value to shader format
+export function toShaderValue(value, type, shaderFormat) {
+  const portType = PORT_TYPES[type];
+  if (portType?.toShaderValue) {
+    return portType.toShaderValue(value, shaderFormat);
+  }
+  // Fallback: return value as string
+  return value?.toString() || "0.0";
 }
 
 // Helper function to check if two port types are compatible

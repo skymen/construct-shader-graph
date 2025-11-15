@@ -3,8 +3,8 @@ import { NodeType } from "./NodeType.js";
 export const CompareNode = new NodeType(
   "Compare",
   [
-    { name: "A", type: "float" },
-    { name: "B", type: "float" },
+    { name: "A", type: "genType" },
+    { name: "B", type: "genType" },
   ],
   [{ name: "Result", type: "boolean" }],
   "#3a4a3a",

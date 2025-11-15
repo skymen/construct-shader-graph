@@ -5,6 +5,7 @@ import {
   areTypesCompatible,
   isGenericType,
   getAllowedTypesForGeneric,
+  toShaderValue,
 } from "./nodes/index.js";
 import { UniformFloatNode } from "./nodes/UniformFloatNode.js";
 import { UniformColorNode } from "./nodes/UniformColorNode.js";
@@ -68,10 +69,20 @@ class Port {
       width = 90; // Column layout with labels
       height = 20;
     } else if (resolvedType === "vec3") {
-      width = 50; // Color swatch
+      // Check if values are in range to determine if showing color or text
+      const inRange =
+        this.value &&
+        Array.isArray(this.value) &&
+        this.value.every((v) => v >= 0 && v <= 1);
+      width = inRange ? 50 : 110; // Color swatch or raw values
       height = 20;
     } else if (resolvedType === "vec4") {
-      width = 50; // Color swatch with alpha
+      // Check if values are in range to determine if showing color or text
+      const inRange =
+        this.value &&
+        Array.isArray(this.value) &&
+        this.value.every((v) => v >= 0 && v <= 1);
+      width = inRange ? 50 : 140; // Color swatch or raw values
       height = 20;
     }
 
@@ -165,6 +176,10 @@ class Port {
     } else if (this.connections.length > 0) {
       // If we have connections, we're not editable
       this.isEditable = false;
+    } else if (!portTypeInfo?.editable && this.isEditable) {
+      // If the resolved type is no longer editable, clear the value and mark as non-editable
+      this.isEditable = false;
+      this.value = undefined;
     }
   }
 }
@@ -1233,11 +1248,12 @@ class BlueprintSystem {
     });
 
     // Initial preview update
-    this.updatePreview();
+    setTimeout(() => {
+      this.updatePreview();
+    }, 100);
   }
 
   updatePreview() {
-    console.log("updatePreview");
     if (!this.previewIframe) return;
 
     // Clear previous errors
@@ -1340,22 +1356,36 @@ class BlueprintSystem {
         graph.dependencies,
         graph.connectedNodes
       );
-      const portToVarName = this.generateVariableNames(levels);
 
-      // Generate shaders for all targets
+      // Generate shaders for all targets (each needs its own variable names for proper value formatting)
+      const webgl1PortToVarName = this.generateVariableNames(levels, "webgl1");
       const webgl1Boilerplate = this.getBoilerplate("webgl1");
       const webgl1Uniforms = this.generateUniformDeclarations("webgl1");
-      const webgl1Code = this.generateShader("webgl1", levels, portToVarName);
+      const webgl1Code = this.generateShader(
+        "webgl1",
+        levels,
+        webgl1PortToVarName
+      );
       const webgl1 = webgl1Boilerplate + webgl1Uniforms + webgl1Code;
 
+      const webgl2PortToVarName = this.generateVariableNames(levels, "webgl2");
       const webgl2Boilerplate = this.getBoilerplate("webgl2");
       const webgl2Uniforms = this.generateUniformDeclarations("webgl2");
-      const webgl2Code = this.generateShader("webgl2", levels, portToVarName);
+      const webgl2Code = this.generateShader(
+        "webgl2",
+        levels,
+        webgl2PortToVarName
+      );
       const webgl2 = webgl2Boilerplate + webgl2Uniforms + webgl2Code;
 
+      const webgpuPortToVarName = this.generateVariableNames(levels, "webgpu");
       const webgpuBoilerplate = this.getBoilerplate("webgpu");
       const webgpuUniforms = this.generateUniformDeclarations("webgpu");
-      const webgpuCode = this.generateShader("webgpu", levels, portToVarName);
+      const webgpuCode = this.generateShader(
+        "webgpu",
+        levels,
+        webgpuPortToVarName
+      );
       const webgpu = webgpuBoilerplate + webgpuUniforms + webgpuCode;
 
       return { webgl1, webgl2, webgpu };
@@ -3122,7 +3152,7 @@ class BlueprintSystem {
     }, 500);
   }
 
-  generateVariableNames(levels) {
+  generateVariableNames(levels, target) {
     // Generate unique variable names for all ports
     const portToVarName = new Map();
     let varCounter = 0;
@@ -3145,11 +3175,11 @@ class BlueprintSystem {
             }
           } else {
             // No connection, use the port's value if editable
-            if (port.isEditable) {
-              const value =
-                port.portType === "float"
-                  ? port.value.toFixed(2)
-                  : port.value.toString();
+            if (port.isEditable && port.value !== undefined) {
+              // Get the resolved type for generic ports
+              const resolvedType = port.getResolvedType();
+              // Use the toShaderValue function to format the value
+              const value = toShaderValue(port.value, resolvedType, target);
               portToVarName.set(port, value);
             } else {
               // Generate a default variable name
@@ -3314,7 +3344,6 @@ class BlueprintSystem {
       graph.dependencies,
       graph.connectedNodes
     );
-    const portToVarName = this.generateVariableNames(levels);
 
     // Create ZIP file
     const zip = new JSZip();
@@ -3324,6 +3353,8 @@ class BlueprintSystem {
     const shaders = {};
 
     for (const target of targets) {
+      // Generate variable names for this specific target
+      const portToVarName = this.generateVariableNames(levels, target);
       const boilerplate = this.getBoilerplate(target);
       const uniformDeclarations = this.generateUniformDeclarations(target);
       const shaderCode = this.generateShader(target, levels, portToVarName);
@@ -4761,54 +4792,75 @@ class BlueprintSystem {
           // Show compact vec2 format
           valueStr = `${port.value[0].toFixed(1)},${port.value[1].toFixed(1)}`;
         } else if (resolvedType === "vec3") {
-          // Show as color swatch
-          const r = Math.round(port.value[0] * 255);
-          const g = Math.round(port.value[1] * 255);
-          const b = Math.round(port.value[2] * 255);
+          // Check if all values are in 0-1 range
+          const inRange = port.value.every((v) => v >= 0 && v <= 1);
 
-          // Draw color swatch
-          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-          ctx.strokeStyle = "#4a4a4a";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 3);
-          ctx.fill();
-          ctx.stroke();
+          if (inRange) {
+            // Show as color swatch
+            const r = Math.round(port.value[0] * 255);
+            const g = Math.round(port.value[1] * 255);
+            const b = Math.round(port.value[2] * 255);
 
-          // Skip text rendering for vec3
-          valueStr = null;
-        } else if (resolvedType === "vec4") {
-          // Show as color swatch with alpha
-          const r = Math.round(port.value[0] * 255);
-          const g = Math.round(port.value[1] * 255);
-          const b = Math.round(port.value[2] * 255);
-          const a = port.value[3];
+            // Draw color swatch
+            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            ctx.strokeStyle = "#4a4a4a";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 3);
+            ctx.fill();
+            ctx.stroke();
 
-          // Draw checkerboard pattern for transparency
-          const checkSize = 4;
-          for (let x = 0; x < bounds.width; x += checkSize) {
-            for (let y = 0; y < bounds.height; y += checkSize) {
-              const isEven =
-                (Math.floor(x / checkSize) + Math.floor(y / checkSize)) % 2 ===
-                0;
-              ctx.fillStyle = isEven ? "#888" : "#666";
-              ctx.fillRect(bounds.x + x, bounds.y + y, checkSize, checkSize);
-            }
+            // Skip text rendering for vec3
+            valueStr = null;
+          } else {
+            // Show raw values if out of range
+            valueStr = `${port.value[0].toFixed(1)},${port.value[1].toFixed(
+              1
+            )},${port.value[2].toFixed(1)}`;
           }
+        } else if (resolvedType === "vec4") {
+          // Check if all values are in 0-1 range
+          const inRange = port.value.every((v) => v >= 0 && v <= 1);
 
-          // Draw color with alpha
-          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-          ctx.beginPath();
-          ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 3);
-          ctx.fill();
+          if (inRange) {
+            // Show as color swatch with alpha
+            const r = Math.round(port.value[0] * 255);
+            const g = Math.round(port.value[1] * 255);
+            const b = Math.round(port.value[2] * 255);
+            const a = port.value[3];
 
-          // Draw border
-          ctx.strokeStyle = "#4a4a4a";
-          ctx.lineWidth = 1;
-          ctx.stroke();
+            // Draw checkerboard pattern for transparency
+            const checkSize = 4;
+            for (let x = 0; x < bounds.width; x += checkSize) {
+              for (let y = 0; y < bounds.height; y += checkSize) {
+                const isEven =
+                  (Math.floor(x / checkSize) + Math.floor(y / checkSize)) %
+                    2 ===
+                  0;
+                ctx.fillStyle = isEven ? "#888" : "#666";
+                ctx.fillRect(bounds.x + x, bounds.y + y, checkSize, checkSize);
+              }
+            }
 
-          // Skip text rendering for vec4
-          valueStr = null;
+            // Draw color with alpha
+            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+            ctx.beginPath();
+            ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 3);
+            ctx.fill();
+
+            // Draw border
+            ctx.strokeStyle = "#4a4a4a";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Skip text rendering for vec4
+            valueStr = null;
+          } else {
+            // Show raw values if out of range
+            valueStr = `${port.value[0].toFixed(1)},${port.value[1].toFixed(
+              1
+            )},${port.value[2].toFixed(1)},${port.value[3].toFixed(1)}`;
+          }
         } else {
           valueStr = port.value.toString();
         }

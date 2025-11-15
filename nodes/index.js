@@ -5,6 +5,7 @@ export {
   areTypesCompatible,
   isGenericType,
   getAllowedTypesForGeneric,
+  toShaderValue,
 } from "./PortTypes.js";
 
 // Import all node types
