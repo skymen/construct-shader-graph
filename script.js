@@ -1077,6 +1077,8 @@ class BlueprintSystem {
 
     const node = new Node(posX, posY, this.nodeIdCounter++, nodeType);
     node.uniformName = uniform.variableName; // Use variable name for shader code
+    node.uniformDisplayName = uniform.name; // Store display name
+    node.uniformVariableName = uniform.variableName; // Store variable name
     node.uniformId = uniform.id;
     node.isVariable = true; // Make it look like a variable node
 
@@ -1092,15 +1094,23 @@ class BlueprintSystem {
     return node;
   }
 
-  updateUniformNodeNames(oldName, newName) {
+  updateUniformNodeNames(oldVariableName, newVariableName) {
     // Update all nodes that reference this uniform
+    // Find the uniform to get both names
+    const uniform = this.uniforms.find(
+      (u) => u.variableName === newVariableName
+    );
+    if (!uniform) return;
+
     this.nodes.forEach((node) => {
-      if (node.uniformName === oldName) {
-        node.uniformName = newName;
-        node.title = newName;
+      if (node.uniformName === oldVariableName) {
+        node.uniformName = newVariableName;
+        node.uniformDisplayName = uniform.name;
+        node.uniformVariableName = newVariableName;
+        node.title = uniform.name;
         node.nodeType = {
           ...node.nodeType,
-          name: newName,
+          name: uniform.name,
         };
       }
     });
@@ -3144,11 +3154,36 @@ class BlueprintSystem {
       ctx.fillStyle = "#fff";
       ctx.font = "bold 12px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(
-        node.title,
-        node.x + node.width / 2,
-        node.y + node.height / 2 + 4
-      );
+
+      // For uniform nodes, show both names if they differ
+      if (
+        node.uniformDisplayName &&
+        node.uniformVariableName &&
+        node.uniformDisplayName !== node.uniformVariableName
+      ) {
+        // Display name
+        ctx.fillText(
+          node.uniformDisplayName,
+          node.x + node.width / 2,
+          node.y + node.height / 2 - 2
+        );
+
+        // Variable name (smaller, gray)
+        ctx.fillStyle = "#fff";
+        ctx.font = "10px sans-serif";
+        ctx.fillText(
+          `(${node.uniformVariableName})`,
+          node.x + node.width / 2,
+          node.y + node.height / 2 + 10
+        );
+      } else {
+        // Single title
+        ctx.fillText(
+          node.title,
+          node.x + node.width / 2,
+          node.y + node.height / 2 + 4
+        );
+      }
 
       // Draw output port (no label for variable nodes)
       node.outputPorts.forEach((port) => {
