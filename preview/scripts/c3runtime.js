@@ -50918,7 +50918,6 @@ THE SOFTWARE.
         (this._layer = null);
     }
     Init(t) {
-      debugger;
       if (
         ((enableUpdateRendererStateGroup = !1),
         this.SetXY(t[0], t[1]),
