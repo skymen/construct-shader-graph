@@ -404,6 +404,23 @@ class BlueprintSystem {
     this.panStart = { x: 0, y: 0 };
 
     this.setupCanvas();
+
+    // Shader settings
+    this.shaderSettings = {
+      version: "1.0.0.0",
+      author: "",
+      website: "",
+      documentation: "",
+      description: "",
+      category: "color",
+      blendsBackground: false,
+      crossSampling: false,
+      preservesOpaqueness: false,
+      animated: false,
+      extendBoxH: 0,
+      extendBoxV: 0,
+    };
+
     // Uniforms
     this.uniforms = [];
     this.uniformIdCounter = 1;
@@ -411,6 +428,7 @@ class BlueprintSystem {
     this.setupEventListeners();
     this.setupInputField();
     this.setupSearchMenu();
+    this.setupShaderSettings();
     this.setupUniformSidebar();
     this.render();
   }
@@ -495,6 +513,148 @@ class BlueprintSystem {
     // Prevent search menu clicks from propagating to canvas
     this.searchMenu.addEventListener("mousedown", (e) => {
       e.stopPropagation();
+    });
+  }
+
+  setupCollapsibleSections() {
+    // Get all collapsible sections
+    const sections = document.querySelectorAll(".collapsible-section");
+
+    sections.forEach((section) => {
+      const header = section.querySelector(".sidebar-section-header");
+      const collapseBtn = section.querySelector(".collapse-btn");
+
+      // Toggle collapse on header click
+      header.addEventListener("click", (e) => {
+        // Prevent toggle if clicking on interactive elements inside header
+        if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") {
+          return;
+        }
+
+        section.classList.toggle("collapsed");
+      });
+
+      // Also allow button click to toggle
+      if (collapseBtn) {
+        collapseBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          section.classList.toggle("collapsed");
+        });
+      }
+    });
+  }
+
+  setupShaderSettings() {
+    // Setup collapsible functionality
+    this.setupCollapsibleSections();
+
+    // Get all setting input elements
+    const versionInput = document.getElementById("settingVersion");
+    const authorInput = document.getElementById("settingAuthor");
+    const websiteInput = document.getElementById("settingWebsite");
+    const documentationInput = document.getElementById("settingDocumentation");
+    const descriptionInput = document.getElementById("settingDescription");
+    const categorySelect = document.getElementById("settingCategory");
+    const blendsBackgroundCheckbox = document.getElementById(
+      "settingBlendsBackground"
+    );
+    const crossSamplingCheckbox = document.getElementById(
+      "settingCrossSampling"
+    );
+    const preservesOpaquenessCheckbox = document.getElementById(
+      "settingPreservesOpaqueness"
+    );
+    const animatedCheckbox = document.getElementById("settingAnimated");
+    const extendBoxHInput = document.getElementById("settingExtendBoxH");
+    const extendBoxVInput = document.getElementById("settingExtendBoxV");
+
+    // Initialize values
+    versionInput.value = this.shaderSettings.version;
+    authorInput.value = this.shaderSettings.author;
+    websiteInput.value = this.shaderSettings.website;
+    documentationInput.value = this.shaderSettings.documentation;
+    descriptionInput.value = this.shaderSettings.description;
+    categorySelect.value = this.shaderSettings.category;
+    blendsBackgroundCheckbox.checked = this.shaderSettings.blendsBackground;
+    crossSamplingCheckbox.checked = this.shaderSettings.crossSampling;
+    preservesOpaquenessCheckbox.checked =
+      this.shaderSettings.preservesOpaqueness;
+    animatedCheckbox.checked = this.shaderSettings.animated;
+    extendBoxHInput.value = this.shaderSettings.extendBoxH;
+    extendBoxVInput.value = this.shaderSettings.extendBoxV;
+
+    // Version validation (X.X.X.X format)
+    versionInput.addEventListener("blur", () => {
+      const value = versionInput.value.trim();
+      const versionPattern = /^\d+\.\d+\.\d+\.\d+$/;
+      if (value && !versionPattern.test(value)) {
+        alert("Version must follow X.X.X.X format (e.g., 1.0.0.0)");
+        versionInput.value = this.shaderSettings.version;
+      } else {
+        this.shaderSettings.version = value || "1.0.0.0";
+      }
+    });
+
+    // URL validation
+    const validateURL = (input, settingKey) => {
+      input.addEventListener("blur", () => {
+        const value = input.value.trim();
+        if (value) {
+          try {
+            new URL(value);
+            this.shaderSettings[settingKey] = value;
+          } catch {
+            alert("Please enter a valid URL (e.g., https://example.com)");
+            input.value = this.shaderSettings[settingKey];
+          }
+        } else {
+          this.shaderSettings[settingKey] = "";
+        }
+      });
+    };
+
+    validateURL(websiteInput, "website");
+    validateURL(documentationInput, "documentation");
+
+    // Text inputs
+    authorInput.addEventListener("input", () => {
+      this.shaderSettings.author = authorInput.value;
+    });
+
+    descriptionInput.addEventListener("input", () => {
+      this.shaderSettings.description = descriptionInput.value;
+    });
+
+    // Category select
+    categorySelect.addEventListener("change", () => {
+      this.shaderSettings.category = categorySelect.value;
+    });
+
+    // Checkboxes
+    blendsBackgroundCheckbox.addEventListener("change", () => {
+      this.shaderSettings.blendsBackground = blendsBackgroundCheckbox.checked;
+    });
+
+    crossSamplingCheckbox.addEventListener("change", () => {
+      this.shaderSettings.crossSampling = crossSamplingCheckbox.checked;
+    });
+
+    preservesOpaquenessCheckbox.addEventListener("change", () => {
+      this.shaderSettings.preservesOpaqueness =
+        preservesOpaquenessCheckbox.checked;
+    });
+
+    animatedCheckbox.addEventListener("change", () => {
+      this.shaderSettings.animated = animatedCheckbox.checked;
+    });
+
+    // Extend box inputs
+    extendBoxHInput.addEventListener("input", () => {
+      this.shaderSettings.extendBoxH = parseFloat(extendBoxHInput.value) || 0;
+    });
+
+    extendBoxVInput.addEventListener("input", () => {
+      this.shaderSettings.extendBoxV = parseFloat(extendBoxVInput.value) || 0;
     });
   }
 

@@ -15,14 +15,113 @@
       </div>
       <div id="main-content">
         <div id="uniform-sidebar">
-          <div id="uniform-sidebar-header">
-            <h2>Uniforms</h2>
+          <div id="shader-settings-section" class="collapsible-section">
+            <div class="sidebar-section-header">
+              <h2>Shader Settings</h2>
+              <button class="collapse-btn">▼</button>
+            </div>
+            <div class="sidebar-section-content">
+              <div class="settings-form">
+                <label>
+                  <span>Version</span>
+                  <input
+                    type="text"
+                    id="settingVersion"
+                    placeholder="1.0.0.0"
+                  />
+                </label>
+                <label>
+                  <span>Author</span>
+                  <input
+                    type="text"
+                    id="settingAuthor"
+                    placeholder="Author name"
+                  />
+                </label>
+                <label>
+                  <span>Website</span>
+                  <input
+                    type="url"
+                    id="settingWebsite"
+                    placeholder="https://example.com"
+                  />
+                </label>
+                <label>
+                  <span>Documentation</span>
+                  <input
+                    type="url"
+                    id="settingDocumentation"
+                    placeholder="https://docs.example.com"
+                  />
+                </label>
+                <label>
+                  <span>Description</span>
+                  <textarea
+                    id="settingDescription"
+                    rows="3"
+                    placeholder="Shader description..."
+                  ></textarea>
+                </label>
+                <label>
+                  <span>Category</span>
+                  <select id="settingCategory">
+                    <option value="3d">3D</option>
+                    <option value="blend">Blend</option>
+                    <option value="color" selected>Color</option>
+                    <option value="distortion">Distortion</option>
+                    <option value="mask">Mask</option>
+                    <option value="normal-mapping">Normal Mapping</option>
+                    <option value="tiling">Tiling</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="settingBlendsBackground" />
+                  <span>Blends Background</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="settingCrossSampling" />
+                  <span>Cross Sampling</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="settingPreservesOpaqueness" />
+                  <span>Preserves Opaqueness</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="settingAnimated" />
+                  <span>Animated</span>
+                </label>
+                <label>
+                  <span>Extend Box</span>
+                  <div class="extend-box-inputs">
+                    <input
+                      type="number"
+                      id="settingExtendBoxH"
+                      placeholder="H"
+                      step="0.1"
+                    />
+                    <input
+                      type="number"
+                      id="settingExtendBoxV"
+                      placeholder="V"
+                      step="0.1"
+                    />
+                  </div>
+                </label>
+              </div>
+            </div>
           </div>
-          <div id="uniform-sidebar-content">
-            <button id="addUniformBtn" class="add-uniform-btn">
-              + Add Uniform
-            </button>
-            <div id="uniform-list"></div>
+          <div id="uniforms-section" class="collapsible-section">
+            <div class="sidebar-section-header">
+              <h2>Uniforms</h2>
+              <button class="collapse-btn">▼</button>
+            </div>
+            <div class="sidebar-section-content">
+              <button id="addUniformBtn" class="add-uniform-btn">
+                + Add Uniform
+              </button>
+              <div id="uniform-list"></div>
+            </div>
           </div>
         </div>
         <div id="canvas-container">

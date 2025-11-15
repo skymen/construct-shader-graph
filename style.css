@@ -314,13 +314,153 @@ button:hover {
 
 /* Uniform Sidebar */
 #uniform-sidebar {
-  width: 280px;
+  width: 320px;
   background: #2a2a2a;
   border-right: 2px solid #4a4a4a;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
 }
+
+/* Sidebar sections */
+.sidebar-section-header {
+  background: #333333;
+  padding: 12px 20px;
+  border-bottom: 2px solid #4a4a4a;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar-section-header:hover {
+  background: #3a3a3a;
+}
+
+.sidebar-section-header h2 {
+  font-size: 15px;
+  margin: 0;
+  color: #fff;
+  flex: 1;
+}
+
+.collapse-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: transform 0.2s, color 0.2s;
+  min-width: auto;
+}
+
+.collapse-btn:hover {
+  background: transparent;
+  color: #fff;
+}
+
+.collapsible-section.collapsed .collapse-btn {
+  transform: rotate(-90deg);
+}
+
+.sidebar-section-content {
+  padding: 15px;
+  max-height: 2000px;
+  overflow: hidden;
+  transition: max-height 0.3s ease, padding 0.3s ease;
+}
+
+.collapsible-section.collapsed .sidebar-section-content {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Shader Settings Section */
+#shader-settings-section {
+  border-bottom: 2px solid #4a4a4a;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  color: #aaa;
+}
+
+.settings-form label > span {
+  font-weight: 500;
+  color: #ccc;
+}
+
+.settings-form input[type="text"],
+.settings-form input[type="url"],
+.settings-form input[type="number"],
+.settings-form select,
+.settings-form textarea {
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.settings-form input:focus,
+.settings-form select:focus,
+.settings-form textarea:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+.settings-form textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #4a90e2;
+}
+
+.checkbox-label span {
+  color: #ccc;
+  user-select: none;
+}
+
+.extend-box-inputs {
+  display: flex;
+  gap: 8px;
+}
+
+.extend-box-inputs input {
+  flex: 1;
+}
+
+/* Uniforms Section - no additional styling needed */
 
 #uniform-sidebar-header {
   background: #333333;
