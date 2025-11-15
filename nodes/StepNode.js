@@ -4,10 +4,10 @@ import { PORT_TYPES } from "./PortTypes.js";
 export const StepNode = new NodeType(
   "Step",
   [
-    { name: "Edge", type: "T" },
-    { name: "Value", type: "T" },
+    { name: "Edge", type: "genType" },
+    { name: "Value", type: "genType" },
   ],
-  [{ name: "Result", type: "T" }],
+  [{ name: "Result", type: "genType" }],
   PORT_TYPES.T.color,
   {
     webgl1: {

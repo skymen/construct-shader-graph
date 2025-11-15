@@ -4,11 +4,11 @@ import { PORT_TYPES } from "./PortTypes.js";
 export const ClampNode = new NodeType(
   "Clamp",
   [
-    { name: "Value", type: "T" },
-    { name: "Min", type: "T" },
-    { name: "Max", type: "T" },
+    { name: "Value", type: "genType" },
+    { name: "Min", type: "genType" },
+    { name: "Max", type: "genType" },
   ],
-  [{ name: "Result", type: "T" }],
+  [{ name: "Result", type: "genType" }],
   PORT_TYPES.T.color,
   {
     webgl1: {

@@ -17,7 +17,6 @@ export const PORT_TYPES = {
   vec4: { color: "#e24a6a", name: "Vec4", editable: false },
 
   // Special types
-  color: { color: "#e24a90", name: "Color", editable: false }, // This is vec3
   texture: { color: "#90e24a", name: "Texture", editable: false },
 
   // Composite types (for compatibility checking)
@@ -40,13 +39,47 @@ export const PORT_TYPES = {
       "vec2",
       "vec3",
       "vec4",
-      "color",
       "texture",
       "vector",
     ],
   },
 
   // Generic types (templates)
+  genType: {
+    color: "#c084fc",
+    name: "genType",
+    editable: false,
+    isGeneric: true,
+    allowedTypes: ["float", "vec2", "vec3", "vec4"],
+  },
+  // genDType: {
+  //   color: "#c084fc",
+  //   name: "genDType",
+  //   editable: false,
+  //   isGeneric: true,
+  //   allowedTypes: ["double", "dvec2", "dvec3", "dvec4"],
+  // },
+  genIType: {
+    color: "#c084fc",
+    name: "genIType",
+    editable: false,
+    isGeneric: true,
+    allowedTypes: ["int" /* "ivec2", "ivec3", "ivec4" */],
+  },
+  // genUType: {
+  //   color: "#c084fc",
+  //   name: "genUType",
+  //   editable: false,
+  //   isGeneric: true,
+  //   allowedTypes: ["uint", "uvec2", "uvec3", "uvec4"],
+  // },
+  genBType: {
+    color: "#c084fc",
+    name: "genBType",
+    editable: false,
+    isGeneric: true,
+    allowedTypes: ["boolean" /* "bvec2", "bvec3", "bvec4" */],
+  },
   T: {
     color: "#c084fc",
     name: "T",

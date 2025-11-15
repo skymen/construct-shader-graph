@@ -4,11 +4,11 @@ import { PORT_TYPES } from "./PortTypes.js";
 export const MixNode = new NodeType(
   "Mix",
   [
-    { name: "A", type: "T" },
-    { name: "B", type: "T" },
+    { name: "A", type: "genType" },
+    { name: "B", type: "genType" },
     { name: "T", type: "float" },
   ],
-  [{ name: "Result", type: "T" }],
+  [{ name: "Result", type: "genType" }],
   PORT_TYPES.T.color,
   {
     webgl1: {

@@ -3,10 +3,10 @@ import { NodeType } from "./NodeType.js";
 export const MinNode = new NodeType(
   "Min",
   [
-    { name: "A", type: "T" },
-    { name: "B", type: "T" },
+    { name: "A", type: "genType" },
+    { name: "B", type: "genType" },
   ],
-  [{ name: "Result", type: "T" }],
+  [{ name: "Result", type: "genType" }],
   "#3a4a3a",
   {
     webgl1: {

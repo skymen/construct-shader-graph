@@ -4,11 +4,11 @@ import { PORT_TYPES } from "./PortTypes.js";
 export const SmoothstepNode = new NodeType(
   "Smoothstep",
   [
-    { name: "Edge0", type: "T" },
-    { name: "Edge1", type: "T" },
-    { name: "Value", type: "T" },
+    { name: "Edge0", type: "genType" },
+    { name: "Edge1", type: "genType" },
+    { name: "Value", type: "genType" },
   ],
-  [{ name: "Result", type: "T" }],
+  [{ name: "Result", type: "genType" }],
   PORT_TYPES.T.color,
   {
     webgl1: {

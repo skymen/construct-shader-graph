@@ -3,8 +3,8 @@ import { PORT_TYPES } from "./PortTypes.js";
 
 export const SinNode = new NodeType(
   "Sin",
-  [{ name: "Angle", type: "T" }],
-  [{ name: "Result", type: "T" }],
+  [{ name: "Angle", type: "genType" }],
+  [{ name: "Result", type: "genType" }],
   PORT_TYPES.T.color,
   {
     webgl1: {
