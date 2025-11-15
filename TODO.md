@@ -18,10 +18,10 @@
 - [x] Abs (absolute value) - AbsNode
 - [x] Min (minimum of two values) - MinNode
 - [x] Max (maximum of two values) - MaxNode
-- [ ] Clamp (clamp value between min and max)
-- [ ] Lerp/Mix (linear interpolation between two values)
-- [ ] Smoothstep (smooth Hermite interpolation)
-- [ ] Step (step function, returns 0 or 1)
+- [x] Clamp (clamp value between min and max) - ClampNode
+- [x] Lerp/Mix (linear interpolation between two values) - MixNode
+- [x] Smoothstep (smooth Hermite interpolation) - SmoothstepNode
+- [x] Step (step function, returns 0 or 1) - StepNode
 - [ ] Fract (fractional part of a number)
 - [ ] Floor (round down)
 - [ ] Ceil (round up)
@@ -36,9 +36,9 @@
 
 ### Trigonometry
 
-- [ ] Sin (sine)
-- [ ] Cos (cosine)
-- [ ] Tan (tangent)
+- [x] Sin (sine) - SinNode
+- [x] Cos (cosine) - CosNode
+- [x] Tan (tangent) - TanNode
 - [ ] Asin (arc sine)
 - [ ] Acos (arc cosine)
 - [ ] Atan (arc tangent)

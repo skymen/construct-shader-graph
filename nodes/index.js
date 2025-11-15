@@ -14,6 +14,13 @@ import { AbsNode } from "./AbsNode.js";
 import { CompareNode } from "./CompareNode.js";
 import { MinNode } from "./MinNode.js";
 import { MaxNode } from "./MaxNode.js";
+import { ClampNode } from "./ClampNode.js";
+import { MixNode } from "./MixNode.js";
+import { StepNode } from "./StepNode.js";
+import { SmoothstepNode } from "./SmoothstepNode.js";
+import { CosNode } from "./CosNode.js";
+import { SinNode } from "./SinNode.js";
+import { TanNode } from "./TanNode.js";
 import { Vec2Node } from "./Vec2Node.js";
 import { Vec3Node } from "./Vec3Node.js";
 import { Vec4Node } from "./Vec4Node.js";
@@ -52,6 +59,13 @@ export const NODE_TYPES = {
   compare: CompareNode,
   min: MinNode,
   max: MaxNode,
+  clamp: ClampNode,
+  mix: MixNode,
+  step: StepNode,
+  smoothstep: SmoothstepNode,
+  cos: CosNode,
+  sin: SinNode,
+  tan: TanNode,
   vec2: Vec2Node,
   vec3: Vec3Node,
   vec4: Vec4Node,
