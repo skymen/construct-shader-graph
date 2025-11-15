@@ -515,6 +515,7 @@ button:hover {
   flex-direction: column;
   gap: 6px;
   transition: border-color 0.2s;
+  position: relative;
 }
 
 .uniform-item:hover {
@@ -953,6 +954,16 @@ button:hover {
   font-family: 'Courier New', monospace;
 }
 
+.custom-node-form input[type="color"] {
+  width: 100%;
+  height: 32px;
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 2px;
+}
+
 .custom-node-form textarea {
   resize: vertical;
   min-height: 60px;
@@ -1048,5 +1059,18 @@ button:hover {
 
 .secondary-btn:hover {
   background: #5a5a5a;
+}
+
+/* Custom Node Drag Handle */
+.custom-node-drag-handle {
+  transition: opacity 0.2s;
+}
+
+.custom-node-drag-handle:hover {
+  opacity: 0.8;
+}
+
+.custom-node-drag-handle:active {
+  cursor: grabbing !important;
 }
 

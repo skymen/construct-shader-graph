@@ -1141,12 +1141,56 @@ class BlueprintSystem {
 
       const header = document.createElement("div");
       header.className = "uniform-item-header";
-      header.style.cursor = "pointer";
+      header.style.paddingLeft = "24px"; // Make room for drag handle
+
+      // Drag handle (the colored bar area)
+      const dragHandle = document.createElement("div");
+      dragHandle.className = "custom-node-drag-handle";
+      dragHandle.style.position = "absolute";
+      dragHandle.style.left = "0";
+      dragHandle.style.top = "0";
+      dragHandle.style.bottom = "0";
+      dragHandle.style.width = "20px";
+      dragHandle.style.background = customNode.color;
+      dragHandle.style.cursor = "grab";
+      dragHandle.style.display = "flex";
+      dragHandle.style.alignItems = "center";
+      dragHandle.style.justifyContent = "center";
+      dragHandle.style.color = "rgba(255, 255, 255, 0.6)";
+      dragHandle.style.fontSize = "14px";
+      dragHandle.style.userSelect = "none";
+      dragHandle.textContent = "⋮⋮";
+      dragHandle.title = "Drag to canvas to create node";
+
+      // Make item draggable from handle
+      let isDraggingFromHandle = false;
+
+      dragHandle.addEventListener("mousedown", (e) => {
+        isDraggingFromHandle = true;
+        item.draggable = true;
+        dragHandle.style.cursor = "grabbing";
+      });
+
+      item.addEventListener("dragstart", (e) => {
+        if (isDraggingFromHandle) {
+          e.dataTransfer.setData("customNodeId", customNode.id.toString());
+          e.dataTransfer.effectAllowed = "copy";
+        } else {
+          e.preventDefault();
+        }
+      });
+
+      item.addEventListener("dragend", (e) => {
+        item.draggable = false;
+        isDraggingFromHandle = false;
+        dragHandle.style.cursor = "grab";
+      });
 
       const nameSpan = document.createElement("span");
       nameSpan.textContent = customNode.name;
       nameSpan.style.fontWeight = "bold";
       nameSpan.style.color = "#4a90e2";
+      nameSpan.style.flex = "1";
 
       const infoSpan = document.createElement("span");
       infoSpan.textContent = `${customNode.inputs.length}→${customNode.outputs.length}`;
@@ -1178,6 +1222,8 @@ class BlueprintSystem {
 
       controls.appendChild(editBtn);
       controls.appendChild(deleteBtn);
+
+      item.appendChild(dragHandle);
       header.appendChild(nameSpan);
       header.appendChild(infoSpan);
       header.appendChild(controls);
@@ -1553,6 +1599,8 @@ class BlueprintSystem {
     node.nodeType = {
       ...nodeType,
       name: uniform.name, // Display name for the node
+      isUniform: true,
+      uniformId: uniform.id,
     };
 
     this.nodes.push(node);
@@ -1592,6 +1640,7 @@ class BlueprintSystem {
       uniformNodeTypes[`uniform_${uniform.id}`] = {
         ...nodeType,
         name: uniform.name,
+        isUniform: true,
         uniformId: uniform.id,
         uniformName: uniform.name,
       };
@@ -2102,15 +2151,29 @@ class BlueprintSystem {
     this.canvas.addEventListener("drop", (e) => {
       e.preventDefault();
 
+      const rect = this.canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left - this.camera.x) / this.camera.zoom;
+      const y = (e.clientY - rect.top - this.camera.y) / this.camera.zoom;
+
+      // Check for uniform drop
       const uniformId = parseInt(e.dataTransfer.getData("uniformId"));
       if (uniformId) {
         const uniform = this.uniforms.find((u) => u.id === uniformId);
         if (uniform) {
-          const rect = this.canvas.getBoundingClientRect();
-          const x = (e.clientX - rect.left - this.camera.x) / this.camera.zoom;
-          const y = (e.clientY - rect.top - this.camera.y) / this.camera.zoom;
           this.createUniformNode(uniform, x, y);
         }
+        return;
+      }
+
+      // Check for custom node drop
+      const customNodeId = parseInt(e.dataTransfer.getData("customNodeId"));
+      if (customNodeId) {
+        const customNode = this.customNodes.find((n) => n.id === customNodeId);
+        if (customNode) {
+          const nodeType = this.createNodeTypeFromCustomNode(customNode);
+          this.addNode(x, y, nodeType);
+        }
+        return;
       }
     });
 
@@ -2901,10 +2964,37 @@ class BlueprintSystem {
 
       if (data.nodes) {
         for (const nodeData of data.nodes) {
-          const nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
-          if (!nodeType) {
-            console.warn(`Unknown node type: ${nodeData.nodeTypeKey}`);
-            continue;
+          // Special handling for uniform nodes - use the saved uniformId
+          let nodeType;
+          if (
+            nodeData.nodeTypeKey &&
+            nodeData.nodeTypeKey.startsWith("uniform_") &&
+            nodeData.uniformId !== undefined
+          ) {
+            const uniform = this.uniforms.find(
+              (u) => u.id === nodeData.uniformId
+            );
+            if (uniform) {
+              nodeType =
+                uniform.type === "color" ? UniformColorNode : UniformFloatNode;
+              // Add uniform metadata to nodeType
+              nodeType = {
+                ...nodeType,
+                name: uniform.name,
+                isUniform: true,
+                uniformId: uniform.id,
+                uniformName: uniform.name,
+              };
+            } else {
+              console.warn(`Uniform with ID ${nodeData.uniformId} not found`);
+              continue;
+            }
+          } else {
+            nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
+            if (!nodeType) {
+              console.warn(`Unknown node type: ${nodeData.nodeTypeKey}`);
+              continue;
+            }
           }
 
           const node = new Node(nodeData.x, nodeData.y, nodeData.id, nodeType);
@@ -2985,16 +3075,32 @@ class BlueprintSystem {
   }
 
   getNodeTypeKey(nodeType) {
+    // Check if it's a custom node
+    if (nodeType.isCustom && nodeType.customNodeId) {
+      return `custom_${nodeType.customNodeId}`;
+    }
+
+    // Check if it's a uniform node
+    if (nodeType.isUniform && nodeType.uniformId) {
+      return `uniform_${nodeType.uniformId}`;
+    }
+
     // Find the key for this node type in NODE_TYPES
     for (const [key, type] of Object.entries(NODE_TYPES)) {
       if (type === nodeType) {
         return key;
       }
     }
+
     return null;
   }
 
   getNodeTypeFromKey(key) {
+    // Handle null or undefined keys
+    if (!key) {
+      return null;
+    }
+
     // Check if it's a custom node
     if (key.startsWith("custom_")) {
       const customNodeId = parseInt(key.replace("custom_", ""));
