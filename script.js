@@ -407,6 +407,7 @@ class BlueprintSystem {
 
     // Shader settings
     this.shaderSettings = {
+      name: "",
       version: "1.0.0.0",
       author: "",
       website: "",
@@ -415,7 +416,7 @@ class BlueprintSystem {
       category: "color",
       blendsBackground: false,
       crossSampling: false,
-      preservesOpaqueness: false,
+      preservesOpaqueness: true,
       animated: false,
       isDeprecated: false,
       extendBoxH: 0,
@@ -550,6 +551,7 @@ class BlueprintSystem {
     this.setupCollapsibleSections();
 
     // Get all setting input elements
+    const nameInput = document.getElementById("settingName");
     const versionInput = document.getElementById("settingVersion");
     const authorInput = document.getElementById("settingAuthor");
     const websiteInput = document.getElementById("settingWebsite");
@@ -571,6 +573,7 @@ class BlueprintSystem {
     const extendBoxVInput = document.getElementById("settingExtendBoxV");
 
     // Initialize values
+    nameInput.value = this.shaderSettings.name;
     versionInput.value = this.shaderSettings.version;
     authorInput.value = this.shaderSettings.author;
     websiteInput.value = this.shaderSettings.website;
@@ -585,6 +588,11 @@ class BlueprintSystem {
     isDeprecatedCheckbox.checked = this.shaderSettings.isDeprecated;
     extendBoxHInput.value = this.shaderSettings.extendBoxH;
     extendBoxVInput.value = this.shaderSettings.extendBoxV;
+
+    // Name input
+    nameInput.addEventListener("input", () => {
+      this.shaderSettings.name = nameInput.value.trim();
+    });
 
     // Version validation (X.X.X.X format)
     versionInput.addEventListener("blur", () => {
@@ -2103,34 +2111,161 @@ class BlueprintSystem {
 
     // Generate shaders for all targets
     const targets = ["webgl1", "webgl2", "webgpu"];
+    const shaders = {};
 
     for (const target of targets) {
       const boilerplate = this.getBoilerplate(target);
       const uniformDeclarations = this.generateUniformDeclarations(target);
       const shaderCode = this.generateShader(target, levels, portToVarName);
       const fullShader = boilerplate + uniformDeclarations + shaderCode;
+      shaders[target] = fullShader;
 
-      const extension = target === "webgpu" ? "wgsl" : "frag";
-      const filename = `shader-${target}.${extension}`;
-
-      zip.file(filename, fullShader);
-
-      // Also log to console
+      // Log to console
       console.log(`Generated ${target.toUpperCase()} Shader:`);
       console.log(fullShader);
       console.log("---");
     }
+
+    // Add shader files to ZIP
+    zip.file("effect.fx", shaders.webgl1);
+    zip.file("effect.webgl2.fx", shaders.webgl2);
+    zip.file("effect.wgsl", shaders.webgpu);
+
+    // Generate addon.json
+    const addonJson = this.generateAddonJson();
+    zip.file("addon.json", JSON.stringify(addonJson, null, "\t"));
+
+    // Generate lang/en-US.json
+    const langJson = this.generateLangJson();
+    zip.file("lang/en-US.json", JSON.stringify(langJson, null, "\t"));
 
     // Generate and download ZIP
     const blob = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "shaders.zip";
+
+    // Use sanitized name for the download filename
+    const addonId = this.sanitizeAddonId(
+      this.shaderSettings.name || "MyEffect"
+    );
+    a.download = `${addonId}.c3addon`;
+
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  sanitizeAddonId(name) {
+    // Convert to lowercase and replace spaces/special chars with underscores
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  generateAddonJson() {
+    const settings = this.shaderSettings;
+
+    // Generate addon ID from author and name
+    const author = settings.author || "MyCompany";
+    const name = settings.name || "MyEffect";
+    const addonId = `${this.sanitizeVariableName(
+      author
+    )}_${this.sanitizeVariableName(name)}`;
+
+    return {
+      "is-c3-addon": true,
+      type: "effect",
+      name: name,
+      id: addonId,
+      version: settings.version || "1.0.0.0",
+      author: author,
+      website: settings.website || "https://www.construct.net",
+      documentation: settings.documentation || "https://www.construct.net",
+      description: settings.description || "",
+      "file-list": [
+        "lang/en-US.json",
+        "addon.json",
+        "effect.fx",
+        "effect.webgl2.fx",
+        "effect.wgsl",
+      ],
+      "supported-renderers": ["webgl", "webgl2", "webgpu"],
+      category: settings.category || "color",
+      "blends-background": settings.blendsBackground || false,
+      "cross-sampling": settings.crossSampling || false,
+      "preserves-opaqueness": settings.preservesOpaqueness || false,
+      animated: settings.animated || false,
+      "is-deprecated": settings.isDeprecated || false,
+      "extend-box": {
+        horizontal: settings.extendBoxH || 0,
+        vertical: settings.extendBoxV || 0,
+      },
+      parameters: this.generateParametersJson(),
+    };
+  }
+
+  generateParametersJson() {
+    return this.uniforms.map((uniform) => {
+      const param = {
+        id: uniform.variableName,
+        name: uniform.name,
+        desc: uniform.description || "",
+        type:
+          uniform.type === "color"
+            ? "color"
+            : uniform.isPercent
+            ? "percent"
+            : "float",
+      };
+
+      // Add initial value
+      if (uniform.type === "color") {
+        param.initial = [uniform.value.r, uniform.value.g, uniform.value.b];
+      } else {
+        param.initial = uniform.value;
+      }
+
+      return param;
+    });
+  }
+
+  generateLangJson() {
+    const settings = this.shaderSettings;
+    const author = settings.author || "MyCompany";
+    const name = settings.name || "MyEffect";
+    const addonId = `${this.sanitizeVariableName(
+      author
+    )}_${this.sanitizeVariableName(name)}`.toLowerCase();
+
+    const langData = {
+      languageTag: "en-US",
+      fileDescription: `Strings for ${name}.`,
+      text: {
+        effects: {
+          [addonId]: {
+            name: name,
+            description: settings.description || "",
+          },
+        },
+      },
+    };
+
+    // Add parameter strings if there are uniforms
+    if (this.uniforms.length > 0) {
+      const params = {};
+      this.uniforms.forEach((uniform) => {
+        params[uniform.variableName] = {
+          name: uniform.name,
+          desc: uniform.description || "",
+        };
+      });
+      langData.text.effects[addonId].parameters = params;
+    }
+
+    return langData;
   }
 
   downloadFile(filename, content) {
