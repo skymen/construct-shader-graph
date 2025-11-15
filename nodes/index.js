@@ -20,6 +20,9 @@ import { ColorNode } from "./ColorNode.js";
 import { TextureFrontNode } from "./TextureFrontNode.js";
 import { TextureBackNode } from "./TextureBackNode.js";
 import { TextureDepthNode } from "./TextureDepthNode.js";
+import { FrontUVNode } from "./FrontUVNode.js";
+import { BackUVNode } from "./BackUVNode.js";
+import { DepthUVNode } from "./DepthUVNode.js";
 import { OutputNode } from "./OutputNode.js";
 
 // Import built-in parameter nodes
@@ -52,6 +55,9 @@ export const NODE_TYPES = {
   textureFront: TextureFrontNode,
   textureBack: TextureBackNode,
   textureDepth: TextureDepthNode,
+  frontUV: FrontUVNode,
+  backUV: BackUVNode,
+  depthUV: DepthUVNode,
   output: OutputNode,
 
   // Built-in parameters
