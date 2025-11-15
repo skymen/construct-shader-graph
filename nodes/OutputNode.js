@@ -16,7 +16,8 @@ export const OutputNode = new NodeType(
     },
     webgpu: {
       dependency: "",
-      execution: (inputs, outputs) => `    output.color = ${inputs[0]};`,
+      execution: (inputs, outputs) =>
+        `    output.color = ${inputs[0]};\n    return output;`,
     },
   }
 );
