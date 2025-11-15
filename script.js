@@ -1929,13 +1929,15 @@ class BlueprintSystem {
 
       const iconDiv = document.createElement("div");
       iconDiv.className = "search-result-color";
-      iconDiv.style.background = "#9b59b6";
+      iconDiv.style.background = "transparent";
       iconDiv.textContent = "+";
       iconDiv.style.color = "white";
       iconDiv.style.fontWeight = "bold";
       iconDiv.style.display = "flex";
       iconDiv.style.alignItems = "center";
       iconDiv.style.justifyContent = "center";
+      iconDiv.style.fontSize = "16px";
+      iconDiv.style.paddingBottom = "3px";
       createCustomBtn.appendChild(iconDiv);
 
       const nameDiv = document.createElement("div");
