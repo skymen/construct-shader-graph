@@ -1635,6 +1635,22 @@ class BlueprintSystem {
     document.getElementById("exportBtn").addEventListener("click", () => {
       this.exportGLSL();
     });
+
+    document.getElementById("saveBtn").addEventListener("click", () => {
+      this.saveToJSON();
+    });
+
+    document.getElementById("loadBtn").addEventListener("click", () => {
+      document.getElementById("loadFileInput").click();
+    });
+
+    document.getElementById("loadFileInput").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        this.loadFromJSON(file);
+        e.target.value = ""; // Reset input so same file can be loaded again
+      }
+    });
   }
 
   toggleSidebar() {
@@ -2266,6 +2282,241 @@ class BlueprintSystem {
     }
 
     return langData;
+  }
+
+  saveToJSON() {
+    // Create a complete snapshot of the blueprint state
+    const data = {
+      version: "1.0.0",
+      shaderSettings: this.shaderSettings,
+      uniforms: this.uniforms,
+      camera: {
+        x: this.camera.x,
+        y: this.camera.y,
+        zoom: this.camera.zoom,
+      },
+      nodes: this.nodes.map((node) => ({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        nodeTypeKey: this.getNodeTypeKey(node.nodeType),
+        title: node.title,
+        operation: node.operation,
+        uniformName: node.uniformName,
+        uniformDisplayName: node.uniformDisplayName,
+        uniformVariableName: node.uniformVariableName,
+        uniformId: node.uniformId,
+        isVariable: node.isVariable,
+        inputPorts: node.inputPorts.map((port) => ({
+          name: port.name,
+          portType: port.portType,
+          value: port.value,
+        })),
+        outputPorts: node.outputPorts.map((port) => ({
+          name: port.name,
+          portType: port.portType,
+        })),
+      })),
+      wires: this.wires.map((wire) => ({
+        startNodeId: wire.startPort.node.id,
+        startPortIndex: wire.startPort.node.outputPorts.indexOf(wire.startPort),
+        endNodeId: wire.endPort.node.id,
+        endPortIndex: wire.endPort.node.inputPorts.indexOf(wire.endPort),
+        rerouteNodes: wire.rerouteNodes.map((rn) => ({
+          x: rn.x,
+          y: rn.y,
+        })),
+      })),
+      nodeIdCounter: this.nodeIdCounter,
+      uniformIdCounter: this.uniformIdCounter,
+    };
+
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+
+    const filename = this.shaderSettings.name
+      ? `${this.sanitizeAddonId(this.shaderSettings.name)}.json`
+      : "blueprint.json";
+    a.download = filename;
+
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async loadFromJSON(file) {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      // Validate version
+      if (!data.version) {
+        throw new Error("Invalid blueprint file: missing version");
+      }
+
+      // Clear current state
+      this.nodes = [];
+      this.wires = [];
+      this.selectedNodes.clear();
+      this.selectedRerouteNodes.clear();
+
+      // Restore shader settings
+      if (data.shaderSettings) {
+        this.shaderSettings = {
+          ...this.shaderSettings,
+          ...data.shaderSettings,
+        };
+        this.updateShaderSettingsUI();
+      }
+
+      // Restore uniforms
+      if (data.uniforms) {
+        this.uniforms = data.uniforms;
+        this.uniformIdCounter =
+          data.uniformIdCounter || this.uniforms.length + 1;
+        this.renderUniformList();
+      }
+
+      // Restore camera
+      if (data.camera) {
+        this.camera = data.camera;
+      }
+
+      // Restore nodes
+      const nodeMap = new Map(); // Map old IDs to new node objects
+
+      if (data.nodes) {
+        for (const nodeData of data.nodes) {
+          const nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
+          if (!nodeType) {
+            console.warn(`Unknown node type: ${nodeData.nodeTypeKey}`);
+            continue;
+          }
+
+          const node = new Node(nodeData.x, nodeData.y, nodeData.id, nodeType);
+
+          // Restore node properties
+          if (nodeData.title) node.title = nodeData.title;
+          if (nodeData.operation) node.operation = nodeData.operation;
+          if (nodeData.uniformName) node.uniformName = nodeData.uniformName;
+          if (nodeData.uniformDisplayName)
+            node.uniformDisplayName = nodeData.uniformDisplayName;
+          if (nodeData.uniformVariableName)
+            node.uniformVariableName = nodeData.uniformVariableName;
+          if (nodeData.uniformId !== undefined)
+            node.uniformId = nodeData.uniformId;
+          if (nodeData.isVariable !== undefined)
+            node.isVariable = nodeData.isVariable;
+
+          // Restore port values
+          nodeData.inputPorts.forEach((portData, index) => {
+            if (node.inputPorts[index] && portData.value !== undefined) {
+              node.inputPorts[index].value = portData.value;
+            }
+          });
+
+          nodeMap.set(nodeData.id, node);
+          this.nodes.push(node);
+        }
+      }
+
+      // Restore wires
+      if (data.wires) {
+        for (const wireData of data.wires) {
+          const startNode = nodeMap.get(wireData.startNodeId);
+          const endNode = nodeMap.get(wireData.endNodeId);
+
+          if (!startNode || !endNode) {
+            console.warn("Wire references missing nodes");
+            continue;
+          }
+
+          const startPort = startNode.outputPorts[wireData.startPortIndex];
+          const endPort = endNode.inputPorts[wireData.endPortIndex];
+
+          if (!startPort || !endPort) {
+            console.warn("Wire references missing ports");
+            continue;
+          }
+
+          const wire = new Wire(startPort, endPort);
+
+          // Restore reroute nodes
+          if (wireData.rerouteNodes) {
+            wireData.rerouteNodes.forEach((rnData) => {
+              const rerouteNode = new RerouteNode(rnData.x, rnData.y, wire);
+              wire.rerouteNodes.push(rerouteNode);
+            });
+          }
+
+          this.wires.push(wire);
+          startPort.connections.push(wire);
+          endPort.connections.push(wire);
+        }
+      }
+
+      // Restore counters
+      if (data.nodeIdCounter) {
+        this.nodeIdCounter = data.nodeIdCounter;
+      }
+
+      this.render();
+      this.updateDependencyList();
+
+      console.log("Blueprint loaded successfully");
+    } catch (error) {
+      console.error("Failed to load blueprint:", error);
+      alert(`Failed to load blueprint: ${error.message}`);
+    }
+  }
+
+  getNodeTypeKey(nodeType) {
+    // Find the key for this node type in NODE_TYPES
+    for (const [key, type] of Object.entries(NODE_TYPES)) {
+      if (type === nodeType) {
+        return key;
+      }
+    }
+    return null;
+  }
+
+  getNodeTypeFromKey(key) {
+    return NODE_TYPES[key] || null;
+  }
+
+  updateShaderSettingsUI() {
+    // Update all shader settings input fields
+    const fields = {
+      settingName: "name",
+      settingVersion: "version",
+      settingAuthor: "author",
+      settingWebsite: "website",
+      settingDocumentation: "documentation",
+      settingDescription: "description",
+      settingCategory: "category",
+      settingBlendsBackground: "blendsBackground",
+      settingCrossSampling: "crossSampling",
+      settingPreservesOpaqueness: "preservesOpaqueness",
+      settingAnimated: "animated",
+      settingIsDeprecated: "isDeprecated",
+      settingExtendBoxH: "extendBoxH",
+      settingExtendBoxV: "extendBoxV",
+    };
+
+    for (const [elementId, settingKey] of Object.entries(fields)) {
+      const element = document.getElementById(elementId);
+      if (element) {
+        if (element.type === "checkbox") {
+          element.checked = this.shaderSettings[settingKey];
+        } else {
+          element.value = this.shaderSettings[settingKey];
+        }
+      }
+    }
   }
 
   downloadFile(filename, content) {

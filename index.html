@@ -10,9 +10,17 @@
     <div id="app">
       <div id="toolbar">
         <h1>Blueprint System</h1>
+        <button id="saveBtn">Save</button>
+        <button id="loadBtn">Load</button>
         <button id="clearBtn">Clear All</button>
         <button id="exportBtn">Export</button>
       </div>
+      <input
+        type="file"
+        id="loadFileInput"
+        accept=".json"
+        style="display: none"
+      />
       <div id="main-content">
         <div id="uniform-sidebar">
           <div id="shader-settings-section" class="collapsible-section">
