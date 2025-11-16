@@ -117,8 +117,8 @@
 
 ### Gradient/Interpolation
 
-- [ ] Gradient (linear gradient)
-- [ ] Radial Gradient
+- [x] Gradient (linear gradient) - LinearGradientNode
+- [x] Radial Gradient - RadialGradientNode
 - [x] Remap (remap value from one range to another) - RemapNode
 
 ### Utility
@@ -139,9 +139,6 @@
 ### Advanced
 
 - [ ] Matrix operations (multiply, transform, etc.)
-- [ ] Normal mapping
-- [ ] Parallax mapping
-- [ ] Screen-space derivatives
 - [x] Custom code block (for advanced users) - Custom Node system
 
 ### Built-in Parameters (Construct 3 specific)
