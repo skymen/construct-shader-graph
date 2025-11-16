@@ -725,19 +725,52 @@ class BlueprintSystem {
   setupMinimap() {
     this.minimapCanvas = document.getElementById("minimap");
     this.minimapCtx = this.minimapCanvas.getContext("2d");
-    
+
     // Set minimap dimensions
     const minimapWidth = 200;
     const minimapHeight = 150;
     this.minimapCanvas.width = minimapWidth;
     this.minimapCanvas.height = minimapHeight;
-    
-    // Handle minimap clicks
-    this.minimapCanvas.addEventListener("click", (e) => {
+
+    // Track minimap dragging state
+    this.minimapDragging = false;
+
+    // Handle minimap mouse down
+    this.minimapCanvas.addEventListener("mousedown", (e) => {
+      this.minimapDragging = true;
       const rect = this.minimapCanvas.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
       const clickY = e.clientY - rect.top;
       this.handleMinimapClick(clickX, clickY);
+      e.preventDefault();
+    });
+
+    // Handle minimap mouse move
+    this.minimapCanvas.addEventListener("mousemove", (e) => {
+      if (this.minimapDragging) {
+        const rect = this.minimapCanvas.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+        this.handleMinimapClick(clickX, clickY);
+        e.preventDefault();
+      }
+    });
+
+    // Handle minimap mouse up
+    this.minimapCanvas.addEventListener("mouseup", (e) => {
+      this.minimapDragging = false;
+    });
+
+    // Handle mouse leaving minimap
+    this.minimapCanvas.addEventListener("mouseleave", (e) => {
+      this.minimapDragging = false;
+    });
+
+    // Handle global mouse up (in case mouse is released outside minimap)
+    document.addEventListener("mouseup", () => {
+      if (this.minimapDragging) {
+        this.minimapDragging = false;
+      }
     });
   }
 
@@ -3302,30 +3335,37 @@ class BlueprintSystem {
 
     document.getElementById("loadBtn").addEventListener("click", async () => {
       // Try to use File System Access API if available
-      if ('showOpenFilePicker' in window) {
+      if ("showOpenFilePicker" in window) {
         try {
           const [fileHandle] = await window.showOpenFilePicker({
-            types: [{
-              description: 'Shader Graph',
-              accept: { 'application/json': ['.json'] },
-            }],
+            types: [
+              {
+                description: "Construct 3 Shader Graph",
+                accept: {
+                  "application/json": [".c3sg", ".json"],
+                },
+              },
+            ],
             multiple: false,
           });
-          
+
           const file = await fileHandle.getFile();
           this.fileHandle = fileHandle; // Store handle for future saves
           await this.loadFromJSON(file);
           return;
         } catch (error) {
           // User cancelled or error occurred, fall back to file input
-          if (error.name !== 'AbortError') {
-            console.warn('File System Access API failed, falling back to file input:', error);
+          if (error.name !== "AbortError") {
+            console.warn(
+              "File System Access API failed, falling back to file input:",
+              error
+            );
           } else {
             return; // User cancelled, don't show file input
           }
         }
       }
-      
+
       // Fallback to traditional file input
       document.getElementById("loadFileInput").click();
     });
@@ -3429,27 +3469,26 @@ class BlueprintSystem {
     }
 
     // Ctrl/Cmd + N: New File
-    if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+    if ((e.ctrlKey || e.metaKey) && e.key === "n") {
       e.preventDefault();
       this.createNewFile();
     }
     // Ctrl/Cmd + S: Save
-    else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    else if ((e.ctrlKey || e.metaKey) && e.key === "s") {
       e.preventDefault();
       this.saveToJSON();
     }
     // Ctrl/Cmd + Shift + S: Save As (clear file handle)
-    else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'S') {
+    else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "S") {
       e.preventDefault();
       this.fileHandle = null; // Clear handle to force "Save As"
       this.saveToJSON();
     }
     // Ctrl/Cmd + O: Open
-    else if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+    else if ((e.ctrlKey || e.metaKey) && e.key === "o") {
       e.preventDefault();
       document.getElementById("loadBtn").click();
-    }
-    else if (e.key === "Delete" || e.key === "Backspace") {
+    } else if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
       this.deleteSelected();
     }
@@ -4055,13 +4094,13 @@ class BlueprintSystem {
   createNewFile() {
     // Clear file handle to start fresh
     this.fileHandle = null;
-    
+
     // Clear all nodes and wires
     this.nodes = [];
     this.wires = [];
     this.selectedNodes.clear();
     this.selectedRerouteNodes.clear();
-    
+
     // Reset shader settings to defaults
     this.shaderSettings = {
       name: "",
@@ -4080,30 +4119,30 @@ class BlueprintSystem {
       extendBoxV: 0,
     };
     this.updateShaderSettingsUI();
-    
+
     // Clear uniforms
     this.uniforms = [];
     this.uniformIdCounter = 1;
     this.renderUniformList();
-    
+
     // Clear custom nodes
     this.customNodes = [];
     this.customNodeIdCounter = 1;
     this.renderCustomNodesList();
-    
+
     // Reset camera
     this.camera = {
       x: 0,
       y: 0,
       zoom: 1,
     };
-    
+
     // Reset node ID counter
     this.nodeIdCounter = 1;
-    
+
     // Re-add the output node
     this.addNode(600, 300, NODE_TYPES.output);
-    
+
     this.render();
     this.updateDependencyList();
     this.onShaderChanged();
@@ -4159,44 +4198,53 @@ class BlueprintSystem {
     };
 
     const json = JSON.stringify(data, null, 2);
-    
+
     // Try to use File System Access API if available
-    if ('showSaveFilePicker' in window) {
+    if ("showSaveFilePicker" in window) {
       try {
         const filename = this.shaderSettings.name
-          ? `${this.sanitizeAddonId(this.shaderSettings.name)}.json`
-          : "blueprint.json";
-        
+          ? `${this.sanitizeAddonId(this.shaderSettings.name)}.c3sg`
+          : "blueprint.c3sg";
+
         // If we have an existing file handle, try to reuse it
         let handle = this.fileHandle;
-        
+
         // If no handle or user wants to save as new file, show picker
         if (!handle) {
           handle = await window.showSaveFilePicker({
             suggestedName: filename,
-            types: [{
-              description: 'Shader Graph',
-              accept: { 'application/json': ['.json'] },
-            }],
+            types: [
+              {
+                description: "Construct 3 Shader Graph",
+                accept: {
+                  "application/json": [".c3sg", ".json"],
+                },
+              },
+            ],
           });
           this.fileHandle = handle;
         }
-        
+
         // Write to the file
         const writable = await handle.createWritable();
         await writable.write(json);
         await writable.close();
-        
-        console.log('Blueprint saved successfully using File System Access API');
+
+        console.log(
+          "Blueprint saved successfully using File System Access API"
+        );
         return;
       } catch (error) {
         // User cancelled or error occurred, fall back to download
-        if (error.name !== 'AbortError') {
-          console.warn('File System Access API failed, falling back to download:', error);
+        if (error.name !== "AbortError") {
+          console.warn(
+            "File System Access API failed, falling back to download:",
+            error
+          );
         }
       }
     }
-    
+
     // Fallback to traditional download method
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -4204,8 +4252,8 @@ class BlueprintSystem {
     a.href = url;
 
     const filename = this.shaderSettings.name
-      ? `${this.sanitizeAddonId(this.shaderSettings.name)}.json`
-      : "blueprint.json";
+      ? `${this.sanitizeAddonId(this.shaderSettings.name)}.c3sg`
+      : "blueprint.c3sg";
     a.download = filename;
 
     document.body.appendChild(a);
@@ -6084,7 +6132,7 @@ class BlueprintSystem {
 
     // Restore context
     ctx.restore();
-    
+
     // Render minimap
     this.renderMinimap();
   }
@@ -6093,31 +6141,31 @@ class BlueprintSystem {
     if (this.nodes.length === 0) {
       return { x: 0, y: 0, width: 800, height: 600 };
     }
-    
+
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
-    
-    this.nodes.forEach(node => {
+
+    this.nodes.forEach((node) => {
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
       maxX = Math.max(maxX, node.x + node.width);
       maxY = Math.max(maxY, node.y + node.height);
     });
-    
+
     // Add padding around nodes
     const padding = 100;
     minX -= padding;
     minY -= padding;
     maxX += padding;
     maxY += padding;
-    
+
     return {
       x: minX,
       y: minY,
       width: maxX - minX,
-      height: maxY - minY
+      height: maxY - minY,
     };
   }
 
@@ -6125,59 +6173,138 @@ class BlueprintSystem {
     if (!this.minimapCanvas || !this.minimapCtx) {
       return;
     }
-    
+
     const ctx = this.minimapCtx;
     const width = this.minimapCanvas.width;
     const height = this.minimapCanvas.height;
-    
+
     // Clear minimap
     ctx.clearRect(0, 0, width, height);
-    
+
     // Draw background
     ctx.fillStyle = "rgba(26, 26, 26, 0.95)";
     ctx.fillRect(0, 0, width, height);
-    
+
     // Get bounds of all nodes
-    const bounds = this.getNodesBounds();
-    
-    // Calculate scale to fit all nodes in minimap
+    let bounds = this.getNodesBounds();
+
+    // Calculate the viewport size at 100% zoom
+    const viewportWidth = this.canvas.width;
+    const viewportHeight = this.canvas.height;
+    const viewportX = -this.camera.x;
+    const viewportY = -this.camera.y;
+
+    // Expand bounds to include the viewport with 30% margin
+    const marginFactor = 1.3; // 30% margin
+    const minViewportWidth = viewportWidth * marginFactor;
+    const minViewportHeight = viewportHeight * marginFactor;
+
+    // Ensure bounds are at least as large as the viewport with margin
+    if (bounds.width < minViewportWidth) {
+      const diff = minViewportWidth - bounds.width;
+      bounds.x -= diff / 2;
+      bounds.width = minViewportWidth;
+    }
+    if (bounds.height < minViewportHeight) {
+      const diff = minViewportHeight - bounds.height;
+      bounds.y -= diff / 2;
+      bounds.height = minViewportHeight;
+    }
+
+    // Also ensure the current viewport is included in bounds
+    const vpMinX = viewportX;
+    const vpMinY = viewportY;
+    const vpMaxX = viewportX + viewportWidth;
+    const vpMaxY = viewportY + viewportHeight;
+
+    const boundsMinX = Math.min(bounds.x, vpMinX);
+    const boundsMinY = Math.min(bounds.y, vpMinY);
+    const boundsMaxX = Math.max(bounds.x + bounds.width, vpMaxX);
+    const boundsMaxY = Math.max(bounds.y + bounds.height, vpMaxY);
+
+    bounds = {
+      x: boundsMinX,
+      y: boundsMinY,
+      width: boundsMaxX - boundsMinX,
+      height: boundsMaxY - boundsMinY,
+    };
+
+    // Calculate scale to fit all content in minimap
     const scaleX = width / bounds.width;
     const scaleY = height / bounds.height;
     const scale = Math.min(scaleX, scaleY) * 0.9; // 0.9 for some margin
-    
+
     // Calculate offset to center the view
     const offsetX = (width - bounds.width * scale) / 2;
     const offsetY = (height - bounds.height * scale) / 2;
-    
-    // Draw nodes
+
     ctx.save();
-    this.nodes.forEach(node => {
+
+    // Draw wires/links first (so they appear behind nodes)
+    this.wires.forEach((wire) => {
+      const points = wire.getPoints();
+      if (points.length < 2) return;
+
+      // Use the color of the output port (start port)
+      const wireColor = wire.startPort ? wire.startPort.getColor() : "#4a90e2";
+      ctx.strokeStyle = wireColor;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.6;
+
+      // Draw simplified wire as a line
+      ctx.beginPath();
+      const startX = (points[0].x - bounds.x) * scale + offsetX;
+      const startY = (points[0].y - bounds.y) * scale + offsetY;
+      ctx.moveTo(startX, startY);
+
+      for (let i = 1; i < points.length; i++) {
+        const x = (points[i].x - bounds.x) * scale + offsetX;
+        const y = (points[i].y - bounds.y) * scale + offsetY;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1.0;
+    });
+
+    // Draw nodes
+    this.nodes.forEach((node) => {
       const x = (node.x - bounds.x) * scale + offsetX;
       const y = (node.y - bounds.y) * scale + offsetY;
       const w = node.width * scale;
       const h = node.height * scale;
-      
-      // Draw node as a small rectangle
-      ctx.fillStyle = node.headerColor;
+
+      // Draw node background
+      ctx.fillStyle = "#2d2d2d";
       ctx.fillRect(x, y, w, h);
+
+      // Draw node header
+      ctx.fillStyle = node.headerColor || "#3a3a3a";
+      const headerHeight = Math.max(2, 20 * scale);
+      ctx.fillRect(x, y, w, headerHeight);
+
+      // Draw node border
+      ctx.strokeStyle = "#4a4a4a";
+      ctx.lineWidth = Math.max(0.5, 1 * scale);
+      ctx.strokeRect(x, y, w, h);
     });
+
     ctx.restore();
-    
-    // Draw camera viewport
-    const viewportWidth = this.canvas.width / this.camera.zoom;
-    const viewportHeight = this.canvas.height / this.camera.zoom;
-    const viewportX = -this.camera.x / this.camera.zoom;
-    const viewportY = -this.camera.y / this.camera.zoom;
-    
-    const vx = (viewportX - bounds.x) * scale + offsetX;
-    const vy = (viewportY - bounds.y) * scale + offsetY;
-    const vw = viewportWidth * scale;
-    const vh = viewportHeight * scale;
-    
+
+    // Draw camera viewport (using actual current zoom level)
+    const currentViewportWidth = this.canvas.width / this.camera.zoom;
+    const currentViewportHeight = this.canvas.height / this.camera.zoom;
+    const currentViewportX = -this.camera.x / this.camera.zoom;
+    const currentViewportY = -this.camera.y / this.camera.zoom;
+
+    const vx = (currentViewportX - bounds.x) * scale + offsetX;
+    const vy = (currentViewportY - bounds.y) * scale + offsetY;
+    const vw = currentViewportWidth * scale;
+    const vh = currentViewportHeight * scale;
+
     ctx.strokeStyle = "#4a90e2";
     ctx.lineWidth = 2;
     ctx.strokeRect(vx, vy, vw, vh);
-    
+
     // Fill viewport with semi-transparent overlay
     ctx.fillStyle = "rgba(74, 144, 226, 0.2)";
     ctx.fillRect(vx, vy, vw, vh);
@@ -6186,30 +6313,71 @@ class BlueprintSystem {
   handleMinimapClick(clickX, clickY) {
     const width = this.minimapCanvas.width;
     const height = this.minimapCanvas.height;
-    
-    // Get bounds of all nodes
-    const bounds = this.getNodesBounds();
-    
+
+    // Get bounds of all nodes (same calculation as renderMinimap)
+    let bounds = this.getNodesBounds();
+
+    // Calculate the viewport size at 100% zoom
+    const viewportWidth = this.canvas.width;
+    const viewportHeight = this.canvas.height;
+    const viewportX = -this.camera.x;
+    const viewportY = -this.camera.y;
+
+    // Expand bounds to include the viewport with 30% margin
+    const marginFactor = 1.3; // 30% margin
+    const minViewportWidth = viewportWidth * marginFactor;
+    const minViewportHeight = viewportHeight * marginFactor;
+
+    // Ensure bounds are at least as large as the viewport with margin
+    if (bounds.width < minViewportWidth) {
+      const diff = minViewportWidth - bounds.width;
+      bounds.x -= diff / 2;
+      bounds.width = minViewportWidth;
+    }
+    if (bounds.height < minViewportHeight) {
+      const diff = minViewportHeight - bounds.height;
+      bounds.y -= diff / 2;
+      bounds.height = minViewportHeight;
+    }
+
+    // Also ensure the current viewport is included in bounds
+    const vpMinX = viewportX;
+    const vpMinY = viewportY;
+    const vpMaxX = viewportX + viewportWidth;
+    const vpMaxY = viewportY + viewportHeight;
+
+    const boundsMinX = Math.min(bounds.x, vpMinX);
+    const boundsMinY = Math.min(bounds.y, vpMinY);
+    const boundsMaxX = Math.max(bounds.x + bounds.width, vpMaxX);
+    const boundsMaxY = Math.max(bounds.y + bounds.height, vpMaxY);
+
+    bounds = {
+      x: boundsMinX,
+      y: boundsMinY,
+      width: boundsMaxX - boundsMinX,
+      height: boundsMaxY - boundsMinY,
+    };
+
     // Calculate scale
     const scaleX = width / bounds.width;
     const scaleY = height / bounds.height;
     const scale = Math.min(scaleX, scaleY) * 0.9;
-    
+
     // Calculate offset
     const offsetX = (width - bounds.width * scale) / 2;
     const offsetY = (height - bounds.height * scale) / 2;
-    
+
     // Convert click position to world coordinates
     const worldX = (clickX - offsetX) / scale + bounds.x;
     const worldY = (clickY - offsetY) / scale + bounds.y;
-    
+
     // Center camera on clicked position
-    const viewportWidth = this.canvas.width / this.camera.zoom;
-    const viewportHeight = this.canvas.height / this.camera.zoom;
-    
-    this.camera.x = -(worldX - viewportWidth / 2) * this.camera.zoom;
-    this.camera.y = -(worldY - viewportHeight / 2) * this.camera.zoom;
-    
+    const currentViewportWidth = this.canvas.width / this.camera.zoom;
+    const currentViewportHeight = this.canvas.height / this.camera.zoom;
+
+    this.camera.x = -(worldX - currentViewportWidth / 2) * this.camera.zoom;
+    this.camera.y = -(worldY - currentViewportHeight / 2) * this.camera.zoom;
+
     this.render();
   }
 }
