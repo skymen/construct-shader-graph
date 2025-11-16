@@ -23,29 +23,29 @@
 - [x] Lerp/Mix (linear interpolation between two values) - MixNode
 - [x] Smoothstep (smooth Hermite interpolation) - SmoothstepNode
 - [x] Step (step function, returns 0 or 1) - StepNode
-- [ ] Fract (fractional part of a number)
-- [ ] Floor (round down)
-- [ ] Ceil (round up)
-- [x] Round (round to nearest integer)
+- [x] Fract (fractional part of a number) - FractNode
+- [x] Floor (round down) - FloorNode
+- [x] Ceil (round up) - CeilNode
+- [x] Round (round to nearest integer) - RoundNode
 - [ ] Sign (returns -1, 0, or 1)
-- [ ] Mod/Fmod (modulo operation)
-- [ ] Sqrt (square root)
-- [ ] Exp (exponential)
-- [ ] Log (logarithm)
-- [ ] Exp2 (2^x)
-- [ ] Log2 (log base 2)
+- [x] Mod/Fmod (modulo operation) - ModNode
+- [x] Sqrt (square root) - SqrtNode
+- [x] Exp (exponential) - ExpNode
+- [x] Log (logarithm) - LnNode, Log10Node, Log2Node
+- [x] Exp2 (2^x) - Exp2Node
+- [x] Log2 (log base 2) - Log2Node
 
 ### Trigonometry
 
 - [x] Sin (sine) - SinNode
 - [x] Cos (cosine) - CosNode
 - [x] Tan (tangent) - TanNode
-- [ ] Asin (arc sine)
-- [ ] Acos (arc cosine)
-- [ ] Atan (arc tangent)
-- [ ] Atan2 (arc tangent of y/x)
-- [ ] Radians (degrees to radians)
-- [ ] Degrees (radians to degrees)
+- [x] Asin (arc sine) - AsinNode
+- [x] Acos (arc cosine) - AcosNode
+- [x] Atan (arc tangent) - AtanNode
+- [x] Atan2 (arc tangent of y/x) - Atan2Node
+- [x] Radians (degrees to radians) - ToRadiansNode
+- [x] Degrees (radians to degrees) - ToDegreesNode
 
 ### Vector Operations
 
