@@ -1624,6 +1624,22 @@ class BlueprintSystem {
       isDragging = false;
     });
 
+    // Toggle settings button
+    const togglePreviewSettingsBtn = document.getElementById(
+      "togglePreviewSettingsBtn"
+    );
+    const previewControls = document.getElementById("preview-controls");
+
+    togglePreviewSettingsBtn.addEventListener("click", () => {
+      if (previewControls.classList.contains("preview-controls-visible")) {
+        previewControls.classList.remove("preview-controls-visible");
+        previewControls.classList.add("preview-controls-hidden");
+      } else {
+        previewControls.classList.remove("preview-controls-hidden");
+        previewControls.classList.add("preview-controls-visible");
+      }
+    });
+
     // Reload button
     reloadPreviewBtn.addEventListener("click", () => {
       this.updatePreview();

@@ -104,7 +104,6 @@ async function OnBeforeProjectStart(rt) {
   camera = runtime.objects.camera;
   layout = runtime.layout;
   layer = piggy.layer;
-  layout.isUnboundedScrolling = true;
 
   // Setup camera controls
   setupCameraControls();
@@ -483,7 +482,6 @@ function setupShaderErrorCapture() {
   };
   self.C3.EffectList = class extends self.C3.EffectList {
     constructor(e, t) {
-      debugger;
       if (t.length === 1) {
         while (t[0].length < 3) {
           t[0].push([]);
@@ -497,7 +495,6 @@ function setupShaderErrorCapture() {
           ),
         ];
       }
-      debugger;
       super(e, t);
     }
   };

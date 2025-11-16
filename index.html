@@ -32,48 +32,53 @@
           <div id="preview-header">
             <span>Preview</span>
             <div class="preview-header-buttons">
+              <button id="togglePreviewSettingsBtn" title="Toggle Settings">
+                ⚙
+              </button>
               <button id="reloadPreviewBtn" title="Reload Preview">⟳</button>
               <button id="closePreviewBtn">×</button>
             </div>
           </div>
-          <div id="preview-controls">
-            <div class="preview-control-group">
-              <label>Effect Target:</label>
-              <select id="effectTargetSelect">
-                <option value="sprite">Sprite</option>
-                <option value="shape3D">3D Shape</option>
-                <option value="layout">Layout</option>
-                <option value="layer">Layer</option>
-              </select>
+          <div id="preview-content">
+            <div id="preview-controls" class="preview-controls-visible">
+              <div class="preview-control-group">
+                <label>Effect Target:</label>
+                <select id="effectTargetSelect">
+                  <option value="sprite">Sprite</option>
+                  <option value="shape3D">3D Shape</option>
+                  <option value="layout">Layout</option>
+                  <option value="layer">Layer</option>
+                </select>
+              </div>
+              <div class="preview-control-group">
+                <label>Object:</label>
+                <select id="objectSelect">
+                  <option value="sprite">Sprite</option>
+                  <option value="box">Box</option>
+                  <option value="prism">Prism</option>
+                  <option value="wedge">Wedge</option>
+                  <option value="pyramid">Pyramid</option>
+                  <option value="corner-out">Corner Out</option>
+                  <option value="corner-in">Corner In</option>
+                </select>
+              </div>
+              <div class="preview-control-group">
+                <label>Camera:</label>
+                <select id="cameraModeSelect">
+                  <option value="2d">2D</option>
+                  <option value="perspective">Perspective</option>
+                  <option value="orthographic">Orthographic</option>
+                </select>
+              </div>
+              <div class="preview-control-group" id="autoRotateGroup">
+                <label>
+                  <input type="checkbox" id="autoRotateCheckbox" checked />
+                  Auto Rotate
+                </label>
+              </div>
             </div>
-            <div class="preview-control-group">
-              <label>Object:</label>
-              <select id="objectSelect">
-                <option value="sprite">Sprite</option>
-                <option value="box">Box</option>
-                <option value="prism">Prism</option>
-                <option value="wedge">Wedge</option>
-                <option value="pyramid">Pyramid</option>
-                <option value="corner-out">Corner Out</option>
-                <option value="corner-in">Corner In</option>
-              </select>
-            </div>
-            <div class="preview-control-group">
-              <label>Camera:</label>
-              <select id="cameraModeSelect">
-                <option value="2d">2D</option>
-                <option value="perspective">Perspective</option>
-                <option value="orthographic">Orthographic</option>
-              </select>
-            </div>
-            <div class="preview-control-group" id="autoRotateGroup">
-              <label>
-                <input type="checkbox" id="autoRotateCheckbox" checked />
-                Auto Rotate
-              </label>
-            </div>
+            <iframe id="preview-iframe" src="./preview/index.html"></iframe>
           </div>
-          <iframe id="preview-iframe" src="./preview/index.html"></iframe>
         </div>
         <div id="uniform-sidebar">
           <div id="shader-settings-section" class="collapsible-section">
