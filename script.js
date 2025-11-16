@@ -3451,12 +3451,12 @@ class BlueprintSystem {
       const worldX = (mouseX - this.camera.x) / this.camera.zoom;
       const worldY = (mouseY - this.camera.y) / this.camera.zoom;
 
-      // Update zoom
-      const zoomSpeed = 0.01;
+      // Update zoom with exponential scaling for symmetric zoom in/out
+      const zoomSpeed = 0.002;
       const delta = -e.deltaY * zoomSpeed;
       const newZoom = Math.max(
         0.1,
-        Math.min(5, this.camera.zoom * (1 + delta))
+        Math.min(5, this.camera.zoom * Math.exp(delta))
       );
 
       // Adjust camera position to zoom towards mouse
