@@ -24,6 +24,10 @@ import { Log10Node } from "./Log10Node.js";
 import { Log2Node } from "./Log2Node.js";
 import { Exp2Node } from "./Exp2Node.js";
 import { Exp10Node } from "./Exp10Node.js";
+import { SignNode } from "./SignNode.js";
+import { SelectNode } from "./SelectNode.js";
+import { ToFloatNode } from "./ToFloatNode.js";
+import { ToIntNode } from "./ToIntNode.js";
 import { CompareNode } from "./CompareNode.js";
 import { MinNode } from "./MinNode.js";
 import { MaxNode } from "./MaxNode.js";
@@ -45,6 +49,7 @@ import { CrossNode } from "./CrossNode.js";
 import { NormalizeNode } from "./NormalizeNode.js";
 import { LengthNode } from "./LengthNode.js";
 import { DistanceNode } from "./DistanceNode.js";
+import { RotateAroundPointNode } from "./RotateAroundPointNode.js";
 import { Hash11Node } from "./Hash11Node.js";
 import { Hash21Node } from "./Hash21Node.js";
 import { Hash22Node } from "./Hash22Node.js";
@@ -83,6 +88,10 @@ import { BuiltinLayerAngleNode } from "./BuiltinLayerAngleNode.js";
 import { BuiltinSecondsNode } from "./BuiltinSecondsNode.js";
 import { BuiltinZNearNode } from "./BuiltinZNearNode.js";
 import { BuiltinZFarNode } from "./BuiltinZFarNode.js";
+import { BuiltinSrcSizeNode } from "./BuiltinSrcSizeNode.js";
+import { BuiltinSrcCenterNode } from "./BuiltinSrcCenterNode.js";
+import { BuiltinSrcOriginSizeNode } from "./BuiltinSrcOriginSizeNode.js";
+import { BuiltinSrcOriginCenterNode } from "./BuiltinSrcOriginCenterNode.js";
 
 // Export NODE_TYPES object
 export const NODE_TYPES = {
@@ -101,6 +110,10 @@ export const NODE_TYPES = {
   log2: Log2Node,
   exp2: Exp2Node,
   exp10: Exp10Node,
+  sign: SignNode,
+  select: SelectNode,
+  toFloat: ToFloatNode,
+  toInt: ToIntNode,
   compare: CompareNode,
   min: MinNode,
   max: MaxNode,
@@ -122,6 +135,7 @@ export const NODE_TYPES = {
   normalize: NormalizeNode,
   length: LengthNode,
   distance: DistanceNode,
+  rotateAroundPoint: RotateAroundPointNode,
   hash11: Hash11Node,
   hash21: Hash21Node,
   hash22: Hash22Node,
@@ -160,4 +174,8 @@ export const NODE_TYPES = {
   builtinSeconds: BuiltinSecondsNode,
   builtinZNear: BuiltinZNearNode,
   builtinZFar: BuiltinZFarNode,
+  builtinSrcSize: BuiltinSrcSizeNode,
+  builtinSrcCenter: BuiltinSrcCenterNode,
+  builtinSrcOriginSize: BuiltinSrcOriginSizeNode,
+  builtinSrcOriginCenter: BuiltinSrcOriginCenterNode,
 };
