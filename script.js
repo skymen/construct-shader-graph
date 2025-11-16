@@ -1062,6 +1062,7 @@ class BlueprintSystem {
     this.searchMenuPosition = { x: 0, y: 0 };
     this.searchFilterPort = null; // Port being dragged (for filtering)
     this.searchFilterType = null; // 'input' or 'output'
+    this.pendingCustomNodePosition = null; // Position for custom node creation from search
 
     // Search input handler
     this.searchInput.addEventListener("input", () => {
@@ -1976,9 +1977,34 @@ class BlueprintSystem {
         // Update all nodes in the graph that use this custom node
         this.updateCustomNodeInstances(customNode);
       }
+      // Push state for editing
+      this.history.pushState("Edit custom node");
     } else {
       // Add new
       this.customNodes.push(customNode);
+
+      // If we have a pending position (from search menu), create a node at that position
+      if (this.pendingCustomNodePosition) {
+        const rect = this.canvas.getBoundingClientRect();
+        const screenX = this.pendingCustomNodePosition.x - rect.left;
+        const screenY = this.pendingCustomNodePosition.y - rect.top;
+        const worldX = (screenX - this.camera.x) / this.camera.zoom;
+        const worldY = (screenY - this.camera.y) / this.camera.zoom;
+
+        const nodeType = this.createNodeTypeFromCustomNode(customNode);
+        const newNode = this.addNode(worldX, worldY, nodeType);
+        this.pendingCustomNodePosition = null; // Clear the pending position
+
+        // Select the newly created node
+        this.clearSelection();
+        this.selectNode(newNode, false);
+
+        // Push state for creating custom node + adding instance
+        this.history.pushState("Create custom node");
+      } else {
+        // Just creating the definition, not placing a node
+        this.history.pushState("Create custom node definition");
+      }
     }
 
     this.renderCustomNodesList();
@@ -2188,13 +2214,6 @@ class BlueprintSystem {
     });
 
     if (hasInstances) {
-      if (
-        !confirm(
-          "This custom node is being used in the graph. Delete anyway? All instances will be removed."
-        )
-      ) {
-        return;
-      }
       // Remove all instances
       this.nodes = this.nodes.filter((node) => {
         const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
@@ -2413,6 +2432,10 @@ class BlueprintSystem {
           }
         });
 
+        numberInput.addEventListener("change", (e) => {
+          this.history.pushState("Edit uniform value");
+        });
+
         numberInput.addEventListener("mousedown", (e) => e.stopPropagation());
         numberInput.addEventListener("click", (e) => e.stopPropagation());
 
@@ -2470,6 +2493,10 @@ class BlueprintSystem {
           percentText.textContent = `${Math.round(val * 100)}%`;
         });
 
+        slider.addEventListener("change", (e) => {
+          this.history.pushState("Edit uniform value");
+        });
+
         slider.addEventListener("mousedown", (e) => e.stopPropagation());
         slider.addEventListener("pointerdown", (e) => e.stopPropagation());
 
@@ -2500,6 +2527,10 @@ class BlueprintSystem {
           const g = parseInt(hex.substr(3, 2), 16) / 255;
           const b = parseInt(hex.substr(5, 2), 16) / 255;
           this.updateUniformValue(uniform.id, { r, g, b });
+        });
+
+        colorInput.addEventListener("change", (e) => {
+          this.history.pushState("Edit uniform value");
         });
 
         colorInput.addEventListener("mousedown", (e) => e.stopPropagation());
@@ -3084,12 +3115,16 @@ class BlueprintSystem {
       createCustomBtn.appendChild(nameDiv);
 
       createCustomBtn.addEventListener("click", () => {
+        // Store the position for later use when custom node is saved
+        this.pendingCustomNodePosition = { ...this.searchMenuPosition };
         this.hideSearchMenu();
         this.showCustomNodeModal();
       });
 
       createCustomBtn.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
+          // Store the position for later use when custom node is saved
+          this.pendingCustomNodePosition = { ...this.searchMenuPosition };
           this.hideSearchMenu();
           this.showCustomNodeModal();
         }
@@ -3354,6 +3389,7 @@ class BlueprintSystem {
         const uniform = this.uniforms.find((u) => u.id === uniformId);
         if (uniform) {
           this.createUniformNode(uniform, x, y);
+          this.history.pushState("Create uniform node");
         }
         return;
       }
@@ -3365,6 +3401,7 @@ class BlueprintSystem {
         if (customNode) {
           const nodeType = this.createNodeTypeFromCustomNode(customNode);
           this.addNode(x, y, nodeType);
+          this.history.pushState("Create custom node");
         }
         return;
       }

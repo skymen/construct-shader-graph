@@ -1049,6 +1049,12 @@ button:hover {
   background: #252525;
 }
 
+.custom-nodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .custom-port-item {
   display: flex;
   gap: 10px;
