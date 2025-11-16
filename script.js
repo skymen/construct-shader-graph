@@ -51,7 +51,15 @@ class Port {
 
     // Add extra offset if node has operation dropdown
     const dropdownOffset = node.nodeType.hasOperation ? 30 : 0;
-    const startY = node.y + 50 + dropdownOffset;
+    // Add extra offset if node has custom input
+    const hasLabel =
+      node.nodeType.hasCustomInput && node.nodeType.customInputConfig.label;
+    const customInputOffset = node.nodeType.hasCustomInput
+      ? hasLabel
+        ? 45
+        : 30
+      : 0;
+    const startY = node.y + 50 + dropdownOffset + customInputOffset;
 
     // Calculate cumulative Y position based on actual port heights
     let y = startY;
@@ -165,8 +173,16 @@ class Port {
     return Math.sqrt(dx * dx + dy * dy) <= this.radius;
   }
 
-  // Get the actual type of this port (resolved if generic)
+  // Get the actual type of this port (resolved if generic or custom)
   getResolvedType() {
+    // Handle custom types
+    if (this.portType === "custom") {
+      if (this.node.nodeType.getCustomType) {
+        return this.node.nodeType.getCustomType(this.node, this);
+      }
+      return "float"; // Fallback
+    }
+
     if (isGenericType(this.portType)) {
       return this.node.resolveGenericType(this.portType) || this.portType;
     }
@@ -244,6 +260,11 @@ class Node {
       this.operation = nodeType.operationOptions[0].value;
     }
 
+    // Initialize custom input for nodes that have it
+    if (nodeType.hasCustomInput) {
+      this.customInput = nodeType.customInputConfig.defaultValue;
+    }
+
     // Track resolved generic types (e.g., { T: "float" })
     this.resolvedGenerics = {};
 
@@ -275,7 +296,21 @@ class Node {
 
       // Add extra space for operation dropdown if node has operations
       const dropdownSpace = nodeType.hasOperation ? 30 : 0;
-      this.height = 50 + dropdownSpace + maxPorts * 40 + extraHeight + 10;
+      // Add extra space for custom input if node has it
+      const hasLabel =
+        nodeType.hasCustomInput && nodeType.customInputConfig.label;
+      const customInputSpace = nodeType.hasCustomInput
+        ? hasLabel
+          ? 45
+          : 30
+        : 0;
+      this.height =
+        50 +
+        dropdownSpace +
+        customInputSpace +
+        maxPorts * 40 +
+        extraHeight +
+        10;
     }
 
     this.isDragging = false;
@@ -324,7 +359,16 @@ class Node {
 
     // Add extra space for operation dropdown if node has operations
     const dropdownSpace = this.nodeType.hasOperation ? 30 : 0;
-    this.height = 50 + dropdownSpace + maxPorts * 40 + extraHeight + 10;
+    // Add extra space for custom input if node has it
+    const hasLabel =
+      this.nodeType.hasCustomInput && this.nodeType.customInputConfig.label;
+    const customInputSpace = this.nodeType.hasCustomInput
+      ? hasLabel
+        ? 45
+        : 30
+      : 0;
+    this.height =
+      50 + dropdownSpace + customInputSpace + maxPorts * 40 + extraHeight + 10;
   }
 
   // Resolve generic type for a port based on connections
@@ -368,6 +412,59 @@ class Node {
       width: this.width - padding * 2,
       height: dropdownHeight,
     };
+  }
+
+  getCustomInputBounds() {
+    if (!this.nodeType.hasCustomInput) return null;
+
+    const headerHeight = 30;
+    const inputHeight = 25;
+    const padding = 10;
+    const topMargin = 10; // Margin above the input
+
+    // Add extra space for label if present
+    const hasLabel = this.nodeType.customInputConfig.label;
+    const labelHeight = hasLabel ? 15 : 0;
+
+    // If there's also an operation dropdown, position below it
+    const operationOffset = this.nodeType.hasOperation ? 35 : 0;
+
+    return {
+      x: this.x + padding,
+      y: this.y + headerHeight + topMargin + operationOffset + labelHeight,
+      width: this.width - padding * 2,
+      height: inputHeight,
+    };
+  }
+
+  // Update custom input and handle type changes
+  updateCustomInput(newValue, editor) {
+    const oldValue = this.customInput;
+    this.customInput = newValue;
+
+    // Check if any ports have custom types
+    const customPorts = this.getAllPorts().filter(
+      (port) => port.portType === "custom"
+    );
+
+    if (customPorts.length > 0 && this.nodeType.getCustomType) {
+      // Get old and new types for each custom port
+      customPorts.forEach((port) => {
+        const oldNode = { ...this, customInput: oldValue };
+        const newNode = { ...this, customInput: newValue };
+
+        const oldType = this.nodeType.getCustomType(oldNode, port);
+        const newType = this.nodeType.getCustomType(newNode, port);
+
+        // If type changed, disconnect all connections
+        if (oldType !== newType && port.connections.length > 0) {
+          const connectionsToRemove = [...port.connections];
+          connectionsToRemove.forEach((wire) => {
+            editor.disconnectWire(wire);
+          });
+        }
+      });
+    }
   }
 }
 
@@ -599,6 +696,37 @@ class BlueprintSystem {
 
     // Prevent input from interfering with canvas events
     this.inputField.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+    });
+
+    // Create custom input field for nodes with custom input
+    this.customInputField = document.createElement("input");
+    this.customInputField.type = "text";
+    this.customInputField.id = "customInputField";
+    this.customInputField.style.position = "fixed";
+    this.customInputField.style.display = "none";
+    this.customInputField.style.background = "#1a1a1a";
+    this.customInputField.style.border = "2px solid #6ab0ff";
+    this.customInputField.style.borderRadius = "4px";
+    this.customInputField.style.color = "white";
+    this.customInputField.style.padding = "4px 8px";
+    this.customInputField.style.fontFamily = "monospace";
+    this.customInputField.style.fontSize = "14px";
+    document.body.appendChild(this.customInputField);
+
+    this.customInputField.addEventListener("blur", () => {
+      this.finishEditingCustomInput();
+    });
+
+    this.customInputField.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        this.finishEditingCustomInput();
+      } else if (e.key === "Escape") {
+        this.cancelEditingCustomInput();
+      }
+    });
+
+    this.customInputField.addEventListener("mousedown", (e) => {
       e.stopPropagation();
     });
 
@@ -2428,6 +2556,73 @@ class BlueprintSystem {
     this.vec3Editor.style.display = "none";
     this.vec4Editor.style.display = "none";
     this.editingPort = null;
+  }
+
+  startEditingCustomInput(node) {
+    this.editingCustomInput = node;
+    const bounds = node.getCustomInputBounds();
+    const config = node.nodeType.customInputConfig;
+
+    // Position the input field
+    const rect = this.canvas.getBoundingClientRect();
+    this.customInputField.style.left = `${rect.left + bounds.x}px`;
+    this.customInputField.style.top = `${rect.top + bounds.y}px`;
+    this.customInputField.style.width = `${bounds.width}px`;
+    this.customInputField.style.height = `${bounds.height}px`;
+    this.customInputField.style.display = "block";
+
+    // Set current value
+    this.customInputField.value = node.customInput || config.defaultValue;
+    this.customInputField.placeholder = config.placeholder || "";
+
+    // Focus and select
+    setTimeout(() => {
+      this.customInputField.focus();
+      this.customInputField.select();
+    }, 0);
+
+    this.render();
+  }
+
+  finishEditingCustomInput() {
+    if (!this.editingCustomInput) return;
+
+    const node = this.editingCustomInput;
+    const newValue = this.customInputField.value;
+    const config = node.nodeType.customInputConfig;
+
+    // Validate the input
+    if (config.validate) {
+      const validation = config.validate(newValue, node);
+      if (!validation.valid) {
+        // Show error and revert to previous value
+        alert(validation.error);
+        // Revert to the previous valid value
+        this.customInputField.value = node.customInput || config.defaultValue;
+        this.customInputField.focus();
+        this.customInputField.select();
+        return;
+      }
+    }
+
+    // Update the value and handle type changes
+    node.updateCustomInput(newValue, this);
+
+    // Hide the input field
+    this.customInputField.style.display = "none";
+    this.editingCustomInput = null;
+
+    // Recalculate node height if needed
+    node.recalculateHeight();
+
+    this.render();
+    this.onShaderChanged();
+  }
+
+  cancelEditingCustomInput() {
+    this.customInputField.style.display = "none";
+    this.editingCustomInput = null;
+    this.render();
   }
 
   showSearchMenu(x, y, filterPort = null, filterType = null) {
@@ -4347,6 +4542,22 @@ class BlueprintSystem {
       }
     }
 
+    // Close custom input editor if clicking outside
+    if (this.editingCustomInput) {
+      const pos = this.getMousePos(e);
+      const bounds = this.editingCustomInput.getCustomInputBounds();
+
+      // Check if clicking outside the input bounds
+      if (
+        pos.x < bounds.x ||
+        pos.x > bounds.x + bounds.width ||
+        pos.y < bounds.y ||
+        pos.y > bounds.y + bounds.height
+      ) {
+        this.finishEditingCustomInput();
+      }
+    }
+
     // Handle middle-click panning
     if (e.button === 1) {
       e.preventDefault();
@@ -4450,6 +4661,22 @@ class BlueprintSystem {
           pos.y <= dropdown.y + dropdown.height
         ) {
           this.showOperationMenu(node, dropdown);
+          return;
+        }
+      }
+    }
+
+    // Check if clicking on a custom input field
+    for (const node of this.nodes) {
+      if (node.nodeType.hasCustomInput) {
+        const inputBounds = node.getCustomInputBounds();
+        if (
+          pos.x >= inputBounds.x &&
+          pos.x <= inputBounds.x + inputBounds.width &&
+          pos.y >= inputBounds.y &&
+          pos.y <= inputBounds.y + inputBounds.height
+        ) {
+          this.startEditingCustomInput(node);
           return;
         }
       }
@@ -5195,14 +5422,21 @@ class BlueprintSystem {
 
     // Draw tooltip for hovered port
     if (isHovered) {
-      // Show tooltip if: no connections OR is a generic type
+      // Show tooltip if: no connections OR is a generic/custom type
       const shouldShowTooltip =
-        port.connections.length === 0 || isGenericType(port.portType);
+        port.connections.length === 0 ||
+        isGenericType(port.portType) ||
+        port.portType === "custom";
 
       if (shouldShowTooltip) {
         let tooltipText;
 
-        if (isGenericType(port.portType)) {
+        if (port.portType === "custom") {
+          // Custom type - show resolved type
+          const resolvedType = port.getResolvedType();
+          const resolvedName = PORT_TYPES[resolvedType]?.name || resolvedType;
+          tooltipText = resolvedName;
+        } else if (isGenericType(port.portType)) {
           const resolvedType = port.getResolvedType();
           const genericName = PORT_TYPES[port.portType]?.name || port.portType;
 
@@ -5408,6 +5642,61 @@ class BlueprintSystem {
           dropdown.x + dropdown.width - 5,
           dropdown.y + dropdown.height / 2 + 3
         );
+      }
+
+      // Custom input field (if node has custom input)
+      if (node.nodeType.hasCustomInput) {
+        const inputBounds = node.getCustomInputBounds();
+
+        // Input background
+        ctx.fillStyle = "#1a1a1a";
+        ctx.strokeStyle =
+          this.editingCustomInput === node ? "#6ab0ff" : "#4a4a4a";
+        ctx.lineWidth = this.editingCustomInput === node ? 2 : 1;
+        ctx.beginPath();
+        ctx.roundRect(
+          inputBounds.x,
+          inputBounds.y,
+          inputBounds.width,
+          inputBounds.height,
+          4
+        );
+        ctx.fill();
+        ctx.stroke();
+
+        // Input text
+        ctx.fillStyle = "#fff";
+        ctx.font = "14px monospace";
+        ctx.textAlign = "left";
+        const displayValue =
+          node.customInput || node.nodeType.customInputConfig.placeholder;
+        const textX = inputBounds.x + 8;
+        const textY = inputBounds.y + inputBounds.height / 2 + 5;
+
+        // Clip text to input bounds
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(
+          inputBounds.x,
+          inputBounds.y,
+          inputBounds.width,
+          inputBounds.height
+        );
+        ctx.clip();
+        ctx.fillText(displayValue, textX, textY);
+        ctx.restore();
+
+        // Show label if available
+        if (node.nodeType.customInputConfig.label) {
+          ctx.fillStyle = "#888";
+          ctx.font = "10px sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillText(
+            node.nodeType.customInputConfig.label,
+            inputBounds.x,
+            inputBounds.y - 3
+          );
+        }
       }
 
       // Ports
