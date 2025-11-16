@@ -2628,7 +2628,10 @@ class BlueprintSystem {
       this.inputField.style.visibility = "visible";
       this.inputField.style.opacity = "1";
       this.inputField.style.pointerEvents = "auto";
-      this.inputField.style.transform = `scale(${this.camera.zoom})`;
+      // Don't apply transform scale here - dimensions are already scaled
+      // Instead, scale the font size directly
+      this.inputField.style.fontSize = `${11 * this.camera.zoom}px`;
+      this.inputField.style.transform = "none";
       this.inputField.style.transformOrigin = "top left";
 
       setTimeout(() => {
