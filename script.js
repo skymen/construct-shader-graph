@@ -3248,15 +3248,8 @@ class BlueprintSystem {
     // Keyboard events
     document.addEventListener("keydown", (e) => this.onKeyDown(e));
 
-    document.getElementById("clearBtn").addEventListener("click", () => {
-      this.nodes = [];
-      this.wires = [];
-      this.selectedNodes.clear();
-      this.selectedRerouteNodes.clear();
-      // Re-add the output node
-      this.addNode(600, 300, NODE_TYPES.output);
-      this.render();
-      this.updateDependencyList();
+    document.getElementById("newBtn").addEventListener("click", () => {
+      this.createNewFile();
     });
 
     document.getElementById("closeSidebarBtn").addEventListener("click", () => {
@@ -3415,8 +3408,13 @@ class BlueprintSystem {
       return;
     }
 
+    // Ctrl/Cmd + N: New File
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+      e.preventDefault();
+      this.createNewFile();
+    }
     // Ctrl/Cmd + S: Save
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
       this.saveToJSON();
     }
@@ -4032,6 +4030,63 @@ class BlueprintSystem {
     }
 
     return langData;
+  }
+
+  createNewFile() {
+    // Clear file handle to start fresh
+    this.fileHandle = null;
+    
+    // Clear all nodes and wires
+    this.nodes = [];
+    this.wires = [];
+    this.selectedNodes.clear();
+    this.selectedRerouteNodes.clear();
+    
+    // Reset shader settings to defaults
+    this.shaderSettings = {
+      name: "",
+      version: "1.0.0.0",
+      author: "",
+      website: "",
+      documentation: "",
+      description: "",
+      category: "color",
+      blendsBackground: false,
+      crossSampling: false,
+      preservesOpaqueness: true,
+      animated: false,
+      isDeprecated: false,
+      extendBoxH: 0,
+      extendBoxV: 0,
+    };
+    this.updateShaderSettingsUI();
+    
+    // Clear uniforms
+    this.uniforms = [];
+    this.uniformIdCounter = 1;
+    this.renderUniformList();
+    
+    // Clear custom nodes
+    this.customNodes = [];
+    this.customNodeIdCounter = 1;
+    this.renderCustomNodesList();
+    
+    // Reset camera
+    this.camera = {
+      x: 0,
+      y: 0,
+      zoom: 1,
+    };
+    
+    // Reset node ID counter
+    this.nodeIdCounter = 1;
+    
+    // Re-add the output node
+    this.addNode(600, 300, NODE_TYPES.output);
+    
+    this.render();
+    this.updateDependencyList();
+    this.onShaderChanged();
   }
 
   async saveToJSON() {
