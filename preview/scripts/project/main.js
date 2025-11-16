@@ -96,6 +96,47 @@ async function OnBeforeProjectStart(runtime) {
 function updateParam(runtime, index, value) {
   piggy.effects[0].setParameter(index, value);
   shape3D.effects[0].setParameter(index, value);
+  layout.effects[0].setParameter(index, value);
+  layer.effects[0].setParameter(index, value);
+}
+
+function setEffectTarget(target) {
+  piggy.effects[0].isActive = false;
+  shape3D.effects[0].isActive = false;
+  layout.effects[0].isActive = false;
+  layer.effects[0].isActive = false;
+
+  switch (target) {
+    case "piggy":
+      piggy.effects[0].isActive = true;
+      break;
+    case "shape3D":
+      shape3D.effects[0].isActive = true;
+      break;
+    case "layout":
+      layout.effects[0].isActive = true;
+      break;
+    case "layer":
+      layer.effects[0].isActive = true;
+      break;
+  }
+}
+
+function setObject(object) {
+  // "sprite", "box", "prism", "wedge", "pyramid", "corner-out" and "corner-in"
+  piggy.isVisible = false;
+  shape3D.isVisible = false;
+
+  if (object === "sprite") {
+    piggy.isVisible = true;
+  } else {
+    shape3D.isVisible = true;
+    shape3D.shape = object;
+  }
+}
+
+function setCameraMode(mode) {
+  //2d, perspective, orthographic
 }
 
 function setupShaderErrorCapture() {
