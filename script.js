@@ -1636,7 +1636,10 @@ class BlueprintSystem {
 
     // Listen for messages from preview iframe
     window.addEventListener("message", (event) => {
-      if (event.data && event.data.type === "projectReady") {
+      if (event.data && event.data.type === "requestShaderData") {
+        // Preview is requesting shader data, send it
+        this.sendShaderDataToPreview();
+      } else if (event.data && event.data.type === "projectReady") {
         this.previewReady = true;
         this.clearShaderErrors(); // Clear errors on new load
         this.sendUniformValuesToPreview();
@@ -1657,7 +1660,7 @@ class BlueprintSystem {
     // Clear previous errors
     this.clearShaderErrors();
 
-    // Generate shader code
+    // Generate shader code and cache it
     const shaders = this.generateAllShaders();
     if (!shaders) {
       // Display error if shader generation failed
@@ -1668,21 +1671,15 @@ class BlueprintSystem {
       return;
     }
 
-    // Build query parameters
-    const params = new URLSearchParams();
-    params.set("shader_glsl", encodeURIComponent(shaders.webgl1));
-    params.set("shader_glslWebGL2", encodeURIComponent(shaders.webgl2));
-    params.set("shader_wgsl", encodeURIComponent(shaders.webgpu));
-    params.set("shader_blendsBackground", this.shaderSettings.blendsBackground);
-    params.set("shader_crossSampling", this.shaderSettings.crossSampling);
-    params.set(
-      "shader_preservesOpaqueness",
-      this.shaderSettings.preservesOpaqueness
-    );
-    params.set("shader_animated", this.shaderSettings.animated);
-    params.set("shader_extendBoxHorizontal", this.shaderSettings.extendBoxH);
-    params.set("shader_extendBoxVertical", this.shaderSettings.extendBoxV);
+    // Cache the shader data for when preview requests it
+    this.cachedShaderData = this.buildShaderData(shaders);
 
+    // Reload iframe without query parameters
+    this.previewReady = false;
+    this.previewIframe.src = `preview/index.html`;
+  }
+
+  buildShaderData(shaders) {
     // Generate parameters array
     const parameters = this.uniforms.map((uniform) => {
       let value = uniform.value;
@@ -1705,14 +1702,33 @@ class BlueprintSystem {
       ];
     });
 
-    // Add parameters as JSON string
-    if (parameters.length > 0) {
-      params.set("shader_parameters", JSON.stringify(parameters));
-    }
+    return {
+      glsl: shaders.webgl1,
+      glslWebGL2: shaders.webgl2,
+      wgsl: shaders.webgpu,
+      blendsBackground: this.shaderSettings.blendsBackground,
+      usesDepth: false,
+      extendBoxHorizontal: this.shaderSettings.extendBoxH,
+      extendBoxVertical: this.shaderSettings.extendBoxV,
+      crossSampling: this.shaderSettings.crossSampling,
+      mustPreDraw: false,
+      preservesOpaqueness: this.shaderSettings.preservesOpaqueness,
+      supports3dDirectRendering: false,
+      animated: this.shaderSettings.animated,
+      parameters: parameters,
+    };
+  }
 
-    // Reload iframe with new parameters
-    this.previewReady = false;
-    this.previewIframe.src = `preview/index.html?${params.toString()}`;
+  sendShaderDataToPreview() {
+    if (!this.previewIframe || !this.cachedShaderData) return;
+
+    this.previewIframe.contentWindow.postMessage(
+      {
+        type: "shaderData",
+        shaderData: this.cachedShaderData,
+      },
+      "*"
+    );
   }
 
   sendUniformValuesToPreview() {
