@@ -707,6 +707,9 @@ class BlueprintSystem {
     // Track node positions for undo/redo
     this.dragStartPositions = new Map();
 
+    // Clipboard for copy/paste
+    this.clipboard = null;
+
     this.setupEventListeners();
     this.setupInputField();
     this.setupSearchMenu();
@@ -1434,8 +1437,34 @@ class BlueprintSystem {
   }
 
   deleteUniform(id) {
+    // Find all nodes using this uniform
+    const nodesToDelete = this.nodes.filter((node) => node.uniformId === id);
+
+    // Remove wires connected to these nodes
+    nodesToDelete.forEach((node) => {
+      const connectedWires = [];
+      node.getAllPorts().forEach((port) => {
+        connectedWires.push(...port.connections);
+      });
+      connectedWires.forEach((wire) => {
+        this.disconnectWire(wire);
+      });
+    });
+
+    // Remove the nodes
+    this.nodes = this.nodes.filter((node) => node.uniformId !== id);
+
+    // Remove the uniform
     this.uniforms = this.uniforms.filter((u) => u.id !== id);
+
+    // Clear selection if any deleted nodes were selected
+    nodesToDelete.forEach((node) => {
+      this.selectedNodes.delete(node);
+    });
+
     this.renderUniformList();
+    this.render();
+    this.updateDependencyList();
     this.onShaderChanged();
 
     // Push state for undo/redo
@@ -1858,6 +1887,22 @@ class BlueprintSystem {
     const name = this.customNodeNameInput.value.trim();
     if (!name) {
       alert("Please enter a node name");
+      return;
+    }
+
+    // Check for duplicate names (only when creating new or changing name)
+    const isDuplicateName = this.customNodes.some((node) => {
+      // If editing, allow the same name if it's the same node
+      if (this.editingCustomNode && node.id === this.editingCustomNode.id) {
+        return false;
+      }
+      return node.name.toLowerCase() === name.toLowerCase();
+    });
+
+    if (isDuplicateName) {
+      alert(
+        `A custom node with the name "${name}" already exists. Please choose a different name.`
+      );
       return;
     }
 
@@ -3489,6 +3534,199 @@ class BlueprintSystem {
     this.history.pushState("Delete nodes");
   }
 
+  copySelected() {
+    if (this.selectedNodes.size === 0) {
+      console.log("No nodes selected to copy");
+      return;
+    }
+
+    // Filter out output nodes (they cannot be copied)
+    const selectedNodesArray = Array.from(this.selectedNodes).filter(
+      (node) => node.nodeType !== NODE_TYPES.output
+    );
+
+    if (selectedNodesArray.length === 0) {
+      console.log("Cannot copy output node");
+      return;
+    }
+
+    // Serialize selected nodes
+    const copiedData = {
+      nodes: selectedNodesArray.map((node) => ({
+        nodeTypeKey: this.getNodeTypeKey(node.nodeType),
+        x: node.x,
+        y: node.y,
+        operation: node.operation,
+        customInput: node.customInput,
+        uniformId: node.uniformId,
+        uniformName: node.uniformName,
+        uniformDisplayName: node.uniformDisplayName,
+        uniformVariableName: node.uniformVariableName,
+        inputPorts: node.inputPorts.map((port) => ({
+          name: port.name,
+          portType: port.portType,
+          value: this.cloneValue(port.value),
+        })),
+        outputPorts: node.outputPorts.map((port) => ({
+          name: port.name,
+          portType: port.portType,
+        })),
+      })),
+      wires: [], // We'll add wires between selected nodes
+    };
+
+    // Find wires that connect selected nodes to each other
+    const nodeIds = new Set(selectedNodesArray.map((n) => n.id));
+    this.wires.forEach((wire) => {
+      if (
+        nodeIds.has(wire.startPort.node.id) &&
+        nodeIds.has(wire.endPort.node.id)
+      ) {
+        // Both nodes are selected, include this wire
+        const startIndex = selectedNodesArray.indexOf(wire.startPort.node);
+        const endIndex = selectedNodesArray.indexOf(wire.endPort.node);
+        copiedData.wires.push({
+          startNodeIndex: startIndex,
+          startPortIndex: wire.startPort.node.outputPorts.indexOf(
+            wire.startPort
+          ),
+          endNodeIndex: endIndex,
+          endPortIndex: wire.endPort.node.inputPorts.indexOf(wire.endPort),
+          rerouteNodes: wire.rerouteNodes.map((rn) => ({ x: rn.x, y: rn.y })),
+        });
+      }
+    });
+
+    // Store in clipboard
+    this.clipboard = copiedData;
+    console.log(`Copied ${copiedData.nodes.length} nodes`);
+  }
+
+  paste() {
+    if (!this.clipboard || this.clipboard.nodes.length === 0) {
+      console.log("Nothing to paste");
+      return;
+    }
+
+    this.pasteNodes(this.clipboard, 50, 50); // Offset by 50px
+  }
+
+  duplicateSelected() {
+    if (this.selectedNodes.size === 0) {
+      console.log("No nodes selected to duplicate");
+      return;
+    }
+
+    // Copy selected nodes
+    this.copySelected();
+
+    // Paste immediately
+    if (this.clipboard) {
+      this.pasteNodes(this.clipboard, 30, 30); // Smaller offset for duplicate
+    }
+  }
+
+  pasteNodes(copiedData, offsetX, offsetY) {
+    const newNodes = [];
+    const oldToNewNodeMap = new Map();
+
+    // Clear current selection
+    this.clearSelection();
+
+    // Create new nodes
+    copiedData.nodes.forEach((nodeData) => {
+      const nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
+      if (!nodeType) {
+        console.warn(`Unknown node type: ${nodeData.nodeTypeKey}`);
+        return;
+      }
+
+      // Create new node with offset position
+      const newNode = new Node(
+        nodeData.x + offsetX,
+        nodeData.y + offsetY,
+        this.nodeIdCounter++,
+        nodeType
+      );
+
+      // Restore properties
+      newNode.operation = nodeData.operation;
+      newNode.customInput = nodeData.customInput;
+      newNode.uniformId = nodeData.uniformId;
+      newNode.uniformName = nodeData.uniformName;
+      newNode.uniformDisplayName = nodeData.uniformDisplayName;
+      newNode.uniformVariableName = nodeData.uniformVariableName;
+
+      // Restore port values
+      newNode.inputPorts.forEach((port, i) => {
+        if (
+          nodeData.inputPorts[i] &&
+          nodeData.inputPorts[i].value !== undefined
+        ) {
+          port.value = this.cloneValue(nodeData.inputPorts[i].value);
+        }
+      });
+
+      this.nodes.push(newNode);
+      newNodes.push(newNode);
+      oldToNewNodeMap.set(copiedData.nodes.indexOf(nodeData), newNode);
+
+      // Select the new node
+      this.selectNode(newNode, true);
+    });
+
+    // Recreate wires between pasted nodes
+    copiedData.wires.forEach((wireData) => {
+      const startNode = oldToNewNodeMap.get(wireData.startNodeIndex);
+      const endNode = oldToNewNodeMap.get(wireData.endNodeIndex);
+
+      if (startNode && endNode) {
+        const startPort = startNode.outputPorts[wireData.startPortIndex];
+        const endPort = endNode.inputPorts[wireData.endPortIndex];
+
+        if (startPort && endPort) {
+          const wire = new Wire(startPort, endPort);
+          wireData.rerouteNodes.forEach((rnData) => {
+            const rerouteNode = new RerouteNode(
+              rnData.x + offsetX,
+              rnData.y + offsetY,
+              wire
+            );
+            wire.rerouteNodes.push(rerouteNode);
+          });
+          this.wires.push(wire);
+          startPort.connections.push(wire);
+          endPort.connections.push(wire);
+
+          // Resolve generic types
+          this.resolveGenericsForConnection(startPort, endPort);
+
+          // Update editability
+          endPort.updateEditability();
+        }
+      }
+    });
+
+    // Update all nodes
+    newNodes.forEach((node) => {
+      node.inputPorts.forEach((port) => {
+        port.updateEditability();
+      });
+      node.recalculateHeight();
+    });
+
+    this.render();
+    this.updateDependencyList();
+    this.onShaderChanged();
+
+    // Push state for undo/redo
+    this.history.pushState(
+      `Paste ${newNodes.length} node${newNodes.length > 1 ? "s" : ""}`
+    );
+
+    console.log(`Pasted ${newNodes.length} nodes`);
+  }
+
   onKeyDown(e) {
     // Ignore if typing in input fields
     if (
@@ -3511,6 +3749,24 @@ class BlueprintSystem {
     ) {
       e.preventDefault();
       this.history.redo();
+      return;
+    }
+    // Ctrl/Cmd + C: Copy
+    else if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+      e.preventDefault();
+      this.copySelected();
+      return;
+    }
+    // Ctrl/Cmd + V: Paste
+    else if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+      e.preventDefault();
+      this.paste();
+      return;
+    }
+    // Ctrl/Cmd + D: Duplicate
+    else if ((e.ctrlKey || e.metaKey) && e.key === "d") {
+      e.preventDefault();
+      this.duplicateSelected();
       return;
     }
     // Ctrl/Cmd + N: New File
@@ -5312,31 +5568,65 @@ class BlueprintSystem {
 
       // Start dragging if on header and node is selected
       if (node.isPointInHeader(pos.x, pos.y) && node.isSelected) {
-        this.draggedNode = node;
-        node.isDragging = true;
-        node.dragOffsetX = pos.x - node.x;
-        node.dragOffsetY = pos.y - node.y;
+        // Check if Cmd/Ctrl is held for duplication
+        if (e.ctrlKey || e.metaKey) {
+          // Duplicate selected nodes instead of moving them
+          this.copySelected();
+          if (this.clipboard) {
+            // Paste at same position (will be offset during drag)
+            this.pasteNodes(this.clipboard, 0, 0);
+            // The newly pasted nodes are now selected, start dragging them
+            const newlySelectedNode = Array.from(this.selectedNodes)[0];
+            if (newlySelectedNode) {
+              this.draggedNode = newlySelectedNode;
+              newlySelectedNode.isDragging = true;
+              newlySelectedNode.dragOffsetX = pos.x - newlySelectedNode.x;
+              newlySelectedNode.dragOffsetY = pos.y - newlySelectedNode.y;
 
-        // Store initial positions for undo/redo
-        this.dragStartPositions.clear();
-        this.selectedNodes.forEach((selectedNode) => {
-          this.dragStartPositions.set(selectedNode.id, {
-            x: selectedNode.x,
-            y: selectedNode.y,
+              // Store initial positions for undo/redo
+              this.dragStartPositions.clear();
+              this.selectedNodes.forEach((selectedNode) => {
+                this.dragStartPositions.set(selectedNode.id, {
+                  x: selectedNode.x,
+                  y: selectedNode.y,
+                });
+                selectedNode.dragOffsetX = pos.x - selectedNode.x;
+                selectedNode.dragOffsetY = pos.y - selectedNode.y;
+              });
+
+              // Move to front
+              this.nodes = this.nodes.filter((n) => n !== newlySelectedNode);
+              this.nodes.push(newlySelectedNode);
+            }
+          }
+        } else {
+          // Normal drag (move existing nodes)
+          this.draggedNode = node;
+          node.isDragging = true;
+          node.dragOffsetX = pos.x - node.x;
+          node.dragOffsetY = pos.y - node.y;
+
+          // Store initial positions for undo/redo
+          this.dragStartPositions.clear();
+          this.selectedNodes.forEach((selectedNode) => {
+            this.dragStartPositions.set(selectedNode.id, {
+              x: selectedNode.x,
+              y: selectedNode.y,
+            });
+            selectedNode.dragOffsetX = pos.x - selectedNode.x;
+            selectedNode.dragOffsetY = pos.y - selectedNode.y;
           });
-          selectedNode.dragOffsetX = pos.x - selectedNode.x;
-          selectedNode.dragOffsetY = pos.y - selectedNode.y;
-        });
 
-        // Store initial positions for all selected reroute nodes
-        this.selectedRerouteNodes.forEach((rn) => {
-          rn.dragOffsetX = pos.x - rn.x;
-          rn.dragOffsetY = pos.y - rn.y;
-        });
+          // Store initial positions for all selected reroute nodes
+          this.selectedRerouteNodes.forEach((rn) => {
+            rn.dragOffsetX = pos.x - rn.x;
+            rn.dragOffsetY = pos.y - rn.y;
+          });
 
-        // Move to front
-        this.nodes = this.nodes.filter((n) => n !== node);
-        this.nodes.push(node);
+          // Move to front
+          this.nodes = this.nodes.filter((n) => n !== node);
+          this.nodes.push(node);
+        }
       }
 
       this.render();
