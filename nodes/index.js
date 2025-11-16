@@ -13,6 +13,17 @@ import { MathNode } from "./MathNode.js";
 import { PowerNode } from "./PowerNode.js";
 import { AbsNode } from "./AbsNode.js";
 import { RoundNode } from "./RoundNode.js";
+import { FractNode } from "./FractNode.js";
+import { FloorNode } from "./FloorNode.js";
+import { CeilNode } from "./CeilNode.js";
+import { ModNode } from "./ModNode.js";
+import { SqrtNode } from "./SqrtNode.js";
+import { ExpNode } from "./ExpNode.js";
+import { LnNode } from "./LnNode.js";
+import { Log10Node } from "./Log10Node.js";
+import { Log2Node } from "./Log2Node.js";
+import { Exp2Node } from "./Exp2Node.js";
+import { Exp10Node } from "./Exp10Node.js";
 import { CompareNode } from "./CompareNode.js";
 import { MinNode } from "./MinNode.js";
 import { MaxNode } from "./MaxNode.js";
@@ -23,6 +34,12 @@ import { SmoothstepNode } from "./SmoothstepNode.js";
 import { CosNode } from "./CosNode.js";
 import { SinNode } from "./SinNode.js";
 import { TanNode } from "./TanNode.js";
+import { AsinNode } from "./AsinNode.js";
+import { AcosNode } from "./AcosNode.js";
+import { AtanNode } from "./AtanNode.js";
+import { Atan2Node } from "./Atan2Node.js";
+import { ToDegreesNode } from "./ToDegreesNode.js";
+import { ToRadiansNode } from "./ToRadiansNode.js";
 import { DotNode } from "./DotNode.js";
 import { NormalizeNode } from "./NormalizeNode.js";
 import { LengthNode } from "./LengthNode.js";
@@ -62,6 +79,18 @@ export const NODE_TYPES = {
   power: PowerNode,
   abs: AbsNode,
   round: RoundNode,
+  fract: FractNode,
+  floor: FloorNode,
+  ceil: CeilNode,
+  mod: ModNode,
+  fmod: FmodNode,
+  sqrt: SqrtNode,
+  exp: ExpNode,
+  ln: LnNode,
+  log10: Log10Node,
+  log2: Log2Node,
+  exp2: Exp2Node,
+  exp10: Exp10Node,
   compare: CompareNode,
   min: MinNode,
   max: MaxNode,
@@ -72,6 +101,12 @@ export const NODE_TYPES = {
   cos: CosNode,
   sin: SinNode,
   tan: TanNode,
+  asin: AsinNode,
+  acos: AcosNode,
+  atan: AtanNode,
+  atan2: Atan2Node,
+  toDegrees: ToDegreesNode,
+  toRadians: ToRadiansNode,
   dot: DotNode,
   normalize: NormalizeNode,
   length: LengthNode,
