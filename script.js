@@ -663,6 +663,9 @@ class BlueprintSystem {
     this.isPanning = false;
     this.panStart = { x: 0, y: 0 };
 
+    // File System Access API support
+    this.fileHandle = null;
+
     this.setupCanvas();
 
     // Shader settings
@@ -3279,13 +3282,45 @@ class BlueprintSystem {
       this.saveToJSON();
     });
 
-    document.getElementById("loadBtn").addEventListener("click", () => {
+    document.getElementById("saveAsBtn").addEventListener("click", () => {
+      this.fileHandle = null; // Clear handle to force "Save As"
+      this.saveToJSON();
+    });
+
+    document.getElementById("loadBtn").addEventListener("click", async () => {
+      // Try to use File System Access API if available
+      if ('showOpenFilePicker' in window) {
+        try {
+          const [fileHandle] = await window.showOpenFilePicker({
+            types: [{
+              description: 'Shader Graph',
+              accept: { 'application/json': ['.json'] },
+            }],
+            multiple: false,
+          });
+          
+          const file = await fileHandle.getFile();
+          this.fileHandle = fileHandle; // Store handle for future saves
+          await this.loadFromJSON(file);
+          return;
+        } catch (error) {
+          // User cancelled or error occurred, fall back to file input
+          if (error.name !== 'AbortError') {
+            console.warn('File System Access API failed, falling back to file input:', error);
+          } else {
+            return; // User cancelled, don't show file input
+          }
+        }
+      }
+      
+      // Fallback to traditional file input
       document.getElementById("loadFileInput").click();
     });
 
     document.getElementById("loadFileInput").addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (file) {
+        this.fileHandle = null; // Clear file handle when using file input
         this.loadFromJSON(file);
         e.target.value = ""; // Reset input so same file can be loaded again
       }
@@ -3380,7 +3415,23 @@ class BlueprintSystem {
       return;
     }
 
-    if (e.key === "Delete" || e.key === "Backspace") {
+    // Ctrl/Cmd + S: Save
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      this.saveToJSON();
+    }
+    // Ctrl/Cmd + Shift + S: Save As (clear file handle)
+    else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'S') {
+      e.preventDefault();
+      this.fileHandle = null; // Clear handle to force "Save As"
+      this.saveToJSON();
+    }
+    // Ctrl/Cmd + O: Open
+    else if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+      e.preventDefault();
+      document.getElementById("loadBtn").click();
+    }
+    else if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
       this.deleteSelected();
     }
@@ -3983,7 +4034,7 @@ class BlueprintSystem {
     return langData;
   }
 
-  saveToJSON() {
+  async saveToJSON() {
     // Create a complete snapshot of the blueprint state
     const data = {
       version: "1.0.0",
@@ -4033,6 +4084,45 @@ class BlueprintSystem {
     };
 
     const json = JSON.stringify(data, null, 2);
+    
+    // Try to use File System Access API if available
+    if ('showSaveFilePicker' in window) {
+      try {
+        const filename = this.shaderSettings.name
+          ? `${this.sanitizeAddonId(this.shaderSettings.name)}.json`
+          : "blueprint.json";
+        
+        // If we have an existing file handle, try to reuse it
+        let handle = this.fileHandle;
+        
+        // If no handle or user wants to save as new file, show picker
+        if (!handle) {
+          handle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{
+              description: 'Shader Graph',
+              accept: { 'application/json': ['.json'] },
+            }],
+          });
+          this.fileHandle = handle;
+        }
+        
+        // Write to the file
+        const writable = await handle.createWritable();
+        await writable.write(json);
+        await writable.close();
+        
+        console.log('Blueprint saved successfully using File System Access API');
+        return;
+      } catch (error) {
+        // User cancelled or error occurred, fall back to download
+        if (error.name !== 'AbortError') {
+          console.warn('File System Access API failed, falling back to download:', error);
+        }
+      }
+    }
+    
+    // Fallback to traditional download method
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
