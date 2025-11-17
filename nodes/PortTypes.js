@@ -47,7 +47,7 @@ export const PORT_TYPES = {
       return value.toString();
     },
   },
-  boolean: {
+  bool: {
     color: "#9f4ae2",
     name: "Boolean",
     editable: true,

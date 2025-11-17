@@ -5,7 +5,7 @@ export const IsRotatedNode = new NodeType(
   "Is Rotated",
   [], // No inputs
   [{ name: "Rotated", type: "bool" }],
-  PORT_TYPES.boolean.color,
+  PORT_TYPES.bool.color,
   {
     webgl1: {
       dependency: "",

@@ -4,7 +4,7 @@ import { PORT_TYPES } from "./PortTypes.js";
 export const SelectNode = new NodeType(
   "Select",
   [
-    { name: "Condition", type: "boolean" },
+    { name: "Condition", type: "bool" },
     { name: "True", type: "T" },
     { name: "False", type: "T" },
   ],

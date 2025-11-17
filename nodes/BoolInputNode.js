@@ -5,7 +5,7 @@ export const BoolInputNode = new NodeType(
   "Bool Input",
   [], // No inputs
   [{ name: "Value", type: "bool" }],
-  PORT_TYPES.boolean.color,
+  PORT_TYPES.bool.color,
   {
     webgl1: {
       dependency: "",

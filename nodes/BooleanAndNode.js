@@ -8,7 +8,7 @@ export const BooleanAndNode = new NodeType(
     { name: "B", type: "bool" },
   ],
   [{ name: "Result", type: "bool" }],
-  PORT_TYPES.boolean.color,
+  PORT_TYPES.bool.color,
   {
     webgl1: {
       dependency: "",

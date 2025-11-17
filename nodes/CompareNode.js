@@ -7,7 +7,7 @@ export const CompareNode = new NodeType(
     { name: "A", type: "genType" },
     { name: "B", type: "genType" },
   ],
-  [{ name: "Result", type: "boolean" }],
+  [{ name: "Result", type: "bool" }],
   "#3a4a3a",
   {
     webgl1: {
