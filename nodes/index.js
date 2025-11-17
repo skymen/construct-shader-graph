@@ -141,6 +141,7 @@ import { ClampToSrcNode } from "./ClampToSrcNode.js";
 import { ClampToSrcOriginNode } from "./ClampToSrcOriginNode.js";
 import { SrcToDestNode } from "./SrcToDestNode.js";
 import { ClampToDestNode } from "./ClampToDestNode.js";
+import { IsRotatedNode } from "./IsRotatedNode.js";
 import { GrayscaleNode } from "./GrayscaleNode.js";
 import { RGBtoHSLNode } from "./RGBtoHSLNode.js";
 import { HSLtoRGBNode } from "./HSLtoRGBNode.js";
@@ -296,6 +297,7 @@ export const NODE_TYPES = {
   clampToSrcOrigin: ClampToSrcOriginNode,
   srcToDest: SrcToDestNode,
   clampToDest: ClampToDestNode,
+  isRotated: IsRotatedNode,
   grayscale: GrayscaleNode,
   rgbToHsl: RGBtoHSLNode,
   hslToRgb: HSLtoRGBNode,
