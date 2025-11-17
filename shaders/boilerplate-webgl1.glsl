@@ -11,8 +11,6 @@ uniform mediump vec2 pixelSize;
 
 // Builtin uniforms
 uniform lowp sampler2D samplerFront;
-uniform lowp sampler2D samplerBack;
-uniform lowp sampler2D samplerDepth;
 uniform mediump vec2 srcStart;
 uniform mediump vec2 srcEnd;
 uniform mediump vec2 srcOriginStart;

@@ -4742,7 +4742,51 @@ class BlueprintSystem {
       webgpu: boilerplateWebGPU,
     };
 
-    return boilerplates[target] || "";
+    let boilerplate = boilerplates[target] || "";
+
+    // Add samplerBack and textureBack if blending background
+    if (this.shaderSettings.blendsBackground) {
+      if (target === "webgl1" || target === "webgl2") {
+        // Add after samplerFront
+        boilerplate = boilerplate.replace(
+          /uniform lowp sampler2D samplerFront;/,
+          "uniform lowp sampler2D samplerFront;\nuniform lowp sampler2D samplerBack;"
+        );
+      } else if (target === "webgpu") {
+        // Add after textureFront
+        boilerplate = boilerplate.replace(
+          /%%TEXTUREFRONT_BINDING%% var textureFront : texture_2d<f32>;/,
+          "%%TEXTUREFRONT_BINDING%% var textureFront : texture_2d<f32>;\n\n%%SAMPLERBACK_BINDING%% var samplerBack : sampler;\n%%TEXTUREBACK_BINDING%% var textureBack : texture_2d<f32>;"
+        );
+      }
+    }
+
+    // Add samplerDepth and textureDepth if using depth
+    if (this.shaderSettings.usesDepth) {
+      if (target === "webgl1" || target === "webgl2") {
+        // Add after samplerFront (or samplerBack if it exists)
+        const insertAfter = this.shaderSettings.blendsBackground
+          ? /uniform lowp sampler2D samplerBack;/
+          : /uniform lowp sampler2D samplerFront;/;
+        boilerplate = boilerplate.replace(
+          insertAfter,
+          (match) => match + "\nuniform lowp sampler2D samplerDepth;"
+        );
+      } else if (target === "webgpu") {
+        // Add after textureBack or textureFront
+        const insertAfter = this.shaderSettings.blendsBackground
+          ? /%%TEXTUREBACK_BINDING%% var textureBack : texture_2d<f32>;/
+          : /%%TEXTUREFRONT_BINDING%% var textureFront : texture_2d<f32>;/;
+        boilerplate = boilerplate.replace(
+          insertAfter,
+          (match) =>
+            match +
+            "\n\n%%SAMPLERDEPTH_BINDING%% var samplerDepth : sampler;\n%%TEXTUREDEPTH_BINDING%% var textureDepth : texture_depth_2d;"
+        );
+      }
+    }
+
+    return boilerplate;
   }
 
   generateUniformDeclarations(target) {
