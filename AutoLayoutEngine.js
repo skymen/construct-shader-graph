@@ -1086,7 +1086,7 @@ export class AutoLayoutEngine {
       }
 
       // Check for overlaps with ALL previously placed children's trees
-      // We need to find a position that doesn't overlap with any of them
+      // Use node-level overlap detection for more precise placement
       let hasOverlap = true;
       let attempts = 0;
       const maxAttempts = 100; // Increased for better placement
@@ -1094,41 +1094,66 @@ export class AutoLayoutEngine {
       while (hasOverlap && attempts < maxAttempts) {
         hasOverlap = false;
 
-        // Create bbox for this child at the proposed position
-        const proposedBBox = {
-          x: childLayout.bbox.x,
-          y: proposedY + childLayout.bbox.y,
-          width: childLayout.bbox.width,
-          height: childLayout.bbox.height,
-        };
+        // Get all node positions in the current child's layout at proposed position
+        const currentChildNodes = [];
+        childLayout.positions.forEach((pos, nodeId) => {
+          const node = this.bp.nodes.find((n) => n.id === nodeId);
+          if (node) {
+            currentChildNodes.push({
+              x: childLayout.bbox.x + pos.x,
+              y: proposedY + pos.y,
+              width: node.width || 200,
+              height: node.height || 100,
+            });
+          }
+        });
 
-        // Check against ALL previously placed children's FULL BBOXES
+        // Check against ALL previously placed children's INDIVIDUAL NODES
         let maxPushDownY = proposedY;
         let minPushUpY = proposedY;
         let foundOverlap = false;
 
         for (let i = 0; i < placedBBoxes.length; i++) {
-          const placedBBox = placedBBoxes[i];
-          if (this.bboxesOverlap(proposedBBox, placedBBox)) {
-            foundOverlap = true;
+          const placedChildLayout = childLayouts[i].layout;
+          const placedChildOffset = childOffsets[i];
 
-            // Calculate where we'd need to push to avoid this bbox
-            const pushDownY =
-              placedBBox.y +
-              placedBBox.height -
-              childLayout.bbox.y +
-              verticalSpacing;
+          // Get all node positions in this placed child's layout
+          placedChildLayout.positions.forEach((pos, nodeId) => {
+            const node = this.bp.nodes.find((n) => n.id === nodeId);
+            if (!node) return;
 
-            const pushUpY =
-              placedBBox.y -
-              childLayout.bbox.height -
-              childLayout.bbox.y -
-              verticalSpacing;
+            const placedNodeBBox = {
+              x: placedChildLayout.bbox.x + pos.x,
+              y: placedChildOffset.y + pos.y,
+              width: node.width || 200,
+              height: node.height || 100,
+            };
 
-            // Track the furthest we'd need to push in each direction
-            maxPushDownY = Math.max(maxPushDownY, pushDownY);
-            minPushUpY = Math.min(minPushUpY, pushUpY);
-          }
+            // Check if any of the current child's nodes overlap with this placed node
+            for (const currentNodeBBox of currentChildNodes) {
+              if (this.bboxesOverlap(currentNodeBBox, placedNodeBBox)) {
+                foundOverlap = true;
+
+                // Calculate where we'd need to push to avoid this specific node
+                const pushDownY =
+                  placedNodeBBox.y +
+                  placedNodeBBox.height -
+                  currentNodeBBox.y +
+                  proposedY +
+                  verticalSpacing;
+
+                const pushUpY =
+                  placedNodeBBox.y -
+                  currentNodeBBox.height -
+                  (currentNodeBBox.y - proposedY) -
+                  verticalSpacing;
+
+                // Track the furthest we'd need to push in each direction
+                maxPushDownY = Math.max(maxPushDownY, pushDownY);
+                minPushUpY = Math.min(minPushUpY, pushUpY);
+              }
+            }
+          });
         }
 
         if (foundOverlap) {
