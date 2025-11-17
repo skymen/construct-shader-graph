@@ -23,7 +23,7 @@ export const FloatInputNode = new NodeType(
         `    var ${outputs[0]}: f32 = ${node.customInput || "0.0"};`,
     },
   },
-  "Input",
+  "Value",
   ["float", "number", "constant", "value", "input", "literal", "decimal"]
 );
 

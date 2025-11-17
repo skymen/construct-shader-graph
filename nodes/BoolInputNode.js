@@ -29,7 +29,7 @@ export const BoolInputNode = new NodeType(
       },
     },
   },
-  "Input",
+  "Value",
   ["bool", "boolean", "true", "false", "constant", "value", "input", "literal"]
 );
 

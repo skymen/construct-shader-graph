@@ -23,7 +23,7 @@ export const IntInputNode = new NodeType(
         `    var ${outputs[0]}: i32 = ${node.customInput || "0"};`,
     },
   },
-  "Input",
+  "Value",
   ["int", "integer", "number", "constant", "value", "input", "literal"]
 );
 
