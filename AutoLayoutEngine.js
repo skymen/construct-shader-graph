@@ -164,9 +164,8 @@ export class AutoLayoutEngine {
 
     console.log(`Found ${components.length} connected component(s)`);
 
-    // Layout each component separately
-    let offsetX = 0;
-    let maxHeight = 0;
+    // Layout each component and calculate their bounding boxes
+    const componentLayouts = [];
 
     components.forEach((component, index) => {
       console.log(
@@ -177,32 +176,67 @@ export class AutoLayoutEngine {
       const branches = this.findIndependentBranches(component, graph);
       console.log(`  Found ${branches.length} independent branch(es)`);
 
+      let componentWidth = 0;
+      let componentHeight = 0;
+      const branchLayouts = [];
+
       if (branches.length > 1) {
         // Layout branches separately and stack them vertically
         let branchOffsetY = 0;
-        let maxBranchWidth = 0;
 
-        branches.forEach((branch, branchIndex) => {
+        branches.forEach((branch) => {
           const layout = this.layoutComponent(branch, graph);
-          this.applyLayout(layout, offsetX, branchOffsetY);
+          branchLayouts.push({ layout, offsetX: 0, offsetY: branchOffsetY });
 
           branchOffsetY += layout.height + this.config.branchSpacing;
-          maxBranchWidth = Math.max(maxBranchWidth, layout.width);
+          componentWidth = Math.max(componentWidth, layout.width);
         });
 
-        offsetX += maxBranchWidth + this.config.subgraphSpacing;
-        maxHeight = Math.max(
-          maxHeight,
-          branchOffsetY - this.config.branchSpacing
-        );
+        componentHeight = branchOffsetY - this.config.branchSpacing;
       } else {
         // Single branch, layout normally
         const layout = this.layoutComponent(component, graph);
-        this.applyLayout(layout, offsetX, 0);
-
-        offsetX += layout.width + this.config.subgraphSpacing;
-        maxHeight = Math.max(maxHeight, layout.height);
+        branchLayouts.push({ layout, offsetX: 0, offsetY: 0 });
+        componentWidth = layout.width;
+        componentHeight = layout.height;
       }
+
+      // Check if this component contains the output node
+      const hasOutputNode = component.some(
+        (node) => node.nodeType && node.nodeType.name === "Output"
+      );
+
+      componentLayouts.push({
+        component,
+        branchLayouts,
+        width: componentWidth,
+        height: componentHeight,
+        hasOutputNode,
+        x: 0,
+        y: 0,
+      });
+    });
+
+    // Sort components: output node's graph first, then by size (largest first)
+    componentLayouts.sort((a, b) => {
+      if (a.hasOutputNode && !b.hasOutputNode) return -1;
+      if (!a.hasOutputNode && b.hasOutputNode) return 1;
+      // Sort by area (larger first)
+      return b.width * b.height - a.width * a.height;
+    });
+
+    // Pack components efficiently
+    this.packComponents(componentLayouts);
+
+    // Apply the final positions
+    componentLayouts.forEach((compLayout) => {
+      compLayout.branchLayouts.forEach((branchLayout) => {
+        this.applyLayout(
+          branchLayout.layout,
+          compLayout.x + branchLayout.offsetX,
+          compLayout.y + branchLayout.offsetY
+        );
+      });
     });
 
     // Render the updated positions
@@ -224,6 +258,125 @@ export class AutoLayoutEngine {
   }
 
   /**
+   * Pack components efficiently using a simple bin-packing algorithm
+   */
+  packComponents(componentLayouts) {
+    if (componentLayouts.length === 0) return;
+
+    const spacing = this.config.subgraphSpacing;
+
+    // First component (with output node) goes at origin
+    componentLayouts[0].x = 0;
+    componentLayouts[0].y = 0;
+
+    if (componentLayouts.length === 1) return;
+
+    // Keep track of occupied spaces
+    const occupiedRects = [
+      {
+        x: 0,
+        y: 0,
+        width: componentLayouts[0].width,
+        height: componentLayouts[0].height,
+      },
+    ];
+
+    // Place remaining components
+    for (let i = 1; i < componentLayouts.length; i++) {
+      const comp = componentLayouts[i];
+      const bestPos = this.findBestPosition(comp, occupiedRects, spacing);
+
+      comp.x = bestPos.x;
+      comp.y = bestPos.y;
+
+      occupiedRects.push({
+        x: comp.x,
+        y: comp.y,
+        width: comp.width,
+        height: comp.height,
+      });
+    }
+  }
+
+  /**
+   * Find the best position for a component by trying 4 directions from existing components
+   */
+  findBestPosition(component, occupiedRects, spacing) {
+    const positions = [];
+
+    // Try positions relative to each existing component
+    occupiedRects.forEach((rect) => {
+      // Right of this rect
+      positions.push({
+        x: rect.x + rect.width + spacing,
+        y: rect.y,
+      });
+
+      // Below this rect
+      positions.push({
+        x: rect.x,
+        y: rect.y + rect.height + spacing,
+      });
+
+      // Above this rect
+      positions.push({
+        x: rect.x,
+        y: rect.y - component.height - spacing,
+      });
+
+      // Left of this rect (but not left of the first component)
+      if (rect.x > 0) {
+        positions.push({
+          x: rect.x - component.width - spacing,
+          y: rect.y,
+        });
+      }
+    });
+
+    // Filter out positions that would overlap with existing components
+    const validPositions = positions.filter((pos) => {
+      // Don't allow positions that would place component left of origin
+      if (pos.x < 0) return false;
+
+      const testRect = {
+        x: pos.x,
+        y: pos.y,
+        width: component.width,
+        height: component.height,
+      };
+
+      return !this.rectsOverlap(testRect, occupiedRects, spacing);
+    });
+
+    if (validPositions.length === 0) {
+      // Fallback: place to the right of the rightmost component
+      const maxX = Math.max(...occupiedRects.map((r) => r.x + r.width));
+      return { x: maxX + spacing, y: 0 };
+    }
+
+    // Choose position that minimizes distance from origin (prefer compact layout)
+    return validPositions.reduce((best, pos) => {
+      const distBest = Math.sqrt(best.x * best.x + best.y * best.y);
+      const distCurrent = Math.sqrt(pos.x * pos.x + pos.y * pos.y);
+      return distCurrent < distBest ? pos : best;
+    });
+  }
+
+  /**
+   * Check if a rectangle overlaps with any in a list
+   */
+  rectsOverlap(rect, rects, spacing) {
+    return rects.some((other) => {
+      return !(
+        rect.x + rect.width + spacing <= other.x ||
+        other.x + other.width + spacing <= rect.x ||
+        rect.y + rect.height + spacing <= other.y ||
+        other.y + other.height + spacing <= rect.y
+      );
+    });
+  }
+
+  /**
    * Build a dependency graph from nodes and their connections
    */
   buildDependencyGraph(nodes) {
@@ -235,6 +388,8 @@ export class AutoLayoutEngine {
         node: node,
         inputs: [], // Node IDs that feed into this one
         outputs: [], // Node IDs this feeds into
+        inputConnections: [], // { nodeId, portIndex } for tracking port order
+        outputConnections: [], // { nodeId, portIndex } for tracking port order
         layer: -1,
         position: 0,
       });
@@ -247,8 +402,21 @@ export class AutoLayoutEngine {
 
       // Only include connections between nodes we're arranging
       if (graph.has(startNode.id) && graph.has(endNode.id)) {
+        const endPortIndex = endNode.inputPorts.indexOf(wire.endPort);
+        const startPortIndex = startNode.outputPorts.indexOf(wire.startPort);
+
         graph.get(endNode.id).inputs.push(startNode.id);
         graph.get(startNode.id).outputs.push(endNode.id);
+
+        // Store port indices for ordering
+        graph.get(endNode.id).inputConnections.push({
+          nodeId: startNode.id,
+          portIndex: endPortIndex,
+        });
+        graph.get(startNode.id).outputConnections.push({
+          nodeId: endNode.id,
+          portIndex: startPortIndex,
+        });
       }
     });
 
@@ -1262,18 +1430,25 @@ export class AutoLayoutEngine {
     // Calculate barycenter for each node in current layer
     const barycenters = layer.map((nodeId) => {
       const data = subgraph.get(nodeId);
-      if (!data) return { nodeId, barycenter: 0, connectionCount: 0 };
+      if (!data)
+        return { nodeId, barycenter: 0, connectionCount: 0, portIndex: 0 };
 
-      const connectedNodeIds =
-        direction === "inputs" ? data.inputs : data.outputs;
+      const connections =
+        direction === "inputs" ? data.inputConnections : data.outputConnections;
 
       let sum = 0;
       let count = 0;
+      let minPortIndex = Infinity;
 
-      connectedNodeIds.forEach((connectedId) => {
-        if (positions.has(connectedId)) {
-          sum += positions.get(connectedId);
+      connections.forEach((conn) => {
+        if (positions.has(conn.nodeId)) {
+          // Weight the position by adding a small bias based on port index
+          // This helps maintain vertical order: lower port indices should be higher up
+          const positionWeight = positions.get(conn.nodeId);
+          const portBias = conn.portIndex * 0.1; // Small bias to maintain port order
+          sum += positionWeight + portBias;
           count++;
+          minPortIndex = Math.min(minPortIndex, conn.portIndex);
         }
       });
 
@@ -1281,16 +1456,22 @@ export class AutoLayoutEngine {
         nodeId,
         barycenter: count > 0 ? sum / count : layer.indexOf(nodeId),
         connectionCount: count,
+        portIndex: minPortIndex !== Infinity ? minPortIndex : 0,
       };
     });
 
     // Sort by barycenter, with special handling for single-connection nodes
     barycenters.sort((a, b) => {
-      // If both have single connections, keep them close to their parent
+      // If both have single connections to the same parent, sort by port index
       if (a.connectionCount === 1 && b.connectionCount === 1) {
+        const aDiff = Math.abs(a.barycenter - b.barycenter);
+        // If they're very close (likely same parent), use port index
+        if (aDiff < 0.5) {
+          return a.portIndex - b.portIndex;
+        }
         return a.barycenter - b.barycenter;
       }
-      // Single-connection nodes stay near their barycenter more strictly
+      // Otherwise sort by barycenter
       return a.barycenter - b.barycenter;
     });
 
