@@ -708,6 +708,7 @@ class BlueprintSystem {
       cameraMode: "2d",
       autoRotate: true,
       samplingMode: "trilinear",
+      shaderLanguage: "webgpu",
       spriteTextureUrl: null,
       shapeTextureUrl: null,
     };
@@ -1751,6 +1752,15 @@ class BlueprintSystem {
       this.updatePreview(); // Reload preview with new sampling mode
     });
 
+    // Shader language select (requires reload)
+    const shaderLanguageSelect = document.getElementById(
+      "shaderLanguageSelect"
+    );
+    shaderLanguageSelect.addEventListener("change", (e) => {
+      this.previewSettings.shaderLanguage = e.target.value;
+      this.updatePreview(); // Reload preview with new shader language
+    });
+
     // Reset preview settings button
     const resetPreviewSettingsBtn = document.getElementById(
       "resetPreviewSettingsBtn"
@@ -2160,6 +2170,7 @@ class BlueprintSystem {
     // Build query params for settings that require reload
     const params = new URLSearchParams();
     params.set("samplingMode", this.previewSettings.samplingMode);
+    params.set("shaderLanguage", this.previewSettings.shaderLanguage);
 
     // Reload iframe with query parameters
     this.previewReady = false;
@@ -4983,6 +4994,7 @@ class BlueprintSystem {
       cameraMode: "2d",
       autoRotate: true,
       samplingMode: "trilinear",
+      shaderLanguage: "webgpu",
       spriteTextureUrl: null,
       shapeTextureUrl: null,
     };
@@ -4994,6 +5006,9 @@ class BlueprintSystem {
     const autoRotateCheckbox = document.getElementById("autoRotateCheckbox");
     const autoRotateGroup = document.getElementById("autoRotateGroup");
     const samplingModeSelect = document.getElementById("samplingModeSelect");
+    const shaderLanguageSelect = document.getElementById(
+      "shaderLanguageSelect"
+    );
 
     if (effectTargetSelect) effectTargetSelect.value = "sprite";
     if (objectSelect) objectSelect.value = "sprite";
@@ -5001,6 +5016,7 @@ class BlueprintSystem {
     if (autoRotateCheckbox) autoRotateCheckbox.checked = true;
     if (autoRotateGroup) autoRotateGroup.style.display = "none";
     if (samplingModeSelect) samplingModeSelect.value = "trilinear";
+    if (shaderLanguageSelect) shaderLanguageSelect.value = "webgpu";
 
     // Reset texture preview UI
     this.updateTexturePreview(
@@ -5670,6 +5686,13 @@ class BlueprintSystem {
     }
     if (samplingModeSelect) {
       samplingModeSelect.value = this.previewSettings.samplingMode;
+    }
+    const shaderLanguageSelect = document.getElementById(
+      "shaderLanguageSelect"
+    );
+    if (shaderLanguageSelect) {
+      shaderLanguageSelect.value =
+        this.previewSettings.shaderLanguage || "webgpu";
     }
 
     // Update texture previews

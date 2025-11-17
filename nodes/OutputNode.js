@@ -12,7 +12,7 @@ export const OutputNode = new NodeType(
     },
     webgl2: {
       dependency: "",
-      execution: (inputs, outputs) => `    fragColor = ${inputs[0]};`,
+      execution: (inputs, outputs) => `    outColor = ${inputs[0]};`,
     },
     webgpu: {
       dependency: "",

@@ -98,6 +98,9 @@ import { SwizzleNode } from "./SwizzleNode.js";
 import { AppendVec3Node } from "./AppendVec3Node.js";
 import { AppendVec4Node } from "./AppendVec4Node.js";
 
+// Import debug nodes
+import { ShaderLanguageTestNode } from "./ShaderLanguageTestNode.js";
+
 // Import built-in parameter nodes
 import { BuiltinSrcStartNode } from "./BuiltinSrcStartNode.js";
 import { BuiltinSrcEndNode } from "./BuiltinSrcEndNode.js";
@@ -236,4 +239,7 @@ export const NODE_TYPES = {
   builtinSeconds: BuiltinSecondsNode,
   builtinZNear: BuiltinZNearNode,
   builtinZFar: BuiltinZFarNode,
+
+  // Debug nodes
+  shaderLanguageTest: ShaderLanguageTestNode,
 };

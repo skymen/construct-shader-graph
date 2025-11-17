@@ -552,9 +552,15 @@ function setupShaderErrorCapture() {
     async _LoadDataJson(e) {
       const t = e["project"];
 
-      // Get sampling mode from query params
+      // Get settings from query params
       const urlParams = new URLSearchParams(window.location.search);
       const samplingMode = urlParams.get("samplingMode") || "trilinear";
+      const shaderLanguage = urlParams.get("shaderLanguage") || "webgpu";
+
+      // Set shader language (t[13] is the shader language property)
+      t[13] = shaderLanguage === "webgpu";
+
+      t[48] = shaderLanguage === "webgl1";
 
       // Set sampling mode (t[14] is the sampling mode property)
       t[14] = samplingMode;
