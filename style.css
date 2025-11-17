@@ -79,6 +79,18 @@ body {
   justify-content: flex-end;
 }
 
+.toolbar-branding {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-logo {
+  height: 32px;
+  width: auto;
+  filter: brightness(0) invert(1);
+}
+
 .toolbar-branding h1 {
   font-size: 18px;
   font-weight: 600;
