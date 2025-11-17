@@ -5,13 +5,13 @@ export class AutoLayoutEngine {
   constructor(blueprintSystem) {
     this.bp = blueprintSystem;
 
-    // Layout configuration
+    // Layout configuration - minimal spacing for compact layout
     this.config = {
-      layerSpacing: 60, // Base horizontal spacing between layers
-      nodeSpacing: 60, // Vertical spacing between unrelated nodes
-      leafNodeSpacing: 60, // Vertical spacing for leaf nodes near their parent
-      subgraphSpacing: 500, // Space between disconnected subgraphs
-      branchSpacing: 300, // Vertical space between independent branches
+      layerSpacing: 40, // Minimal horizontal spacing between layers
+      nodeSpacing: 30, // Minimal vertical spacing between unrelated nodes
+      leafNodeSpacing: 20, // Minimal vertical spacing for leaf nodes
+      subgraphSpacing: 200, // Space between disconnected subgraphs
+      branchSpacing: 100, // Vertical space between independent branches
       crossingReductionIterations: 8, // More iterations for better results
       animationDuration: 300, // ms for smooth transitions
     };
@@ -773,16 +773,16 @@ export class AutoLayoutEngine {
       totalNodesInChildren += child.layout.nodes?.length || 1;
     });
 
-    // Scale horizontal spacing with node count (reduced distances)
+    // Scale horizontal spacing with node count (absolute minimal padding)
     let horizontalSpacing;
     if (childLayouts.length === 1 && totalNodesInChildren === 1) {
-      horizontalSpacing = 80; // Single leaf child: very close
+      horizontalSpacing = 20; // Single leaf child: just enough to see the wire
     } else if (totalNodesInChildren <= 3) {
-      horizontalSpacing = 120; // Few nodes: medium spacing
+      horizontalSpacing = 30; // Few nodes: minimal spacing
     } else if (totalNodesInChildren <= 6) {
-      horizontalSpacing = 160; // Several nodes: more spacing
+      horizontalSpacing = 40; // Several nodes: small spacing
     } else {
-      horizontalSpacing = 200 + Math.min(150, (totalNodesInChildren - 6) * 20); // Many nodes: scale up
+      horizontalSpacing = 50 + Math.min(50, (totalNodesInChildren - 6) * 10); // Many nodes: scale up slowly
     }
 
     // Handle nodes that are part of multiple trees
@@ -827,8 +827,8 @@ export class AutoLayoutEngine {
     const childOffsets = [];
     const placedBBoxes = []; // Track placed bounding boxes for overlap detection
 
-    // Use fixed vertical spacing (reduced)
-    const verticalSpacing = 40; // Reduced from 60px
+    // Use minimal vertical spacing for compact layout
+    const verticalSpacing = 20; // Minimal padding between nodes
 
     childLayouts.forEach((child, index) => {
       const childLayout = child.layout;
@@ -956,15 +956,35 @@ export class AutoLayoutEngine {
     positions.set(nodeId, { x: parentX, y: parentY });
 
     // Add all children with their offsets, positioned to the left
-    // CRITICAL: Each child positions based on ITS OWN width, not maxChildWidth
+    // CRITICAL: Position based on where the CHILD NODE itself is, not the bbox
+    // The child node's RIGHT edge should be close to the parent's LEFT edge
     childLayouts.forEach((child, index) => {
       const offset = childOffsets[index];
       const childLayout = child.layout;
 
-      // Each child's RIGHT edge aligns at -(nodeWidth + horizontalSpacing)
-      // So its X position is: -(nodeWidth + horizontalSpacing + childWidth)
-      const childRightEdge = -(nodeWidth + horizontalSpacing);
-      const childBaseX = childRightEdge - childLayout.bbox.width;
+      // Get the child node's position within its own layout
+      const childNodePos = childLayout.positions.get(child.id);
+
+      if (!childNodePos) {
+        console.error(`Child node ${child.id} not found in its layout!`);
+        return;
+      }
+
+      // The child node itself should be positioned with its RIGHT edge at -(nodeWidth + horizontalSpacing)
+      // childNodePos.x is the child node's X within its layout (relative to layout origin)
+      // We want: childBaseX + childNodePos.x + nodeWidth = -(nodeWidth + horizontalSpacing)
+      // Therefore: childBaseX = -(nodeWidth + horizontalSpacing) - childNodePos.x - nodeWidth
+      const childNodeRightEdge = -nodeWidth - horizontalSpacing;
+      const childBaseX = childNodeRightEdge - childNodePos.x - nodeWidth;
+
+      console.log(`📍 Positioning child "${child.id}":`);
+      console.log(`  Parent left edge: ${-nodeWidth}`);
+      console.log(`  horizontalSpacing: ${horizontalSpacing}`);
+      console.log(`  Child node pos in layout: x=${childNodePos.x}`);
+      console.log(
+        `  Child node should have right edge at: ${childNodeRightEdge}`
+      );
+      console.log(`  Child base X (layout offset): ${childBaseX}`);
 
       child.layout.positions.forEach((pos, childNodeId) => {
         positions.set(childNodeId, {
@@ -1034,8 +1054,8 @@ export class AutoLayoutEngine {
    * Check if two bounding boxes overlap
    */
   bboxesOverlap(bbox1, bbox2) {
-    // Add small margin for spacing
-    const margin = 10;
+    // Minimal margin for tight packing
+    const margin = 5;
 
     return !(
       bbox1.x + bbox1.width + margin < bbox2.x ||
