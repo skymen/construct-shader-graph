@@ -326,7 +326,74 @@
         </div>
         <div id="canvas-container">
           <canvas id="canvas"></canvas>
-          <canvas id="minimap"></canvas>
+          <div id="minimap-container">
+            <canvas id="minimap"></canvas>
+            <div id="minimap-controls">
+              <button
+                id="zoomInBtn"
+                class="minimap-control-btn"
+                title="Zoom In"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <path
+                    d="M9,2A7,7 0 0,1 16,9C16,10.57 15.5,12 14.61,13.19L15.41,14H16L22,20L20,22L14,16V15.41L13.19,14.61C12,15.5 10.57,16 9,16A7,7 0 0,1 2,9A7,7 0 0,1 9,2M8,5V8H5V10H8V13H10V10H13V8H10V5H8Z"
+                  />
+                </svg>
+              </button>
+              <button
+                id="zoomOutBtn"
+                class="minimap-control-btn"
+                title="Zoom Out"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <path
+                    d="M9,2A7,7 0 0,1 16,9C16,10.57 15.5,12 14.61,13.19L15.41,14H16L22,20L20,22L14,16V15.41L13.19,14.61C12,15.5 10.57,16 9,16A7,7 0 0,1 2,9A7,7 0 0,1 9,2M5,8V10H13V8H5Z"
+                  />
+                </svg>
+              </button>
+              <button
+                id="resetZoomBtn"
+                class="minimap-control-btn"
+                title="Reset Zoom (100%)"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <path
+                    d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"
+                  />
+                </svg>
+              </button>
+
+              <button
+                id="zoomToFitBtn"
+                class="minimap-control-btn"
+                title="Zoom to Fit"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <path
+                    d="M12 8C8.44 8 6.65 12.31 9.17 14.83C11.69 17.35 16 15.56 16 12C16 9.79 14.21 8 12 8M5 15H3V19C3 20.1 3.9 21 5 21H9V19H5M5 5H9V3H5C3.9 3 3 3.9 3 5V9H5M19 3H15V5H19V9H21V5C21 3.9 20.1 3 19 3M19 19H15V21H19C20.1 21 21 20.1 21 19V15H19"
+                  />
+                </svg>
+              </button>
+              <button
+                id="centerViewBtn"
+                class="minimap-control-btn"
+                title="Center View"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <path
+                    d="M19.5,3.09L20.91,4.5L16.41,9H20V11H13V4H15V7.59L19.5,3.09M20.91,19.5L19.5,20.91L15,16.41V20H13V13H20V15H16.41L20.91,19.5M4.5,3.09L9,7.59V4H11V11H4V9H7.59L3.09,4.5L4.5,3.09M3.09,19.5L7.59,15H4V13H11V20H9V16.41L4.5,20.91L3.09,19.5Z"
+                  />
+                </svg>
+              </button>
+              <div
+                id="zoomLevelDisplay"
+                class="zoom-level-display"
+                title="Current Zoom Level"
+              >
+                100%
+              </div>
+            </div>
+          </div>
         </div>
         <div id="sidebar">
           <div id="sidebar-header">

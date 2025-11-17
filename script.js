@@ -1762,6 +1762,9 @@ class BlueprintSystem {
     // Texture controls
     this.setupTextureControls();
 
+    // Minimap controls
+    this.setupMinimapControls();
+
     // Listen for messages from preview iframe
     window.addEventListener("message", (event) => {
       if (event.data && event.data.type === "requestShaderData") {
@@ -1948,6 +1951,190 @@ class BlueprintSystem {
     // The URL from the preview is already a data URL (base64)
     console.log(`Received texture update for ${type}:`, url?.substring(0, 50));
     this.setTextureUrl(type, url);
+  }
+
+  setupMinimapControls() {
+    const zoomInBtn = document.getElementById("zoomInBtn");
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    const zoomToFitBtn = document.getElementById("zoomToFitBtn");
+    const resetZoomBtn = document.getElementById("resetZoomBtn");
+    const centerViewBtn = document.getElementById("centerViewBtn");
+    this.zoomLevelDisplay = document.getElementById("zoomLevelDisplay");
+
+    zoomInBtn.addEventListener("click", () => {
+      this.zoomIn();
+    });
+
+    zoomOutBtn.addEventListener("click", () => {
+      this.zoomOut();
+    });
+
+    zoomToFitBtn.addEventListener("click", () => {
+      this.zoomToFit();
+    });
+
+    resetZoomBtn.addEventListener("click", () => {
+      this.resetZoom();
+    });
+
+    centerViewBtn.addEventListener("click", () => {
+      this.centerView();
+    });
+
+    // Update zoom level display initially
+    this.updateZoomLevelDisplay();
+  }
+
+  zoomIn() {
+    const rect = this.canvas.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+
+    // Calculate world position before zoom
+    const worldX = (centerX - this.camera.x) / this.camera.zoom;
+    const worldY = (centerY - this.camera.y) / this.camera.zoom;
+
+    // Zoom in by 20%
+    const newZoom = Math.min(5, this.camera.zoom * 1.2);
+
+    // Adjust camera position to zoom towards center
+    this.camera.x = centerX - worldX * newZoom;
+    this.camera.y = centerY - worldY * newZoom;
+    this.camera.zoom = newZoom;
+
+    this.updateZoomLevelDisplay();
+    this.render();
+  }
+
+  zoomOut() {
+    const rect = this.canvas.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+
+    // Calculate world position before zoom
+    const worldX = (centerX - this.camera.x) / this.camera.zoom;
+    const worldY = (centerY - this.camera.y) / this.camera.zoom;
+
+    // Zoom out by 20%
+    const newZoom = Math.max(0.1, this.camera.zoom / 1.2);
+
+    // Adjust camera position to zoom towards center
+    this.camera.x = centerX - worldX * newZoom;
+    this.camera.y = centerY - worldY * newZoom;
+    this.camera.zoom = newZoom;
+
+    this.updateZoomLevelDisplay();
+    this.render();
+  }
+
+  zoomToFit() {
+    if (this.nodes.length === 0) {
+      this.resetZoom();
+      return;
+    }
+
+    // Calculate bounding box of all nodes
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    this.nodes.forEach((node) => {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + node.width);
+      maxY = Math.max(maxY, node.y + node.height);
+    });
+
+    // Add padding
+    const padding = 100;
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+
+    const boundsWidth = maxX - minX;
+    const boundsHeight = maxY - minY;
+
+    const rect = this.canvas.getBoundingClientRect();
+    const viewWidth = rect.width;
+    const viewHeight = rect.height;
+
+    // Calculate zoom to fit
+    const zoomX = viewWidth / boundsWidth;
+    const zoomY = viewHeight / boundsHeight;
+    const newZoom = Math.min(zoomX, zoomY, 5); // Cap at max zoom
+
+    // Center the view
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    this.camera.zoom = newZoom;
+    this.camera.x = viewWidth / 2 - centerX * newZoom;
+    this.camera.y = viewHeight / 2 - centerY * newZoom;
+
+    this.updateZoomLevelDisplay();
+    this.render();
+  }
+
+  resetZoom() {
+    const rect = this.canvas.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+
+    // Calculate world position at center before zoom change
+    const worldX = (centerX - this.camera.x) / this.camera.zoom;
+    const worldY = (centerY - this.camera.y) / this.camera.zoom;
+
+    // Reset zoom to 1
+    const newZoom = 1;
+
+    // Adjust camera position to keep the center point stable
+    this.camera.x = centerX - worldX * newZoom;
+    this.camera.y = centerY - worldY * newZoom;
+    this.camera.zoom = newZoom;
+
+    this.updateZoomLevelDisplay();
+    this.render();
+  }
+
+  centerView() {
+    if (this.nodes.length === 0) {
+      this.camera.x = 0;
+      this.camera.y = 0;
+      this.render();
+      return;
+    }
+
+    // Calculate bounding box of all nodes (same as zoomToFit)
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    this.nodes.forEach((node) => {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + node.width);
+      maxY = Math.max(maxY, node.y + node.height);
+    });
+
+    // Calculate center of bounding box
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    const rect = this.canvas.getBoundingClientRect();
+    this.camera.x = rect.width / 2 - centerX * this.camera.zoom;
+    this.camera.y = rect.height / 2 - centerY * this.camera.zoom;
+
+    this.render();
+  }
+
+  updateZoomLevelDisplay() {
+    if (this.zoomLevelDisplay) {
+      const zoomPercent = Math.round(this.camera.zoom * 100);
+      this.zoomLevelDisplay.textContent = `${zoomPercent}%`;
+    }
   }
 
   updatePreview() {
@@ -4214,6 +4401,7 @@ class BlueprintSystem {
       this.camera.x = mouseX - worldX * newZoom;
       this.camera.y = mouseY - worldY * newZoom;
       this.camera.zoom = newZoom;
+      this.updateZoomLevelDisplay();
     } else {
       // Pan mode
       this.camera.x -= e.deltaX;
@@ -4915,6 +5103,10 @@ class BlueprintSystem {
     this.resetPreviewSettings();
 
     this.addDefaultNodes();
+
+    // Center view on the default nodes
+    this.centerView();
+
     // Clear and reinitialize history after adding default nodes
     this.history.clear();
     this.history.currentState = this.exportState();
