@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
 
 export const GetVariableNode = new NodeType(
   "Get Variable",
@@ -10,7 +10,7 @@ export const GetVariableNode = new NodeType(
     webgl1: {
       dependency: "",
       execution: (inputs, outputs, node, inputTypes, outputTypes) => {
-        const varName = node.selectedVariable || "variable";
+        const varName = `temp_${node.selectedVariable || "variable"}`;
         const type = outputTypes[0];
         return `    ${type} ${outputs[0]} = ${varName};`;
       },
@@ -18,7 +18,7 @@ export const GetVariableNode = new NodeType(
     webgl2: {
       dependency: "",
       execution: (inputs, outputs, node, inputTypes, outputTypes) => {
-        const varName = node.selectedVariable || "variable";
+        const varName = `temp_${node.selectedVariable || "variable"}`;
         const type = outputTypes[0];
         return `    ${type} ${outputs[0]} = ${varName};`;
       },
@@ -26,30 +26,10 @@ export const GetVariableNode = new NodeType(
     webgpu: {
       dependency: "",
       execution: (inputs, outputs, node, inputTypes, outputTypes) => {
-        const varName = node.selectedVariable || "variable";
+        const varName = `temp_${node.selectedVariable || "variable"}`;
         const type = outputTypes[0];
         // Convert type to WGSL format
-        let wgslType = type;
-        switch (type) {
-          case "float":
-            wgslType = "f32";
-            break;
-          case "int":
-            wgslType = "i32";
-            break;
-          case "boolean":
-            wgslType = "bool";
-            break;
-          case "vec2":
-            wgslType = "vec2<f32>";
-            break;
-          case "vec3":
-            wgslType = "vec3<f32>";
-            break;
-          case "vec4":
-            wgslType = "vec4<f32>";
-            break;
-        }
+        const wgslType = toWGSLType(type);
         return `    var ${outputs[0]}: ${wgslType} = ${varName};`;
       },
     },

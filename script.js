@@ -68,7 +68,8 @@ class Port {
       : 0;
     // Add extra offset if node has variable dropdown
     const variableDropdownOffset = node.nodeType.hasVariableDropdown ? 45 : 0;
-    const startY = node.y + 50 + dropdownOffset + customInputOffset + variableDropdownOffset;
+    const startY =
+      node.y + 50 + dropdownOffset + customInputOffset + variableDropdownOffset;
 
     // Calculate cumulative Y position based on actual port heights
     let y = startY;
@@ -283,8 +284,6 @@ class Node {
     this.nodeType = nodeType;
     this.title = nodeType.name;
     this.headerColor = nodeType.color;
-    this.isVariable =
-      nodeType.inputs.length === 0 && nodeType.outputs.length > 0;
     this.isSelected = false;
 
     // Initialize operation for nodes that have it
@@ -312,6 +311,15 @@ class Node {
     this.outputPorts = nodeType.outputs.map(
       (outputDef, index) => new Port(this, "output", index, outputDef)
     );
+
+    // Determine if this is a variable node (pill-shaped)
+    // Variable nodes: no inputs, has outputs, and no special UI elements
+    this.isVariable =
+      nodeType.inputs.length === 0 &&
+      nodeType.outputs.length > 0 &&
+      !nodeType.hasOperation &&
+      !nodeType.hasCustomInput &&
+      !nodeType.hasVariableDropdown;
 
     // Variable nodes are smaller and pill-shaped
     if (this.isVariable) {
@@ -4505,9 +4513,37 @@ class BlueprintSystem {
     }
   }
 
+  generateUniqueVariableName(baseName) {
+    // Remove any existing numeric suffix
+    const baseNameClean = baseName.replace(/_\d+$/, "");
+
+    // Get all existing variable names
+    const existingNames = new Set(
+      this.nodes
+        .filter((n) => n.nodeType.name === "Set Variable" && n.customInput)
+        .map((n) => n.customInput)
+    );
+
+    // If the base name doesn't exist, use it
+    if (!existingNames.has(baseNameClean)) {
+      return baseNameClean;
+    }
+
+    // Find the next available number
+    let counter = 2;
+    let newName = `${baseNameClean}_${counter}`;
+    while (existingNames.has(newName)) {
+      counter++;
+      newName = `${baseNameClean}_${counter}`;
+    }
+
+    return newName;
+  }
+
   pasteNodes(copiedData, offsetX, offsetY) {
     const newNodes = [];
     const oldToNewNodeMap = new Map();
+    const variableNameMap = new Map(); // Maps old variable names to new ones
 
     // Clear current selection
     this.clearSelection();
@@ -4531,8 +4567,25 @@ class BlueprintSystem {
 
       // Restore properties
       newNode.operation = nodeData.operation;
-      newNode.customInput = nodeData.customInput;
-      newNode.selectedVariable = nodeData.selectedVariable;
+
+      // For Set Variable nodes, rename the variable to avoid conflicts
+      if (nodeType.name === "Set Variable" && nodeData.customInput) {
+        const oldName = nodeData.customInput;
+        const newName = this.generateUniqueVariableName(oldName);
+        newNode.customInput = newName;
+        variableNameMap.set(oldName, newName);
+      } else {
+        newNode.customInput = nodeData.customInput;
+      }
+
+      // Store original selectedVariable for Get Variable nodes
+      // (we'll update it after all nodes are created)
+      if (nodeType.name === "Get Variable") {
+        newNode._originalSelectedVariable = nodeData.selectedVariable;
+      } else {
+        newNode.selectedVariable = nodeData.selectedVariable;
+      }
+
       newNode.uniformId = nodeData.uniformId;
       newNode.uniformName = nodeData.uniformName;
       newNode.uniformDisplayName = nodeData.uniformDisplayName;
@@ -4554,6 +4607,31 @@ class BlueprintSystem {
 
       // Select the new node
       this.selectNode(newNode, true);
+    });
+
+    // Update Get Variable nodes with renamed variable names
+    newNodes.forEach((node) => {
+      if (
+        node.nodeType.name === "Get Variable" &&
+        node._originalSelectedVariable
+      ) {
+        const oldVarName = node._originalSelectedVariable;
+        const newVarName = variableNameMap.get(oldVarName);
+
+        // If the variable was renamed, use the new name
+        // Otherwise, keep the original (it might reference a variable outside the pasted set)
+        if (newVarName) {
+          node.selectedVariable = newVarName;
+        } else {
+          node.selectedVariable = oldVarName;
+        }
+
+        // Clean up temporary property
+        delete node._originalSelectedVariable;
+
+        // Update port types
+        node.outputPorts.forEach((port) => port.updateEditability());
+      }
     });
 
     // Recreate wires between pasted nodes
@@ -4766,10 +4844,10 @@ class BlueprintSystem {
             n.nodeType.name === "Set Variable" &&
             n.customInput === node.selectedVariable
         );
-        
+
         if (setVarNode) {
           nodeDeps.add(setVarNode);
-          
+
           if (!visited.has(setVarNode)) {
             visited.add(setVarNode);
             queue.push(setVarNode);
@@ -7776,7 +7854,7 @@ class BlueprintSystem {
         ctx.fillStyle = node.selectedVariable ? "#fff" : "#888";
         ctx.font = "14px monospace";
         ctx.textAlign = "left";
-        
+
         // Clip text to dropdown bounds
         ctx.save();
         ctx.beginPath();

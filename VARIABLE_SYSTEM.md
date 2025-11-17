@@ -18,10 +18,11 @@ The variable system consists of two special nodes:
 - **Validation**: Variable names must be valid identifiers (letters, numbers, underscore) and cannot be reserved keywords
 - **Shader Code**: Generates a variable declaration in the shader with the specified name and type
 
-Example shader code generated:
+Example shader code generated (note the `temp_` prefix to avoid naming conflicts):
+
 ```glsl
-float myVariable = 1.5;
-vec3 myColor = vec3(1.0, 0.0, 0.0);
+float temp_myVariable = 1.5;
+vec3 temp_myColor = vec3(1.0, 0.0, 0.0);
 ```
 
 ### Get Variable Node
@@ -31,10 +32,11 @@ vec3 myColor = vec3(1.0, 0.0, 0.0);
 - **Type Resolution**: Automatically resolves the output type based on the selected variable
 - **Shader Code**: References the variable by name
 
-Example shader code generated:
+Example shader code generated (references use the same `temp_` prefix):
+
 ```glsl
-float var_0 = myVariable;
-vec3 var_1 = myColor;
+float var_0 = temp_myVariable;
+vec3 var_1 = temp_myColor;
 ```
 
 ## Dependency Graph Integration
@@ -77,10 +79,11 @@ Get Variable nodes use a custom type system that dynamically resolves the output
 GetVariableNode.getCustomType = (node, port) => {
   // Find the corresponding Set Variable node
   const setVarNode = blueprintSystem.nodes.find(
-    (n) => n.nodeType.name === "Set Variable" && 
-           n.customInput === node.selectedVariable
+    (n) =>
+      n.nodeType.name === "Set Variable" &&
+      n.customInput === node.selectedVariable
   );
-  
+
   // Return the resolved type from the Set Variable's input
   return setVarNode.inputPorts[0].getResolvedType();
 };
@@ -94,10 +97,11 @@ The dependency graph builder was modified to recognize variable dependencies:
 // Special handling for Get Variable nodes
 if (node.nodeType.name === "Get Variable" && node.selectedVariable) {
   const setVarNode = this.nodes.find(
-    (n) => n.nodeType.name === "Set Variable" &&
-           n.customInput === node.selectedVariable
+    (n) =>
+      n.nodeType.name === "Set Variable" &&
+      n.customInput === node.selectedVariable
   );
-  
+
   if (setVarNode) {
     nodeDeps.add(setVarNode);
     // Add to queue for traversal...
@@ -108,6 +112,7 @@ if (node.nodeType.name === "Get Variable" && node.selectedVariable) {
 #### UI Components
 
 The variable dropdown UI includes:
+
 - Label showing "Variable"
 - Dropdown showing selected variable or "(none)"
 - Dropdown arrow indicator
@@ -135,12 +140,14 @@ The variable dropdown UI includes:
 ### Example Use Case
 
 Variables are useful for:
+
 - **Reusing calculations**: Calculate a value once and use it multiple times
 - **Organizing complex graphs**: Name important intermediate values
 - **Avoiding duplicate nodes**: Instead of duplicating a chain of nodes, store the result in a variable
 - **Improving readability**: Give meaningful names to important values
 
 Example graph:
+
 ```
 [UV Input] → [Noise] → [Set Variable: "noiseValue"]
                             ↓
@@ -153,9 +160,10 @@ Example graph:
 
 ### Shader Code Generation
 
-- **Set Variable**: Generates a typed variable declaration
-- **Get Variable**: Generates a typed variable assignment that references the Set Variable's name
+- **Set Variable**: Generates a typed variable declaration with a `temp_` prefix to avoid naming conflicts
+- **Get Variable**: Generates a typed variable assignment that references the Set Variable's name (with `temp_` prefix)
 - **WebGPU Support**: Automatically converts types to WGSL format (f32, vec2<f32>, etc.)
+- **Name Prefixing**: All variable names are automatically prefixed with `temp_` in the generated shader code to prevent conflicts with built-in shader variables and reserved keywords. This prefix is hidden from the user in the UI.
 
 ### Type Safety
 
@@ -166,6 +174,7 @@ Example graph:
 ### Serialization
 
 Variable nodes are fully serializable:
+
 - Set Variable nodes save their `customInput` (variable name)
 - Get Variable nodes save their `selectedVariable` (selected variable name)
 - Both are restored when loading saved graphs
@@ -180,4 +189,3 @@ Potential improvements for the variable system:
 4. **Variable Colors**: Color-code variables for easier identification
 5. **Variable Comments**: Add descriptions to variables
 6. **Unused Variable Warnings**: Highlight variables that are defined but never used
-

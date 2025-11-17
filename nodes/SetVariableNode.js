@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, typeToWgslType } from "./PortTypes.js";
+import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
 
 export const SetVariableNode = new NodeType(
   "Set Variable",
@@ -10,27 +10,27 @@ export const SetVariableNode = new NodeType(
     webgl1: {
       dependency: "",
       execution: (inputs, outputs, node, inputTypes) => {
-        const varName = node.customInput || "variable";
+        const varName = `temp_${node.customInput || "variable"}`;
         const type = inputTypes[0];
-        return `    ${type} temp_${varName} = ${inputs[0]};`;
+        return `    ${type} ${varName} = ${inputs[0]};`;
       },
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs, node, inputTypes) => {
-        const varName = node.customInput || "variable";
+        const varName = `temp_${node.customInput || "variable"}`;
         const type = inputTypes[0];
-        return `    ${type} temp_${varName} = ${inputs[0]};`;
+        return `    ${type} ${varName} = ${inputs[0]};`;
       },
     },
     webgpu: {
       dependency: "",
       execution: (inputs, outputs, node, inputTypes) => {
-        const varName = node.customInput || "variable";
+        const varName = `temp_${node.customInput || "variable"}`;
         const type = inputTypes[0];
         // Convert type to WGSL format
-        let wgslType = typeToWgslType(type);
-        return `    var temp_${varName}: ${wgslType} = ${inputs[0]};`;
+        const wgslType = toWGSLType(type);
+        return `    var ${varName}: ${wgslType} = ${inputs[0]};`;
       },
     },
   },
@@ -60,9 +60,25 @@ SetVariableNode.customInputConfig = {
       };
     }
 
-    value = `temp_${value}`;
+    // Check for duplicate variable names (excluding this node)
+    if (node && node._blueprintSystem) {
+      const existingVariable = node._blueprintSystem.nodes.find(
+        (n) =>
+          n.nodeType.name === "Set Variable" &&
+          n.id !== node.id &&
+          n.customInput === value
+      );
+
+      if (existingVariable) {
+        return {
+          valid: false,
+          error: `Variable name "${value}" is already in use`,
+        };
+      }
+    }
 
     // Check for reserved keywords
+    const tempValue = `temp_${value}`;
     const reservedKeywords = [
       "if",
       "else",
@@ -96,7 +112,7 @@ SetVariableNode.customInputConfig = {
       "discard",
     ];
 
-    if (reservedKeywords.includes(value.toLowerCase())) {
+    if (reservedKeywords.includes(tempValue.toLowerCase())) {
       return {
         valid: false,
         error: "Variable name cannot be a reserved keyword",
