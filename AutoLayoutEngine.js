@@ -12,6 +12,8 @@ export class AutoLayoutEngine {
       leafNodeSpacing: 10, // Minimal vertical spacing for leaf nodes
       subgraphSpacing: 100, // Space between disconnected subgraphs
       branchSpacing: 50, // Vertical space between independent branches
+      childrenGapBase: 15, // Base vertical gap between children
+      childrenGapPerLevel: 15, // Additional gap per level of depth in child's subtree
       crossingReductionIterations: 8, // More iterations for better results
       animationDuration: 300, // ms for smooth transitions
     };
@@ -1110,15 +1112,43 @@ export class AutoLayoutEngine {
     const childOffsets = [];
     const placedBBoxes = []; // Track placed bounding boxes for overlap detection
 
-    // Vertical spacing between nodes
-    const verticalSpacing = 20; // Gap between nodes for readability
     const overlapMargin = 5; // Extra margin for overlap detection to prevent tight fits
+
+    // Helper function to calculate max depth of a child's subtree
+    // TODO
+    const getMaxDepth = (childLayout) => {
+      if (!childLayout.nodes || childLayout.nodes.length <= 1) {
+        return 0; // Leaf node
+      }
+
+      // Count the maximum depth by looking at the layout structure
+      // We can approximate this by counting unique X positions (layers)
+      const xPositions = new Set();
+      childLayout.positions.forEach((pos) => {
+        xPositions.add(Math.round(pos.x / 10) * 10); // Round to nearest 10 to group similar positions
+      });
+
+      return Math.max(0, xPositions.size - 1); // -1 because we count layers, not nodes
+    };
 
     // Removed debug logging for cleaner output
 
     childLayouts.forEach((child, index) => {
       const childLayout = child.layout;
       const childNode = subgraph.get(child.id)?.node;
+
+      // Calculate vertical spacing based on the maximum depth of current and previous children
+      const currentChildDepth = getMaxDepth(childLayout);
+      let maxDepth = currentChildDepth;
+
+      if (index > 0) {
+        const prevChildDepth = getMaxDepth(childLayouts[index - 1].layout);
+        maxDepth = Math.max(currentChildDepth, prevChildDepth);
+      }
+
+      const verticalSpacing =
+        this.config.childrenGapBase +
+        maxDepth * this.config.childrenGapPerLevel;
 
       // Smart initial placement: try to place below previous siblings
       let proposedY = 0;
