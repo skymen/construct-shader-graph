@@ -1290,7 +1290,7 @@ body {
 .custom-node-form {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 6px;
 }
 
 .custom-node-form label {
@@ -1612,6 +1612,11 @@ body {
 
 .custom-node-code-editor .cm-scroller {
   overflow: auto;
+  min-height: 100%;
+}
+
+.custom-node-code-editor .cm-content {
+  min-height: 100%;
 }
 
 .custom-node-code-editor .cm-gutters {
@@ -2294,26 +2299,49 @@ body {
 .code-panel {
   display: none;
   height: 100%;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .code-panel.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
 }
 
-.code-panel pre {
-  margin: 0;
-  padding: 20px;
+/* CodeMirror in view code modal */
+.code-panel .cm-editor {
+  height: 100%;
+  font-size: 13px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+.code-panel .cm-scroller {
+  overflow: auto;
   min-height: 100%;
 }
 
-.code-panel code {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #d4d4d4;
-  white-space: pre;
-  display: block;
+.code-panel .cm-content {
+  min-height: 100%;
+}
+
+.code-panel .cm-gutters {
+  background: #0a0a0a;
+  border-right: 1px solid #2a2a2a;
+}
+
+.code-panel .cm-lineNumbers {
+  color: #555;
+}
+
+.code-panel .cm-activeLineGutter {
+  background: #1a1a1a;
+}
+
+.code-panel .cm-activeLine {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.code-panel .cm-line {
+  padding: 0 8px;
 }
 
 .view-code-modal .modal-footer {

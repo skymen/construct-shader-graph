@@ -1483,16 +1483,23 @@ class BlueprintSystem {
 
     // Copy button
     document.getElementById("copyCodeBtn").addEventListener("click", () => {
-      const activePanel = document.querySelector(".code-panel.active code");
-      if (activePanel) {
-        navigator.clipboard.writeText(activePanel.textContent).then(() => {
-          const btn = document.getElementById("copyCodeBtn");
-          const originalText = btn.textContent;
-          btn.textContent = "Copied!";
-          setTimeout(() => {
-            btn.textContent = originalText;
-          }, 2000);
-        });
+      // Find which tab is active
+      const activeTab = document.querySelector(".code-tab.active");
+      if (activeTab && this.viewCodeEditors) {
+        const target = activeTab.dataset.target;
+        const editor = this.viewCodeEditors[target];
+
+        if (editor) {
+          const code = editor.state.doc.toString();
+          navigator.clipboard.writeText(code).then(() => {
+            const btn = document.getElementById("copyCodeBtn");
+            const originalText = btn.textContent;
+            btn.textContent = "Copied!";
+            setTimeout(() => {
+              btn.textContent = originalText;
+            }, 2000);
+          });
+        }
       }
     });
   }
@@ -5532,13 +5539,62 @@ class BlueprintSystem {
       shaders[target] = fullShader;
     }
 
-    // Populate the modal with the generated code
-    document.getElementById("code-webgl1-content").textContent = shaders.webgl1;
-    document.getElementById("code-webgl2-content").textContent = shaders.webgl2;
-    document.getElementById("code-webgpu-content").textContent = shaders.webgpu;
+    // Initialize CodeMirror editors for each panel if not already done
+    if (!this.viewCodeEditors) {
+      this.viewCodeEditors = {};
+      this.initializeViewCodeEditors();
+    }
+
+    // Update the content of each editor
+    for (const target of targets) {
+      if (this.viewCodeEditors[target]) {
+        this.viewCodeEditors[target].dispatch({
+          changes: {
+            from: 0,
+            to: this.viewCodeEditors[target].state.doc.length,
+            insert: shaders[target],
+          },
+        });
+      }
+    }
 
     // Show the modal
     document.getElementById("viewCodeModal").style.display = "flex";
+  }
+
+  initializeViewCodeEditors() {
+    const checkCodeMirror = () => {
+      if (window.CodeMirror) {
+        const { EditorView, EditorState, basicSetup, cpp, oneDark } =
+          window.CodeMirror;
+
+        const targets = ["webgl1", "webgl2", "webgpu"];
+
+        for (const target of targets) {
+          const container = document.getElementById(`code-${target}`);
+
+          // Create readonly CodeMirror editor
+          this.viewCodeEditors[target] = new EditorView({
+            state: EditorState.create({
+              doc: "",
+              extensions: [
+                basicSetup,
+                cpp(),
+                oneDark,
+                EditorView.editable.of(false), // Make it readonly
+                EditorState.readOnly.of(true),
+              ],
+            }),
+            parent: container,
+          });
+        }
+      } else {
+        // Retry after a short delay
+        setTimeout(checkCodeMirror, 100);
+      }
+    };
+
+    checkCodeMirror();
   }
 
   async exportGLSL() {
