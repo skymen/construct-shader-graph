@@ -323,7 +323,15 @@ class Node {
 
     // Variable nodes are smaller and pill-shaped
     if (this.isVariable) {
-      this.width = 120;
+      // Dynamic width based on variable name length
+      const minWidth = 120;
+      const maxWidth = 160;
+      const baseWidth = 80; // Base width for padding and port
+      const charWidth = 7; // Approximate width per character
+
+      // Calculate width based on title length
+      const titleWidth = baseWidth + this.title.length * charWidth;
+      this.width = Math.min(Math.max(minWidth, titleWidth), maxWidth);
       this.height = 35;
     } else {
       this.width = 180;
