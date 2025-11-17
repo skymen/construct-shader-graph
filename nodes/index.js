@@ -50,6 +50,7 @@ import { CrossNode } from "./CrossNode.js";
 import { NormalizeNode } from "./NormalizeNode.js";
 import { LengthNode } from "./LengthNode.js";
 import { DistanceNode } from "./DistanceNode.js";
+import { MultiplyVectorNode } from "./MultiplyVectorNode.js";
 import { RotateAroundPointNode } from "./RotateAroundPointNode.js";
 import { Hash11Node } from "./Hash11Node.js";
 import { Hash21Node } from "./Hash21Node.js";
@@ -168,6 +169,7 @@ export const NODE_TYPES = {
   normalize: NormalizeNode,
   length: LengthNode,
   distance: DistanceNode,
+  multiplyVector: MultiplyVectorNode,
   rotateAroundPoint: RotateAroundPointNode,
   hash11: Hash11Node,
   hash21: Hash21Node,

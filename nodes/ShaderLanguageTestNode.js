@@ -4,11 +4,11 @@ import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
 export const ShaderLanguageTestNode = new NodeType(
   "Shader Test",
   [
-    { name: "WebGL 1", type: "genType" },
-    { name: "WebGL 2", type: "genType" },
-    { name: "WebGPU", type: "genType" },
+    { name: "WebGL 1", type: "T" },
+    { name: "WebGL 2", type: "T" },
+    { name: "WebGPU", type: "T" },
   ],
-  [{ name: "Out", type: "genType" }],
+  [{ name: "Out", type: "T" }],
   "#8a4fff",
   {
     webgl1: {
