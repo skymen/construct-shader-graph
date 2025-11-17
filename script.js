@@ -11,6 +11,7 @@ import { UniformFloatNode } from "./nodes/UniformFloatNode.js";
 import { UniformColorNode } from "./nodes/UniformColorNode.js";
 import JSZip from "jszip";
 import { HistoryManager } from "./HistoryManager.js";
+import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
 
 // Import boilerplate files as raw text
 import boilerplateWebGL1 from "./shaders/boilerplate-webgl1.glsl?raw";
@@ -733,6 +734,9 @@ class BlueprintSystem {
 
     // History Manager for undo/redo
     this.history = new HistoryManager(this);
+
+    // Auto Layout Engine
+    this.autoLayoutEngine = new AutoLayoutEngine(this);
 
     // Track node positions for undo/redo
     this.dragStartPositions = new Map();
@@ -4029,6 +4033,14 @@ class BlueprintSystem {
       this.closeSidebar();
     });
 
+    document.getElementById("autoArrangeBtn").addEventListener("click", () => {
+      this.autoArrange();
+    });
+
+    document.getElementById("debugArrangeBtn").addEventListener("click", () => {
+      this.debugAutoArrange();
+    });
+
     document.getElementById("viewCodeBtn").addEventListener("click", () => {
       this.showViewCodeModal();
     });
@@ -4198,6 +4210,36 @@ class BlueprintSystem {
 
     // Push state for undo/redo
     this.history.pushState("Delete nodes");
+  }
+
+  autoArrange() {
+    // If there's a selection, arrange only selected nodes
+    // Otherwise, arrange all nodes
+    const selectedOnly = this.selectedNodes.size > 0;
+
+    if (selectedOnly) {
+      console.log(`Auto-arranging ${this.selectedNodes.size} selected nodes`);
+    } else {
+      console.log(`Auto-arranging all ${this.nodes.length} nodes`);
+    }
+
+    this.autoLayoutEngine.autoArrange(selectedOnly);
+  }
+
+  debugAutoArrange() {
+    // If there's a selection, arrange only selected nodes
+    // Otherwise, arrange all nodes
+    const selectedOnly = this.selectedNodes.size > 0;
+
+    if (selectedOnly) {
+      console.log(
+        `DEBUG: Auto-arranging ${this.selectedNodes.size} selected nodes`
+      );
+    } else {
+      console.log(`DEBUG: Auto-arranging all ${this.nodes.length} nodes`);
+    }
+
+    this.autoLayoutEngine.debugAutoArrange(selectedOnly);
   }
 
   copySelected() {
@@ -4461,6 +4503,11 @@ class BlueprintSystem {
     else if ((e.ctrlKey || e.metaKey) && e.key === "o") {
       e.preventDefault();
       document.getElementById("loadBtn").click();
+    }
+    // Ctrl/Cmd + L: Auto Arrange
+    else if ((e.ctrlKey || e.metaKey) && e.key === "l") {
+      e.preventDefault();
+      this.autoArrange();
     } else if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
       this.deleteSelected();
@@ -7534,8 +7581,49 @@ class BlueprintSystem {
       this.drawWire(this.activeWire);
     }
 
-    // Draw nodes
-    this.nodes.forEach((node) => this.drawNode(node));
+    // Draw nodes (with debug opacity if in debug mode)
+    this.nodes.forEach((node) => {
+      if (this.debugActiveNodes && this.debugActiveNodes.size > 0) {
+        // In debug mode: lower opacity for inactive nodes
+        const isActive = this.debugActiveNodes.has(node.id);
+        ctx.globalAlpha = isActive ? 1.0 : 0.2;
+        this.drawNode(node);
+        ctx.globalAlpha = 1.0;
+      } else {
+        this.drawNode(node);
+      }
+    });
+
+    // Draw debug bounding boxes if in debug mode
+    if (this.debugBBox) {
+      ctx.strokeStyle = "#ff00ff";
+      ctx.fillStyle = "rgba(255, 0, 255, 0.1)";
+      ctx.lineWidth = 3 / this.camera.zoom;
+      ctx.setLineDash([10 / this.camera.zoom, 5 / this.camera.zoom]);
+
+      ctx.fillRect(
+        this.debugBBox.x,
+        this.debugBBox.y,
+        this.debugBBox.width,
+        this.debugBBox.height
+      );
+      ctx.strokeRect(
+        this.debugBBox.x,
+        this.debugBBox.y,
+        this.debugBBox.width,
+        this.debugBBox.height
+      );
+
+      // Draw label
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#ff00ff";
+      ctx.font = `${16 / this.camera.zoom}px Arial`;
+      ctx.fillText(
+        this.debugBBoxLabel || "Debug BBox",
+        this.debugBBox.x,
+        this.debugBBox.y - 10 / this.camera.zoom
+      );
+    }
 
     // Draw box selection
     if (this.isBoxSelecting && this.boxSelectStart && this.boxSelectEnd) {
