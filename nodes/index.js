@@ -159,6 +159,9 @@ import { GoldenRatioNode } from "./GoldenRatioNode.js";
 import { Sqrt2Node } from "./Sqrt2Node.js";
 import { EpsilonNode } from "./EpsilonNode.js";
 
+// Import debug nodes
+import { DrawFloatNode } from "./DrawFloatNode.js";
+
 // Export NODE_TYPES object
 export const NODE_TYPES = {
   math: MathNode,
@@ -309,4 +312,5 @@ export const NODE_TYPES = {
 
   // Debug nodes
   shaderLanguageTest: ShaderLanguageTestNode,
+  drawFloat: DrawFloatNode,
 };
