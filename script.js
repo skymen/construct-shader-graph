@@ -5085,6 +5085,8 @@ class BlueprintSystem {
     return this.uniforms.map((uniform) => {
       const param = {
         id: uniform.variableName,
+        uniform: uniform.variableName,
+        interpolatable: true,
         name: uniform.name,
         desc: uniform.description || "",
         type:
@@ -5097,9 +5099,13 @@ class BlueprintSystem {
 
       // Add initial value
       if (uniform.type === "color") {
-        param.initial = [uniform.value.r, uniform.value.g, uniform.value.b];
+        param["initial-value"] = [
+          uniform.value.r,
+          uniform.value.g,
+          uniform.value.b,
+        ];
       } else {
-        param.initial = uniform.value;
+        param["initial-value"] = uniform.value;
       }
 
       return param;
