@@ -1536,6 +1536,29 @@ button:hover {
   border-color: #e24a4a;
 }
 
+.reset-preview-btn {
+  background: rgba(109, 0, 0, 0.306);
+  border: 1px solid #e24a4a;
+  color: #ff4343;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.reset-preview-btn:hover {
+  background: rgba(226, 74, 74, 0.25);
+  border-color: #ff5a5a;
+  color: #ff5a5a;
+}
+
 #togglePreviewSettingsBtn {
   background: none;
   border: none;

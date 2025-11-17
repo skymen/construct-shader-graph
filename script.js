@@ -1751,6 +1751,14 @@ class BlueprintSystem {
       this.updatePreview(); // Reload preview with new sampling mode
     });
 
+    // Reset preview settings button
+    const resetPreviewSettingsBtn = document.getElementById(
+      "resetPreviewSettingsBtn"
+    );
+    resetPreviewSettingsBtn.addEventListener("click", () => {
+      this.resetPreviewSettings();
+    });
+
     // Texture controls
     this.setupTextureControls();
 
@@ -4775,6 +4783,56 @@ class BlueprintSystem {
     return langData;
   }
 
+  resetPreviewSettings() {
+    // Reset preview settings to defaults
+    this.previewSettings = {
+      effectTarget: "sprite",
+      object: "sprite",
+      cameraMode: "2d",
+      autoRotate: true,
+      samplingMode: "trilinear",
+      spriteTextureUrl: null,
+      shapeTextureUrl: null,
+    };
+
+    // Update UI elements
+    const effectTargetSelect = document.getElementById("effectTargetSelect");
+    const objectSelect = document.getElementById("objectSelect");
+    const cameraModeSelect = document.getElementById("cameraModeSelect");
+    const autoRotateCheckbox = document.getElementById("autoRotateCheckbox");
+    const autoRotateGroup = document.getElementById("autoRotateGroup");
+    const samplingModeSelect = document.getElementById("samplingModeSelect");
+
+    if (effectTargetSelect) effectTargetSelect.value = "sprite";
+    if (objectSelect) objectSelect.value = "sprite";
+    if (cameraModeSelect) cameraModeSelect.value = "2d";
+    if (autoRotateCheckbox) autoRotateCheckbox.checked = true;
+    if (autoRotateGroup) autoRotateGroup.style.display = "none";
+    if (samplingModeSelect) samplingModeSelect.value = "trilinear";
+
+    // Reset texture preview UI
+    this.updateTexturePreview(
+      "spriteTexturePreview",
+      "clearSpriteTextureBtn",
+      null
+    );
+    this.updateTexturePreview(
+      "shapeTexturePreview",
+      "clearShapeTextureBtn",
+      null
+    );
+
+    // Send commands to preview iframe if ready
+    if (this.previewReady) {
+      this.sendPreviewCommand("setEffectTarget", "sprite");
+      this.sendPreviewCommand("setObject", "sprite");
+      this.sendPreviewCommand("setCameraMode", "2d");
+      this.sendPreviewCommand("setAutoRotate", true);
+      // Reload preview to clear textures
+      this.updatePreview();
+    }
+  }
+
   addDefaultNodes() {
     // Add default nodes: FrontUV -> TextureFront -> Output
     const frontUVNode = this.addNode(200, 300, NODE_TYPES.frontUV);
@@ -4852,6 +4910,9 @@ class BlueprintSystem {
 
     // Reset node ID counter
     this.nodeIdCounter = 1;
+
+    // Reset preview settings
+    this.resetPreviewSettings();
 
     this.addDefaultNodes();
     // Clear and reinitialize history after adding default nodes
