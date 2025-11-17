@@ -10,12 +10,12 @@ export const BackUVNode = new NodeType(
     webgl1: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    vec2 ${outputs[0]} = (vTex - srcStart) / (srcEnd - srcStart);`,
+        `    vec2 ${outputs[0]} = mix(destStart, destEnd, (vTex - srcStart) / (srcEnd - srcStart));`,
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    vec2 ${outputs[0]} = (vTex - srcStart) / (srcEnd - srcStart);`,
+        `    vec2 ${outputs[0]} = mix(destStart, destEnd, (vTex - srcStart) / (srcEnd - srcStart));`,
     },
     webgpu: {
       dependency: ``,
