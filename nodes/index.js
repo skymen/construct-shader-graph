@@ -134,6 +134,16 @@ import { GetLayoutPosNode } from "./GetLayoutPosNode.js";
 import { UnpremultiplyNode } from "./UnpremultiplyNode.js";
 import { PremultiplyNode } from "./PremultiplyNode.js";
 import { LinearizeDepthNode } from "./LinearizeDepthNode.js";
+import { SrcToNormNode } from "./SrcToNormNode.js";
+import { NormToSrcNode } from "./NormToSrcNode.js";
+import { NormToSrcOriginNode } from "./NormToSrcOriginNode.js";
+import { ClampToSrcNode } from "./ClampToSrcNode.js";
+import { ClampToSrcOriginNode } from "./ClampToSrcOriginNode.js";
+import { SrcToDestNode } from "./SrcToDestNode.js";
+import { ClampToDestNode } from "./ClampToDestNode.js";
+import { GrayscaleNode } from "./GrayscaleNode.js";
+import { RGBtoHSLNode } from "./RGBtoHSLNode.js";
+import { HSLtoRGBNode } from "./HSLtoRGBNode.js";
 
 // Export NODE_TYPES object
 export const NODE_TYPES = {
@@ -258,6 +268,16 @@ export const NODE_TYPES = {
   unpremultiply: UnpremultiplyNode,
   premultiply: PremultiplyNode,
   linearizeDepth: LinearizeDepthNode,
+  srcToNorm: SrcToNormNode,
+  normToSrc: NormToSrcNode,
+  normToSrcOrigin: NormToSrcOriginNode,
+  clampToSrc: ClampToSrcNode,
+  clampToSrcOrigin: ClampToSrcOriginNode,
+  srcToDest: SrcToDestNode,
+  clampToDest: ClampToDestNode,
+  grayscale: GrayscaleNode,
+  rgbToHsl: RGBtoHSLNode,
+  hslToRgb: HSLtoRGBNode,
 
   // Debug nodes
   shaderLanguageTest: ShaderLanguageTestNode,
