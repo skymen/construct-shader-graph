@@ -176,22 +176,6 @@ body {
   display: none;
 }
 
-/* Legacy button styles for other buttons in the app */
-button:not(.toolbar-btn):not(.minimap-control-btn):not(.texture-btn):not(.texture-clear-btn):not(.reset-preview-btn) {
-  background: #4a90e2;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.2s;
-  white-space: nowrap;
-}
-
-button:not(.toolbar-btn):not(.minimap-control-btn):not(.texture-btn):not(.texture-clear-btn):not(.reset-preview-btn):hover {
-  background: #357abd;
-}
 
 #clearBtn {
     background: #e74c3c;
@@ -238,11 +222,11 @@ button:not(.toolbar-btn):not(.minimap-control-btn):not(.texture-btn):not(.textur
 }
 
 #closeSidebarBtn {
-    background: transparent;
-    color: #aaa;
-    border: none;
+    background: transparent !important;
+    color: #aaa !important;
+    border: none !important;
     font-size: 24px;
-    padding: 0;
+    padding: 0 !important;
     width: 30px;
     height: 30px;
     cursor: pointer;
@@ -250,11 +234,15 @@ button:not(.toolbar-btn):not(.minimap-control-btn):not(.texture-btn):not(.textur
     align-items: center;
     justify-content: center;
     border-radius: 3px;
+    transform: none !important;
+    box-shadow: none !important;
 }
 
 #closeSidebarBtn:hover {
-    background: #4a4a4a;
-    color: #fff;
+    background: #4a4a4a !important;
+    color: #fff !important;
+    transform: none !important;
+    box-shadow: none !important;
 }
 
 #sidebar-content {
@@ -694,19 +682,22 @@ button:not(.toolbar-btn):not(.minimap-control-btn):not(.texture-btn):not(.textur
 }
 
 .collapse-btn {
-  background: transparent;
-  border: none;
-  color: #888;
+  background: transparent !important;
+  border: none !important;
+  color: #888 !important;
   font-size: 12px;
-  padding: 4px 8px;
+  padding: 4px 8px !important;
   cursor: pointer;
   transition: transform 0.2s, color 0.2s;
   min-width: auto;
+  box-shadow: none !important;
 }
 
 .collapse-btn:hover {
-  background: transparent;
-  color: #fff;
+  background: transparent !important;
+  color: #fff !important;
+  transform: translateY(0) !important;
+  box-shadow: none !important;
 }
 
 .collapsible-section.collapsed .collapse-btn {
