@@ -1045,7 +1045,7 @@ export class AutoLayoutEngine {
       // CRITICAL: Must check FULL BBOX including descendants, not just immediate node
       let hasOverlap = true;
       let attempts = 0;
-      const maxAttempts = 20;
+      const maxAttempts = 50; // Increased to handle cascading pushes
 
       while (hasOverlap && attempts < maxAttempts) {
         hasOverlap = false;
@@ -1059,7 +1059,8 @@ export class AutoLayoutEngine {
         };
 
         // Check against all previously placed children's FULL BBOXES
-        for (const placedBBox of placedBBoxes) {
+        for (let i = 0; i < placedBBoxes.length; i++) {
+          const placedBBox = placedBBoxes[i];
           if (this.bboxesOverlap(proposedBBox, placedBBox)) {
             // Overlap detected - choose the direction that requires LEAST movement
             // Option 1: Push DOWN below the placed bbox
@@ -1081,9 +1082,37 @@ export class AutoLayoutEngine {
             const distanceUp = Math.abs(pushUpY - proposedY);
 
             if (distanceUp < distanceDown) {
-              proposedY = pushUpY;
-            } else {
               proposedY = pushDownY;
+            } else {
+              proposedY = pushUpY;
+            }
+
+            // Cascade push: If we pushed this node, we need to check if the pushed
+            // node now overlaps with others and push them too
+            const pushDelta = proposedY - (childOffsets[index]?.y || 0);
+            if (Math.abs(pushDelta) > 0.1) {
+              // Push any nodes that come after this one that might now overlap
+              for (let j = i + 1; j < placedBBoxes.length; j++) {
+                const otherBBox = placedBBoxes[j];
+                const testBBox = {
+                  x: proposedBBox.x,
+                  y: proposedY + childLayout.bbox.y,
+                  width: proposedBBox.width,
+                  height: proposedBBox.height,
+                };
+
+                if (this.bboxesOverlap(testBBox, otherBBox)) {
+                  // Need to push this other node too
+                  const otherPushY =
+                    pushDelta > 0
+                      ? otherBBox.y + pushDelta
+                      : otherBBox.y + pushDelta;
+                  placedBBoxes[j].y = otherPushY;
+                  if (childOffsets[j]) {
+                    childOffsets[j].y += pushDelta;
+                  }
+                }
+              }
             }
 
             hasOverlap = true;
@@ -1553,12 +1582,15 @@ export class AutoLayoutEngine {
       let layerHeight = 0;
       const nodeHeights = layer.map((nodeId) => {
         const node = this.bp.nodes.find((n) => n.id === nodeId);
-        // Estimate node height based on number of ports
+        // Use actual node height if available, otherwise estimate
+        if (node && node.height) {
+          return node.height;
+        }
+        // Fallback: estimate based on number of ports
         const portCount = Math.max(
           node ? node.inputPorts.length : 0,
           node ? node.outputPorts.length : 0
         );
-        // Base height + extra for each port
         const estimatedHeight = Math.max(100, 60 + portCount * 40);
         return estimatedHeight;
       });
