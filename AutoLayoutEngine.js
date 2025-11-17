@@ -5,13 +5,13 @@ export class AutoLayoutEngine {
   constructor(blueprintSystem) {
     this.bp = blueprintSystem;
 
-    // Layout configuration - minimal spacing for compact layout
+    // Layout configuration - absolute minimal spacing for ultra-compact layout
     this.config = {
       layerSpacing: 40, // Minimal horizontal spacing between layers
-      nodeSpacing: 30, // Minimal vertical spacing between unrelated nodes
-      leafNodeSpacing: 20, // Minimal vertical spacing for leaf nodes
-      subgraphSpacing: 200, // Space between disconnected subgraphs
-      branchSpacing: 100, // Vertical space between independent branches
+      nodeSpacing: 10, // Minimal vertical spacing between unrelated nodes
+      leafNodeSpacing: 10, // Minimal vertical spacing for leaf nodes
+      subgraphSpacing: 100, // Space between disconnected subgraphs
+      branchSpacing: 50, // Vertical space between independent branches
       crossingReductionIterations: 8, // More iterations for better results
       animationDuration: 300, // ms for smooth transitions
     };
@@ -820,20 +820,24 @@ export class AutoLayoutEngine {
       }
     });
 
-    // Stack children vertically with FIXED spacing (no scaling with node count)
+    // Position children independently - DON'T stack them sequentially!
+    // Each child starts at Y=0 and only moves if there's an overlap
     // CRITICAL: Each child positions independently - no forced horizontal alignment
     // SPECIAL CASE: Single children align by port position
-    let currentY = 0;
     const childOffsets = [];
     const placedBBoxes = []; // Track placed bounding boxes for overlap detection
 
-    // Use minimal vertical spacing for compact layout
-    const verticalSpacing = 20; // Minimal padding between nodes
+    // Use absolute minimal vertical spacing for compact layout
+    const verticalSpacing = 10; // Just enough to distinguish separate nodes
+
+    // Removed debug logging for cleaner output
 
     childLayouts.forEach((child, index) => {
       const childLayout = child.layout;
       const childNode = subgraph.get(child.id)?.node;
-      let proposedY = currentY;
+      let proposedY = 0; // Start at 0, not stacking!
+
+      // Removed verbose debug logging
 
       // SPECIAL CASE: If this is a single child with single connection, align by port
       if (childLayouts.length === 1 && childNode) {
@@ -853,19 +857,8 @@ export class AutoLayoutEngine {
             true // OUTPUT port on child
           );
 
-          console.log(`🎯 PORT ALIGNMENT DEBUG:`);
-          console.log(
-            `  Parent: "${node.title}" input[${portInfo.parentInputIndex}] at Y=${parentPortY} (relative to parent top)`
-          );
-          console.log(
-            `  Child: "${childNode.title}" output[${portInfo.childOutputIndex}] at Y=${childPortY} (relative to child top)`
-          );
-
           // Get the child node's position within its own layout
           const childPosInLayout = childLayout.positions.get(child.id);
-          console.log(
-            `  Child position in its layout: x=${childPosInLayout?.x}, y=${childPosInLayout?.y}`
-          );
 
           if (childPosInLayout) {
             // The child node is at childPosInLayout.y within its layout
@@ -873,36 +866,55 @@ export class AutoLayoutEngine {
             // Since parentY = 0: parentPortY = proposedY + childPosInLayout.y + childPortY
             // Therefore: proposedY = parentPortY - childPosInLayout.y - childPortY
             proposedY = parentPortY - childPosInLayout.y - childPortY;
-
-            console.log(
-              `  Calculated proposedY = ${parentPortY} - ${childPosInLayout.y} - ${childPortY} = ${proposedY}`
-            );
-            console.log(
-              `  This means child layout will be offset by ${proposedY}px`
-            );
           }
         }
       }
 
       // Check for overlaps with previously placed children
+      // CRITICAL: Must check FULL BBOX including descendants, not just immediate node
       let hasOverlap = true;
       let attempts = 0;
-      const maxAttempts = 10;
+      const maxAttempts = 20;
 
       while (hasOverlap && attempts < maxAttempts) {
         hasOverlap = false;
+
+        // Create bbox for this child at the proposed position
         const proposedBBox = {
-          x: 0,
-          y: proposedY,
+          x: childLayout.bbox.x,
+          y: proposedY + childLayout.bbox.y,
           width: childLayout.bbox.width,
           height: childLayout.bbox.height,
         };
 
-        // Check against all placed bboxes
+        // Check against all previously placed children's FULL BBOXES
         for (const placedBBox of placedBBoxes) {
           if (this.bboxesOverlap(proposedBBox, placedBBox)) {
-            // Push down below the overlapping bbox
-            proposedY = placedBBox.y + placedBBox.height + verticalSpacing;
+            // Overlap detected - choose the direction that requires LEAST movement
+            // Option 1: Push DOWN below the placed bbox
+            const pushDownY =
+              placedBBox.y +
+              placedBBox.height -
+              childLayout.bbox.y +
+              verticalSpacing;
+
+            // Option 2: Push UP above the placed bbox
+            const pushUpY =
+              placedBBox.y -
+              childLayout.bbox.height -
+              childLayout.bbox.y -
+              verticalSpacing;
+
+            // Choose the option that moves the node the least distance
+            const distanceDown = Math.abs(pushDownY - proposedY);
+            const distanceUp = Math.abs(pushUpY - proposedY);
+
+            if (distanceUp < distanceDown) {
+              proposedY = pushUpY;
+            } else {
+              proposedY = pushDownY;
+            }
+
             hasOverlap = true;
             break;
           }
@@ -915,23 +927,16 @@ export class AutoLayoutEngine {
       childOffsets.push({
         x: 0,
         y: proposedY,
-        width: childLayout.bbox.width, // Track individual width
+        width: childLayout.bbox.width,
       });
 
-      // Record this bbox as placed
+      // Track this child's FULL BBOX for overlap detection with future children
       placedBBoxes.push({
-        x: 0,
-        y: proposedY,
+        x: childLayout.bbox.x,
+        y: proposedY + childLayout.bbox.y,
         width: childLayout.bbox.width,
         height: childLayout.bbox.height,
       });
-
-      currentY = proposedY + childLayout.bbox.height;
-
-      // Add FIXED spacing between children (no scaling)
-      if (index < childLayouts.length - 1) {
-        currentY += verticalSpacing;
-      }
     });
 
     // Calculate max width for bbox calculation
@@ -942,7 +947,6 @@ export class AutoLayoutEngine {
     // CRITICAL: Position parent node anchored at TOP-RIGHT (output side)
     // The parent's RIGHT edge should be at x=0 (the anchor point)
     // This ensures children branches don't affect each other's position
-    const totalChildHeight = currentY;
     const parentY = 0; // Parent always at top
 
     // Parent's RIGHT edge is at x=0, so parent's LEFT edge is at -nodeWidth
@@ -977,14 +981,7 @@ export class AutoLayoutEngine {
       const childNodeRightEdge = -nodeWidth - horizontalSpacing;
       const childBaseX = childNodeRightEdge - childNodePos.x - nodeWidth;
 
-      console.log(`📍 Positioning child "${child.id}":`);
-      console.log(`  Parent left edge: ${-nodeWidth}`);
-      console.log(`  horizontalSpacing: ${horizontalSpacing}`);
-      console.log(`  Child node pos in layout: x=${childNodePos.x}`);
-      console.log(
-        `  Child node should have right edge at: ${childNodeRightEdge}`
-      );
-      console.log(`  Child base X (layout offset): ${childBaseX}`);
+      // Removed positioning debug logs
 
       child.layout.positions.forEach((pos, childNodeId) => {
         positions.set(childNodeId, {
@@ -1001,10 +998,11 @@ export class AutoLayoutEngine {
     let minY = 0;
     let maxY = parentY + nodeHeight;
 
+    // Calculate bbox extents
     childOffsets.forEach((offset, index) => {
       const childLayout = childLayouts[index].layout;
-      const childMinY = offset.y;
-      const childMaxY = offset.y + childLayout.bbox.height;
+      const childMinY = offset.y + childLayout.bbox.y;
+      const childMaxY = offset.y + childLayout.bbox.y + childLayout.bbox.height;
 
       minY = Math.min(minY, childMinY);
       maxY = Math.max(maxY, childMaxY);
@@ -1054,8 +1052,8 @@ export class AutoLayoutEngine {
    * Check if two bounding boxes overlap
    */
   bboxesOverlap(bbox1, bbox2) {
-    // Minimal margin for tight packing
-    const margin = 5;
+    // Absolute minimal margin - just 2px to prevent actual overlap
+    const margin = 2;
 
     return !(
       bbox1.x + bbox1.width + margin < bbox2.x ||
@@ -1066,17 +1064,49 @@ export class AutoLayoutEngine {
   }
 
   /**
-   * Estimate node height based on ports
+   * Estimate node height based on all components
+   * Must match the actual rendering in script.js
    */
   estimateNodeHeight(node) {
     if (!node) return 100;
 
+    // Base header height
+    let height = 50;
+
+    // Add dropdown offset if node has operation
+    const dropdownOffset = node.nodeType?.hasOperation ? 30 : 0;
+    height += dropdownOffset;
+
+    // Add custom input offset if present
+    const hasLabel =
+      node.nodeType?.hasCustomInput && node.nodeType?.customInputConfig?.label;
+    const customInputOffset = node.nodeType?.hasCustomInput
+      ? hasLabel
+        ? 45
+        : 30
+      : 0;
+    height += customInputOffset;
+
+    // Add port heights
     const portCount = Math.max(
       node.inputPorts?.length || 0,
       node.outputPorts?.length || 0
     );
 
-    return Math.max(100, 60 + portCount * 40);
+    // Each port takes 40px + any extra height from the port itself
+    for (let i = 0; i < portCount; i++) {
+      const inputPort = node.inputPorts?.[i];
+      const outputPort = node.outputPorts?.[i];
+      const port = inputPort || outputPort;
+
+      const extraHeight = port?.getExtraHeight ? port.getExtraHeight() : 0;
+      height += 40 + extraHeight;
+    }
+
+    // Add bottom padding
+    height += 10;
+
+    return height;
   }
 
   /**
