@@ -126,6 +126,8 @@ import { BuiltinDestCenterNode } from "./BuiltinDestCenterNode.js";
 import { BuiltinDestSizeNode } from "./BuiltinDestSizeNode.js";
 import { BuiltinLayoutCenterNode } from "./BuiltinLayoutCenterNode.js";
 import { BuiltinLayoutSizeNode } from "./BuiltinLayoutSizeNode.js";
+import { TexelSizeNode } from "./TexelSizeNode.js";
+import { PixelSizeNode } from "./PixelSizeNode.js";
 
 // Export NODE_TYPES object
 export const NODE_TYPES = {
@@ -242,6 +244,8 @@ export const NODE_TYPES = {
   builtinSeconds: BuiltinSecondsNode,
   builtinZNear: BuiltinZNearNode,
   builtinZFar: BuiltinZFarNode,
+  texelSize: TexelSizeNode,
+  pixelSize: PixelSizeNode,
 
   // Debug nodes
   shaderLanguageTest: ShaderLanguageTestNode,
