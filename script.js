@@ -4412,7 +4412,8 @@ class BlueprintSystem {
   autoArrange() {
     // If there's a selection, arrange only selected nodes
     // Otherwise, arrange all nodes
-    const selectedOnly = this.selectedNodes.size > 0;
+    // const selectedOnly = this.selectedNodes.size > 0;
+    const selectedOnly = false;
 
     if (selectedOnly) {
       console.log(`Auto-arranging ${this.selectedNodes.size} selected nodes`);
@@ -5622,7 +5623,7 @@ class BlueprintSystem {
     this.addDefaultNodes();
 
     // Center view on the default nodes
-    this.centerView();
+    this.autoArrange();
 
     // Clear and reinitialize history after adding default nodes
     this.history.clear();
