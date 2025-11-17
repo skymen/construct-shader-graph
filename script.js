@@ -4404,17 +4404,7 @@ class BlueprintSystem {
       console.log(`Auto-arranging all ${this.nodes.length} nodes`);
     }
 
-    // Enable debug bounding boxes during auto-arrange
-    this.debugBoundingBoxes = true;
-    this.render(); // Show initial state
-
     this.autoLayoutEngine.autoArrange(selectedOnly);
-
-    // Keep debug boxes visible for 5 seconds after arrange
-    setTimeout(() => {
-      this.debugBoundingBoxes = false;
-      this.render();
-    }, 5000);
   }
 
   debugAutoArrange() {

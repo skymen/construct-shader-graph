@@ -31,6 +31,9 @@ export class AutoLayoutEngine {
     this.debugSteps = [];
     this.debugCurrentStep = 0;
 
+    // Enable debug bounding boxes for debug mode
+    this.bp.debugBoundingBoxes = true;
+
     // Run the layout algorithm but collect debug steps
     this.autoArrange(selectedOnly);
 
@@ -44,6 +47,7 @@ export class AutoLayoutEngine {
     } else {
       console.log("DEBUG: No steps collected");
       this.debugMode = false;
+      this.bp.debugBoundingBoxes = false;
     }
   }
 
@@ -122,6 +126,7 @@ export class AutoLayoutEngine {
     this.debugMode = false;
     this.bp.debugBBox = null;
     this.bp.debugActiveNodes = null;
+    this.bp.debugBoundingBoxes = false;
     this.bp.render();
     console.log("DEBUG: Exited debug mode");
   }
@@ -227,6 +232,46 @@ export class AutoLayoutEngine {
 
     // Pack components efficiently
     this.packComponents(componentLayouts);
+
+    // Record debug step for final packed layout (all components together)
+    if (this.debugMode && componentLayouts.length > 1) {
+      const allPositions = new Map();
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+
+      componentLayouts.forEach((compLayout) => {
+        compLayout.branchLayouts.forEach((branchLayout) => {
+          const offsetX = compLayout.x + branchLayout.offsetX;
+          const offsetY = compLayout.y + branchLayout.offsetY;
+
+          branchLayout.layout.positions.forEach((pos, nodeId) => {
+            const finalX = pos.x + offsetX;
+            const finalY = pos.y + offsetY;
+            allPositions.set(nodeId, { x: finalX, y: finalY });
+
+            minX = Math.min(minX, finalX);
+            minY = Math.min(minY, finalY);
+            maxX = Math.max(maxX, finalX + 200); // Approximate node width
+            maxY = Math.max(maxY, finalY + 100); // Approximate node height
+          });
+        });
+      });
+
+      this.recordDebugStep(
+        `Final: All ${componentLayouts.length} components packed together`,
+        allPositions,
+        {
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY,
+        },
+        0,
+        0
+      );
+    }
 
     // Apply the final positions
     componentLayouts.forEach((compLayout) => {
