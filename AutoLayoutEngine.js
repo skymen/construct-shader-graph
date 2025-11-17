@@ -1109,428 +1109,502 @@ export class AutoLayoutEngine {
     // Each child starts at Y=0 and only moves if there's an overlap
     // CRITICAL: Each child positions independently - no forced horizontal alignment
     // SPECIAL CASE: Single children align by port position
+    // SPECIAL CASE: All children are variable pills - align each to its port
     const childOffsets = [];
     const placedBBoxes = []; // Track placed bounding boxes for overlap detection
 
     const overlapMargin = 5; // Extra margin for overlap detection to prevent tight fits
 
-    // Helper function to calculate max depth of a child's subtree
-    // TODO
-    const getMaxDepth = (childLayout) => {
-      if (!childLayout.nodes || childLayout.nodes.length <= 1) {
-        return 0; // Leaf node
-      }
+    // Check if all children are variable pills (single-node, isVariable)
+    const allChildrenArePills = childLayouts.every((child) => {
+      const childNode = this.bp.nodes.find((n) => n.id === child.id);
+      return childNode?.isVariable && child.layout.nodes?.length === 1;
+    });
 
-      // Count the maximum depth by looking at the layout structure
-      // We can approximate this by counting unique X positions (layers)
-      const xPositions = new Set();
-      childLayout.positions.forEach((pos) => {
-        xPositions.add(Math.round(pos.x / 10) * 10); // Round to nearest 10 to group similar positions
-      });
+    if (allChildrenArePills && childLayouts.length > 1) {
+      console.log(
+        `   🎯 All ${childLayouts.length} children are pills - aligning to ports`
+      );
 
-      return Math.max(0, xPositions.size - 1); // -1 because we count layers, not nodes
-    };
-
-    // Removed debug logging for cleaner output
-
-    childLayouts.forEach((child, index) => {
-      const childLayout = child.layout;
-      const childNode = subgraph.get(child.id)?.node;
-
-      // Calculate vertical spacing based on the maximum depth of current and previous children
-      const currentChildDepth = getMaxDepth(childLayout);
-      let maxDepth = currentChildDepth;
-
-      if (index > 0) {
-        const prevChildDepth = getMaxDepth(childLayouts[index - 1].layout);
-        maxDepth = Math.max(currentChildDepth, prevChildDepth);
-      }
-
-      const verticalSpacing =
-        this.config.childrenGapBase +
-        maxDepth * this.config.childrenGapPerLevel;
-
-      // Smart initial placement: try to place below previous siblings
-      let proposedY = 0;
-
-      if (index > 0) {
-        // First, try to place this child just below the previous child's NODE (not full tree)
-        // This allows for better packing when the previous child has a wide tree
-        const prevChild = childLayouts[index - 1];
-        const prevChildNode = this.bp.nodes.find((n) => n.id === prevChild.id);
-
-        if (prevChildNode && childOffsets[index - 1]) {
-          const prevChildOffset = childOffsets[index - 1];
-          const prevChildPosInLayout = prevChild.layout.positions.get(
-            prevChild.id
-          );
-
-          if (prevChildPosInLayout) {
-            // Calculate where the previous child node actually is
-            const prevChildNodeY = prevChildOffset.y + prevChildPosInLayout.y;
-            const prevChildNodeHeight = prevChildNode.height || 100;
-
-            // Place this child below the previous child's node
-            proposedY =
-              prevChildNodeY +
-              prevChildNodeHeight +
-              verticalSpacing -
-              childLayout.bbox.y;
-          }
-        } else {
-          // Fallback: use the full bounding box of the previous child
-          const prevBBox = placedBBoxes[placedBBoxes.length - 1];
-          if (prevBBox) {
-            proposedY =
-              prevBBox.y +
-              prevBBox.height -
-              childLayout.bbox.y +
-              verticalSpacing;
-          }
-        }
-      }
-
-      // SPECIAL CASE: If this is a single child with single connection, align by port
-      if (childLayouts.length === 1 && childNode) {
+      // Position each pill directly in front of its corresponding input port
+      childLayouts.forEach((child, index) => {
+        const childNode = subgraph.get(child.id)?.node;
         const portInfo = this.findConnectedPorts(node, childNode, subgraph);
 
         if (portInfo) {
-          // Calculate port Y positions (relative to each node's top)
-          // Parent receives data at INPUT port, child sends data from OUTPUT port
+          // Calculate the Y position to align with the parent's input port
           const parentPortY = this.getPortYPosition(
             node,
             portInfo.parentInputIndex,
             false // INPUT port on parent
           );
-          const childPortY = this.getPortYPosition(
-            childNode,
-            portInfo.childOutputIndex,
-            true // OUTPUT port on child
+
+          // Position the pill at the port's Y position (centered on the port)
+          const pillHeight = childNode?.height || 35;
+          const proposedY = parentPortY - pillHeight / 2;
+
+          childOffsets.push({
+            x: 0,
+            y: proposedY,
+            width: child.layout.bbox.width,
+          });
+
+          // Track bbox for final layout calculation
+          placedBBoxes.push({
+            x: child.layout.bbox.x,
+            y: proposedY + child.layout.bbox.y,
+            width: child.layout.bbox.width,
+            height: child.layout.bbox.height,
+          });
+
+          console.log(
+            `   ✅ Pill ${index} (${childNode?.title}) aligned to port ${
+              portInfo.parentInputIndex
+            } at y=${proposedY.toFixed(1)}`
+          );
+        } else {
+          console.warn(
+            `   ⚠️ Could not find port connection for pill ${index}`
+          );
+          // Fallback to default positioning
+          childOffsets.push({
+            x: 0,
+            y: index * 50,
+            width: child.layout.bbox.width,
+          });
+          placedBBoxes.push({
+            x: child.layout.bbox.x,
+            y: index * 50 + child.layout.bbox.y,
+            width: child.layout.bbox.width,
+            height: child.layout.bbox.height,
+          });
+        }
+      });
+    } else {
+      // Normal positioning logic for non-pill children or mixed children
+
+      // Helper function to calculate max depth of a child's subtree
+      // TODO
+      const getMaxDepth = (childLayout) => {
+        if (!childLayout.nodes || childLayout.nodes.length <= 1) {
+          return 0; // Leaf node
+        }
+
+        // Count the maximum depth by looking at the layout structure
+        // We can approximate this by counting unique X positions (layers)
+        const xPositions = new Set();
+        childLayout.positions.forEach((pos) => {
+          xPositions.add(Math.round(pos.x / 10) * 10); // Round to nearest 10 to group similar positions
+        });
+
+        return Math.max(0, xPositions.size - 1); // -1 because we count layers, not nodes
+      };
+
+      // Removed debug logging for cleaner output
+
+      childLayouts.forEach((child, index) => {
+        const childLayout = child.layout;
+        const childNode = subgraph.get(child.id)?.node;
+
+        // Calculate vertical spacing based on the maximum depth of current and previous children
+        const currentChildDepth = getMaxDepth(childLayout);
+        let maxDepth = currentChildDepth;
+
+        if (index > 0) {
+          const prevChildDepth = getMaxDepth(childLayouts[index - 1].layout);
+          maxDepth = Math.max(currentChildDepth, prevChildDepth);
+        }
+
+        const verticalSpacing =
+          this.config.childrenGapBase +
+          maxDepth * this.config.childrenGapPerLevel;
+
+        // Smart initial placement: try to place below previous siblings
+        let proposedY = 0;
+
+        if (index > 0) {
+          // First, try to place this child just below the previous child's NODE (not full tree)
+          // This allows for better packing when the previous child has a wide tree
+          const prevChild = childLayouts[index - 1];
+          const prevChildNode = this.bp.nodes.find(
+            (n) => n.id === prevChild.id
           );
 
-          // Get the child node's position within its own layout
-          const childPosInLayout = childLayout.positions.get(child.id);
+          if (prevChildNode && childOffsets[index - 1]) {
+            const prevChildOffset = childOffsets[index - 1];
+            const prevChildPosInLayout = prevChild.layout.positions.get(
+              prevChild.id
+            );
 
-          if (childPosInLayout) {
-            // The child node is at childPosInLayout.y within its layout
-            // We want: parentY + parentPortY = proposedY + childPosInLayout.y + childPortY
-            // Since parentY = 0: parentPortY = proposedY + childPosInLayout.y + childPortY
-            // Therefore: proposedY = parentPortY - childPosInLayout.y - childPortY
-            proposedY = parentPortY - childPosInLayout.y - childPortY;
+            if (prevChildPosInLayout) {
+              // Calculate where the previous child node actually is
+              const prevChildNodeY = prevChildOffset.y + prevChildPosInLayout.y;
+              const prevChildNodeHeight = prevChildNode.height || 100;
+
+              // Place this child below the previous child's node
+              proposedY =
+                prevChildNodeY +
+                prevChildNodeHeight +
+                verticalSpacing -
+                childLayout.bbox.y;
+            }
+          } else {
+            // Fallback: use the full bounding box of the previous child
+            const prevBBox = placedBBoxes[placedBBoxes.length - 1];
+            if (prevBBox) {
+              proposedY =
+                prevBBox.y +
+                prevBBox.height -
+                childLayout.bbox.y +
+                verticalSpacing;
+            }
           }
         }
-      }
 
-      // Overlap detection: Check current child's bbox against ALL nodes in placed children
-      const currentChildNode = this.bp.nodes.find((n) => n.id === child.id);
-      const currentChildNodeName =
-        currentChildNode?.nodeType?.name || `Node ${child.id}`;
+        // SPECIAL CASE: If this is a single child with single connection, align by port
+        if (childLayouts.length === 1 && childNode) {
+          const portInfo = this.findConnectedPorts(node, childNode, subgraph);
 
-      console.log(
-        `\n🔍 Positioning child ${index}: ${currentChildNodeName} (ID: ${child.id})`
-      );
-      console.log(`   Initial proposedY: ${proposedY.toFixed(1)}`);
+          if (portInfo) {
+            // Calculate port Y positions (relative to each node's top)
+            // Parent receives data at INPUT port, child sends data from OUTPUT port
+            const parentPortY = this.getPortYPosition(
+              node,
+              portInfo.parentInputIndex,
+              false // INPUT port on parent
+            );
+            const childPortY = this.getPortYPosition(
+              childNode,
+              portInfo.childOutputIndex,
+              true // OUTPUT port on child
+            );
 
-      let hasOverlap = true;
-      let attempts = 0;
-      const maxAttempts = 100;
+            // Get the child node's position within its own layout
+            const childPosInLayout = childLayout.positions.get(child.id);
 
-      // Track attempted positions to detect oscillation
-      const attemptedPositions = new Map(); // position -> attempt number
-      let oscillationDetected = false;
+            if (childPosInLayout) {
+              // The child node is at childPosInLayout.y within its layout
+              // We want: parentY + parentPortY = proposedY + childPosInLayout.y + childPortY
+              // Since parentY = 0: parentPortY = proposedY + childPosInLayout.y + childPortY
+              // Therefore: proposedY = parentPortY - childPosInLayout.y - childPortY
+              proposedY = parentPortY - childPosInLayout.y - childPortY;
+            }
+          }
+        }
 
-      // Calculate where this child will be placed in X
-      // Get the actual child node to check its width (pills are 120px, regular nodes are 180px)
-      const actualChildNode = this.bp.nodes.find((n) => n.id === child.id);
-      const actualChildWidth = actualChildNode?.width || 200;
+        // Overlap detection: Check current child's bbox against ALL nodes in placed children
+        const currentChildNode = this.bp.nodes.find((n) => n.id === child.id);
+        const currentChildNodeName =
+          currentChildNode?.nodeType?.name || `Node ${child.id}`;
 
-      // The child node itself should be positioned with its RIGHT edge at -(nodeWidth + horizontalSpacing)
-      const childNodePos = childLayout.positions.get(child.id);
-      if (!childNodePos) {
-        console.error(
-          `Child node ${child.id} not found in its layout! Skipping overlap detection.`
+        console.log(
+          `\n🔍 Positioning child ${index}: ${currentChildNodeName} (ID: ${child.id})`
         );
-        // Skip overlap detection for this child, just use the proposed position
+        console.log(`   Initial proposedY: ${proposedY.toFixed(1)}`);
+
+        let hasOverlap = true;
+        let attempts = 0;
+        const maxAttempts = 100;
+
+        // Track attempted positions to detect oscillation
+        const attemptedPositions = new Map(); // position -> attempt number
+        let oscillationDetected = false;
+
+        // Calculate where this child will be placed in X
+        // Get the actual child node to check its width (pills are 120px, regular nodes are 180px)
+        const actualChildNode = this.bp.nodes.find((n) => n.id === child.id);
+        const actualChildWidth = actualChildNode?.width || 200;
+
+        // The child node itself should be positioned with its RIGHT edge at -(nodeWidth + horizontalSpacing)
+        const childNodePos = childLayout.positions.get(child.id);
+        if (!childNodePos) {
+          console.error(
+            `Child node ${child.id} not found in its layout! Skipping overlap detection.`
+          );
+          // Skip overlap detection for this child, just use the proposed position
+          childOffsets.push({
+            x: 0,
+            y: proposedY,
+            width: childLayout.bbox.width,
+          });
+          placedBBoxes.push({
+            x: childLayout.bbox.x,
+            y: proposedY + childLayout.bbox.y,
+            width: childLayout.bbox.width,
+            height: childLayout.bbox.height,
+          });
+          return; // Skip to next child
+        }
+        const childNodeRightEdge = -nodeWidth - horizontalSpacing;
+        const childBaseX =
+          childNodeRightEdge - childNodePos.x - actualChildWidth;
+
+        // Now calculate the actual X position of the child's bbox in the parent's coordinate system
+        const actualChildBBoxX = childBaseX + childLayout.bbox.x;
+
+        while (hasOverlap && attempts < maxAttempts && !oscillationDetected) {
+          hasOverlap = false;
+
+          // Detect oscillation: if we've tried this position before
+          const positionKey = Math.round(proposedY * 10) / 10; // Round to 1 decimal
+          if (attemptedPositions.has(positionKey)) {
+            oscillationDetected = true;
+            console.log(
+              `   ⚠️ OSCILLATION DETECTED: Already tried position ${positionKey.toFixed(
+                1
+              )} at attempt ${attemptedPositions.get(positionKey)}`
+            );
+            break;
+          }
+          attemptedPositions.set(positionKey, attempts);
+
+          // Calculate the current child's ENTIRE tree bounding box at this proposed position
+          // Use the ACTUAL X position in the parent's coordinate system
+          const currentChildBBox = {
+            x: actualChildBBoxX,
+            y: proposedY + childLayout.bbox.y,
+            width: childLayout.bbox.width,
+            height: childLayout.bbox.height,
+          };
+
+          console.log(
+            `   Attempt ${attempts + 1}: Testing position y=${proposedY.toFixed(
+              1
+            )} (tree bbox: x:${currentChildBBox.x.toFixed(1)}-${(
+              currentChildBBox.x + currentChildBBox.width
+            ).toFixed(1)}, y:${currentChildBBox.y.toFixed(1)}-${(
+              currentChildBBox.y + currentChildBBox.height
+            ).toFixed(1)})`
+          );
+
+          // Check against previously placed children's INDIVIDUAL NODES
+          let maxPushDownY = proposedY;
+          let foundOverlap = false;
+          const overlaps = [];
+
+          console.log(
+            `   Checking against ${placedBBoxes.length} previously placed children...`
+          );
+
+          for (let i = 0; i < placedBBoxes.length; i++) {
+            const placedChildLayout = childLayouts[i].layout;
+            const placedChildOffset = childOffsets[i];
+            const placedChildNode = this.bp.nodes.find(
+              (n) => n.id === childLayouts[i].id
+            );
+            const placedChildName =
+              placedChildNode?.nodeType?.name || `Node ${childLayouts[i].id}`;
+
+            console.log(
+              `      Checking against placed child ${i}: ${placedChildName} at offset y=${placedChildOffset.y.toFixed(
+                1
+              )}`
+            );
+
+            // Calculate the actual X position of the placed child
+            const placedChildNodePos = placedChildLayout.positions.get(
+              childLayouts[i].id
+            );
+            if (!placedChildNodePos) {
+              console.error(
+                `Placed child node ${childLayouts[i].id} not found in its layout! Skipping this placed child.`
+              );
+              // Skip this placed child in overlap detection
+            } else {
+              // Get the actual placed child node to check its width
+              const actualPlacedChildNode = this.bp.nodes.find(
+                (n) => n.id === childLayouts[i].id
+              );
+              const actualPlacedChildWidth =
+                actualPlacedChildNode?.width || 200;
+
+              const placedChildNodeRightEdge = -nodeWidth - horizontalSpacing;
+              const placedChildBaseX =
+                placedChildNodeRightEdge -
+                placedChildNodePos.x -
+                actualPlacedChildWidth;
+
+              // Get ALL nodes in the placed child's tree with ACTUAL positions
+              const nodesToCheck = [];
+              placedChildLayout.positions.forEach((pos, nodeId) => {
+                const node = this.bp.nodes.find((n) => n.id === nodeId);
+                if (node) {
+                  nodesToCheck.push({
+                    nodeId,
+                    nodeName: node.nodeType?.name || `Node ${nodeId}`,
+                    x: placedChildBaseX + pos.x,
+                    y: placedChildOffset.y + pos.y,
+                    width: node.width || 200,
+                    height: node.height || 100,
+                  });
+                }
+              });
+
+              console.log(
+                `         Found ${nodesToCheck.length} nodes in ${placedChildName}'s tree`
+              );
+
+              // Check current child's ENTIRE BBOX against each individual node in placed child
+              for (const placedNode of nodesToCheck) {
+                // Check for overlap in BOTH X and Y axes
+                const xOverlap = !(
+                  currentChildBBox.x + currentChildBBox.width + overlapMargin <
+                    placedNode.x ||
+                  placedNode.x + placedNode.width + overlapMargin <
+                    currentChildBBox.x
+                );
+
+                const yOverlap = !(
+                  currentChildBBox.y + currentChildBBox.height + overlapMargin <
+                    placedNode.y ||
+                  placedNode.y + placedNode.height + overlapMargin <
+                    currentChildBBox.y
+                );
+
+                // Only consider it an overlap if BOTH axes overlap
+                if (xOverlap && yOverlap) {
+                  foundOverlap = true;
+
+                  if (attempts === 0) {
+                    console.log(
+                      `         ❌ Current child tree bbox ` +
+                        `(x:${currentChildBBox.x.toFixed(1)}-${(
+                          currentChildBBox.x + currentChildBBox.width
+                        ).toFixed(1)}, ` +
+                        `y:${currentChildBBox.y.toFixed(1)}-${(
+                          currentChildBBox.y + currentChildBBox.height
+                        ).toFixed(1)}) overlaps ${placedNode.nodeName} ` +
+                        `(x:${placedNode.x.toFixed(1)}-${(
+                          placedNode.x + placedNode.width
+                        ).toFixed(1)}, ` +
+                        `y:${placedNode.y.toFixed(1)}-${(
+                          placedNode.y + placedNode.height
+                        ).toFixed(1)})`
+                    );
+                  }
+
+                  // Calculate push down distance to clear this overlap
+                  // We need to push the ENTIRE current child bbox below this placed node
+                  const pushDownY =
+                    placedNode.y +
+                    placedNode.height -
+                    currentChildBBox.y +
+                    proposedY +
+                    verticalSpacing;
+
+                  overlaps.push({
+                    current: `Child tree`,
+                    placed: `${placedNode.nodeName}`,
+                    pushDown: pushDownY.toFixed(1),
+                  });
+
+                  maxPushDownY = Math.max(maxPushDownY, pushDownY);
+                }
+              }
+            } // End of else block for valid placedChildNodePos
+          }
+
+          if (foundOverlap) {
+            console.log(`   ❌ Found ${overlaps.length} overlap(s):`);
+            overlaps.forEach((overlap, idx) => {
+              console.log(
+                `      ${idx + 1}. ${overlap.current} ↔️ ${
+                  overlap.placed
+                } → push to ${overlap.pushDown}`
+              );
+            });
+
+            // ALWAYS push down to avoid oscillation
+            // Sequential placement should only move forward (downward)
+            console.log(`   ⬇️ Pushing DOWN to ${maxPushDownY.toFixed(1)}`);
+            proposedY = maxPushDownY;
+
+            hasOverlap = true;
+          } else {
+            console.log(`   ✅ No overlaps found - position is good!`);
+          }
+
+          attempts++;
+        }
+
+        // Handle oscillation with fallback strategy
+        if (oscillationDetected) {
+          console.log(`   🔄 Applying fallback strategy for oscillation...`);
+
+          // Strategy: Find the largest gap in the placed children and use that
+          if (placedBBoxes.length > 0) {
+            // Collect all Y ranges from placed children
+            const yRanges = placedBBoxes
+              .map((bbox) => ({
+                start: bbox.y,
+                end: bbox.y + bbox.height,
+              }))
+              .sort((a, b) => a.start - b.start);
+
+            // Find largest gap
+            let largestGap = { start: 0, size: yRanges[0].start, index: -1 };
+
+            for (let i = 0; i < yRanges.length - 1; i++) {
+              const gapStart = yRanges[i].end + verticalSpacing;
+              const gapEnd = yRanges[i + 1].start - verticalSpacing;
+              const gapSize = gapEnd - gapStart;
+
+              if (
+                gapSize > largestGap.size &&
+                gapSize >= childLayout.bbox.height
+              ) {
+                largestGap = { start: gapStart, size: gapSize, index: i };
+              }
+            }
+
+            // Also check gap after last child
+            const lastRange = yRanges[yRanges.length - 1];
+            const afterGapStart = lastRange.end + verticalSpacing;
+            const afterGapSize = 10000; // Effectively infinite
+            if (afterGapSize > largestGap.size) {
+              largestGap = {
+                start: afterGapStart,
+                size: afterGapSize,
+                index: yRanges.length - 1,
+              };
+            }
+
+            // Place in the largest gap
+            proposedY = largestGap.start - childLayout.bbox.y;
+            console.log(
+              `   ✅ Placed in largest gap at y=${proposedY.toFixed(
+                1
+              )} (gap size: ${largestGap.size.toFixed(1)})`
+            );
+          } else {
+            // No placed children yet, just use a safe default
+            proposedY = 0;
+            console.log(`   ✅ Using default position y=0`);
+          }
+        }
+
+        console.log(
+          `   Final position: y=${proposedY.toFixed(
+            1
+          )} (after ${attempts} attempts)\n`
+        );
+
+        // Store offset with child's own width (no forced alignment)
         childOffsets.push({
           x: 0,
           y: proposedY,
           width: childLayout.bbox.width,
         });
+
+        // Track this child's FULL BBOX for overlap detection with future children
         placedBBoxes.push({
           x: childLayout.bbox.x,
           y: proposedY + childLayout.bbox.y,
           width: childLayout.bbox.width,
           height: childLayout.bbox.height,
         });
-        return; // Skip to next child
-      }
-      const childNodeRightEdge = -nodeWidth - horizontalSpacing;
-      const childBaseX = childNodeRightEdge - childNodePos.x - actualChildWidth;
-
-      // Now calculate the actual X position of the child's bbox in the parent's coordinate system
-      const actualChildBBoxX = childBaseX + childLayout.bbox.x;
-
-      while (hasOverlap && attempts < maxAttempts && !oscillationDetected) {
-        hasOverlap = false;
-
-        // Detect oscillation: if we've tried this position before
-        const positionKey = Math.round(proposedY * 10) / 10; // Round to 1 decimal
-        if (attemptedPositions.has(positionKey)) {
-          oscillationDetected = true;
-          console.log(
-            `   ⚠️ OSCILLATION DETECTED: Already tried position ${positionKey.toFixed(
-              1
-            )} at attempt ${attemptedPositions.get(positionKey)}`
-          );
-          break;
-        }
-        attemptedPositions.set(positionKey, attempts);
-
-        // Calculate the current child's ENTIRE tree bounding box at this proposed position
-        // Use the ACTUAL X position in the parent's coordinate system
-        const currentChildBBox = {
-          x: actualChildBBoxX,
-          y: proposedY + childLayout.bbox.y,
-          width: childLayout.bbox.width,
-          height: childLayout.bbox.height,
-        };
-
-        console.log(
-          `   Attempt ${attempts + 1}: Testing position y=${proposedY.toFixed(
-            1
-          )} (tree bbox: x:${currentChildBBox.x.toFixed(1)}-${(
-            currentChildBBox.x + currentChildBBox.width
-          ).toFixed(1)}, y:${currentChildBBox.y.toFixed(1)}-${(
-            currentChildBBox.y + currentChildBBox.height
-          ).toFixed(1)})`
-        );
-
-        // Check against previously placed children's INDIVIDUAL NODES
-        let maxPushDownY = proposedY;
-        let foundOverlap = false;
-        const overlaps = [];
-
-        console.log(
-          `   Checking against ${placedBBoxes.length} previously placed children...`
-        );
-
-        for (let i = 0; i < placedBBoxes.length; i++) {
-          const placedChildLayout = childLayouts[i].layout;
-          const placedChildOffset = childOffsets[i];
-          const placedChildNode = this.bp.nodes.find(
-            (n) => n.id === childLayouts[i].id
-          );
-          const placedChildName =
-            placedChildNode?.nodeType?.name || `Node ${childLayouts[i].id}`;
-
-          console.log(
-            `      Checking against placed child ${i}: ${placedChildName} at offset y=${placedChildOffset.y.toFixed(
-              1
-            )}`
-          );
-
-          // Calculate the actual X position of the placed child
-          const placedChildNodePos = placedChildLayout.positions.get(
-            childLayouts[i].id
-          );
-          if (!placedChildNodePos) {
-            console.error(
-              `Placed child node ${childLayouts[i].id} not found in its layout! Skipping this placed child.`
-            );
-            // Skip this placed child in overlap detection
-          } else {
-            // Get the actual placed child node to check its width
-            const actualPlacedChildNode = this.bp.nodes.find(
-              (n) => n.id === childLayouts[i].id
-            );
-            const actualPlacedChildWidth = actualPlacedChildNode?.width || 200;
-
-            const placedChildNodeRightEdge = -nodeWidth - horizontalSpacing;
-            const placedChildBaseX =
-              placedChildNodeRightEdge -
-              placedChildNodePos.x -
-              actualPlacedChildWidth;
-
-            // Get ALL nodes in the placed child's tree with ACTUAL positions
-            const nodesToCheck = [];
-            placedChildLayout.positions.forEach((pos, nodeId) => {
-              const node = this.bp.nodes.find((n) => n.id === nodeId);
-              if (node) {
-                nodesToCheck.push({
-                  nodeId,
-                  nodeName: node.nodeType?.name || `Node ${nodeId}`,
-                  x: placedChildBaseX + pos.x,
-                  y: placedChildOffset.y + pos.y,
-                  width: node.width || 200,
-                  height: node.height || 100,
-                });
-              }
-            });
-
-            console.log(
-              `         Found ${nodesToCheck.length} nodes in ${placedChildName}'s tree`
-            );
-
-            // Check current child's ENTIRE BBOX against each individual node in placed child
-            for (const placedNode of nodesToCheck) {
-              // Check for overlap in BOTH X and Y axes
-              const xOverlap = !(
-                currentChildBBox.x + currentChildBBox.width + overlapMargin <
-                  placedNode.x ||
-                placedNode.x + placedNode.width + overlapMargin <
-                  currentChildBBox.x
-              );
-
-              const yOverlap = !(
-                currentChildBBox.y + currentChildBBox.height + overlapMargin <
-                  placedNode.y ||
-                placedNode.y + placedNode.height + overlapMargin <
-                  currentChildBBox.y
-              );
-
-              // Only consider it an overlap if BOTH axes overlap
-              if (xOverlap && yOverlap) {
-                foundOverlap = true;
-
-                if (attempts === 0) {
-                  console.log(
-                    `         ❌ Current child tree bbox ` +
-                      `(x:${currentChildBBox.x.toFixed(1)}-${(
-                        currentChildBBox.x + currentChildBBox.width
-                      ).toFixed(1)}, ` +
-                      `y:${currentChildBBox.y.toFixed(1)}-${(
-                        currentChildBBox.y + currentChildBBox.height
-                      ).toFixed(1)}) overlaps ${placedNode.nodeName} ` +
-                      `(x:${placedNode.x.toFixed(1)}-${(
-                        placedNode.x + placedNode.width
-                      ).toFixed(1)}, ` +
-                      `y:${placedNode.y.toFixed(1)}-${(
-                        placedNode.y + placedNode.height
-                      ).toFixed(1)})`
-                  );
-                }
-
-                // Calculate push down distance to clear this overlap
-                // We need to push the ENTIRE current child bbox below this placed node
-                const pushDownY =
-                  placedNode.y +
-                  placedNode.height -
-                  currentChildBBox.y +
-                  proposedY +
-                  verticalSpacing;
-
-                overlaps.push({
-                  current: `Child tree`,
-                  placed: `${placedNode.nodeName}`,
-                  pushDown: pushDownY.toFixed(1),
-                });
-
-                maxPushDownY = Math.max(maxPushDownY, pushDownY);
-              }
-            }
-          } // End of else block for valid placedChildNodePos
-        }
-
-        if (foundOverlap) {
-          console.log(`   ❌ Found ${overlaps.length} overlap(s):`);
-          overlaps.forEach((overlap, idx) => {
-            console.log(
-              `      ${idx + 1}. ${overlap.current} ↔️ ${
-                overlap.placed
-              } → push to ${overlap.pushDown}`
-            );
-          });
-
-          // ALWAYS push down to avoid oscillation
-          // Sequential placement should only move forward (downward)
-          console.log(`   ⬇️ Pushing DOWN to ${maxPushDownY.toFixed(1)}`);
-          proposedY = maxPushDownY;
-
-          hasOverlap = true;
-        } else {
-          console.log(`   ✅ No overlaps found - position is good!`);
-        }
-
-        attempts++;
-      }
-
-      // Handle oscillation with fallback strategy
-      if (oscillationDetected) {
-        console.log(`   🔄 Applying fallback strategy for oscillation...`);
-
-        // Strategy: Find the largest gap in the placed children and use that
-        if (placedBBoxes.length > 0) {
-          // Collect all Y ranges from placed children
-          const yRanges = placedBBoxes
-            .map((bbox) => ({
-              start: bbox.y,
-              end: bbox.y + bbox.height,
-            }))
-            .sort((a, b) => a.start - b.start);
-
-          // Find largest gap
-          let largestGap = { start: 0, size: yRanges[0].start, index: -1 };
-
-          for (let i = 0; i < yRanges.length - 1; i++) {
-            const gapStart = yRanges[i].end + verticalSpacing;
-            const gapEnd = yRanges[i + 1].start - verticalSpacing;
-            const gapSize = gapEnd - gapStart;
-
-            if (
-              gapSize > largestGap.size &&
-              gapSize >= childLayout.bbox.height
-            ) {
-              largestGap = { start: gapStart, size: gapSize, index: i };
-            }
-          }
-
-          // Also check gap after last child
-          const lastRange = yRanges[yRanges.length - 1];
-          const afterGapStart = lastRange.end + verticalSpacing;
-          const afterGapSize = 10000; // Effectively infinite
-          if (afterGapSize > largestGap.size) {
-            largestGap = {
-              start: afterGapStart,
-              size: afterGapSize,
-              index: yRanges.length - 1,
-            };
-          }
-
-          // Place in the largest gap
-          proposedY = largestGap.start - childLayout.bbox.y;
-          console.log(
-            `   ✅ Placed in largest gap at y=${proposedY.toFixed(
-              1
-            )} (gap size: ${largestGap.size.toFixed(1)})`
-          );
-        } else {
-          // No placed children yet, just use a safe default
-          proposedY = 0;
-          console.log(`   ✅ Using default position y=0`);
-        }
-      }
-
-      console.log(
-        `   Final position: y=${proposedY.toFixed(
-          1
-        )} (after ${attempts} attempts)\n`
-      );
-
-      // Store offset with child's own width (no forced alignment)
-      childOffsets.push({
-        x: 0,
-        y: proposedY,
-        width: childLayout.bbox.width,
       });
-
-      // Track this child's FULL BBOX for overlap detection with future children
-      placedBBoxes.push({
-        x: childLayout.bbox.x,
-        y: proposedY + childLayout.bbox.y,
-        width: childLayout.bbox.width,
-        height: childLayout.bbox.height,
-      });
-    });
+    } // End of else block for normal positioning
 
     // Calculate max width for bbox calculation
     const maxChildWidth = Math.max(
