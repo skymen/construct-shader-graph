@@ -17,12 +17,12 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         {
-          src: "preview",
-          dest: ".",
+          src: "preview/**/*",
+          dest: "preview",
         },
         {
-          src: "examples",
-          dest: ".",
+          src: "examples/**/*",
+          dest: "examples",
         },
       ],
     }),
