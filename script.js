@@ -2266,7 +2266,7 @@ class BlueprintSystem {
 
       // Try to load the file and extract screenshot
       try {
-        const response = await fetch(`/examples/${example.file}`);
+        const response = await fetch(`./examples/${example.file}`);
         if (response.ok) {
           const text = await response.text();
           const data = JSON.parse(text);
@@ -2279,7 +2279,7 @@ class BlueprintSystem {
           } else {
             // Fallback to separate PNG file if no screenshot in data
             const imageName = example.file.replace(".c3sg", ".png");
-            const imagePath = `/examples/${imageName}`;
+            const imagePath = `./examples/${imageName}`;
             const img = document.createElement("img");
             img.src = imagePath;
             img.onerror = () => {
@@ -2329,7 +2329,7 @@ class BlueprintSystem {
       // Click handler to load example
       card.addEventListener("click", async () => {
         try {
-          const response = await fetch(`/examples/${example.file}`);
+          const response = await fetch(`./examples/${example.file}`);
           if (!response.ok) throw new Error("Failed to load example");
 
           const text = await response.text();
