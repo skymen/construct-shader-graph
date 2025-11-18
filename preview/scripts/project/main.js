@@ -154,16 +154,20 @@ async function OnBeforeProjectStart(rt) {
           globalThis[event.data.function](event.data.url);
         }
       } else if (event.data && event.data.type === "requestScreenshot") {
-        // Capture canvas and send back as data URL
+        // Capture canvas and send back as base64 data URL
         runtime.saveCanvasImage().then((blob) => {
-          const dataUrl = URL.createObjectURL(blob);
-          window.parent.postMessage(
-            {
-              type: "screenshotData",
-              dataUrl: dataUrl,
-            },
-            "*"
-          );
+          // Convert blob to base64 data URL
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            window.parent.postMessage(
+              {
+                type: "screenshotData",
+                dataUrl: reader.result, // This is a base64 data URL
+              },
+              "*"
+            );
+          };
+          reader.readAsDataURL(blob);
         });
       }
     });

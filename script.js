@@ -2066,25 +2066,53 @@ class BlueprintSystem {
       const card = document.createElement("div");
       card.className = "example-card";
 
-      // Check if preview image exists
-      const imageName = example.file.replace(".c3sg", ".png");
-      const imagePath = `/examples/${imageName}`;
-
       const preview = document.createElement("div");
       preview.className = "example-preview";
 
-      // Try to load image, fallback to placeholder
-      const img = document.createElement("img");
-      img.src = imagePath;
-      img.onerror = () => {
-        // Replace with placeholder SVG
+      // Try to load the file and extract screenshot
+      try {
+        const response = await fetch(`/examples/${example.file}`);
+        if (response.ok) {
+          const text = await response.text();
+          const data = JSON.parse(text);
+
+          if (data.previewScreenshot) {
+            // Use screenshot from file data
+            const img = document.createElement("img");
+            img.src = data.previewScreenshot;
+            preview.appendChild(img);
+          } else {
+            // Fallback to separate PNG file if no screenshot in data
+            const imageName = example.file.replace(".c3sg", ".png");
+            const imagePath = `/examples/${imageName}`;
+            const img = document.createElement("img");
+            img.src = imagePath;
+            img.onerror = () => {
+              // Replace with placeholder SVG
+              preview.innerHTML = `
+                <svg class="example-preview-placeholder" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <path fill="currentColor" d="M19,2L14,6.5V17.5L19,13V2M6.5,5C4.55,5 2.45,5.4 1,6.5V21.16C1,21.41 1.25,21.66 1.5,21.66C1.6,21.66 1.65,21.59 1.75,21.59C3.1,20.94 5.05,20.5 6.5,20.5C8.45,20.5 10.55,20.9 12,22C13.35,21.15 15.8,20.5 17.5,20.5C19.15,20.5 20.85,20.81 22.25,21.56C22.35,21.61 22.4,21.59 22.5,21.59C22.75,21.59 23,21.34 23,21.09V6.5C22.4,6.05 21.75,5.75 21,5.5V19C19.9,18.65 18.7,18.5 17.5,18.5C15.8,18.5 13.35,19.15 12,20V6.5C10.55,5.4 8.45,5 6.5,5Z" />
+                </svg>
+              `;
+            };
+            preview.appendChild(img);
+          }
+        } else {
+          // Show placeholder if file can't be loaded
+          preview.innerHTML = `
+            <svg class="example-preview-placeholder" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+              <path fill="currentColor" d="M19,2L14,6.5V17.5L19,13V2M6.5,5C4.55,5 2.45,5.4 1,6.5V21.16C1,21.41 1.25,21.66 1.5,21.66C1.6,21.66 1.65,21.59 1.75,21.59C3.1,20.94 5.05,20.5 6.5,20.5C8.45,20.5 10.55,20.9 12,22C13.35,21.15 15.8,20.5 17.5,20.5C19.15,20.5 20.85,20.81 22.25,21.56C22.35,21.61 22.4,21.59 22.5,21.59C22.75,21.59 23,21.34 23,21.09V6.5C22.4,6.05 21.75,5.75 21,5.5V19C19.9,18.65 18.7,18.5 17.5,18.5C15.8,18.5 13.35,19.15 12,20V6.5C10.55,5.4 8.45,5 6.5,5Z" />
+            </svg>
+          `;
+        }
+      } catch (error) {
+        // Show placeholder on error
         preview.innerHTML = `
           <svg class="example-preview-placeholder" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
             <path fill="currentColor" d="M19,2L14,6.5V17.5L19,13V2M6.5,5C4.55,5 2.45,5.4 1,6.5V21.16C1,21.41 1.25,21.66 1.5,21.66C1.6,21.66 1.65,21.59 1.75,21.59C3.1,20.94 5.05,20.5 6.5,20.5C8.45,20.5 10.55,20.9 12,22C13.35,21.15 15.8,20.5 17.5,20.5C19.15,20.5 20.85,20.81 22.25,21.56C22.35,21.61 22.4,21.59 22.5,21.59C22.75,21.59 23,21.34 23,21.09V6.5C22.4,6.05 21.75,5.75 21,5.5V19C19.9,18.65 18.7,18.5 17.5,18.5C15.8,18.5 13.35,19.15 12,20V6.5C10.55,5.4 8.45,5 6.5,5Z" />
           </svg>
         `;
-      };
-      preview.appendChild(img);
+      }
 
       const info = document.createElement("div");
       info.className = "example-info";
@@ -6090,6 +6118,49 @@ class BlueprintSystem {
     window.addEventListener("message", screenshotHandler);
   }
 
+  /**
+   * Get a screenshot from the preview as a data URL
+   * Returns a promise that resolves with the data URL or null if preview not ready
+   */
+  async getPreviewScreenshot() {
+    if (!this.previewIframe || !this.previewReady) {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      const screenshotHandler = (event) => {
+        if (event.data && event.data.type === "screenshotData") {
+          // Remove the listener
+          window.removeEventListener("message", screenshotHandler);
+          resolve(event.data.dataUrl);
+        }
+      };
+
+      // Set a timeout in case the preview doesn't respond
+      const timeout = setTimeout(() => {
+        window.removeEventListener("message", screenshotHandler);
+        resolve(null);
+      }, 5000);
+
+      window.addEventListener("message", screenshotHandler);
+
+      // Clear timeout when we get a response
+      const originalHandler = screenshotHandler;
+      const wrappedHandler = (event) => {
+        clearTimeout(timeout);
+        originalHandler(event);
+      };
+      window.removeEventListener("message", screenshotHandler);
+      window.addEventListener("message", wrappedHandler);
+
+      // Request screenshot from the preview iframe
+      this.previewIframe.contentWindow.postMessage(
+        { type: "requestScreenshot" },
+        "*"
+      );
+    });
+  }
+
   addDefaultNodes() {
     // Add default nodes: FrontUV -> TextureFront -> Output
     const frontUVNode = this.addNode(200, 300, NODE_TYPES.frontUV);
@@ -6184,9 +6255,13 @@ class BlueprintSystem {
   }
 
   async saveToJSON() {
+    // Capture preview screenshot
+    const previewScreenshot = await this.getPreviewScreenshot();
+
     // Create a complete snapshot of the blueprint state
     const data = {
       version: "1.0.0",
+      previewScreenshot: previewScreenshot, // Store screenshot data URL
       shaderSettings: this.shaderSettings,
       uniforms: this.uniforms,
       customNodes: this.customNodes,
