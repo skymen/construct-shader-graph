@@ -197,6 +197,48 @@ body {
   display: none;
 }
 
+.toolbar-language-select,
+.settingCategory {
+  background: #1f1f1f;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #f0f0f0;
+  padding: 6px 12px;
+  font-size: 13px;
+  min-height: 34px;
+  line-height: 1.2;
+}
+
+.toolbar-language-select:focus,
+.settingCategory:focus {
+  outline: 1px solid #6ab0ff;
+}
+
+.toolbar-language-switcher {
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.toolbar-language-switcher .toolbar-language-select {
+  height: 36px;
+  padding: 6px 14px;
+}
+
+.i18n-alt-text {
+  font-size: 0.75em;
+  opacity: 0.8;
+  color: #d0d0d0;
+  margin-left: 4px;
+}
+
+.search-result-name .i18n-alt-text {
+  display: table-cell;
+  margin-left: 0;
+  margin-top: 2px;
+  text-align: center;
+}
+
 
 #clearBtn {
     background: #e74c3c;
@@ -2742,4 +2784,3 @@ body {
 #clearRecentFilesBtn:hover {
   color: #e24a4a;
 }
-

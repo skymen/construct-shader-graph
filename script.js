@@ -9,6 +9,196 @@ import {
 } from "./nodes/index.js";
 import { UniformFloatNode } from "./nodes/UniformFloatNode.js";
 import { UniformColorNode } from "./nodes/UniformColorNode.js";
+import {
+  t,
+  setLanguage,
+  getLanguage,
+  getSupportedLanguages,
+  getFallbackLanguage,
+} from "./locales/i18n.js";
+
+// DOM selectors/metadata for the localization sweep.
+const DATA_I18N_ATTR = "data-i18n";
+const DATA_I18N_ORIGINAL = `${DATA_I18N_ATTR}-original`;
+const DATA_I18N_PREFIX = `${DATA_I18N_ATTR}-`;
+
+const I18N_TEXT_SELECTOR = `[${DATA_I18N_ATTR}]`;
+const I18N_ATTRS = ["title", "placeholder", "aria-label", "value"];
+
+// Additional description/alt attributes we honor, in priority order.
+const ALT_ATTRIBUTE_MAP = {
+  desc: "data-desc",
+  alt: "data-alt",
+  i18nAlt: "data-i18n-alt",
+};
+// Attributes that toggle inline annotation (e.g., "Play • 播放").
+const ALT_INLINE_ATTRIBUTES = ["data-desc-inline", "data-alt-inline"];
+
+const getAttrBindingName = (attr) => `${DATA_I18N_PREFIX}${attr}`;
+const getAttrSelector = (attr) => `[${getAttrBindingName(attr)}]`;
+
+function setLocalizedContent(
+  el,
+  primaryText = "",
+  commentText = "",
+  inlineAlt = false,
+  currentLang,
+  fallbackLang
+) {
+  if (!el) return;
+  const lang = currentLang ?? getLanguage();
+  const fallback = fallbackLang ?? getFallbackLanguage();
+  const primary = `${primaryText ?? ""}`;
+  const comment = commentText == null ? "" : `${commentText}`;
+  const showComment =
+    comment.trim() &&
+    lang !== fallback &&
+    comment.trim() !== primary.trim();
+
+  if (!showComment) {
+    el.textContent = primary;
+    return;
+  }
+
+  if (inlineAlt) {
+    el.textContent = `${primary} ${comment}`;
+    return;
+  }
+
+  el.textContent = "";
+  el.appendChild(document.createTextNode(primary));
+  const altSpan = document.createElement("span");
+  altSpan.className = "i18n-alt-text";
+  altSpan.textContent = comment;
+  el.appendChild(altSpan);
+}
+
+function applyStaticTranslations() {
+  if (typeof document === "undefined") return;
+  document.title = t("CAW Shader");
+
+  const langContext = {
+    current: getLanguage(),
+    fallback: getFallbackLanguage(),
+  };
+
+  translateTextNodes(langContext);
+  translateAttributes();
+}
+
+function translateTextNodes({ current, fallback }) {
+  document.querySelectorAll(I18N_TEXT_SELECTOR).forEach((el) => {
+    const key = resolveTextKey(el);
+    if (!key) return;
+
+    const primaryText = t(key);
+    const altText = resolveAltText(el);
+    const inlineAlt = hasInlineAlt(el);
+
+    setLocalizedContent(
+      el,
+      primaryText,
+      altText,
+      inlineAlt,
+      current,
+      fallback
+    );
+  });
+}
+
+function translateAttributes() {
+  I18N_ATTRS.forEach((attr) => {
+    document.querySelectorAll(getAttrSelector(attr)).forEach((el) => {
+      const key = resolveAttributeKey(el, attr);
+      if (!key) return;
+
+      const translated = t(key);
+      if (attr === "value") {
+        el.value = translated;
+      } else {
+        el.setAttribute(attr, translated);
+      }
+    });
+  });
+}
+
+function resolveTextKey(el) {
+  const explicitKey = el.getAttribute(DATA_I18N_ATTR);
+  if (explicitKey) return explicitKey;
+
+  const cached = el.getAttribute(DATA_I18N_ORIGINAL);
+  if (cached) return cached;
+
+  const fallbackText = el.textContent.trim();
+  if (!fallbackText) return "";
+  el.setAttribute(DATA_I18N_ORIGINAL, fallbackText);
+  return fallbackText;
+}
+
+function resolveAttributeKey(el, attr) {
+  const bindingAttr = getAttrBindingName(attr);
+  const explicitKey = el.getAttribute(bindingAttr);
+  if (explicitKey) return explicitKey;
+
+  const cacheAttr = `${bindingAttr}-original`;
+  const cached = el.getAttribute(cacheAttr);
+  if (cached) return cached;
+
+  const fallbackValue =
+    attr === "value" ? el.value ?? "" : el.getAttribute(attr) ?? "";
+  if (!fallbackValue) return "";
+  el.setAttribute(cacheAttr, fallbackValue);
+  return fallbackValue;
+}
+
+function resolveAltText(el) {
+  for (const attr of Object.values(ALT_ATTRIBUTE_MAP)) {
+    const text = el.getAttribute(attr);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function hasInlineAlt(el) {
+  return ALT_INLINE_ATTRIBUTES.some((attr) => el.hasAttribute(attr));
+}
+
+function initLanguageSwitcher() {
+  if (typeof document === "undefined") return;
+  const toolbarActions = document.querySelector(
+    "#toolbar .toolbar-actions"
+  );
+  if (!toolbarActions) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "toolbar-language-switcher";
+
+  const select = document.createElement("select");
+  select.className = "toolbar-language-select settingCategory";
+
+  getSupportedLanguages().forEach(({ code, label }) => {
+    const option = document.createElement("option");
+    option.value = code;
+    option.textContent = label;
+    select.appendChild(option);
+  });
+
+  select.value = getLanguage();
+  select.addEventListener("change", (event) => {
+    setLanguage(event.target.value);
+  });
+
+  window.addEventListener("csg-language-change", (event) => {
+    if (typeof event.detail?.lang === "string") {
+      select.value = event.detail.lang;
+    }
+  });
+
+  wrapper.appendChild(select);
+  toolbarActions.appendChild(wrapper);
+}
 import JSZip from "jszip";
 import { HistoryManager } from "./HistoryManager.js";
 import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
@@ -876,6 +1066,7 @@ class BlueprintSystem {
     this.setupOpenFilesModal();
     this.setupPreview();
     this.setupMinimap();
+    this.setupLocalization();
     this.render();
     this.updateUndoRedoButtons();
 
@@ -949,6 +1140,23 @@ class BlueprintSystem {
     document.addEventListener("mouseup", () => {
       if (this.minimapDragging) {
         this.minimapDragging = false;
+      }
+    });
+  }
+
+  setupLocalization() {
+    applyStaticTranslations();
+    window.addEventListener("csg-language-change", () => {
+      applyStaticTranslations();
+      this.render();
+      if (this.searchMenu) {
+        this.updateSearchResults();
+      }
+      if (this.uniformList) {
+        this.renderUniformList();
+      }
+      if (this.customNodesList) {
+        this.renderCustomNodesList();
       }
     });
   }
@@ -1361,7 +1569,7 @@ class BlueprintSystem {
       const value = versionInput.value.trim();
       const versionPattern = /^\d+\.\d+\.\d+\.\d+$/;
       if (value && !versionPattern.test(value)) {
-        alert("Version must follow X.X.X.X format (e.g., 1.0.0.0)");
+        alert(t("Version must follow X.X.X.X format (e.g., 1.0.0.0)"));
         versionInput.value = this.shaderSettings.version;
       } else {
         this.shaderSettings.version = value || "1.0.0.0";
@@ -1377,7 +1585,7 @@ class BlueprintSystem {
             new URL(value);
             this.shaderSettings[settingKey] = value;
           } catch {
-            alert("Please enter a valid URL (e.g., https://example.com)");
+            alert(t("Please enter a valid URL (e.g., https://example.com)"));
             input.value = this.shaderSettings[settingKey];
           }
         } else {
@@ -1576,7 +1784,7 @@ class BlueprintSystem {
           navigator.clipboard.writeText(code).then(() => {
             const btn = document.getElementById("copyCodeBtn");
             const originalText = btn.textContent;
-            btn.textContent = "Copied!";
+            btn.textContent = t("Copied!");
             setTimeout(() => {
               btn.textContent = originalText;
             }, 2000);
@@ -1604,7 +1812,7 @@ class BlueprintSystem {
     const type = this.uniformTypeSelect.value;
 
     if (!name) {
-      alert("Please enter a uniform name");
+      alert(t("Please enter a uniform name"));
       return;
     }
 
@@ -2057,7 +2265,7 @@ class BlueprintSystem {
     });
 
     clearRecentBtn.addEventListener("click", () => {
-      if (confirm("Are you sure you want to clear all recent files?")) {
+      if (confirm(t("Are you sure you want to clear all recent files?"))) {
         this.clearAllRecentFiles();
         this.populateRecentFiles();
       }
@@ -2175,7 +2383,7 @@ class BlueprintSystem {
             <path fill="currentColor" d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
           </svg>
         `;
-        removeBtn.title = "Remove from recent files";
+        removeBtn.title = t("Remove from recent files");
         removeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           this.removeRecentFile(fileInfo.id);
@@ -2192,7 +2400,7 @@ class BlueprintSystem {
             const handle = await this.getFileHandleById(fileInfo.id);
             if (!handle) {
               alert(
-                "Cannot access this file. It may have been moved or deleted."
+                t("Cannot access this file. It may have been moved or deleted.")
               );
               this.removeRecentFile(fileInfo.id);
               this.populateRecentFiles();
@@ -2212,7 +2420,9 @@ class BlueprintSystem {
             } else {
               // Permission denied by user
               alert(
-                "Permission denied. Please grant permission to access this file, or use 'Open File' to select it manually."
+                t(
+                  "Permission denied. Please grant permission to access this file, or use 'Open File' to select it manually."
+                )
               );
             }
           } catch (error) {
@@ -2221,17 +2431,20 @@ class BlueprintSystem {
             // Handle specific error types
             if (error.name === "NotFoundError") {
               alert(
-                "This file no longer exists or has been moved. Removing it from recent files."
+                t(
+                  "This file no longer exists or has been moved. Removing it from recent files."
+                )
               );
               this.removeRecentFile(fileInfo.id);
               this.populateRecentFiles();
             } else if (error.name === "NotAllowedError") {
               alert(
-                "Cannot request file permission at this time. This may be due to browser security policies. " +
-                  "Please use the 'Open File' button to select the file manually."
+                t(
+                  "Cannot request file permission at this time. This may be due to browser security policies. Please use the 'Open File' button to select the file manually."
+                )
               );
             } else {
-              alert("Failed to open file: " + error.message);
+              alert(t("Failed to open file: {0}", error.message));
             }
           }
         });
@@ -2244,6 +2457,8 @@ class BlueprintSystem {
   async populateExamples() {
     const modal = document.getElementById("openFilesModal");
     const grid = document.getElementById("examplesGrid");
+    const currentLang = getLanguage();
+    const fallbackLang = getFallbackLanguage();
 
     // Define examples with metadata
     const examples = [
@@ -2347,11 +2562,25 @@ class BlueprintSystem {
 
       const name = document.createElement("h3");
       name.className = "example-name";
-      name.textContent = example.name;
+      setLocalizedContent(
+        name,
+        t(example.name),
+        "",
+        false,
+        currentLang,
+        fallbackLang
+      );
 
       const description = document.createElement("p");
       description.className = "example-description";
-      description.textContent = example.description;
+      setLocalizedContent(
+        description,
+        t(example.description),
+        "",
+        false,
+        currentLang,
+        fallbackLang
+      );
 
       info.appendChild(name);
       info.appendChild(description);
@@ -2381,7 +2610,7 @@ class BlueprintSystem {
           modal.style.display = "none";
         } catch (error) {
           console.error("Error loading example:", error);
-          alert("Failed to load example: " + error.message);
+          alert(t("Failed to load example: {0}", error.message));
         }
       });
 
@@ -3380,7 +3609,9 @@ class BlueprintSystem {
 
     const nameInput = document.createElement("input");
     nameInput.type = "text";
-    nameInput.placeholder = `${portType === "input" ? "Input" : "Output"} name`;
+    const placeholderKey = portType === "input" ? "Input name" : "Output name";
+    nameInput.placeholder = t(placeholderKey);
+    nameInput.setAttribute(getAttrBindingName("placeholder"), placeholderKey);
     nameInput.value = name;
 
     const typeSelect = document.createElement("select");
@@ -3417,7 +3648,7 @@ class BlueprintSystem {
   saveCustomNode() {
     const name = this.customNodeNameInput.value.trim();
     if (!name) {
-      alert("Please enter a node name");
+      alert(t("Please enter a node name"));
       return;
     }
 
@@ -3432,7 +3663,10 @@ class BlueprintSystem {
 
     if (isDuplicateName) {
       alert(
-        `A custom node with the name "${name}" already exists. Please choose a different name.`
+        t(
+          'A custom node with the name "{0}" already exists. Please choose a different name.',
+          name
+        )
       );
       return;
     }
@@ -3468,7 +3702,7 @@ class BlueprintSystem {
       });
 
     if (outputs.length === 0) {
-      alert("Please add at least one output");
+      alert(t("Please add at least one output"));
       return;
     }
 
@@ -3709,7 +3943,7 @@ class BlueprintSystem {
       dragHandle.style.fontSize = "14px";
       dragHandle.style.userSelect = "none";
       dragHandle.textContent = "⋮⋮";
-      dragHandle.title = "Drag to canvas to create node";
+      dragHandle.title = t("Drag to canvas to create node");
 
       // Make item draggable from handle
       let isDraggingFromHandle = false;
@@ -3753,7 +3987,7 @@ class BlueprintSystem {
       const editBtn = document.createElement("button");
       editBtn.className = "uniform-delete-btn";
       editBtn.textContent = "✎";
-      editBtn.title = "Edit";
+      editBtn.title = t("Edit");
       editBtn.style.background = "#4a90e2";
       editBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -3763,7 +3997,7 @@ class BlueprintSystem {
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "uniform-delete-btn";
       deleteBtn.textContent = "×";
-      deleteBtn.title = "Delete";
+      deleteBtn.title = t("Delete");
       deleteBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.deleteCustomNode(customNode.id);
@@ -3859,7 +4093,7 @@ class BlueprintSystem {
       const dragHandle = document.createElement("div");
       dragHandle.className = "uniform-drag-handle";
       dragHandle.innerHTML = "⋮⋮";
-      dragHandle.title = "Drag to reorder or create node";
+      dragHandle.title = t("Drag to reorder or create node");
 
       // Track if drag started from handle
       let dragFromHandle = false;
@@ -3931,7 +4165,7 @@ class BlueprintSystem {
         const variableNameHint = document.createElement("small");
         variableNameHint.className = "uniform-variable-name";
         variableNameHint.textContent = `${uniform.variableName}`;
-        variableNameHint.title = "Variable name used in shader code";
+        variableNameHint.title = t("Variable name used in shader code");
         infoLine.appendChild(variableNameHint);
 
         const separator = document.createElement("span");
@@ -3942,7 +4176,8 @@ class BlueprintSystem {
 
       const typeSpan = document.createElement("span");
       typeSpan.className = "uniform-item-type-inline";
-      typeSpan.textContent = uniform.type === "color" ? "Color" : "Float";
+      typeSpan.textContent =
+        uniform.type === "color" ? t("Color") : t("Float");
       infoLine.appendChild(typeSpan);
 
       // Description (editable)
@@ -3955,7 +4190,7 @@ class BlueprintSystem {
       descInput.type = "text";
       descInput.className = "uniform-description-input";
       descInput.value = uniform.description ?? "";
-      descInput.placeholder = "Add description...";
+      descInput.placeholder = t("Add description...");
       descInput.addEventListener("change", (e) => {
         uniform.description = e.target.value.trim();
       });
@@ -3972,7 +4207,7 @@ class BlueprintSystem {
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "uniform-delete-btn";
       deleteBtn.textContent = "×";
-      deleteBtn.title = "Delete";
+      deleteBtn.title = t("Delete");
       deleteBtn.addEventListener("click", () => this.deleteUniform(uniform.id));
 
       controls.appendChild(deleteBtn);
@@ -4026,7 +4261,7 @@ class BlueprintSystem {
 
         const checkboxLabel = document.createElement("span");
         checkboxLabel.textContent = "%";
-        checkboxLabel.title = "Is Percent";
+        checkboxLabel.title = t("Is Percent");
 
         checkbox.addEventListener("change", (e) => {
           uniform.isPercent = checkbox.checked;
@@ -4418,7 +4653,8 @@ class BlueprintSystem {
 
     // Set current value
     this.customInputField.value = node.customInput || config.defaultValue;
-    this.customInputField.placeholder = config.placeholder || "";
+    const placeholder = config.placeholder || "";
+    this.customInputField.placeholder = placeholder ? t(placeholder) : "";
 
     // Focus and select
     setTimeout(() => {
@@ -4441,7 +4677,8 @@ class BlueprintSystem {
       const validation = config.validate(newValue, node);
       if (!validation.valid) {
         // Show error and revert to previous value
-        alert(validation.error);
+        const args = validation.args || [];
+        alert(t(validation.error, ...args));
         // Revert to the previous valid value
         this.customInputField.value = node.customInput || config.defaultValue;
         this.customInputField.focus();
@@ -4534,7 +4771,7 @@ class BlueprintSystem {
 
     node.nodeType.operationOptions.forEach((op) => {
       const option = document.createElement("div");
-      option.textContent = op.label;
+      option.textContent = t(op.label);
       option.style.padding = "6px 8px";
       option.style.cursor = "pointer";
       option.style.color = "#fff";
@@ -4621,7 +4858,7 @@ class BlueprintSystem {
 
     // Add "(none)" option
     const noneOption = document.createElement("div");
-    noneOption.textContent = "(none)";
+    noneOption.textContent = t("(none)");
     noneOption.style.padding = "6px 8px";
     noneOption.style.cursor = "pointer";
     noneOption.style.color = "#888";
@@ -4661,7 +4898,7 @@ class BlueprintSystem {
     // Add available variables
     if (availableVariables.length === 0) {
       const noVarsOption = document.createElement("div");
-      noVarsOption.textContent = "No variables defined";
+      noVarsOption.textContent = t("No variables defined");
       noVarsOption.style.padding = "6px 8px";
       noVarsOption.style.color = "#666";
       noVarsOption.style.fontSize = "12px";
@@ -4810,10 +5047,15 @@ class BlueprintSystem {
   updateSearchResults() {
     const query = this.searchInput.value.toLowerCase();
     const filteredTypes = this.getFilteredNodeTypes();
+    const currentLang = getLanguage();
+    const fallbackLang = getFallbackLanguage();
 
     // Filter by search query (check name and tags)
     const results = filteredTypes.filter(([key, nodeType]) => {
-      const nameMatch = nodeType.name.toLowerCase().includes(query);
+      const localizedName = t(nodeType.name).toLowerCase();
+      const originalName = nodeType.name.toLowerCase();
+      const nameMatch =
+        localizedName.includes(query) || originalName.includes(query);
       const tagMatch =
         nodeType.tags &&
         nodeType.tags.some((tag) => tag.toLowerCase().includes(query));
@@ -4844,7 +5086,7 @@ class BlueprintSystem {
 
       const nameDiv = document.createElement("div");
       nameDiv.className = "search-result-name";
-      nameDiv.textContent = "Create Custom Node";
+      nameDiv.textContent = t("Create Custom Node");
       nameDiv.style.fontWeight = "bold";
       createCustomBtn.appendChild(nameDiv);
 
@@ -4870,8 +5112,8 @@ class BlueprintSystem {
     // Group results by category
     const categorizedResults = {};
     results.forEach(([key, nodeType]) => {
-      const category = nodeType.category || "Misc";
-      if (!categorizedResults[category]) {
+    const category = nodeType.category || "Misc";
+    if (!categorizedResults[category]) {
         categorizedResults[category] = [];
       }
       categorizedResults[category].push([key, nodeType]);
@@ -4890,7 +5132,15 @@ class BlueprintSystem {
       // Create category header
       const categoryHeader = document.createElement("div");
       categoryHeader.className = "search-category-header";
-      categoryHeader.textContent = category;
+      categoryHeader.setAttribute("data-desc", category);
+      setLocalizedContent(
+        categoryHeader,
+        t(category),
+        category,
+        false,
+        currentLang,
+        fallbackLang
+      );
       categoryHeader.dataset.category = category;
 
       // Make category collapsible
@@ -4930,7 +5180,16 @@ class BlueprintSystem {
         // Name
         const nameDiv = document.createElement("div");
         nameDiv.className = "search-result-name";
-        nameDiv.textContent = nodeType.name;
+        const localizedName = t(nodeType.name);
+        nameDiv.setAttribute("data-desc", localizedName);
+        setLocalizedContent(
+          nameDiv,
+          nodeType.name,
+          localizedName,
+          false,
+          currentLang,
+          fallbackLang
+        );
         item.appendChild(nameDiv);
 
         // Type info
@@ -4965,7 +5224,7 @@ class BlueprintSystem {
       noResults.style.padding = "20px";
       noResults.style.textAlign = "center";
       noResults.style.color = "#888";
-      noResults.textContent = "No nodes found";
+      noResults.textContent = t("No nodes found");
       this.searchResults.appendChild(noResults);
     }
   }
@@ -5872,11 +6131,11 @@ class BlueprintSystem {
       const header = document.createElement("div");
       header.className = "dependency-group-header";
       if (index === 0) {
-        header.textContent = "Leaf Nodes (No Dependencies)";
+        header.textContent = t("Leaf Nodes (No Dependencies)");
       } else if (index === levels.length - 1) {
-        header.textContent = "Output";
+        header.textContent = t("Output");
       } else {
-        header.textContent = `Level ${index}`;
+        header.textContent = t("Level {0}", index);
       }
       groupDiv.appendChild(header);
 
@@ -5887,12 +6146,12 @@ class BlueprintSystem {
 
         const titleDiv = document.createElement("div");
         titleDiv.className = "dependency-node-title";
-        titleDiv.textContent = node.title;
+        titleDiv.textContent = t(node.title);
         nodeDiv.appendChild(titleDiv);
 
         const typeDiv = document.createElement("div");
         typeDiv.className = "dependency-node-type";
-        typeDiv.textContent = `ID: ${node.id}`;
+        typeDiv.textContent = t("ID: {0}", node.id);
         nodeDiv.appendChild(typeDiv);
 
         // Click to highlight node
@@ -6163,7 +6422,7 @@ class BlueprintSystem {
     const graph = this.buildDependencyGraph();
 
     if (!graph) {
-      alert("No output node found. Cannot generate shader.");
+      alert(t("No output node found. Cannot generate shader."));
       return;
     }
 
@@ -6239,7 +6498,7 @@ class BlueprintSystem {
     const graph = this.buildDependencyGraph();
 
     if (!graph) {
-      alert("No output node found. Cannot generate shader.");
+      alert(t("No output node found. Cannot generate shader."));
       return;
     }
 
@@ -6479,7 +6738,7 @@ class BlueprintSystem {
 
   screenshotPreview() {
     if (!this.previewIframe || !this.previewReady) {
-      alert("Preview is not ready yet");
+      alert(t("Preview is not ready yet"));
       return;
     }
 
@@ -6959,7 +7218,7 @@ class BlueprintSystem {
       }
     } catch (error) {
       console.error("Failed to load blueprint:", error);
-      alert(`Failed to load blueprint: ${error.message}`);
+      alert(t("Failed to load blueprint: {0}", error.message));
     }
   }
 
@@ -8464,12 +8723,26 @@ class BlueprintSystem {
     ctx.fillStyle = "#aaa";
     ctx.font = "12px sans-serif";
     const label = port.name;
+    const localizedLabel = t(label);
+    const showTranslatedLabel =
+      localizedLabel &&
+      localizedLabel !== label &&
+      getLanguage() !== getFallbackLanguage();
 
     if (port.type === "input") {
       ctx.textAlign = "left";
 
       // Draw label
       ctx.fillText(label, pos.x + 15, pos.y + 4);
+      if (showTranslatedLabel) {
+        const originalFont = ctx.font;
+        const originalFill = ctx.fillStyle;
+        ctx.font = "10px sans-serif";
+        ctx.fillStyle = "#d0d0d0";
+        ctx.fillText(localizedLabel, pos.x + 15, pos.y + 16);
+        ctx.font = originalFont;
+        ctx.fillStyle = originalFill;
+      }
 
       // Draw value box for editable ports with no connections
       if (
@@ -8698,6 +8971,15 @@ class BlueprintSystem {
     } else {
       ctx.textAlign = "right";
       ctx.fillText(label, pos.x - 15, pos.y + 4);
+      if (showTranslatedLabel) {
+        const originalFont = ctx.font;
+        const originalFill = ctx.fillStyle;
+        ctx.font = "10px sans-serif";
+        ctx.fillStyle = "#d0d0d0";
+        ctx.fillText(localizedLabel, pos.x - 15, pos.y + 16);
+        ctx.font = originalFont;
+        ctx.fillStyle = originalFill;
+      }
     }
 
     // Draw tooltip for hovered port
@@ -8871,10 +9153,28 @@ class BlueprintSystem {
       ctx.fill();
 
       // Title
+      const rawTitle = node.nodeType?.name || node.title;
+      const localizedTitle = t(rawTitle);
+      const showTranslatedTitle =
+        localizedTitle &&
+        localizedTitle !== rawTitle &&
+        getLanguage() !== getFallbackLanguage();
+
       ctx.fillStyle = "#fff";
-      ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(node.title, node.x + node.width / 2, node.y + 22);
+      ctx.font = showTranslatedTitle ? "bold 13px sans-serif" : "bold 14px sans-serif";
+      const primaryY = showTranslatedTitle ? node.y + 18 : node.y + 22;
+      ctx.fillText(rawTitle, node.x + node.width / 2, primaryY);
+
+      if (showTranslatedTitle) {
+        ctx.font = "10px sans-serif";
+        ctx.fillStyle = "#d0d0d0";
+        ctx.fillText(
+          localizedTitle,
+          node.x + node.width / 2,
+          primaryY + 12
+        );
+      }
 
       // Edit button for custom nodes
       if (node.nodeType.isCustom) {
@@ -8954,9 +9254,10 @@ class BlueprintSystem {
         const currentOp = node.nodeType.operationOptions.find(
           (op) => op.value === node.operation
         );
+        const fallbackLabel = node.nodeType.operationOptions[0].label;
         const displayText = currentOp
-          ? currentOp.label
-          : node.nodeType.operationOptions[0].label;
+          ? t(currentOp.label)
+          : t(fallbackLabel);
 
         // Dropdown text
         ctx.fillStyle = "#fff";
@@ -9003,8 +9304,10 @@ class BlueprintSystem {
         ctx.fillStyle = "#fff";
         ctx.font = "14px monospace";
         ctx.textAlign = "left";
-        const displayValue =
-          node.customInput || node.nodeType.customInputConfig.placeholder;
+        const placeholder =
+          node.nodeType.customInputConfig.placeholder || "";
+        const placeholderText = placeholder ? t(placeholder) : "";
+        const displayValue = node.customInput || placeholderText;
         const textX = inputBounds.x + 8;
         const textY = inputBounds.y + inputBounds.height / 2 + 5;
 
@@ -9027,7 +9330,7 @@ class BlueprintSystem {
           ctx.font = "10px sans-serif";
           ctx.textAlign = "left";
           ctx.fillText(
-            node.nodeType.customInputConfig.label,
+            t(node.nodeType.customInputConfig.label),
             inputBounds.x,
             inputBounds.y - 3
           );
@@ -9042,7 +9345,7 @@ class BlueprintSystem {
         ctx.fillStyle = "#888";
         ctx.font = "10px sans-serif";
         ctx.textAlign = "left";
-        ctx.fillText("Variable", dropdown.x, dropdown.labelY + 10);
+        ctx.fillText(t("Variable"), dropdown.x, dropdown.labelY + 10);
 
         // Dropdown background
         ctx.fillStyle = "#1a1a1a";
@@ -9060,7 +9363,7 @@ class BlueprintSystem {
         ctx.stroke();
 
         // Get display text
-        const displayText = node.selectedVariable || "(none)";
+        const displayText = node.selectedVariable || t("(none)");
 
         // Dropdown text
         ctx.fillStyle = node.selectedVariable ? "#fff" : "#888";
@@ -9208,7 +9511,7 @@ class BlueprintSystem {
         ctx.setLineDash([]);
         ctx.fillStyle = "#00ffff";
         ctx.font = `${12 / this.camera.zoom}px monospace`;
-        const label = `${node.nodeType.name} (${node.width}x${node.height})`;
+        const label = `${t(node.nodeType.name)} (${node.width}x${node.height})`;
         ctx.fillText(
           label,
           node.x + 5 / this.camera.zoom,
@@ -9499,6 +9802,8 @@ class BlueprintSystem {
 }
 
 // Initialize the system
+initLanguageSwitcher();
+
 const canvas = document.getElementById("canvas");
 const blueprint = new BlueprintSystem(canvas);
 

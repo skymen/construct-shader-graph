@@ -72,7 +72,8 @@ SetVariableNode.customInputConfig = {
       if (existingVariable) {
         return {
           valid: false,
-          error: `Variable name "${value}" is already in use`,
+          error: 'Variable name "{0}" is already in use',
+          args: [value],
         };
       }
     }

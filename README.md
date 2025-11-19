@@ -36,6 +36,13 @@ The built files will be in the `dist/` directory.
 npm run preview
 ```
 
+## Localization
+
+- The UI now supports multiple languages (English and Simplified Chinese) through the lightweight helper in `locales/i18n.js`. A language switcher sits in the toolbar and persists the preference in `localStorage`.
+- Wrap user-facing strings inside JavaScript with `t("Original text", optionalArgs...)`. Placeholders such as `{0}` are supported: `t("Level {0}", levelIndex)`.
+- Static DOM text (toolbar buttons, preview labels, etc.) is registered in `STATIC_TEXT_NODES`/`STATIC_ATTRIBUTE_NODES` inside `script.js`. Add an entry there whenever a new hard-coded string is introduced in `index.html`.
+- Translation keys are deterministic hashes of the original text. All translations now live in `locales/translations.csv`; each column (after `key`) represents a language, and the header row determines which languages are available in the UI. Update the CSV to add new languages or strings—any untranslated cell automatically falls back to the source string.
+
 ## Usage
 
 ### Creating Nodes

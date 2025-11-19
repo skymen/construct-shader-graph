@@ -1,0 +1,438 @@
+key,en-US,zh-CN
+007292e4cfd55fd6,Value must be within safe integer range,数值必须位于安全整数范围内
+00ee398250503d68,Exp,指数
+0144358fe78a1c7e,No image,无图像
+0163bc609557effd,Dest End,目标终点
+02ae06a70b4fe7e9,Log10,以 10 为底对数
+02f88b6573788731,Create Custom Node,创建自定义节点
+02f8c9d616ceda08,To Float,转换浮点
+031dd1b3faaf3a35,Condition,条件
+035f44fbbb909062,Angle,角度
+03da5d4195086b32,Exp10,10 次指数
+0401c75bf59a8482,Debug Arrange,调试排列
+046f3857ed64410b,Orthographic,正交
+04cdd2c958eabba6,New File,新建文件
+0526905a1cc14168,Author,作者
+05e9c451da52226e,Shader description...,着色器描述...
+062957eb3c84e7b3,Dest Start,目标起点
+06443792820bdd5c,Shape Texture:,形状纹理：
+06479785c40de5c7,Scalar,标量
+066da05f06b670b2,Delete,删除
+0672477bab3ed30b,layoutEnd,场景终点
+077c7f83df0dd478,Src Origin End,前景原点终点
+07cd03e0a53a5721,Drag to reorder or create node,拖动以重新排序或创建节点
+0914f376a840fcde,Uses Depth,使用深度
+09bb90cfedd8174c,dUVdx,dUVdx
+09e0c88fa4c98443,https://docs.example.com,https://docs.example.com
+0a53e390e16c2f45,Builtin,内置
+0afc6c51786e4526,Open Shader,打开着色器
+0b6424488fd9eb99,Swizzle,分量重排
+0bb55270e659a23d,Debug,调试
+0be6a9e9402454fa,Select,选择
+0d07f8a1451ea3ad,Please enter a node name,请输入节点名称
+0d8a07ebe242a18e,Seed,种子
+0e079449cb048dd6,Ceil,向上取整
+0eba10e0befaaaaf,Reload Preview,重新加载预览
+0f796c865397773f,W,W
+0f90b79cab8333d7,Copy Current,复制当前
+0ff19b446476f293,Cannot mix component sets (xyzw/rgba/stpq),不能混用分量集合（xyzw/rgba/stpq）
+10385eacdbfe2325,Load shape texture,加载形状贴图
+106ba52c921a0a0e,Corner Out,外角
+109f7a3f7444da8f,Float,浮点数
+10b17fc10a805792,Preview,预览
+11d399ab17ec717e,Clear shape texture,清除形状贴图
+121ad3a2b82a944a,Remove from recent files,从最近文件中移除
+12adbffea3b971eb,A,A
+12d0fa39aaa9afd5,Invert,反相
+13a803adf5119ca4,Animated,动画
+1465ee0da564e9b8,Int Input,整数输入
+152bdf736f3401cf,Mask,遮罩
+15e68992ead3b820,Blend Mode,混合模式
+177c09878f4b4ace,Version,版本
+17aecbef7a9ce1dc,Report an Issue on GitHub,在 GitHub 上提交问题
+17be282523a62dea,Normalized,归一化
+1841abd35d52fe12,Extend Box,扩展范围
+1845d267ef2c2e58,Pixellate,像素化
+18dced0d0c978eb3,Color A,颜色 A
+190616643b606e32,Left Shift,左移
+191b7ab62b4d5389,Debug Auto Arrange,调试自动场景
+1a5e0c4f90dd3c31,Epsilon,极小值
+1aced425a790bacf,Shader Language:,着色器版本：
+1ad5adf79322c3ae,Bits,位数
+1aefcce6b5f9a789,Category,类别
+1ba668cb06d7df5f,devicePixelRatio,设备像素比
+1c8751c659cadab8,Other,其他
+1ca0daa4b42c1b94,Vec4,Vec4
+1d093bd34c1a91dd,No nodes found,未找到节点
+1e250f6bf65fb47a,Cannot access this file. It may have been moved or deleted.,无法访问该文件，可能已被移动或删除。
+1eb6721af917c9d7,Set Bit,设置位
+1eff9ae45a12165a,Examples,示例
+1fbe18325b93a1ea,Kaleidoscope shader,万花筒着色器
+1fcf590f44a6c438,samplerBack,背景采样器
+2030e19f768b8309,My Effect,我的滤镜
+206210c529a04db5,Dependency,依赖
+2079d5679a6091aa,zFar,远裁剪面
+20a964ee6f8f7c0c,To Max,目标最大值
+20b344e963bc3eb5,Debug Auto Arrange (Step-by-Step),调试自动排列（逐步）
+211b04a56d086ae0,1.0.0.0,1.0.0.0
+21829b0ee32e7ec6,Asin,反正弦
+221af6a9c6fd585f,Clamp To Dest,限制到目标
+2253fe44ae36008e,Tau,Tau
+2272424536eaecdb,Sampling Depth,深度采样
+227666cefb2a1d2c,Vec2,Vec2
+2287eb8c3081c86e,RGB,RGB
+2306675e0f37dc4e,Power,幂
+2426fa4f0924ef5a,Bilinear,双线性
+2427c87c7b0a91b1,DDY,Y 方向导数
+24bbc82f524a7d3a,View Code,查看代码
+24fe6e10190f2666,HSL,HSL
+2581c1568339229c,V,纵向
+2610b57e2ad1f7c5,False,假
+26bf173ba011cb07,New,新建
+284edf1bcf230249,texelSize,纹素尺寸
+2983c1edd8352baa,Edge1,边界 1
+2a39b9b4e33e36a4,Reset Preview Settings,重置预览设置
+2ae600d1fdd9486f,Layer,图层
+2bf125ddd2fd9d59,Kaleidoscope,万花筒
+2c5ce3c6fa7e8836,Add description...,添加描述...
+2cf6f429c9c1d94e,Outputs,输出
+2d6ea3e5a2b53eb1,Clamp,限制范围
+2dc0126fbb3c0b61,Grayscale,灰度
+2eb6ce4cf28e2c12,Rotated,旋转结果
+2ef0e2bea22f8293,Result,结果
+2f636e521d66120b,Log2,以 2 为底对数
+303c5f71b262a3a1,Clear sprite texture,清除精灵贴图
+3046bd576374e409,Src Center,前景中心
+30b45c8be2010099,Simplex Noise,单纯形噪声
+3126a2f10b9c2baf,Src Size,前景尺寸
+31b0caa671980d00,Sqrt(2),根号 2
+31c63b4fd3d77d59,Clamped,限制值
+320d113cb10eacd2,LOD,LOD
+3232ebd129ffaeb8,Ln,自然对数
+333e5e61890b3301,Unpremultiply,反预乘
+3368862d1d3d1e21,Dest Size,目标尺寸
+338e0740cbdadf00,Boolean XOR,布尔异或
+3417a6d7b4aeed86,Object:,对象：
+34926fb2104ae4fb,No variables defined,未定义变量
+35f2c48cf5004149,Vector,向量
+35fa8073dafd1926,Distance,距离
+3674075eea238ed5,Copied!,已复制！
+3674fe948c27cc61,Docs,文档
+368c8e19b27381e8,Export Addon,导出插件
+36bb806cd5fc504a,Right Shift,右移
+36fd5750c9cd886a,layoutPixelSize,场景像素尺寸
+37260c2128210969,Atan,反正切
+3846a9255ac1d900,Floor,向下取整
+385ead2161afc747,Boolean OR,布尔或
+39a556947fe04e54,Trigonometry,三角函数
+39c232cecd5e0224,Shader Settings,着色器设置
+3aba99c5e496b470,Screenshot Preview,截图预览
+3ae8f764f3e85135,Distortion,扭曲
+3c0a9af005a02e61,Optional description,可选描述
+3c7c6a3e1faa00a7,Sampling:,采样：
+3cb28e5c00225b10,Add,添加
+3d39dea13b5edd70,Variable name cannot be a reserved keyword,变量名称不能是保留关键字
+3d8b2fc2972de04e,Bit,位
+3e442ef89177bc6f,WebGL 2,WebGL 2
+403d77b6cb579da2,Norm To Src,归一化到前景
+414f16852f92a521,Phi,φ
+429620659b6bffb5,Get Bit,获取位
+42ee8efc595350cc,Shift,移位
+43028cb22cbef1e2,Execution,执行
+444b989eafeb5b44,Hue,色相
+44873a1d694a3f20,+ Add Uniform,+ 添加 Uniform
+44c1f47383f19f8c,H,横向
+4502e5dc76d4cb76,Front Texture,前景纹理
+45a8dadb97cab141,Redo (Ctrl+Y),重做 (Ctrl+Y)
+45d784d3c408bfe6,Perlin Noise,柏林噪声
+46064d2ca424a113,zNear,近裁剪面
+466d6ba02a1f45c5,Zoom to Fit,缩放以适配
+46de4118440df806,Depth UV,深度 UV
+46f8b5d72c0d8a83,Depth,深度
+47217d16c1e30c25,Min,最小
+4789c472a27d0db3,Conversion,转换
+47ddfd52c544ffd8,Smoothstep,平滑阶梯
+481fd44044202a6a,Y,Y
+48780e8b3879dd5d,Drag to canvas to create node,拖到画布以创建节点
+48c1f24839a4559c,Search nodes...,搜索节点...
+48e1dd6f354f8b3b,Bitwise NOT,按位非
+495244432851819d,Degrees,角度
+49833f063d6eb720,Rotate Around Point,围绕点旋转
+4a3ee18661a78952,Color Decompose,颜色拆分
+4aa53a6d61231ad1,Sprite Texture:,精灵纹理：
+4af392f6e7fa44c9,WebGL 1,WebGL 1
+4c79d2c1f34d4579,Shader Test,着色器测试
+4c98cb3a29176c41,Variable,变量
+4ca2b9ef83b55a2f,Box,盒子
+4d18bf13c0d16e97,"Variable name ""{0}"" is already in use",变量名称“{0}”已被使用
+4d6b54e401c84438,Demonstrates how to sample the background texture,演示如何采样背景纹理
+4daa07c66350609e,Open File (Ctrl+O),打开文件 (Ctrl+O)
+4db0b084875623da,Blend Background,混合背景
+4f74c80d149277d0,Strength,强度
+501829a4f65cfb6b,Size,尺寸
+506d31ff6bb82402,Failed to load blueprint: {0},蓝图加载失败：{0}
+50cadc16ce8c6102,Custom Node,自定义节点
+50f567d2030d1735,View on GitHub,查看 GitHub
+523436839bfb28ee,Mix,混合
+525ad6d52f00ccc8,Zoom In,放大
+525e084a74152bf9,Mod,取模
+52674f36db44b42e,Exp2,2 次指数
+53055967b480e6cf,Hash 2→2,Hash 2→2
+544020d41324424f,Bitwise OR,按位或
+55a4f0616390a7ce,Math,运算
+55cf26b278c9299c,Utility,工具
+569c8454b1ace43e,Sprite,精灵
+575a4e81e58035d5,Tan,正切
+5792e812ca952e71,Round,四舍五入
+57ffa998ab1fefdb,Vec4 Decompose,Vec4 拆分
+588f503c3d653f98,Effect Target:,目标类型：
+5932f3cfb16c547c,E,常数 e
+59953eb18231fa6d,Voronoi Noise,沃罗诺伊噪声
+59d31d7fc6072bc6,Custom Nodes,自定义节点
+5bf516e6ce4e083e,Wrap UV,UV 环绕
+5c0c53fcc39ee0f3,Cartesian to Polar,直角坐标转极坐标
+5c81646169247df0,Preview is not ready yet,预览尚未准备好
+5db5196d2a3c152f,Out,输出
+5df78d95e0982c25,Atan2,双变量反正切
+5f96b0d6e1ba7d5e,Sin,正弦
+5fd15e5152919ac1,Dest,目标
+6109989695f031fa,Scale,缩放
+6115a1f9ac7f4e0f,CAW Shader,CAW 着色器
+6164f7d7f7188633,Saturation,饱和度
+6238a5f7f0cf2f76,Set Variable,设置变量
+625a8ee2bbf39e47,Open File,打开文件
+628cb5c6219f3255,Float Input,浮点输入
+62ba84bb53fc4897,WebGPU,WebGPU
+635121c2f697eba7,Boolean AND,布尔与
+6371c77609f1c9b6,Hash 2→1,Hash 2→1
+6397490c623c8fdb,Description,描述
+64fb4fba23d408c8,Simple example showing how to use custom nodes,展示如何使用自定义节点的简单示例
+65a4d1b0486dc24a,From Max,前景最大值
+66a08c577b2cfba0,Src Start,前景起点
+66cf45e6be374dfa,Dot,点积
+66f9044896483eba,B,B
+674edde7552704c7,Clamp To Src Origin,限制到前景原点
+6793ac6846466321,Normalize,归一化
+6796c77ccee1ea30,Color B,颜色 B
+67988a009b43f166,Sampler,采样器
+67b4b95fde1f9d72,Cross,叉积
+67dd8fa7762cbff8,Is Rotated,是否旋转
+684935f16594162f,Linear Gradient,线性渐变
+69413cd3b9850f87,No recent files,暂无最近文件
+6976039c96dfc62d,Radius,半径
+6c5ac2c28898785a,Toggle Settings,切换设置
+6c85f4130ff595f0,Open Preview,打开预览
+6d28f17c69723cbe,Value,数值
+6db0b3564f617622,Load sprite texture,加载精灵贴图
+6dd6e5711526469b,No output node found. Cannot generate shader.,未找到输出节点，无法生成着色器。
+6ee378977b9be9ee,Src Origin Start,前景原点起点
+6f17d0ab658093e0,Linear,线性
+6f24dfcb69bae1b7,Please enter a uniform name,请输入 Uniform 名称
+6f2e9e035a6b2043,Generated Shader Code,生成的着色器代码
+6f7fcf18287719f5,Name:,名称：
+6f8db6d09c1c076f,Description:,描述：
+712588bebf5c78b7,Compare,比较
+71cc74451e7c3cf0,Reset Zoom (100%),重置缩放 (100%)
+7234ddffa10ee21e,Name,名称
+75993a7e8afb9a68,Exponent,指数
+75b7e2af9b8a8c8d,Auto Arrange Nodes (Ctrl+L),自动排列节点 (Ctrl+L)
+75ba0a0b88cdfdd5,RGBA,RGBA
+7632c751b5cc8f8a,Please add at least one output,请至少添加一个输出
+7646949cccda7689,Pi,圆周率
+7656deb74d6b769e,Append Vec3,拼接 Vec3
+76e616fe1c1d72bc,pixelSize,像素尺寸
+7767a325fd8a130d,True,真
+77bf971c05c1954e,Save (Ctrl+S),保存 (Ctrl+S)
+792f669917658cce,Normal Mapping,法线映射
+793787d81a5608e8,"Version must follow X.X.X.X format (e.g., 1.0.0.0)",版本号必须遵循 X.X.X.X 格式（例如 1.0.0.0）
+7bd9dafd1a325e13,Step,阶跃
+7c23047cdcb9f4eb,Close Preview,关闭预览
+7ca8dfad27ca25ac,Bitwise AND,按位与
+7d4ec240ae4ccaca,Fract,小数部分
+7e68c0de95f35328,Value cannot be empty,数值不能为空
+81c20a85cff8f93d,Vec3 Decompose,Vec3 拆分
+8202005797e1035a,Hash 3→3,Hash 3→3
+82ad66b5e7b5567b,Save As,另存为
+82dc10e190287e08,(none),（无）
+83fe87d3f9e23612,Variable name used in shader code,着色器中使用的变量名
+8504d8d4b85ba31e,To Int,转换整数
+869914e7b79d2bb2,Color (Vec3),颜色（Vec3）
+88e454224075fc38,Layout,场景
+88eaab7ee62622d6,Gradient Fog with Variables,带变量的渐变雾
+89e3900cc76ef75d,To Radians,转换弧度
+89f0828c82de2e51,Edit,编辑
+8a8523e8f8bf6eeb,"Must be a valid integer (e.g., 0, 42, -10)",必须是有效的整数（例如 0、42、-10）
+8c2dc37a0d91d16c,Background Twirl,背景扭曲
+8d452291d72fc98f,Perspective,透视
+8d6441dcf96e637d,Blends Background,混合背景
+8d7ce3aa6bd80737,Pattern,模式
+8d8a496bf517404e,samplerFront,前景采样器
+8e29636534bd52f6,Is Deprecated,已弃用
+8e84c324524b29e4,dUVdy,dUVdy
+8f188fc71065339d,Must Predraw,必须预绘制
+905fc9bfdd93e52a,Close,关闭
+9074585eaeae7edc,Open,打开
+90ca4bfdfdbca042,Value must be a finite number,数值必须是有限数字
+925238911c3aa58c,Abs,绝对值
+930f82a85eba2092,Length,长度
+93fe4f3b3dd916e1,Z,Z
+951b16278cea7f0f,Texture Sample Grad,梯度纹理采样
+9521a63a9eddbb91,3D Shape,3D 形状
+955260b0d5ebc02c,Amount,数量
+956ce4c9ec2a7e11,Index,索引
+95a80ee5b1d0b221,Supports 3D Direct Rendering,支持 3D 直接渲染
+96c830b41b812818,layerScale,图层缩放
+97c1e46104ce1a97,Prism,棱柱
+97ea98e9885411a5,Please enter unique entries for all output names,请为所有输出提供唯一的名称
+982ed81507ef779c,Polar to Cartesian,极坐标转直角
+9897ec8e7bda4b52,Website,网站
+990cc251e9ec8bb7,Get Variable,读取变量
+9949876d345ce0fe,Posterize,色调分级
+99c2919d72aa431f,Cartesian to Spherical,直角坐标转球坐标
+9bc93d47679ce527,RGB to HSL,RGB 转 HSL
+9c010aeb058317f2,Sign,符号
+9c99b4dff2f4c123,Report Issue,反馈问题
+9d203ef48c1e2bad,Undo (Ctrl+Z),撤销 (Ctrl+Z)
+9de2a941bf48aebb,"Must be a valid float (e.g., 1.0, -2.5, 3.14e-2)",必须是有效的浮点数（例如 1.0、-2.5、3.14e-2）
+9de858f743c7ade5,Clamp To Src,限制到前景
+9e7bafe3bbd84163,Octaves,倍频层
+9ea62a67d0950c99,Radians,弧度
+9eca00659e955bdf,Src To Dest,前景到目标
+9edc66c8802888ea,Pyramid,金字塔
+9ee7272d0adc2c3e,Pattern cannot be empty,模式不能为空
+9fe3ac7411427019,T,T
+a07db4ce89880a33,Simple waving shader with a custom texture in the preview,在预览中使用自定义纹理的简单波动着色器
+a12e43c1c13c8bbb,Preserves Opaqueness,保持不透明
+a2a9ddc7870a5a25,End,终点
+a3a9dbe348f0800d,PixelSize,像素尺寸
+a40e57af46f99c69,Open or create a file to get started,打开或创建文件以开始使用
+a4aa25abc730ada6,My Uniform,我的 Uniform
+a520cff6a7d6a7c9,Base,基值
+a535e4b2ed0866ca,New File (Ctrl+N),新建文件 (Ctrl+N)
+a62631a6e04b9979,Advanced depth sampling using shader variables. Original shader by Federico Calchera,使用着色器变量进行高级深度采样，原作者 Federico Calchera
+a6a2a620316b43d5,Open Example,打开示例
+a6cf2f4c7d45895c,Src To Norm,前景归一化
+a735e18b32ef6f71,Logic,逻辑
+a8b709aa09353bfc,Constants,常量
+aa14956e82b0c892,Edge0,边界 0
+ac4dcc8c105a1f0d,Pattern cannot be longer than 4 characters,模式不能超过 4 个字符
+ac59d6cbdc76381c,Vec3,Vec3
+acf7a95a9a295b11,Tiling,平铺
+ad99406b89e5b9a6,Variable name cannot be empty,变量名称不能为空
+ae7a440df23f3cab,DDX,X 方向导数
+af934a27c2b38f4a,Draw Float,绘制浮点
+b18d2f26f5c08d2a,Center View,视图居中
+b20627d5613677c0,Cancel,取消
+b28d0567635f9887,layerAngle,图层角度
+b2e7b6e27807f09f,Start,起点
+b2eaa5297e6acf91,Texture Sample,纹理采样
+b3b3954eabceab8e,+ Create Custom Node,+ 创建自定义节点
+b41851a87b69692c,Src Origin Size,前景原点尺寸
+b55f377915526d4d,Zoom Out,缩小
+b58d302ae582083b,samplerDepth,深度采样器
+b60f078be6e248f7,ID: {0},ID：{0}
+b612e6dfa3037c3c,Scale UV,UV 缩放
+b798be758338dd4f,Failed to open file: {0},打开文件失败：{0}
+b83bd20763956b7f,Trilinear,三线性
+b85bd6d0baeafedd,Author name,作者姓名
+b864b5e60d66e1c0,Blend,混合
+b8f38794e2604078,Spherical to Cartesian,球坐标转直角
+b967449fbb6ab436,Bitwise,位运算
+ba1ba2dbaee9c029,Type:,类型：
+bb26fa98b424af50,Variable Name,变量名称
+bb46adc98846362f,HSL to RGB,HSL 转 RGB
+bd1a4f23d2b5e550,Depth Texture,深度纹理
+bfadc1567fba6e6e,Save,保存
+c01ff36f3a680598,Failed to load example: {0},示例加载失败：{0}
+c08a77bfa3626d2b,Variables,变量
+c12f36668e81307e,Vec2 Decompose,Vec2 拆分
+c50fea1ed1bc73b1,Flip,翻转
+c55f24c315ce526a,Value Noise,值噪声
+c61bae9a20ddff93,Save As (Ctrl+Shift+S),另存为 (Ctrl+Shift+S)
+c655bc1043217640,Gray,灰度
+c768cec5033138b5,Current Zoom Level,当前缩放比例
+c85094ad80c90fe2,Sqrt,平方根
+c8e69f9f0f455484,Dest Center,目标中心
+c9e4e083830b7f6d,FWidth,像素宽度导数
+cd1c77373469306f,getLayoutPos,获取场景坐标
+cd3af43a90c77195,Bool Input,布尔输入
+ceadf9b7776e0321,Max,最大
+ceaf2db69270b722,View Generated Code,查看生成的代码
+cf2d4f53e9ffca02,Export,导出插件
+cf8b5dcd9199c08a,layoutSize,场景尺寸
+cfc172c0d28db1bb,Premultiply,预乘
+cfcabd90291cc3f0,Remap,重映射
+cff6573269be5efd,Position,位置
+d0acda2541909a34,History,历史记录
+d0b6c8be84642c57,Undo,撤销
+d18bd8078a685c82,Is Percent,百分比
+d1cfa4e810b512a6,Nearest,邻近
+d2c4ab3ade43acbc,Noise,噪声
+d2f995a186a524ac,To Degrees,转换角度
+d346554c2e7ba6e2,This file no longer exists or has been moved. Removing it from recent files.,该文件不存在或已被移动，正在从最近列表中移除。
+d348f33025473714,Texture Sample LOD,LOD 纹理采样
+d39166c9ac47e785,Linearize Depth,线性化深度
+d56f032b6c393596,Depth buffer sampling techniques,深度缓冲采样技巧
+d5cb39312bc9f4c6,Cross Sampling,交叉采样
+d66be8f60f8ffe5b,Golden Ratio,黄金比例
+d6cb559b160dd261,Level {0},层级 {0}
+d6e9af84d3de0efc,Multiply Vector,向量乘法
+d7624db6a7c550fa,Edge,边缘
+d8229faa897f30df,Back Texture,背景纹理
+d8a03d1d30f82a33,Bitwise XOR,按位异或
+d8cce767128ec4e8,Src Origin Center,前景原点中心
+da0d561adbcb323d,FBM,分形布朗运动
+db9e378184d1890a,https://example.com,https://example.com
+dc24829212474776,Hash 1→1,Hash 1→1
+dd1ea2903fe04292,Color,颜色
+3f427810ef98e905,Split WebGL,区分 WebGL 版本
+4cc1915ae2261b7c,Custom Node Name,自定义节点名称
+52655fafc8e96312,Input name,输入名称
+8e13999a234aa038,Output name,输出名称
+99ff373d4c27a4a1,My Custom Node,我的自定义节点
+e02da8da26365428,Inputs,输入
+e08acc1bdc012d89,2D,2D
+e166daf40547f91d,Wedge,楔体
+e1df1ded13b642c4,Cannot request file permission at this time. This may be due to browser security policies. Please use the 'Open File' button to select the file manually.,当前无法请求文件权限，可能由于浏览器安全政策。请使用“打开文件”按钮手动选择。
+e3e934ab896a74b6,Src Origin To Norm,前景原点归一化
+e592849083a20f5d,Recent Files,最近文件
+e5e6af653d252ba8,UV,UV
+e96ac0d57624d57b,Back UV,背景 UV
+e9c0afac1d010d20,Src End,前景终点
+eae94b1ce7ee8ff2,From Min,前景最小值
+eafca9020147755d,Radial Gradient,辐射渐变
+eba0d6fa5cd50fe9,Offset,偏移
+ebdfa1b71b0e9918,layoutStart,场景起点
+ec01ae498915ed4b,Auto Arrange,自动对齐
+ecb36a2dac4081cd,Theta,θ
+ecdc5a72d43a7b7c,Norm To Src Origin,归一化到前景原点
+ed8be1c8e2918a03,Corner In,内角
+eded308352ebc3fd,Camera:,相机：
+ee3a36d2293c6f0a,Shader Info,着色器信息
+f0c2dd0a00b1a2b3,"A custom node with the name ""{0}"" already exists. Please choose a different name.",名为“{0}”的自定义节点已存在，请选择其他名称。
+f1b6b06555643ab2,Leaf Nodes (No Dependencies),叶子节点（无依赖）
+f4889f5f18003343,Basic background cross sampling distortion shader.,基础背景交叉采样扭曲着色器。
+f4ccd8667412d603,"Variable name must be a valid identifier (letters, numbers, underscore)",变量名称必须是有效标识符（字母、数字、下划线）
+f4ed4f5b1756b14e,Clear Recent Files,清空最近文件
+f50fb6edfa433ad5,Output,输出
+f558bd701107f7a5,Are you sure you want to clear all recent files?,确定要清空所有最近文件吗？
+f62928d9da7f46ce,"Pattern must use only xyzw, rgba, or stpq components (don't mix)",模式只能使用 xyzw、rgba 或 stpq 分量（不能混用）
+f63eed3865438f6a,Twirl,旋涡
+f64a608e86d29fa0,To Min,目标最小值
+f65cd2879488e425,Acos,反余弦
+f67ad6a3ac84f51c,seconds,秒
+f6f435ccfa79895c,layoutCenter,场景中心
+f7528fc35c51e5eb,Alpha,透明度
+f7cbdd62360692a0,Front UV,前景 UV
+f8d211a6d4c9ccc9,X,X
+f92a22a912e67f92,Append Vec4,拼接 Vec4
+f9682186ddb58cb2,"Please enter a valid URL (e.g., https://example.com)",请输入有效的 URL（例如 https://example.com）
+f98b4da1359b625d,"Permission denied. Please grant permission to access this file, or use 'Open File' to select it manually.",已拒绝访问。请授予访问该文件的权限，或使用“打开文件”按钮手动选择。
+fb7459137cf39e42,Cos,余弦
+fdbf77f8d30b499a,Redo,重做
+fe252d3b2b65de12,Wave With Custom Texture,自定义纹理波动
+fe3086557559503c,Boolean NOT,布尔非
+fe5f5c152e6286c6,Levels,层级数量
+ff330e9783e49b94,Texture,纹理
+ff61c573489f9c52,Add Uniform,添加 Uniform
+ff993d7f89a6f841,Center,中心
