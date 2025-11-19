@@ -20,7 +20,7 @@ export const IsRotatedNode = new NodeType(
     webgpu: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    let ${outputs[0]}: bool = bool(isSrcTexRotated);`,
+        `    let ${outputs[0]}: bool = bool(c3Params.isSrcTexRotated);`,
     },
   },
   "Builtin",
