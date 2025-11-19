@@ -13,18 +13,18 @@ export const SelectNode = new NodeType(
   {
     webgl1: {
       dependency: "",
-      execution: (inputs, outputs) =>
-        `    ${outputs[0]} = ${inputs[0]} ? ${inputs[1]} : ${inputs[2]};`,
+      execution: (inputs, outputs, node, inputTypes, outputTypes) =>
+        `    ${outputTypes[0]} ${outputs[0]} = ${inputs[0]} ? ${inputs[1]} : ${inputs[2]};`,
     },
     webgl2: {
       dependency: "",
-      execution: (inputs, outputs) =>
-        `    ${outputs[0]} = ${inputs[0]} ? ${inputs[1]} : ${inputs[2]};`,
+      execution: (inputs, outputs, node, inputTypes, outputTypes) =>
+        `    ${outputTypes[0]} ${outputs[0]} = ${inputs[0]} ? ${inputs[1]} : ${inputs[2]};`,
     },
     webgpu: {
       dependency: "",
-      execution: (inputs, outputs) =>
-        `    var ${outputs[0]} = select(${inputs[2]}, ${inputs[1]}, ${inputs[0]});`,
+      execution: (inputs, outputs, node, inputTypes, outputTypes) =>
+        `    var ${outputs[0]}: ${outputTypes[0]} = select(${inputs[2]}, ${inputs[1]}, ${inputs[0]});`,
     },
   },
   "Logic",
