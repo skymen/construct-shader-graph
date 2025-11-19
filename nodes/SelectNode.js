@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
 
 export const SelectNode = new NodeType(
   "Select",
@@ -24,7 +24,9 @@ export const SelectNode = new NodeType(
     webgpu: {
       dependency: "",
       execution: (inputs, outputs, node, inputTypes, outputTypes) =>
-        `    var ${outputs[0]}: ${outputTypes[0]} = select(${inputs[2]}, ${inputs[1]}, ${inputs[0]});`,
+        `    var ${outputs[0]}: ${toWGSLType(outputTypes[0])} = select(${
+          inputs[2]
+        }, ${inputs[1]}, ${inputs[0]});`,
     },
   },
   "Logic",
