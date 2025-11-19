@@ -138,7 +138,7 @@ export const PORT_TYPES = {
     includes: [
       "float",
       "int",
-      "boolean",
+      "bool",
       "vec2",
       "vec3",
       "vec4",
@@ -176,14 +176,14 @@ export const PORT_TYPES = {
     name: "genBType",
     editable: false,
     isGeneric: true,
-    allowedTypes: ["boolean" /* "bvec2", "bvec3", "bvec4" */],
+    allowedTypes: ["bool" /* "bvec2", "bvec3", "bvec4" */],
   },
   T: {
     color: "#c084fc",
     name: "T",
     editable: false,
     isGeneric: true,
-    allowedTypes: ["float", "int", "boolean", "vec2", "vec3", "vec4", "color"],
+    allowedTypes: ["float", "int", "bool", "vec2", "vec3", "vec4", "color"],
   },
   genType2Plus: {
     color: "#c084fc",
@@ -232,7 +232,7 @@ export function toWGSLType(type) {
       return "f32";
     case "int":
       return "i32";
-    case "boolean":
+    case "bool":
       return "bool";
     case "vec2":
       return "vec2<f32>";
