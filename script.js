@@ -8444,6 +8444,21 @@ class BlueprintSystem {
     });
   }
 
+  validateTypedValue(value, type) {
+    if (type === "float" || type === "int") {
+      return typeof value === "number" ? value : 0;
+    } else if (type === "vec2") {
+      return Array.isArray(value) && value.length === 2 ? value : [0, 0];
+    } else if (type === "vec3") {
+      return Array.isArray(value) && value.length === 3 ? value : [0, 0, 0];
+    } else if (type === "vec4") {
+      return Array.isArray(value) && value.length === 4 ? value : [0, 0, 0, 0];
+    } else if (type === "bool") {
+      return typeof value === "boolean" ? value : false;
+    }
+    return value;
+  }
+
   drawPort(port) {
     const ctx = this.ctx;
     const pos = port.getPosition();
@@ -8480,12 +8495,18 @@ class BlueprintSystem {
         const bounds = port.getValueBoxBounds(ctx);
         const resolvedType = port.getResolvedType();
         let valueStr;
-
+        const validatedValue = this.validateTypedValue(
+          port.value,
+          resolvedType
+        );
         if (resolvedType === "float") {
-          valueStr = port.value.toFixed(2);
+          valueStr = validatedValue.toFixed(2);
         } else if (resolvedType === "vec2") {
           // Show vec2 as two boxes side by side
-          const values = [port.value[0].toFixed(1), port.value[1].toFixed(1)];
+          const values = [
+            validatedValue[0].toFixed(1),
+            validatedValue[1].toFixed(1),
+          ];
           const boxWidth = 35;
           const boxHeight = 20;
           const gap = 1;
@@ -8513,13 +8534,13 @@ class BlueprintSystem {
           valueStr = null; // Already drawn
         } else if (resolvedType === "vec3") {
           // Check if all values are in 0-1 range
-          const inRange = port.value.every((v) => v >= 0 && v <= 1);
+          const inRange = validatedValue.every((v) => v >= 0 && v <= 1);
 
           if (inRange) {
             // Show as color swatch
-            const r = Math.round(port.value[0] * 255);
-            const g = Math.round(port.value[1] * 255);
-            const b = Math.round(port.value[2] * 255);
+            const r = Math.round(validatedValue[0] * 255);
+            const g = Math.round(validatedValue[1] * 255);
+            const b = Math.round(validatedValue[2] * 255);
 
             // Draw color swatch
             ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
@@ -8535,9 +8556,9 @@ class BlueprintSystem {
           } else {
             // Show raw values as 2x2 grid (3 values: top-left, top-right, bottom-left)
             const values = [
-              port.value[0].toFixed(1),
-              port.value[1].toFixed(1),
-              port.value[2].toFixed(1),
+              validatedValue[0].toFixed(1),
+              validatedValue[1].toFixed(1),
+              validatedValue[2].toFixed(1),
             ];
             const boxWidth = 35;
             const boxHeight = 20;
@@ -8593,14 +8614,14 @@ class BlueprintSystem {
           }
         } else if (resolvedType === "vec4") {
           // Check if all values are in 0-1 range
-          const inRange = port.value.every((v) => v >= 0 && v <= 1);
+          const inRange = validatedValue.every((v) => v >= 0 && v <= 1);
 
           if (inRange) {
             // Show as color swatch with alpha
-            const r = Math.round(port.value[0] * 255);
-            const g = Math.round(port.value[1] * 255);
-            const b = Math.round(port.value[2] * 255);
-            const a = port.value[3];
+            const r = Math.round(validatedValue[0] * 255);
+            const g = Math.round(validatedValue[1] * 255);
+            const b = Math.round(validatedValue[2] * 255);
+            const a = validatedValue[3];
 
             // Draw checkerboard pattern for transparency
             const checkSize = 4;
@@ -8631,10 +8652,10 @@ class BlueprintSystem {
           } else {
             // Show raw values as 2x2 grid
             const values = [
-              port.value[0].toFixed(1),
-              port.value[1].toFixed(1),
-              port.value[2].toFixed(1),
-              port.value[3].toFixed(1),
+              validatedValue[0].toFixed(1),
+              validatedValue[1].toFixed(1),
+              validatedValue[2].toFixed(1),
+              validatedValue[3].toFixed(1),
             ];
             const boxWidth = 35;
             const boxHeight = 20;
@@ -8671,7 +8692,7 @@ class BlueprintSystem {
             valueStr = null; // Already drawn
           }
         } else {
-          valueStr = port.value.toString();
+          valueStr = validatedValue.toString();
         }
 
         // Draw value box background and text for non-color types (float, int, boolean)
