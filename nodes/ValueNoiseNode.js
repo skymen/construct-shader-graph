@@ -2,7 +2,11 @@ import { NodeType } from "./NodeType.js";
 
 export const ValueNoiseNode = new NodeType(
   "Value Noise",
-  [{ name: "UV", type: "vec2" }],
+  [
+    { name: "UV", type: "vec2" },
+    { name: "Scale", type: "float" },
+    { name: "Offset", type: "vec2" },
+  ],
   [{ name: "Result", type: "float" }],
   "#4a3a5a",
   {
@@ -27,7 +31,7 @@ float valueNoise(vec2 p) {
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }`,
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = valueNoise(${inputs[0]});`,
+        `    float ${outputs[0]} = valueNoise((${inputs[0]} + ${inputs[2]}) * ${inputs[1]});`,
     },
     webgl2: {
       dependency: `float hash(vec2 p) {
@@ -50,7 +54,7 @@ float valueNoise(vec2 p) {
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }`,
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = valueNoise(${inputs[0]});`,
+        `    float ${outputs[0]} = valueNoise((${inputs[0]} + ${inputs[2]}) * ${inputs[1]});`,
     },
     webgpu: {
       dependency: `fn hash_vn(p: vec2<f32>) -> f32 {
@@ -73,7 +77,7 @@ fn valueNoise(p: vec2<f32>) -> f32 {
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }`,
       execution: (inputs, outputs) =>
-        `    var ${outputs[0]}: f32 = valueNoise(${inputs[0]});`,
+        `    var ${outputs[0]}: f32 = valueNoise((${inputs[0]} + ${inputs[2]}) * ${inputs[1]});`,
     },
   },
   "Noise",

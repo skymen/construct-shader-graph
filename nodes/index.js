@@ -60,6 +60,10 @@ import { ValueNoiseNode } from "./ValueNoiseNode.js";
 import { PerlinNoiseNode } from "./PerlinNoiseNode.js";
 import { SimplexNoiseNode } from "./SimplexNoiseNode.js";
 import { VoronoiNoiseNode } from "./VoronoiNoiseNode.js";
+import { ValueNoise3DNode } from "./ValueNoise3DNode.js";
+import { PerlinNoise3DNode } from "./PerlinNoise3DNode.js";
+import { SimplexNoise3DNode } from "./SimplexNoise3DNode.js";
+import { VoronoiNoise3DNode } from "./VoronoiNoise3DNode.js";
 import { FBMNode } from "./FBMNode.js";
 import { Vec2Node } from "./Vec2Node.js";
 import { Vec3Node } from "./Vec3Node.js";
@@ -240,6 +244,10 @@ export const NODE_TYPES = {
   perlinNoise: PerlinNoiseNode,
   simplexNoise: SimplexNoiseNode,
   voronoiNoise: VoronoiNoiseNode,
+  valueNoise3D: ValueNoise3DNode,
+  perlinNoise3D: PerlinNoise3DNode,
+  simplexNoise3D: SimplexNoise3DNode,
+  voronoiNoise3D: VoronoiNoise3DNode,
   fbm: FBMNode,
   vec2: Vec2Node,
   vec3: Vec3Node,

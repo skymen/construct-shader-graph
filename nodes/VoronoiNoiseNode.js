@@ -2,7 +2,11 @@ import { NodeType } from "./NodeType.js";
 
 export const VoronoiNoiseNode = new NodeType(
   "Voronoi Noise",
-  [{ name: "UV", type: "vec2" }],
+  [
+    { name: "UV", type: "vec2" },
+    { name: "Scale", type: "float" },
+    { name: "Offset", type: "vec2" },
+  ],
   [{ name: "Result", type: "float" }],
   "#4a3a5a",
   {
@@ -31,7 +35,7 @@ float voronoiNoise(vec2 x) {
     return sqrt(minDist);
 }`,
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = voronoiNoise(${inputs[0]});`,
+        `    float ${outputs[0]} = voronoiNoise((${inputs[0]} + ${inputs[2]}) * ${inputs[1]});`,
     },
     webgl2: {
       dependency: `vec2 hash2_vor(vec2 p) {
@@ -58,7 +62,7 @@ float voronoiNoise(vec2 x) {
     return sqrt(minDist);
 }`,
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = voronoiNoise(${inputs[0]});`,
+        `    float ${outputs[0]} = voronoiNoise((${inputs[0]} + ${inputs[2]}) * ${inputs[1]});`,
     },
     webgpu: {
       dependency: `fn hash2_vor(p: vec2<f32>) -> vec2<f32> {
@@ -85,7 +89,7 @@ fn voronoiNoise(x: vec2<f32>) -> f32 {
     return sqrt(minDist);
 }`,
       execution: (inputs, outputs) =>
-        `    var ${outputs[0]}: f32 = voronoiNoise(${inputs[0]});`,
+        `    var ${outputs[0]}: f32 = voronoiNoise((${inputs[0]} + ${inputs[2]}) * ${inputs[1]});`,
     },
   },
   "Noise",

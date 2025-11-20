@@ -2284,6 +2284,12 @@ class BlueprintSystem {
         name: "Kaleidoscope",
         description: "Kaleidoscope shader",
       },
+      {
+        file: "card glimmer.c3sg",
+        name: "Card Glimmer",
+        description:
+          "Card glimmer reflection shader, made for a 3D card effect",
+      },
     ];
 
     // Clear grid

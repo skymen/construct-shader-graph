@@ -2,7 +2,11 @@ import { NodeType } from "./NodeType.js";
 
 export const SimplexNoiseNode = new NodeType(
   "Simplex Noise",
-  [{ name: "UV", type: "vec2" }],
+  [
+    { name: "UV", type: "vec2" },
+    { name: "Scale", type: "float" },
+    { name: "Offset", type: "vec2" },
+  ],
   [{ name: "Result", type: "float" }],
   "#4a3a5a",
   {
@@ -43,7 +47,7 @@ float simplexNoise(vec2 v) {
     return 130.0 * dot(m, g);
 }`,
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = simplexNoise(${inputs[0]}) * 0.5 + 0.5;`,
+        `    float ${outputs[0]} = simplexNoise((${inputs[0]} + ${inputs[2]}) * ${inputs[1]}) * 0.5 + 0.5;`,
     },
     webgl2: {
       dependency: `vec3 mod289_sn(vec3 x) {
@@ -82,7 +86,7 @@ float simplexNoise(vec2 v) {
     return 130.0 * dot(m, g);
 }`,
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = simplexNoise(${inputs[0]}) * 0.5 + 0.5;`,
+        `    float ${outputs[0]} = simplexNoise((${inputs[0]} + ${inputs[2]}) * ${inputs[1]}) * 0.5 + 0.5;`,
     },
     webgpu: {
       dependency: `fn mod289_sn_v3(x: vec3<f32>) -> vec3<f32> {
@@ -126,7 +130,7 @@ fn simplexNoise(v: vec2<f32>) -> f32 {
     return 130.0 * dot(m, g);
 }`,
       execution: (inputs, outputs) =>
-        `    var ${outputs[0]}: f32 = simplexNoise(${inputs[0]}) * 0.5 + 0.5;`,
+        `    var ${outputs[0]}: f32 = simplexNoise((${inputs[0]} + ${inputs[2]}) * ${inputs[1]}) * 0.5 + 0.5;`,
     },
   },
   "Noise",
