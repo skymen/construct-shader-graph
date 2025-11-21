@@ -2294,6 +2294,11 @@ class BlueprintSystem {
         description:
           "Card glimmer reflection shader, made for a 3D card effect",
       },
+      {
+        file: "colored noise highlight.c3sg",
+        name: "Colored Noise Highlight",
+        description: "Colored highlight using a 3D perlin noise",
+      },
     ];
 
     // Clear grid
