@@ -2252,20 +2252,9 @@ class BlueprintSystem {
     // Define examples with metadata
     const examples = [
       {
-        file: "blend background.c3sg",
-        name: "Blend Background",
-        description: "Demonstrates how to sample the background texture",
-      },
-      {
-        file: "wave custom texture.c3sg",
-        name: "Wave With Custom Texture",
-        description:
-          "Simple waving shader with a custom texture in the preview",
-      },
-      {
-        file: "custom node.c3sg",
-        name: "Custom Node",
-        description: "Simple example showing how to use custom nodes",
+        file: "bulge.c3sg",
+        name: "Bulge",
+        description: "Simple background blending bulge shader",
       },
       {
         file: "depth sample with vars.c3sg",
@@ -2298,6 +2287,22 @@ class BlueprintSystem {
         file: "colored noise highlight.c3sg",
         name: "Colored Noise Highlight",
         description: "Colored highlight using a 3D perlin noise",
+      },
+      {
+        file: "blend background.c3sg",
+        name: "Blend Background",
+        description: "Demonstrates how to sample the background texture",
+      },
+      {
+        file: "wave custom texture.c3sg",
+        name: "Wave With Custom Texture",
+        description:
+          "Simple waving shader with a custom texture in the preview",
+      },
+      {
+        file: "custom node.c3sg",
+        name: "Custom Node",
+        description: "Simple example showing how to use custom nodes",
       },
     ];
 

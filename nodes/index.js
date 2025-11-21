@@ -72,6 +72,7 @@ import { Vec2DecomposeNode } from "./Vec2DecomposeNode.js";
 import { Vec3DecomposeNode } from "./Vec3DecomposeNode.js";
 import { Vec4DecomposeNode } from "./Vec4DecomposeNode.js";
 import { ColorDecomposeNode } from "./ColorDecomposeNode.js";
+import { SetVec4AlphaNode } from "./SetVec4AlphaNode.js";
 import { LinearGradientNode } from "./LinearGradientNode.js";
 import { RadialGradientNode } from "./RadialGradientNode.js";
 import { TextureFrontNode } from "./TextureFrontNode.js";
@@ -91,6 +92,7 @@ import { WrapUVNode } from "./WrapUVNode.js";
 import { ScaleUVNode } from "./ScaleUVNode.js";
 import { TilingNode } from "./TilingNode.js";
 import { TwirlNode } from "./TwirlNode.js";
+import { BulgeNode } from "./BulgeNode.js";
 import { FlipNode } from "./FlipNode.js";
 import { RemapNode } from "./RemapNode.js";
 import { DDXNode } from "./DDXNode.js";
@@ -256,6 +258,7 @@ export const NODE_TYPES = {
   vec3Decompose: Vec3DecomposeNode,
   vec4Decompose: Vec4DecomposeNode,
   colorDecompose: ColorDecomposeNode,
+  setVec4Alpha: SetVec4AlphaNode,
   linearGradient: LinearGradientNode,
   radialGradient: RadialGradientNode,
   textureFront: TextureFrontNode,
@@ -275,6 +278,7 @@ export const NODE_TYPES = {
   scaleUV: ScaleUVNode,
   tiling: TilingNode,
   twirl: TwirlNode,
+  bulge: BulgeNode,
   flip: FlipNode,
   remap: RemapNode,
   ddx: DDXNode,
