@@ -843,6 +843,10 @@ class BlueprintSystem {
     this.previewReady = false;
     this.previewNeedsUpdate = true;
 
+    // Preview node mode
+    this.previewNode = null;
+    this.previewAnimationTime = 0;
+
     // Preview settings (not part of undo/redo)
     this.previewSettings = {
       effectTarget: "sprite",
@@ -5249,6 +5253,13 @@ class BlueprintSystem {
     this.selectedRerouteNodes.forEach((rn) => (rn.isSelected = false));
     this.selectedNodes.clear();
     this.selectedRerouteNodes.clear();
+
+    // Disable preview mode when selection is cleared
+    if (this.previewNode) {
+      this.previewNode = null;
+      this.previewNeedsUpdate = true;
+      this.updatePreview();
+    }
   }
 
   selectNode(node, addToSelection = false) {
@@ -5257,11 +5268,25 @@ class BlueprintSystem {
     }
     node.isSelected = true;
     this.selectedNodes.add(node);
+
+    // Check if preview mode should be disabled (more than one node selected)
+    if (this.previewNode && this.selectedNodes.size > 1) {
+      this.previewNode = null;
+      this.previewNeedsUpdate = true;
+      this.updatePreview();
+    }
   }
 
   deselectNode(node) {
     node.isSelected = false;
     this.selectedNodes.delete(node);
+
+    // Disable preview mode if the preview node was deselected
+    if (this.previewNode === node) {
+      this.previewNode = null;
+      this.previewNeedsUpdate = true;
+      this.updatePreview();
+    }
   }
 
   selectRerouteNode(rerouteNode, addToSelection = false) {
@@ -5278,6 +5303,10 @@ class BlueprintSystem {
   }
 
   deleteSelected() {
+    // Check if preview node is being deleted
+    const deletingPreviewNode =
+      this.previewNode && this.selectedNodes.has(this.previewNode);
+
     // Delete selected nodes and their wires (except output node)
     this.selectedNodes.forEach((node) => {
       // Don't delete the output node
@@ -5304,12 +5333,64 @@ class BlueprintSystem {
       rerouteNode.wire.removeRerouteNode(rerouteNode);
     });
 
+    // Clear preview node if it was deleted
+    if (deletingPreviewNode) {
+      this.previewNode = null;
+      this.previewNeedsUpdate = true;
+      this.updatePreview();
+    }
+
     this.clearSelection();
     this.render();
     this.updateDependencyList();
 
     // Push state for undo/redo
     this.history.pushState("Delete nodes");
+  }
+
+  togglePreviewNode() {
+    // If more than one node or no nodes selected, disable preview mode
+    if (this.selectedNodes.size !== 1) {
+      if (this.previewNode) {
+        this.previewNode = null;
+        this.previewNeedsUpdate = true;
+        this.updatePreview();
+        this.render();
+      }
+      return;
+    }
+
+    const selectedNode = Array.from(this.selectedNodes)[0];
+
+    // Check if the node has a valid output type for preview
+    const validTypes = ["float", "vec2", "vec3", "vec4"];
+    let hasValidOutput = false;
+
+    for (const port of selectedNode.outputPorts) {
+      const resolvedType = port.getResolvedType();
+      if (validTypes.includes(resolvedType)) {
+        hasValidOutput = true;
+        break;
+      }
+    }
+
+    if (!hasValidOutput) {
+      console.log(
+        "Selected node does not have a valid output type for preview (float, vec2, vec3, vec4)"
+      );
+      return;
+    }
+
+    // Toggle preview mode
+    if (this.previewNode === selectedNode) {
+      this.previewNode = null;
+    } else {
+      this.previewNode = selectedNode;
+    }
+
+    this.previewNeedsUpdate = true;
+    this.updatePreview();
+    this.render();
   }
 
   autoArrange() {
@@ -5682,6 +5763,11 @@ class BlueprintSystem {
     else if ((e.ctrlKey || e.metaKey) && e.key === "l") {
       e.preventDefault();
       this.autoArrange();
+    }
+    // L: Toggle Preview Node
+    else if (e.key === "l" || e.key === "L") {
+      e.preventDefault();
+      this.togglePreviewNode();
     } else if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
       this.deleteSelected();
@@ -5735,11 +5821,15 @@ class BlueprintSystem {
       return null;
     }
 
+    // Determine the target node for the graph
+    // If preview mode is active, use the preview node, otherwise use output node
+    const targetNode = this.previewNode || outputNode;
+
     // Build a graph of dependencies using BFS
     const visited = new Set();
     const dependencies = new Map(); // node -> Set of nodes it depends on
-    const queue = [outputNode];
-    visited.add(outputNode);
+    const queue = [targetNode];
+    visited.add(targetNode);
 
     while (queue.length > 0) {
       const node = queue.shift();
@@ -5781,7 +5871,12 @@ class BlueprintSystem {
       dependencies.set(node, nodeDeps);
     }
 
-    return { outputNode, dependencies, connectedNodes: visited };
+    return {
+      outputNode: targetNode,
+      dependencies,
+      connectedNodes: visited,
+      isPreviewMode: !!this.previewNode,
+    };
   }
 
   topologicalSort(dependencies, connectedNodes) {
@@ -6152,6 +6247,69 @@ class BlueprintSystem {
             outputTypes
           );
           shader += code + "\n";
+        }
+      }
+    }
+
+    // If in preview mode, add conversion code to convert preview node output to vec4
+    if (this.previewNode) {
+      // Find the first valid output port from the preview node
+      const validTypes = ["float", "vec2", "vec3", "vec4"];
+      let previewPort = null;
+      let previewType = null;
+
+      for (const port of this.previewNode.outputPorts) {
+        const resolvedType = port.getResolvedType();
+        if (validTypes.includes(resolvedType)) {
+          previewPort = port;
+          previewType = resolvedType;
+          break;
+        }
+      }
+
+      if (previewPort && previewType) {
+        const previewVarName = portToVarName.get(previewPort);
+
+        // Determine the correct output variable name based on target
+        let outputVarName;
+        if (isWebGPU) {
+          outputVarName = "output.color";
+        } else if (target === "webgl2") {
+          outputVarName = "outColor";
+        } else {
+          outputVarName = "gl_FragColor";
+        }
+
+        // Convert the preview value to vec4
+        if (previewType === "float") {
+          // float -> vec4(float, float, float, 1.0)
+          if (isWebGPU) {
+            shader += `    ${outputVarName} = vec4<f32>(${previewVarName}, ${previewVarName}, ${previewVarName}, 1.0);\n`;
+          } else {
+            shader += `    ${outputVarName} = vec4(${previewVarName}, ${previewVarName}, ${previewVarName}, 1.0);\n`;
+          }
+        } else if (previewType === "vec2") {
+          // vec2 -> vec4(vec2, 0.0, 1.0)
+          if (isWebGPU) {
+            shader += `    ${outputVarName} = vec4<f32>(${previewVarName}, 0.0, 1.0);\n`;
+          } else {
+            shader += `    ${outputVarName} = vec4(${previewVarName}, 0.0, 1.0);\n`;
+          }
+        } else if (previewType === "vec3") {
+          // vec3 -> vec4(vec3, 1.0)
+          if (isWebGPU) {
+            shader += `    ${outputVarName} = vec4<f32>(${previewVarName}, 1.0);\n`;
+          } else {
+            shader += `    ${outputVarName} = vec4(${previewVarName}, 1.0);\n`;
+          }
+        } else if (previewType === "vec4") {
+          // vec4 -> vec4 (direct assignment)
+          shader += `    ${outputVarName} = ${previewVarName};\n`;
+        }
+
+        // For WebGPU, add the return statement
+        if (isWebGPU) {
+          shader += `    return output;\n`;
         }
       }
     }
@@ -9126,6 +9284,51 @@ class BlueprintSystem {
       node.inputPorts.forEach((port) => this.drawPort(port));
       node.outputPorts.forEach((port) => this.drawPort(port));
     }
+
+    // Draw preview node highlight (animated dotted outline)
+    if (this.previewNode === node) {
+      ctx.save();
+
+      // Set up animated dotted line
+      const dashLength = 15;
+      const gapLength = 10;
+      const animationSpeed = 0.1; // pixels per frame
+      const offset =
+        (this.previewAnimationTime * animationSpeed) % (dashLength + gapLength);
+
+      ctx.setLineDash([dashLength, gapLength]);
+      ctx.lineDashOffset = -offset;
+
+      // Draw outline with glow effect
+      ctx.strokeStyle = "#00ff88";
+      ctx.lineWidth = 3;
+
+      // Add glow
+      ctx.shadowColor = "#00ff88";
+      ctx.shadowBlur = 10;
+
+      ctx.beginPath();
+      if (node.isVariable) {
+        ctx.roundRect(
+          node.x - 5,
+          node.y - 5,
+          node.width + 10,
+          node.height + 10,
+          node.height / 2
+        );
+      } else {
+        ctx.roundRect(
+          node.x - 5,
+          node.y - 5,
+          node.width + 10,
+          node.height + 10,
+          8
+        );
+      }
+      ctx.stroke();
+
+      ctx.restore();
+    }
   }
 
   adjustBrightness(color, amount) {
@@ -9155,6 +9358,12 @@ class BlueprintSystem {
 
   render() {
     const ctx = this.ctx;
+
+    // Update animation time for preview node outline
+    if (this.previewNode) {
+      this.previewAnimationTime = Date.now();
+      requestAnimationFrame(this.render.bind(this));
+    }
 
     // Clear canvas
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
