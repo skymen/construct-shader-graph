@@ -887,7 +887,7 @@ class BlueprintSystem {
     this.updateUndoRedoButtons();
 
     // Initialize UI text with current language
-    this.updateUIText();
+    // this.updateUIText();
 
     // Setup language change listener
     languageManager.onLanguageChange(() => {
@@ -925,7 +925,7 @@ class BlueprintSystem {
     this.searchInput.placeholder = languageManager.getUIText("Search nodes...");
 
     // Update all HTML UI text elements
-    this.updateUIText();
+    // this.updateUIText();
 
     // Re-render the canvas
     this.render();
@@ -981,7 +981,8 @@ class BlueprintSystem {
       const labels = document.querySelectorAll(selector);
       labels.forEach((label) => {
         const text = label.childNodes[0];
-        if (text && text.nodeType === Node.TEXT_NODE) {
+        debugger;
+        if (text) {
           text.textContent = t(textKey);
         }
       });
@@ -1296,7 +1297,7 @@ class BlueprintSystem {
     );
     if (uniformNameLabel) {
       const text = uniformNameLabel.childNodes[0];
-      if (text && text.nodeType === Node.TEXT_NODE) {
+      if (text) {
         text.textContent = t("Name:") + " ";
       }
     }
@@ -1309,7 +1310,7 @@ class BlueprintSystem {
     );
     if (uniformDescLabel) {
       const text = uniformDescLabel.childNodes[0];
-      if (text && text.nodeType === Node.TEXT_NODE) {
+      if (text) {
         text.textContent = t("Description:") + " ";
       }
     }
@@ -1325,7 +1326,7 @@ class BlueprintSystem {
     );
     if (uniformTypeLabel) {
       const text = uniformTypeLabel.childNodes[0];
-      if (text && text.nodeType === Node.TEXT_NODE) {
+      if (text) {
         text.textContent = t("Type:") + " ";
       }
     }
