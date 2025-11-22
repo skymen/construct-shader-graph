@@ -886,6 +886,9 @@ class BlueprintSystem {
     this.render();
     this.updateUndoRedoButtons();
 
+    // Initialize UI text with current language
+    this.updateUIText();
+
     // Setup language change listener
     languageManager.onLanguageChange(() => {
       this.onLanguageChanged();
@@ -921,8 +924,486 @@ class BlueprintSystem {
     // Update search input placeholder
     this.searchInput.placeholder = languageManager.getUIText("Search nodes...");
 
+    // Update all HTML UI text elements
+    this.updateUIText();
+
     // Re-render the canvas
     this.render();
+  }
+
+  // Update all HTML text elements with translations
+  updateUIText() {
+    const t = (key) => languageManager.getUIText(key);
+
+    // Toolbar buttons
+    const updateButton = (id, textKey, titleKey) => {
+      const btn = document.getElementById(id);
+      if (btn) {
+        const span = btn.querySelector("span");
+        if (span) span.textContent = t(textKey);
+        if (titleKey) btn.title = t(titleKey);
+      }
+    };
+
+    updateButton("newBtn", "New", "New File (Ctrl+N)");
+    updateButton("loadBtn", "Open", "Open File (Ctrl+O)");
+    updateButton("examplesBtn", "Examples", "Open Example");
+    updateButton("saveBtn", "Save", "Save (Ctrl+S)");
+    updateButton("saveAsBtn", "Save As", "Save As (Ctrl+Shift+S)");
+    updateButton("undoBtn", "Undo", "Undo (Ctrl+Z)");
+    updateButton("redoBtn", "Redo", "Redo (Ctrl+Y)");
+    updateButton(
+      "autoArrangeBtn",
+      "Auto Arrange",
+      "Auto Arrange Nodes (Ctrl+L)"
+    );
+    updateButton("viewCodeBtn", "View Code", "View Generated Code");
+    updateButton("exportBtn", "Export", "Export Addon");
+    updateButton("reportIssueBtn", "Report Issue", "Report an Issue on GitHub");
+
+    // Preview header
+    const previewHeader = document.querySelector("#preview-header span");
+    if (previewHeader) previewHeader.textContent = t("Preview");
+
+    // Preview buttons
+    const updatePreviewButton = (id, titleKey) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.title = t(titleKey);
+    };
+
+    updatePreviewButton("togglePreviewSettingsBtn", "Toggle Settings");
+    updatePreviewButton("reloadPreviewBtn", "Reload Preview");
+    updatePreviewButton("screenshotPreviewBtn", "Screenshot Preview");
+    updatePreviewButton("closePreviewBtn", "Close Preview");
+
+    // Preview controls labels
+    const updateLabel = (selector, textKey) => {
+      const labels = document.querySelectorAll(selector);
+      labels.forEach((label) => {
+        const text = label.childNodes[0];
+        if (text && text.nodeType === Node.TEXT_NODE) {
+          text.textContent = t(textKey);
+        }
+      });
+    };
+
+    updateLabel(
+      "#preview-controls .preview-control-group label[for='effectTargetSelect'], .preview-control-group:has(#effectTargetSelect) > label",
+      "Effect Target:"
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#objectSelect) > label",
+      "Object:"
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#cameraModeSelect) > label",
+      "Camera:"
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#autoRotateCheckbox) label",
+      "Auto Rotate"
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#samplingModeSelect) > label",
+      "Sampling:"
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#shaderLanguageSelect) > label",
+      "Shader Language:"
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#spriteTextureInput) > label",
+      "Sprite Texture:"
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#shapeTextureInput) > label",
+      "Shape Texture:"
+    );
+
+    // Preview select options
+    const effectTargetSelect = document.getElementById("effectTargetSelect");
+    if (effectTargetSelect) {
+      effectTargetSelect.options[0].text = t("Sprite");
+      effectTargetSelect.options[1].text = t("3D Shape");
+      effectTargetSelect.options[2].text = t("Layout");
+      effectTargetSelect.options[3].text = t("Layer");
+    }
+
+    const objectSelect = document.getElementById("objectSelect");
+    if (objectSelect) {
+      objectSelect.options[0].text = t("Sprite");
+      objectSelect.options[1].text = t("Box");
+      objectSelect.options[2].text = t("Prism");
+      objectSelect.options[3].text = t("Wedge");
+      objectSelect.options[4].text = t("Pyramid");
+      objectSelect.options[5].text = t("Corner Out");
+      objectSelect.options[6].text = t("Corner In");
+    }
+
+    const cameraModeSelect = document.getElementById("cameraModeSelect");
+    if (cameraModeSelect) {
+      cameraModeSelect.options[0].text = t("2D");
+      cameraModeSelect.options[1].text = t("Perspective");
+      cameraModeSelect.options[2].text = t("Orthographic");
+    }
+
+    const samplingModeSelect = document.getElementById("samplingModeSelect");
+    if (samplingModeSelect) {
+      samplingModeSelect.options[0].text = t("Trilinear");
+      samplingModeSelect.options[1].text = t("Bilinear");
+      samplingModeSelect.options[2].text = t("Nearest");
+    }
+
+    const shaderLanguageSelect = document.getElementById(
+      "shaderLanguageSelect"
+    );
+    if (shaderLanguageSelect) {
+      shaderLanguageSelect.options[0].text = t("WebGPU");
+      shaderLanguageSelect.options[1].text = t("WebGL 2");
+      shaderLanguageSelect.options[2].text = t("WebGL 1");
+    }
+
+    // Preview buttons with titles
+    const spriteTextureBtn = document.getElementById("spriteTextureBtn");
+    if (spriteTextureBtn) spriteTextureBtn.title = t("Load sprite texture");
+
+    const clearSpriteTextureBtn = document.getElementById(
+      "clearSpriteTextureBtn"
+    );
+    if (clearSpriteTextureBtn)
+      clearSpriteTextureBtn.title = t("Clear sprite texture");
+
+    const shapeTextureBtn = document.getElementById("shapeTextureBtn");
+    if (shapeTextureBtn) shapeTextureBtn.title = t("Load shape texture");
+
+    const clearShapeTextureBtn = document.getElementById(
+      "clearShapeTextureBtn"
+    );
+    if (clearShapeTextureBtn)
+      clearShapeTextureBtn.title = t("Clear shape texture");
+
+    const resetPreviewSettingsBtn = document.getElementById(
+      "resetPreviewSettingsBtn"
+    );
+    if (resetPreviewSettingsBtn)
+      resetPreviewSettingsBtn.textContent = t("Reset Preview Settings");
+
+    // Texture preview "No image" text
+    const updateTexturePreview = (id) => {
+      const preview = document.getElementById(id);
+      if (preview) {
+        const span = preview.querySelector("span");
+        if (span) span.textContent = t("No image");
+      }
+    };
+
+    updateTexturePreview("spriteTexturePreview");
+    updateTexturePreview("shapeTexturePreview");
+
+    // Sidebar sections
+    const shaderInfoHeaders = document.querySelectorAll(
+      "#shader-settings-section .sidebar-section-header h2"
+    );
+    if (shaderInfoHeaders[0])
+      shaderInfoHeaders[0].textContent = t("Shader Info");
+    if (shaderInfoHeaders[1])
+      shaderInfoHeaders[1].textContent = t("Shader Settings");
+
+    const uniformsHeader = document.querySelector(
+      "#uniforms-section .sidebar-section-header h2"
+    );
+    if (uniformsHeader) uniformsHeader.textContent = t("Uniforms");
+
+    const customNodesHeader = document.querySelector(
+      "#custom-nodes-section .sidebar-section-header h2"
+    );
+    if (customNodesHeader) customNodesHeader.textContent = t("Custom Nodes");
+
+    // Sidebar labels
+    const updateSidebarLabel = (selector, textKey) => {
+      const labels = document.querySelectorAll(selector);
+      labels.forEach((label) => {
+        const span = label.querySelector("span");
+        if (span) span.textContent = t(textKey);
+      });
+    };
+
+    updateSidebarLabel(
+      "#settingName + label span, label:has(#settingName) > span",
+      "Name"
+    );
+    updateSidebarLabel("label:has(#settingVersion) > span", "Version");
+    updateSidebarLabel("label:has(#settingAuthor) > span", "Author");
+    updateSidebarLabel("label:has(#settingCategory) > span", "Category");
+    updateSidebarLabel("label:has(#settingWebsite) > span", "Website");
+    updateSidebarLabel("label:has(#settingDocumentation) > span", "Docs");
+    updateSidebarLabel("label:has(#settingDescription) > span", "Description");
+
+    // Input placeholders
+    const settingName = document.getElementById("settingName");
+    if (settingName) settingName.placeholder = t("My Effect");
+
+    const settingVersion = document.getElementById("settingVersion");
+    if (settingVersion) settingVersion.placeholder = "1.0.0.0";
+
+    const settingAuthor = document.getElementById("settingAuthor");
+    if (settingAuthor) settingAuthor.placeholder = t("Author name");
+
+    const settingWebsite = document.getElementById("settingWebsite");
+    if (settingWebsite) settingWebsite.placeholder = "https://example.com";
+
+    const settingDocumentation = document.getElementById(
+      "settingDocumentation"
+    );
+    if (settingDocumentation)
+      settingDocumentation.placeholder = "https://docs.example.com";
+
+    const settingDescription = document.getElementById("settingDescription");
+    if (settingDescription)
+      settingDescription.placeholder = t("Shader description...");
+
+    // Category options
+    const settingCategory = document.getElementById("settingCategory");
+    if (settingCategory) {
+      settingCategory.options[0].text = t("3D");
+      settingCategory.options[1].text = t("Blend");
+      settingCategory.options[2].text = t("Color");
+      settingCategory.options[3].text = t("Distortion");
+      settingCategory.options[4].text = t("Mask");
+      settingCategory.options[5].text = "Normal Mapping";
+      settingCategory.options[6].text = t("Tiling");
+      settingCategory.options[7].text = t("Other");
+    }
+
+    // Checkbox labels
+    updateSidebarLabel(
+      "label:has(#settingBlendsBackground) > span",
+      "Blends Background"
+    );
+    updateSidebarLabel(
+      "label:has(#settingCrossSampling) > span",
+      "Cross Sampling"
+    );
+    updateSidebarLabel(
+      "label:has(#settingPreservesOpaqueness) > span",
+      "Preserves Opaqueness"
+    );
+    updateSidebarLabel("label:has(#settingAnimated) > span", "Animated");
+    updateSidebarLabel("label:has(#settingUsesDepth) > span", "Uses Depth");
+    updateSidebarLabel("label:has(#settingMustPredraw) > span", "Must Predraw");
+    updateSidebarLabel(
+      "label:has(#settingSupports3DDirectRendering) > span",
+      "Supports 3D Direct Rendering"
+    );
+    updateSidebarLabel(
+      "label:has(#settingIsDeprecated) > span",
+      "Is Deprecated"
+    );
+    updateSidebarLabel("label:has(.extend-box-inputs) > span", "Extend Box");
+
+    // Extend box input placeholders
+    const extendBoxH = document.getElementById("settingExtendBoxH");
+    if (extendBoxH) extendBoxH.placeholder = t("H");
+
+    const extendBoxV = document.getElementById("settingExtendBoxV");
+    if (extendBoxV) extendBoxV.placeholder = t("V");
+
+    // Buttons
+    const addUniformBtn = document.getElementById("addUniformBtn");
+    if (addUniformBtn) addUniformBtn.textContent = t("+ Add Uniform");
+
+    const addCustomNodeBtn = document.getElementById("addCustomNodeBtn");
+    if (addCustomNodeBtn)
+      addCustomNodeBtn.textContent = t("+ Create Custom Node");
+
+    // Minimap controls
+    const zoomInBtn = document.getElementById("zoomInBtn");
+    if (zoomInBtn) zoomInBtn.title = t("Zoom In");
+
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    if (zoomOutBtn) zoomOutBtn.title = t("Zoom Out");
+
+    const resetZoomBtn = document.getElementById("resetZoomBtn");
+    if (resetZoomBtn) resetZoomBtn.title = t("Reset Zoom (100%)");
+
+    const zoomToFitBtn = document.getElementById("zoomToFitBtn");
+    if (zoomToFitBtn) zoomToFitBtn.title = t("Zoom to Fit");
+
+    const centerViewBtn = document.getElementById("centerViewBtn");
+    if (centerViewBtn) centerViewBtn.title = t("Center View");
+
+    const zoomLevelDisplay = document.getElementById("zoomLevelDisplay");
+    if (zoomLevelDisplay) zoomLevelDisplay.title = t("Current Zoom Level");
+
+    // Sidebar
+    const sidebarHeader = document.querySelector("#sidebar-header h2");
+    if (sidebarHeader) sidebarHeader.textContent = t("Execution Order");
+
+    const noOutputMsg = document.getElementById("no-output-msg");
+    if (noOutputMsg) noOutputMsg.textContent = t("No output node found");
+
+    // Custom Node Modal
+    const customNodeModalH3 = document.querySelector("#customNodeModal h3");
+    if (customNodeModalH3) customNodeModalH3.textContent = t("Custom Node");
+
+    const customNodeNameLabel = document.querySelector(
+      "label:has(#customNodeName) > span"
+    );
+    if (customNodeNameLabel)
+      customNodeNameLabel.textContent = t("Custom Node Name");
+
+    const customNodeName = document.getElementById("customNodeName");
+    if (customNodeName) customNodeName.placeholder = t("My Custom Node");
+
+    const customNodeSplitLabel = document.querySelector(
+      "label:has(#customNodeSplitWebGL) > span"
+    );
+    if (customNodeSplitLabel)
+      customNodeSplitLabel.textContent = t("split webgl");
+
+    const inputsHeader = document.querySelector(
+      ".custom-node-ports-column:first-child h4"
+    );
+    if (inputsHeader) inputsHeader.textContent = t("Inputs");
+
+    const outputsHeader = document.querySelector(
+      ".custom-node-ports-column:last-child h4"
+    );
+    if (outputsHeader) outputsHeader.textContent = t("Outputs");
+
+    const dependencyTab = document.querySelector(
+      '.code-tab[data-code-type="dependency"]'
+    );
+    if (dependencyTab) dependencyTab.textContent = t("Dependency");
+
+    const executionTab = document.querySelector(
+      '.code-tab[data-code-type="execution"]'
+    );
+    if (executionTab) executionTab.textContent = t("Execution");
+
+    const saveCustomNode = document.getElementById("saveCustomNode");
+    if (saveCustomNode) saveCustomNode.textContent = t("Save");
+
+    const cancelCustomNode = document.getElementById("cancelCustomNode");
+    if (cancelCustomNode) cancelCustomNode.textContent = t("Cancel");
+
+    // Uniform Modal
+    const uniformModalH3 = document.querySelector("#uniformModal h3");
+    if (uniformModalH3) uniformModalH3.textContent = t("Add Uniform");
+
+    const uniformNameLabel = document.querySelector(
+      "label:has(#uniformNameInput)"
+    );
+    if (uniformNameLabel) {
+      const text = uniformNameLabel.childNodes[0];
+      if (text && text.nodeType === Node.TEXT_NODE) {
+        text.textContent = t("Name:") + " ";
+      }
+    }
+
+    const uniformNameInput = document.getElementById("uniformNameInput");
+    if (uniformNameInput) uniformNameInput.placeholder = t("My Uniform");
+
+    const uniformDescLabel = document.querySelector(
+      "label:has(#uniformDescriptionInput)"
+    );
+    if (uniformDescLabel) {
+      const text = uniformDescLabel.childNodes[0];
+      if (text && text.nodeType === Node.TEXT_NODE) {
+        text.textContent = t("Description:") + " ";
+      }
+    }
+
+    const uniformDescriptionInput = document.getElementById(
+      "uniformDescriptionInput"
+    );
+    if (uniformDescriptionInput)
+      uniformDescriptionInput.placeholder = t("Optional description");
+
+    const uniformTypeLabel = document.querySelector(
+      "label:has(#uniformTypeSelect)"
+    );
+    if (uniformTypeLabel) {
+      const text = uniformTypeLabel.childNodes[0];
+      if (text && text.nodeType === Node.TEXT_NODE) {
+        text.textContent = t("Type:") + " ";
+      }
+    }
+
+    const uniformTypeSelect = document.getElementById("uniformTypeSelect");
+    if (uniformTypeSelect) {
+      uniformTypeSelect.options[0].text = t("Float");
+      uniformTypeSelect.options[1].text = t("Color (Vec3)");
+    }
+
+    const uniformModalCancel = document.getElementById("uniformModalCancel");
+    if (uniformModalCancel) uniformModalCancel.textContent = t("Cancel");
+
+    const uniformModalAdd = document.getElementById("uniformModalAdd");
+    if (uniformModalAdd) uniformModalAdd.textContent = t("Add");
+
+    // View Code Modal
+    const viewCodeModalH2 = document.querySelector("#viewCodeModal h2");
+    if (viewCodeModalH2)
+      viewCodeModalH2.textContent = t("Generated Shader Code");
+
+    const copyCodeBtn = document.getElementById("copyCodeBtn");
+    if (copyCodeBtn) copyCodeBtn.textContent = t("Copy Current");
+
+    const viewCodeModalOk = document.getElementById("viewCodeModalOk");
+    if (viewCodeModalOk) viewCodeModalOk.textContent = t("Close");
+
+    // Open Files Modal
+    const openFilesModalH2 = document.querySelector("#openFilesModal h2");
+    if (openFilesModalH2) openFilesModalH2.textContent = t("Open Shader");
+
+    const recentFilesTab = document.querySelector(
+      '.modal-tab[data-tab="recent"]'
+    );
+    if (recentFilesTab) recentFilesTab.textContent = t("Recent Files");
+
+    const examplesTab = document.querySelector(
+      '.modal-tab[data-tab="examples"]'
+    );
+    if (examplesTab) examplesTab.textContent = t("Examples");
+
+    const recentFilesEmpty = document.querySelector(
+      "#recentFilesEmpty p:first-of-type"
+    );
+    if (recentFilesEmpty) recentFilesEmpty.textContent = t("No recent files");
+
+    const recentFilesEmptySubtext = document.querySelector(
+      "#recentFilesEmpty p:last-of-type"
+    );
+    if (recentFilesEmptySubtext)
+      recentFilesEmptySubtext.textContent = t(
+        "Open or create a file to get started"
+      );
+
+    const clearRecentFilesBtn = document.getElementById("clearRecentFilesBtn");
+    if (clearRecentFilesBtn)
+      clearRecentFilesBtn.textContent = t("Clear Recent Files");
+
+    const openFilesNewBtn = document.getElementById("openFilesNewBtn");
+    if (openFilesNewBtn) {
+      const span = openFilesNewBtn.childNodes[1];
+      if (span && span.nodeType === Node.TEXT_NODE) {
+        span.textContent = " " + t("New File");
+      }
+    }
+
+    const openFilesOpenBtn = document.getElementById("openFilesOpenBtn");
+    if (openFilesOpenBtn) {
+      const span = openFilesOpenBtn.childNodes[1];
+      if (span && span.nodeType === Node.TEXT_NODE) {
+        span.textContent = " " + t("Open File");
+      }
+    }
+
+    const openFilesModalCancel = document.getElementById(
+      "openFilesModalCancel"
+    );
+    if (openFilesModalCancel) openFilesModalCancel.textContent = t("Cancel");
   }
 
   setupCanvas() {
