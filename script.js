@@ -1386,16 +1386,16 @@ class BlueprintSystem {
 
     const openFilesNewBtn = document.getElementById("openFilesNewBtn");
     if (openFilesNewBtn) {
-      const span = openFilesNewBtn.childNodes[1];
-      if (span && span.nodeType === Node.TEXT_NODE) {
+      const span = openFilesNewBtn.childNodes[2];
+      if (span) {
         span.textContent = " " + t("New File");
       }
     }
 
     const openFilesOpenBtn = document.getElementById("openFilesOpenBtn");
     if (openFilesOpenBtn) {
-      const span = openFilesOpenBtn.childNodes[1];
-      if (span && span.nodeType === Node.TEXT_NODE) {
+      const span = openFilesOpenBtn.childNodes[2];
+      if (span) {
         span.textContent = " " + t("Open File");
       }
     }
@@ -2768,56 +2768,71 @@ class BlueprintSystem {
     const examples = [
       {
         file: "bulge.c3sg",
-        name: "Bulge",
-        description: "Simple background blending bulge shader",
+        name: languageManager.getUIText("Bulge"),
+        description: languageManager.getUIText(
+          "Simple background blending bulge shader"
+        ),
       },
       {
         file: "depth sample with vars.c3sg",
-        name: "Gradient Fog with Variables",
-        description:
-          "Advanced depth sampling using shader variables. Original shader by Federico Calchera",
+        name: languageManager.getUIText("Gradient Fog with Variables"),
+        description: languageManager.getUIText(
+          "Advanced depth sampling using shader variables. Original shader by Federico Calchera"
+        ),
       },
       {
         file: "background twirl.c3sg",
-        name: "Background Twirl",
-        description: "Basic background cross sampling distortion shader.",
+        name: languageManager.getUIText("Background Twirl"),
+        description: languageManager.getUIText(
+          "Basic background cross sampling distortion shader."
+        ),
       },
       {
         file: "sampling depth.c3sg",
-        name: "Sampling Depth",
-        description: "Depth buffer sampling techniques",
+        name: languageManager.getUIText("Sampling Depth"),
+        description: languageManager.getUIText(
+          "Depth buffer sampling techniques"
+        ),
       },
       {
         file: "kaleidoscope.c3sg",
-        name: "Kaleidoscope",
-        description: "Kaleidoscope shader",
+        name: languageManager.getUIText("Kaleidoscope"),
+        description: languageManager.getUIText("Kaleidoscope shader"),
       },
       {
         file: "card glimmer.c3sg",
-        name: "Card Glimmer",
-        description:
-          "Card glimmer reflection shader, made for a 3D card effect",
+        name: languageManager.getUIText("Card Glimmer"),
+        description: languageManager.getUIText(
+          "Card glimmer reflection shader, made for a 3D card effect"
+        ),
       },
       {
         file: "colored noise highlight.c3sg",
-        name: "Colored Noise Highlight",
-        description: "Colored highlight using a 3D perlin noise",
+        name: languageManager.getUIText("Colored Noise Highlight"),
+        description: languageManager.getUIText(
+          "Colored highlight using a 3D perlin noise"
+        ),
       },
       {
         file: "blend background.c3sg",
-        name: "Blend Background",
-        description: "Demonstrates how to sample the background texture",
+        name: languageManager.getUIText("Blend Background"),
+        description: languageManager.getUIText(
+          "Demonstrates how to sample the background texture"
+        ),
       },
       {
         file: "wave custom texture.c3sg",
-        name: "Wave With Custom Texture",
-        description:
-          "Simple waving shader with a custom texture in the preview",
+        name: languageManager.getUIText("Wave With Custom Texture"),
+        description: languageManager.getUIText(
+          "Simple waving shader with a custom texture in the preview"
+        ),
       },
       {
         file: "custom node.c3sg",
-        name: "Custom Node",
-        description: "Simple example showing how to use custom nodes",
+        name: languageManager.getUIText("Custom Node"),
+        description: languageManager.getUIText(
+          "Simple example showing how to use custom nodes"
+        ),
       },
     ];
 
