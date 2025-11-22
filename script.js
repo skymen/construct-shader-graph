@@ -5398,7 +5398,7 @@ class BlueprintSystem {
 
       const nameDiv = document.createElement("div");
       nameDiv.className = "search-result-name";
-      nameDiv.textContent = languageManager.getUIText("+ Create Custom Node");
+      nameDiv.textContent = languageManager.getUIText("Create Custom Node");
       nameDiv.style.fontWeight = "bold";
       createCustomBtn.appendChild(nameDiv);
 
