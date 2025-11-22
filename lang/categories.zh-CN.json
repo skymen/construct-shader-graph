@@ -1,0 +1,19 @@
+{
+  "Bitwise": "位运算",
+  "Builtin": "内置",
+  "Color": "颜色",
+  "Constants": "常量",
+  "Conversion": "转换",
+  "Debug": "调试",
+  "Logic": "逻辑",
+  "Math": "数学",
+  "Noise": "噪声",
+  "Output": "输出",
+  "Texture": "纹理",
+  "Trigonometry": "三角函数",
+  "UV": "UV",
+  "Utility": "工具",
+  "Value": "数值",
+  "Variables": "变量",
+  "Vector": "向量"
+}

@@ -2525,7 +2525,7 @@ class BlueprintSystem {
         const [fileHandle] = await window.showOpenFilePicker({
           types: [
             {
-              description: "Construct 3 Shader Graph",
+              description: "CAW Shader",
               accept: {
                 "application/json": [".c3sg", ".json"],
               },
@@ -6892,7 +6892,7 @@ class BlueprintSystem {
             suggestedName: filename,
             types: [
               {
-                description: "Construct 3 Shader Graph",
+                description: "CAW Shader",
                 accept: {
                   "application/json": [".c3sg", ".json"],
                 },

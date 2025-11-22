@@ -1,0 +1,19 @@
+{
+  "Bitwise": "Binaire",
+  "Builtin": "Intégré",
+  "Color": "Couleur",
+  "Constants": "Constantes",
+  "Conversion": "Conversion",
+  "Debug": "Déboguer",
+  "Logic": "Logique",
+  "Math": "Mathématiques",
+  "Noise": "Bruit",
+  "Output": "Sortie",
+  "Texture": "Texture",
+  "Trigonometry": "Trigonométrie",
+  "UV": "UV",
+  "Utility": "Utilitaire",
+  "Value": "Valeur",
+  "Variables": "Variables",
+  "Vector": "Vecteur"
+}
