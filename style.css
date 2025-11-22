@@ -99,6 +99,34 @@ body {
   letter-spacing: 0.3px;
 }
 
+.language-select {
+  background: rgba(74, 74, 74, 0.4);
+  color: #fff;
+  border: 1px solid #4a4a4a;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.language-select:hover {
+  background: rgba(74, 74, 74, 0.6);
+  border-color: #6a6a6a;
+}
+
+.language-select:focus {
+  border-color: #6ab0ff;
+  box-shadow: 0 0 0 2px rgba(106, 176, 255, 0.2);
+}
+
+.language-select option {
+  background: #2d2d2d;
+  color: #fff;
+}
+
 .toolbar-actions {
   margin-left: auto;
   flex-wrap: wrap;

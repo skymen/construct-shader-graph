@@ -12,6 +12,7 @@ import { UniformColorNode } from "./nodes/UniformColorNode.js";
 import JSZip from "jszip";
 import { HistoryManager } from "./HistoryManager.js";
 import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
+import { languageManager } from "./LanguageManager.js";
 
 // Import boilerplate files as raw text
 import boilerplateWebGL1 from "./shaders/boilerplate-webgl1.glsl?raw";
@@ -89,7 +90,8 @@ class Port {
     this.connections = [];
     this.radius = 8;
     this.portType = portDef.type; // The data type (float, vector, etc.)
-    this.name = portDef.name;
+    this.name = portDef.name; // Original name for logic
+    this.displayName = languageManager.getPortDisplayName(portDef.name); // Translated name for display
 
     // Store value for editable input ports
     // Custom types are never editable as their type can change dynamically
@@ -345,7 +347,8 @@ class Node {
     this.x = x;
     this.y = y;
     this.nodeType = nodeType;
-    this.title = nodeType.name;
+    this.title = nodeType.name; // Keep original name for logic
+    this.displayTitle = languageManager.getNodeName(nodeType.name); // Translated name for display
     this.headerColor = nodeType.color;
     this.isSelected = false;
 
@@ -883,6 +886,11 @@ class BlueprintSystem {
     this.render();
     this.updateUndoRedoButtons();
 
+    // Setup language change listener
+    languageManager.onLanguageChange(() => {
+      this.onLanguageChanged();
+    });
+
     // Show open files modal on startup
     setTimeout(() => {
       this.showOpenFilesModal();
@@ -892,6 +900,29 @@ class BlueprintSystem {
     setTimeout(() => {
       this.history.currentState = this.exportState();
     }, 0);
+  }
+
+  // Called when language is changed
+  onLanguageChanged() {
+    // Update all existing nodes with new translations
+    this.nodes.forEach((node) => {
+      node.displayTitle = languageManager.getNodeName(node.title);
+      // Update port display names
+      node.getAllPorts().forEach((port) => {
+        port.displayName = languageManager.getPortDisplayName(port.name);
+      });
+    });
+
+    // Update search results if menu is open
+    if (this.searchMenu.classList.contains("visible")) {
+      this.updateSearchResults();
+    }
+
+    // Update search input placeholder
+    this.searchInput.placeholder = languageManager.getUIText("Search nodes...");
+
+    // Re-render the canvas
+    this.render();
   }
 
   setupCanvas() {
@@ -1231,6 +1262,9 @@ class BlueprintSystem {
     this.searchFilterPort = null; // Port being dragged (for filtering)
     this.searchFilterType = null; // 'input' or 'output'
     this.pendingCustomNodePosition = null; // Position for custom node creation from search
+
+    // Set initial placeholder text
+    this.searchInput.placeholder = languageManager.getUIText("Search nodes...");
 
     // Search input handler
     this.searchInput.addEventListener("input", () => {
@@ -4833,7 +4867,10 @@ class BlueprintSystem {
 
     // Filter by search query (check name and tags)
     const results = filteredTypes.filter(([key, nodeType]) => {
-      const nameMatch = nodeType.name.toLowerCase().includes(query);
+      const translatedName = languageManager.getNodeName(nodeType.name);
+      const nameMatch =
+        nodeType.name.toLowerCase().includes(query) ||
+        translatedName.toLowerCase().includes(query);
       const tagMatch =
         nodeType.tags &&
         nodeType.tags.some((tag) => tag.toLowerCase().includes(query));
@@ -4864,7 +4901,7 @@ class BlueprintSystem {
 
       const nameDiv = document.createElement("div");
       nameDiv.className = "search-result-name";
-      nameDiv.textContent = "Create Custom Node";
+      nameDiv.textContent = languageManager.getUIText("+ Create Custom Node");
       nameDiv.style.fontWeight = "bold";
       createCustomBtn.appendChild(nameDiv);
 
@@ -4897,8 +4934,12 @@ class BlueprintSystem {
       categorizedResults[category].push([key, nodeType]);
     });
 
-    // Sort categories
-    const sortedCategories = Object.keys(categorizedResults).sort();
+    // Sort categories (by translated names)
+    const sortedCategories = Object.keys(categorizedResults).sort((a, b) => {
+      const nameA = languageManager.getCategoryName(a);
+      const nameB = languageManager.getCategoryName(b);
+      return nameA.localeCompare(nameB);
+    });
 
     // Determine if categories should be expanded (when there's a search query)
     const expandAll = query.length > 0;
@@ -4910,7 +4951,7 @@ class BlueprintSystem {
       // Create category header
       const categoryHeader = document.createElement("div");
       categoryHeader.className = "search-category-header";
-      categoryHeader.textContent = category;
+      categoryHeader.textContent = languageManager.getCategoryName(category);
       categoryHeader.dataset.category = category;
 
       // Make category collapsible
@@ -4950,7 +4991,7 @@ class BlueprintSystem {
         // Name
         const nameDiv = document.createElement("div");
         nameDiv.className = "search-result-name";
-        nameDiv.textContent = nodeType.name;
+        nameDiv.textContent = languageManager.getNodeName(nodeType.name);
         item.appendChild(nameDiv);
 
         // Type info
@@ -4985,7 +5026,7 @@ class BlueprintSystem {
       noResults.style.padding = "20px";
       noResults.style.textAlign = "center";
       noResults.style.color = "#888";
-      noResults.textContent = "No nodes found";
+      noResults.textContent = languageManager.getUIText("No nodes found");
       this.searchResults.appendChild(noResults);
     }
   }
@@ -5172,6 +5213,13 @@ class BlueprintSystem {
 
     document.getElementById("closeSidebarBtn").addEventListener("click", () => {
       this.closeSidebar();
+    });
+
+    // Language selector
+    const languageSelect = document.getElementById("languageSelect");
+    languageSelect.value = languageManager.getCurrentLanguage();
+    languageSelect.addEventListener("change", (e) => {
+      languageManager.setLanguage(e.target.value);
     });
 
     document.getElementById("autoArrangeBtn").addEventListener("click", () => {
@@ -8652,7 +8700,7 @@ class BlueprintSystem {
     // Port label
     ctx.fillStyle = "#aaa";
     ctx.font = "12px sans-serif";
-    const label = port.name;
+    const label = port.displayName || port.name;
 
     if (port.type === "input") {
       ctx.textAlign = "left";
@@ -9023,7 +9071,7 @@ class BlueprintSystem {
       } else {
         // Single title
         ctx.fillText(
-          node.title,
+          node.displayTitle || node.title,
           node.x + node.width / 2,
           node.y + node.height / 2 + 4
         );
@@ -9069,7 +9117,11 @@ class BlueprintSystem {
       ctx.fillStyle = "#fff";
       ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(node.title, node.x + node.width / 2, node.y + 22);
+      ctx.fillText(
+        node.displayTitle || node.title,
+        node.x + node.width / 2,
+        node.y + 22
+      );
 
       // Edit button for custom nodes
       if (node.nodeType.isCustom) {
