@@ -771,10 +771,11 @@ class Wire {
   }
 }
 
-// Comment opacity constants
-const COMMENT_BACKGROUND_OPACITY = '33'; // 20% opacity
-const COMMENT_TITLE_OPACITY = '66'; // 40% opacity
-const COMMENT_HANDLE_OPACITY = 'aa'; // 66% opacity
+// Comment constants
+const COMMENT_BACKGROUND_OPACITY = '33'; // ~20% opacity (51/255)
+const COMMENT_TITLE_OPACITY = '66'; // ~40% opacity (102/255)
+const COMMENT_HANDLE_OPACITY = 'aa'; // ~67% opacity (170/255)
+const COMMENT_TITLE_HEIGHT = 30;
 
 class Comment {
   constructor(x, y, width, height, id) {
@@ -809,7 +810,7 @@ class Comment {
       x: this.x,
       y: this.y,
       width: this.width,
-      height: 30, // Title area height
+      height: COMMENT_TITLE_HEIGHT,
     };
   }
 
@@ -9937,7 +9938,7 @@ class BlueprintSystem {
     // Title bar background (slightly more opaque)
     ctx.fillStyle = comment.color + COMMENT_TITLE_OPACITY;
     ctx.beginPath();
-    ctx.roundRect(comment.x, comment.y, comment.width, 30, [8, 8, 0, 0]);
+    ctx.roundRect(comment.x, comment.y, comment.width, COMMENT_TITLE_HEIGHT, [8, 8, 0, 0]);
     ctx.fill();
 
     // Title text
