@@ -2268,12 +2268,12 @@ class BlueprintSystem {
     this.commentTitleInput.value = comment.title;
     this.commentDescriptionInput.value = comment.description;
     this.commentColorInput.value = comment.color;
-    this.commentModal.style.display = "flex";
+    this.commentModal.classList.add("visible");
     setTimeout(() => this.commentTitleInput.focus(), 0);
   }
 
   hideCommentModal() {
-    this.commentModal.style.display = "none";
+    this.commentModal.classList.remove("visible");
     this.editingComment = null;
   }
 
@@ -2289,6 +2289,7 @@ class BlueprintSystem {
     this.editingComment.color = color;
 
     this.history.pushState("Edit comment");
+    this.hideCommentModal();
     this.render();
   }
 
