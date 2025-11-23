@@ -6256,7 +6256,7 @@ class BlueprintSystem {
 
     // Ignore if typing in CodeMirror editor
     // CodeMirror uses contenteditable divs with cm-content or cm-editor class
-    if (document.activeElement.closest('.cm-content, .cm-editor')) {
+    if (document.activeElement?.closest('.cm-content, .cm-editor')) {
       return;
     }
 
