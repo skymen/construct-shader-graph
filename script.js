@@ -771,13 +771,106 @@ class Wire {
   }
 }
 
+class Comment {
+  constructor(x, y, width, height, id) {
+    this.id = id;
+    this.x = x;
+    this.y = y;
+    this.width = width;
+    this.height = height;
+    this.title = "Comment";
+    this.description = "";
+    this.color = "#4a90e2"; // Default blue color
+    this.isDragging = false;
+    this.isResizing = false;
+    this.isSelected = false;
+    this.isEditingTitle = false;
+    this.isEditingDescription = false;
+    
+    // Resize handle dimensions
+    this.resizeHandleSize = 12;
+  }
+
+  getResizeHandleBounds() {
+    return {
+      x: this.x + this.width - this.resizeHandleSize,
+      y: this.y + this.height - this.resizeHandleSize,
+      width: this.resizeHandleSize,
+      height: this.resizeHandleSize,
+    };
+  }
+
+  getDragHandleBounds() {
+    // The entire top portion (title area) is the drag handle
+    return {
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: 30, // Title area height
+    };
+  }
+
+  isPointInResizeHandle(px, py) {
+    const bounds = this.getResizeHandleBounds();
+    return (
+      px >= bounds.x &&
+      px <= bounds.x + bounds.width &&
+      py >= bounds.y &&
+      py <= bounds.y + bounds.height
+    );
+  }
+
+  isPointInDragHandle(px, py) {
+    const bounds = this.getDragHandleBounds();
+    return (
+      px >= bounds.x &&
+      px <= bounds.x + bounds.width &&
+      py >= bounds.y &&
+      py <= bounds.y + bounds.height
+    );
+  }
+
+  isPointInside(px, py) {
+    return (
+      px >= this.x &&
+      px <= this.x + this.width &&
+      py >= this.y &&
+      py <= this.y + this.height
+    );
+  }
+
+  containsNode(node) {
+    // Check if node is within comment bounds
+    const nodeCenterX = node.x + node.width / 2;
+    const nodeCenterY = node.y + node.height / 2;
+    return (
+      nodeCenterX >= this.x &&
+      nodeCenterX <= this.x + this.width &&
+      nodeCenterY >= this.y &&
+      nodeCenterY <= this.y + this.height
+    );
+  }
+
+  containsRerouteNode(rerouteNode) {
+    // Check if reroute node is within comment bounds
+    return (
+      rerouteNode.x >= this.x &&
+      rerouteNode.x <= this.x + this.width &&
+      rerouteNode.y >= this.y &&
+      rerouteNode.y <= this.y + this.height
+    );
+  }
+}
+
 class BlueprintSystem {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.nodes = [];
     this.wires = [];
+    this.comments = [];
     this.nodeIdCounter = 1;
+    this.commentIdCounter = 1;
 
     // Debug state
     this.debugBoundingBoxes = false;
@@ -787,6 +880,8 @@ class BlueprintSystem {
     this.activeWire = null;
     this.hoveredPort = null;
     this.draggedRerouteNode = null;
+    this.draggedComment = null;
+    this.resizingComment = null;
     this.lastClickTime = 0;
     this.lastClickPos = { x: 0, y: 0 };
     this.editingPort = null;
@@ -5431,6 +5526,41 @@ class BlueprintSystem {
       });
 
       this.searchResults.appendChild(createCustomBtn);
+
+      // Add "Add Comment" button
+      const addCommentBtn = document.createElement("div");
+      addCommentBtn.className = "search-result-item add-comment-btn";
+      addCommentBtn.tabIndex = 0;
+
+      const commentIconDiv = document.createElement("div");
+      commentIconDiv.className = "search-result-color";
+      commentIconDiv.style.background = "transparent";
+      commentIconDiv.textContent = "💬";
+      commentIconDiv.style.display = "flex";
+      commentIconDiv.style.alignItems = "center";
+      commentIconDiv.style.justifyContent = "center";
+      commentIconDiv.style.fontSize = "16px";
+      addCommentBtn.appendChild(commentIconDiv);
+
+      const commentNameDiv = document.createElement("div");
+      commentNameDiv.className = "search-result-name";
+      commentNameDiv.textContent = languageManager.getUIText("Add Comment");
+      commentNameDiv.style.fontWeight = "bold";
+      addCommentBtn.appendChild(commentNameDiv);
+
+      addCommentBtn.addEventListener("click", () => {
+        this.hideSearchMenu();
+        this.createComment(this.searchMenuPosition.x, this.searchMenuPosition.y);
+      });
+
+      addCommentBtn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          this.hideSearchMenu();
+          this.createComment(this.searchMenuPosition.x, this.searchMenuPosition.y);
+        }
+      });
+
+      this.searchResults.appendChild(addCommentBtn);
     }
 
     // Group results by category
@@ -5538,6 +5668,21 @@ class BlueprintSystem {
       noResults.textContent = languageManager.getUIText("No nodes found");
       this.searchResults.appendChild(noResults);
     }
+  }
+
+  createComment(screenX, screenY) {
+    const rect = this.canvas.getBoundingClientRect();
+    // Convert screen coordinates to world coordinates
+    const worldX = (screenX - rect.left - this.camera.x) / this.camera.zoom;
+    const worldY = (screenY - rect.top - this.camera.y) / this.camera.zoom;
+
+    const comment = new Comment(worldX, worldY, 300, 200, this.commentIdCounter++);
+    this.comments.push(comment);
+
+    // Record state for undo
+    this.history.recordState(this, languageManager.getUIText("Add Comment"));
+
+    this.render();
   }
 
   selectNodeType(key, nodeType) {
@@ -5818,6 +5963,7 @@ class BlueprintSystem {
   clearSelection() {
     this.selectedNodes.forEach((node) => (node.isSelected = false));
     this.selectedRerouteNodes.forEach((rn) => (rn.isSelected = false));
+    this.comments.forEach((comment) => (comment.isSelected = false));
     this.selectedNodes.clear();
     this.selectedRerouteNodes.clear();
 
@@ -5870,6 +6016,20 @@ class BlueprintSystem {
   }
 
   deleteSelected() {
+    // Delete selected comments first
+    const commentsToDelete = this.comments.filter(c => c.isSelected);
+    if (commentsToDelete.length > 0) {
+      commentsToDelete.forEach((comment) => {
+        const index = this.comments.indexOf(comment);
+        if (index > -1) {
+          this.comments.splice(index, 1);
+        }
+      });
+      this.history.pushState("Delete comments");
+      this.render();
+      return;
+    }
+
     // Check if preview node is being deleted
     const deletingPreviewNode =
       this.previewNode && this.selectedNodes.has(this.previewNode);
@@ -7782,6 +7942,16 @@ class BlueprintSystem {
         endPortIndex: wire.endPort.node.inputPorts.indexOf(wire.endPort),
         rerouteNodes: wire.rerouteNodes.map((rn) => ({ x: rn.x, y: rn.y })),
       })),
+      comments: this.comments.map((comment) => ({
+        id: comment.id,
+        x: comment.x,
+        y: comment.y,
+        width: comment.width,
+        height: comment.height,
+        title: comment.title,
+        description: comment.description,
+        color: comment.color,
+      })),
       uniforms: JSON.parse(JSON.stringify(this.uniforms)),
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
       shaderSettings: { ...this.shaderSettings },
@@ -7789,6 +7959,7 @@ class BlueprintSystem {
         nodeIdCounter: this.nodeIdCounter,
         uniformIdCounter: this.uniformIdCounter,
         customNodeIdCounter: this.customNodeIdCounter,
+        commentIdCounter: this.commentIdCounter,
       },
     };
   }
@@ -7809,6 +7980,7 @@ class BlueprintSystem {
     // Clear current state
     this.nodes = [];
     this.wires = [];
+    this.comments = [];
     this.selectedNodes.clear();
     this.selectedRerouteNodes.clear();
 
@@ -7816,6 +7988,7 @@ class BlueprintSystem {
     this.nodeIdCounter = stateData.counters.nodeIdCounter;
     this.uniformIdCounter = stateData.counters.uniformIdCounter;
     this.customNodeIdCounter = stateData.counters.customNodeIdCounter;
+    this.commentIdCounter = stateData.counters.commentIdCounter || 1;
 
     // Restore uniforms and custom nodes
     this.uniforms = JSON.parse(JSON.stringify(stateData.uniforms));
@@ -7883,6 +8056,23 @@ class BlueprintSystem {
         }
       }
     });
+
+    // Restore comments
+    if (stateData.comments) {
+      stateData.comments.forEach((commentData) => {
+        const comment = new Comment(
+          commentData.x,
+          commentData.y,
+          commentData.width,
+          commentData.height,
+          commentData.id
+        );
+        comment.title = commentData.title;
+        comment.description = commentData.description;
+        comment.color = commentData.color;
+        this.comments.push(comment);
+      });
+    }
 
     // After all wires are restored, update editability for all ports
     this.nodes.forEach((node) => {
@@ -8608,6 +8798,69 @@ class BlueprintSystem {
       return;
     }
 
+    // Check if clicking on a comment (from top to bottom for proper layering)
+    for (let i = this.comments.length - 1; i >= 0; i--) {
+      const comment = this.comments[i];
+      
+      // Check resize handle first
+      if (comment.isPointInResizeHandle(pos.x, pos.y)) {
+        this.resizingComment = comment;
+        comment.isResizing = true;
+        comment.resizeStartWidth = comment.width;
+        comment.resizeStartHeight = comment.height;
+        comment.resizeStartX = pos.x;
+        comment.resizeStartY = pos.y;
+        
+        if (!isMultiSelect) {
+          // Deselect all and select this comment
+          this.clearSelection();
+          comment.isSelected = true;
+        }
+        this.render();
+        return;
+      }
+      
+      // Check drag handle (title bar)
+      if (comment.isPointInDragHandle(pos.x, pos.y)) {
+        this.draggedComment = comment;
+        comment.isDragging = true;
+        comment.dragOffsetX = pos.x - comment.x;
+        comment.dragOffsetY = pos.y - comment.y;
+        
+        if (!isMultiSelect) {
+          // Deselect all and select this comment
+          this.clearSelection();
+          comment.isSelected = true;
+        }
+        
+        // Find all nodes and reroute nodes contained in this comment
+        comment.containedNodes = this.nodes.filter(n => comment.containsNode(n));
+        comment.containedRerouteNodes = [];
+        this.wires.forEach(wire => {
+          wire.rerouteNodes.forEach(rn => {
+            if (comment.containsRerouteNode(rn)) {
+              comment.containedRerouteNodes.push(rn);
+            }
+          });
+        });
+        
+        this.render();
+        return;
+      }
+      
+      // Check if clicking inside comment (for selection)
+      if (comment.isPointInside(pos.x, pos.y)) {
+        if (isMultiSelect) {
+          comment.isSelected = !comment.isSelected;
+        } else {
+          this.clearSelection();
+          comment.isSelected = true;
+        }
+        this.render();
+        return;
+      }
+    }
+
     // Check if clicking on a node
     const node = this.findNodeAtPosition(pos.x, pos.y);
     if (node) {
@@ -8720,6 +8973,8 @@ class BlueprintSystem {
     const isDragging =
       this.draggedNode ||
       this.draggedRerouteNode ||
+      this.draggedComment ||
+      this.resizingComment ||
       this.activeWire ||
       this.isBoxSelecting;
     if (isDragging) {
@@ -8775,6 +9030,50 @@ class BlueprintSystem {
         });
       });
 
+      this.render();
+      return;
+    }
+
+    // Resize comment
+    if (this.resizingComment) {
+      const comment = this.resizingComment;
+      const deltaX = pos.x - comment.resizeStartX;
+      const deltaY = pos.y - comment.resizeStartY;
+      
+      // Update size with minimum constraints
+      comment.width = Math.max(150, comment.resizeStartWidth + deltaX);
+      comment.height = Math.max(100, comment.resizeStartHeight + deltaY);
+      
+      this.render();
+      return;
+    }
+
+    // Drag comment and its contained nodes/reroute nodes
+    if (this.draggedComment) {
+      const comment = this.draggedComment;
+      const deltaX = (pos.x - comment.dragOffsetX) - comment.x;
+      const deltaY = (pos.y - comment.dragOffsetY) - comment.y;
+      
+      // Move comment
+      comment.x = pos.x - comment.dragOffsetX;
+      comment.y = pos.y - comment.dragOffsetY;
+      
+      // Move contained nodes
+      if (comment.containedNodes) {
+        comment.containedNodes.forEach(node => {
+          node.x += deltaX;
+          node.y += deltaY;
+        });
+      }
+      
+      // Move contained reroute nodes
+      if (comment.containedRerouteNodes) {
+        comment.containedRerouteNodes.forEach(rn => {
+          rn.x += deltaX;
+          rn.y += deltaY;
+        });
+      }
+      
       this.render();
       return;
     }
@@ -9056,6 +9355,22 @@ class BlueprintSystem {
       this.isBoxSelecting = false;
       this.boxSelectStart = null;
       this.boxSelectEnd = null;
+    }
+
+    // Stop resizing comment
+    if (this.resizingComment) {
+      this.resizingComment.isResizing = false;
+      this.resizingComment = null;
+      this.history.pushState("Resize comment");
+    }
+
+    // Stop dragging comment
+    if (this.draggedComment) {
+      this.draggedComment.isDragging = false;
+      this.draggedComment.containedNodes = null;
+      this.draggedComment.containedRerouteNodes = null;
+      this.draggedComment = null;
+      this.history.pushState("Move comment");
     }
 
     // Stop dragging reroute node
@@ -9521,6 +9836,86 @@ class BlueprintSystem {
     }
   }
 
+  drawComment(comment) {
+    const ctx = this.ctx;
+
+    // Semi-transparent background
+    ctx.fillStyle = comment.color + "33"; // Add alpha (20% opacity)
+    ctx.strokeStyle = comment.isSelected ? "#6ab0ff" : comment.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(comment.x, comment.y, comment.width, comment.height, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    // Title bar background (slightly more opaque)
+    ctx.fillStyle = comment.color + "66"; // 40% opacity
+    ctx.beginPath();
+    ctx.roundRect(comment.x, comment.y, comment.width, 30, [8, 8, 0, 0]);
+    ctx.fill();
+
+    // Title text
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(comment.title, comment.x + 10, comment.y + 20);
+
+    // Description text
+    if (comment.description) {
+      ctx.fillStyle = "#cccccc";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "left";
+      
+      // Word wrap the description
+      const maxWidth = comment.width - 20;
+      const lineHeight = 16;
+      const words = comment.description.split(" ");
+      let line = "";
+      let y = comment.y + 50;
+
+      for (let i = 0; i < words.length; i++) {
+        const testLine = line + words[i] + " ";
+        const metrics = ctx.measureText(testLine);
+        
+        if (metrics.width > maxWidth && i > 0) {
+          ctx.fillText(line, comment.x + 10, y);
+          line = words[i] + " ";
+          y += lineHeight;
+          
+          // Stop if we run out of space
+          if (y > comment.y + comment.height - 20) break;
+        } else {
+          line = testLine;
+        }
+      }
+      
+      // Draw the last line
+      if (y <= comment.y + comment.height - 20) {
+        ctx.fillText(line, comment.x + 10, y);
+      }
+    }
+
+    // Draw resize handle
+    const handleBounds = comment.getResizeHandleBounds();
+    ctx.fillStyle = comment.color + "aa"; // 66% opacity
+    ctx.fillRect(
+      handleBounds.x,
+      handleBounds.y,
+      handleBounds.width,
+      handleBounds.height
+    );
+    
+    // Draw resize icon
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(handleBounds.x + 8, handleBounds.y + 4);
+    ctx.lineTo(handleBounds.x + 4, handleBounds.y + 8);
+    ctx.moveTo(handleBounds.x + 10, handleBounds.y + 2);
+    ctx.lineTo(handleBounds.x + 2, handleBounds.y + 10);
+    ctx.stroke();
+  }
+
   drawNode(node) {
     const ctx = this.ctx;
 
@@ -9953,6 +10348,9 @@ class BlueprintSystem {
 
     // Draw grid
     this.drawGrid();
+
+    // Draw comments (under everything else)
+    this.comments.forEach((comment) => this.drawComment(comment));
 
     // Draw wires
     this.wires.forEach((wire) => this.drawWire(wire));
