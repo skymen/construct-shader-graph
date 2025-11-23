@@ -1399,6 +1399,9 @@ class BlueprintSystem {
     const uniformModalH3 = document.querySelector("#uniformModal h3");
     if (uniformModalH3) uniformModalH3.textContent = t("Add Uniform");
 
+    const commentModalH3 = document.querySelector("#commentModal h3");
+    if (commentModalH3) commentModalH3.textContent = t("Edit Comment");
+
     const uniformNameLabel = document.querySelector(
       "label:has(#uniformNameInput)"
     );
@@ -1449,6 +1452,12 @@ class BlueprintSystem {
 
     const uniformModalAdd = document.getElementById("uniformModalAdd");
     if (uniformModalAdd) uniformModalAdd.textContent = t("Add");
+
+    const commentModalCancel = document.getElementById("commentModalCancel");
+    if (commentModalCancel) commentModalCancel.textContent = t("Cancel");
+
+    const commentModalSave = document.getElementById("commentModalSave");
+    if (commentModalSave) commentModalSave.textContent = t("Save");
 
     // View Code Modal
     const viewCodeModalH2 = document.querySelector("#viewCodeModal h2");
@@ -2149,6 +2158,35 @@ class BlueprintSystem {
       }
     });
 
+    // Comment modal
+    this.commentModal = document.getElementById("commentModal");
+    this.commentTitleInput = document.getElementById("commentTitleInput");
+    this.commentDescriptionInput = document.getElementById("commentDescriptionInput");
+    this.commentColorInput = document.getElementById("commentColorInput");
+    this.editingComment = null;
+
+    document
+      .getElementById("commentModalCancel")
+      .addEventListener("click", () => {
+        this.hideCommentModal();
+      });
+
+    document.getElementById("commentModalSave").addEventListener("click", () => {
+      this.saveCommentEdit();
+    });
+
+    this.commentModal.addEventListener("mousedown", (e) => {
+      if (e.target === this.commentModal) {
+        this.hideCommentModal();
+      }
+    });
+
+    this.commentTitleInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        this.hideCommentModal();
+      }
+    });
+
     // View Code Modal handlers
     const viewCodeModal = document.getElementById("viewCodeModal");
 
@@ -2223,6 +2261,35 @@ class BlueprintSystem {
 
   hideUniformModal() {
     this.uniformModal.classList.remove("visible");
+  }
+
+  showCommentModal(comment) {
+    this.editingComment = comment;
+    this.commentTitleInput.value = comment.title;
+    this.commentDescriptionInput.value = comment.description;
+    this.commentColorInput.value = comment.color;
+    this.commentModal.style.display = "flex";
+    setTimeout(() => this.commentTitleInput.focus(), 0);
+  }
+
+  hideCommentModal() {
+    this.commentModal.style.display = "none";
+    this.editingComment = null;
+  }
+
+  saveCommentEdit() {
+    if (!this.editingComment) return;
+
+    const title = this.commentTitleInput.value.trim() || "Comment";
+    const description = this.commentDescriptionInput.value.trim();
+    const color = this.commentColorInput.value;
+
+    this.editingComment.title = title;
+    this.editingComment.description = description;
+    this.editingComment.color = color;
+
+    this.history.pushState("Edit comment");
+    this.render();
   }
 
   addUniform() {
@@ -5680,7 +5747,7 @@ class BlueprintSystem {
     this.comments.push(comment);
 
     // Record state for undo
-    this.history.recordState(this, languageManager.getUIText("Add Comment"));
+    this.history.pushState("Add Comment");
 
     this.render();
   }
@@ -8848,8 +8915,14 @@ class BlueprintSystem {
         return;
       }
       
-      // Check if clicking inside comment (for selection)
+      // Check if clicking inside comment (for selection or double-click edit)
       if (comment.isPointInside(pos.x, pos.y)) {
+        // Check for double-click to edit
+        if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+          this.showCommentModal(comment);
+          return;
+        }
+        
         if (isMultiSelect) {
           comment.isSelected = !comment.isSelected;
         } else {
@@ -9399,6 +9472,15 @@ class BlueprintSystem {
   onContextMenu(e) {
     e.preventDefault(); // Prevent default context menu
     const pos = this.getMousePos(e);
+
+    // Check if right-clicking on a comment
+    for (let i = this.comments.length - 1; i >= 0; i--) {
+      const comment = this.comments[i];
+      if (comment.isPointInside(pos.x, pos.y) && !comment.isPointInResizeHandle(pos.x, pos.y)) {
+        this.showCommentModal(comment);
+        return;
+      }
+    }
 
     // Check if right-clicking on a reroute node
     const rerouteNode = this.findRerouteNodeAtPosition(pos.x, pos.y);

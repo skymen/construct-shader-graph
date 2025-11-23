@@ -834,6 +834,33 @@
       </div>
     </div>
 
+    <!-- Comment Edit Modal -->
+    <div id="commentModal" class="modal" style="display: none">
+      <div class="modal-content uniform-modal-content">
+        <h3>Edit Comment</h3>
+        <label>
+          Title:
+          <input type="text" id="commentTitleInput" placeholder="Comment" />
+        </label>
+        <label>
+          Description:
+          <textarea
+            id="commentDescriptionInput"
+            rows="4"
+            placeholder="Optional description"
+          ></textarea>
+        </label>
+        <label>
+          Color:
+          <input type="color" id="commentColorInput" value="#4a90e2" />
+        </label>
+        <div class="uniform-modal-buttons">
+          <button id="commentModalCancel">Cancel</button>
+          <button id="commentModalSave">Save</button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="script.js"></script>
   </body>
 </html>
