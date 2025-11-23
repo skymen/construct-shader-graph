@@ -6247,16 +6247,17 @@ class BlueprintSystem {
 
   onKeyDown(e) {
     // Ignore if typing in input fields
+    const activeElement = document.activeElement;
     if (
-      document.activeElement.tagName === "INPUT" ||
-      document.activeElement.tagName === "TEXTAREA"
+      activeElement?.tagName === "INPUT" ||
+      activeElement?.tagName === "TEXTAREA"
     ) {
       return;
     }
 
     // Ignore if typing in CodeMirror editor
     // CodeMirror uses contenteditable divs with cm-content or cm-editor class
-    if (document.activeElement?.closest('.cm-content, .cm-editor')) {
+    if (activeElement?.closest('.cm-content, .cm-editor')) {
       return;
     }
 
