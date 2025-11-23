@@ -29,5 +29,6 @@ export const UniformColorNode = new NodeType(
     },
   },
   "Input",
-  ["uniform", "parameter", "variable", "color", "rgb"]
+  ["uniform", "parameter", "variable", "color", "rgb"],
+  true // noTranslation
 );

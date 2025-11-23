@@ -29,5 +29,6 @@ export const UniformFloatNode = new NodeType(
     },
   },
   "Input",
-  ["uniform", "parameter", "variable", "float"]
+  ["uniform", "parameter", "variable", "float"],
+  true // noTranslation
 );

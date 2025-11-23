@@ -7,7 +7,8 @@ export class NodeType {
     color = "#3a3a3a",
     shaderCode = {},
     category = "Misc",
-    tags = []
+    tags = [],
+    noTranslation = false
   ) {
     this.name = name;
     this.inputs = inputs; // Array of {name, type}
@@ -15,6 +16,7 @@ export class NodeType {
     this.color = color;
     this.category = category; // Category for grouping in search
     this.tags = tags; // Additional search tags
+    this.noTranslation = noTranslation; // Disable translation for port names
 
     // Shader code for different targets
     // Each target has { dependency: string, execution: function }

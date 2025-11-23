@@ -91,7 +91,10 @@ class Port {
     this.radius = 8;
     this.portType = portDef.type; // The data type (float, vector, etc.)
     this.name = portDef.name; // Original name for logic
-    this.displayName = languageManager.getPortDisplayName(portDef.name); // Translated name for display
+    // Only translate port name if noTranslation is not set on the node type
+    this.displayName = node.nodeType.noTranslation 
+      ? portDef.name 
+      : languageManager.getPortDisplayName(portDef.name); // Translated name for display
 
     // Store value for editable input ports
     // Custom types are never editable as their type can change dynamically
@@ -912,7 +915,10 @@ class BlueprintSystem {
       node.displayTitle = languageManager.getNodeName(node.title);
       // Update port display names
       node.getAllPorts().forEach((port) => {
-        port.displayName = languageManager.getPortDisplayName(port.name);
+        // Skip translation if noTranslation is set on the node type
+        port.displayName = node.nodeType.noTranslation
+          ? port.name
+          : languageManager.getPortDisplayName(port.name);
       });
     });
 
