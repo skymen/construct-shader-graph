@@ -774,8 +774,8 @@ class Wire {
 // Comment constants
 const COMMENT_BACKGROUND_OPACITY = "33"; // 0x33 = 51 decimal, ~20% opacity (51/255)
 const COMMENT_TITLE_OPACITY = "66"; // 0x66 = 102 decimal, ~40% opacity (102/255)
-const COMMENT_HANDLE_OPACITY = "aa"; // 0xaa = 170 decimal, ~67% opacity (170/255)
-const COMMENT_TITLE_HEIGHT = 30;
+const COMMENT_HANDLE_OPACITY = "ff"; // 0xaa = 170 decimal, ~67% opacity (170/255)
+const COMMENT_TITLE_HEIGHT = 31;
 const COMMENT_TEXT_MARGIN = 20;
 const COMMENT_DRAG_HANDLE_SIZE = 24; // Size of the drag handle icon
 
@@ -801,8 +801,8 @@ class Comment {
     return {
       x: this.x + this.width - this.resizeHandleSize,
       y: this.y + this.height - this.resizeHandleSize,
-      width: this.resizeHandleSize,
-      height: this.resizeHandleSize,
+      width: this.resizeHandleSize + 1,
+      height: this.resizeHandleSize + 1,
     };
   }
 
@@ -9999,12 +9999,15 @@ class BlueprintSystem {
     // Draw drag handle icon at top left
     const dragHandleBounds = comment.getDragHandleBounds();
     ctx.fillStyle = comment.color + COMMENT_HANDLE_OPACITY;
-    ctx.fillRect(
+    ctx.beginPath();
+    ctx.roundRect(
       dragHandleBounds.x,
       dragHandleBounds.y,
       dragHandleBounds.width,
-      dragHandleBounds.height
+      dragHandleBounds.height,
+      4
     );
+    ctx.fill();
 
     // Draw drag handle grip lines
     ctx.strokeStyle = "#ffffff";
@@ -10069,12 +10072,15 @@ class BlueprintSystem {
     // Draw resize handle
     const handleBounds = comment.getResizeHandleBounds();
     ctx.fillStyle = comment.color + COMMENT_HANDLE_OPACITY;
-    ctx.fillRect(
+    ctx.beginPath();
+    ctx.roundRect(
       handleBounds.x,
       handleBounds.y,
       handleBounds.width,
-      handleBounds.height
+      handleBounds.height,
+      [3, 0, 3, 0]
     );
+    ctx.fill();
 
     // Draw resize icon
     ctx.strokeStyle = "#ffffff";
