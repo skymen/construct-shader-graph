@@ -6254,6 +6254,16 @@ class BlueprintSystem {
       return;
     }
 
+    // Ignore if typing in CodeMirror editor
+    // CodeMirror uses contenteditable divs with cm-content class
+    let element = document.activeElement;
+    while (element) {
+      if (element.classList && (element.classList.contains('cm-content') || element.classList.contains('cm-editor'))) {
+        return;
+      }
+      element = element.parentElement;
+    }
+
     // Ctrl/Cmd + Z: Undo (without Shift)
     if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
       e.preventDefault();
