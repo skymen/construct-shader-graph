@@ -91,8 +91,8 @@ class Port {
     this.radius = 8;
     this.portType = portDef.type; // The data type (float, vector, etc.)
     this.name = portDef.name; // Original name for logic
-    // Only translate port name if noTranslation is not set on the node type
-    this.displayName = node.nodeType.noTranslation 
+    // Only translate port name if noTranslation.ports is not set on the node type
+    this.displayName = node.nodeType.noTranslation?.ports 
       ? portDef.name 
       : languageManager.getPortDisplayName(portDef.name); // Translated name for display
 
@@ -351,7 +351,10 @@ class Node {
     this.y = y;
     this.nodeType = nodeType;
     this.title = nodeType.name; // Keep original name for logic
-    this.displayTitle = languageManager.getNodeName(nodeType.name); // Translated name for display
+    // Only translate node name if noTranslation.name is not set
+    this.displayTitle = nodeType.noTranslation?.name
+      ? nodeType.name
+      : languageManager.getNodeName(nodeType.name); // Translated name for display
     this.headerColor = nodeType.color;
     this.isSelected = false;
 
@@ -912,11 +915,14 @@ class BlueprintSystem {
   onLanguageChanged() {
     // Update all existing nodes with new translations
     this.nodes.forEach((node) => {
-      node.displayTitle = languageManager.getNodeName(node.title);
+      // Skip node name translation if noTranslation.name is set
+      node.displayTitle = node.nodeType.noTranslation?.name
+        ? node.title
+        : languageManager.getNodeName(node.title);
       // Update port display names
       node.getAllPorts().forEach((port) => {
-        // Skip translation if noTranslation is set on the node type
-        port.displayName = node.nodeType.noTranslation
+        // Skip port translation if noTranslation.ports is set on the node type
+        port.displayName = node.nodeType.noTranslation?.ports
           ? port.name
           : languageManager.getPortDisplayName(port.name);
       });

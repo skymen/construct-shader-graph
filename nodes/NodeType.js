@@ -16,7 +16,25 @@ export class NodeType {
     this.color = color;
     this.category = category; // Category for grouping in search
     this.tags = tags; // Additional search tags
-    this.noTranslation = noTranslation; // Disable translation for port names
+    
+    // Normalize noTranslation to an object with name and ports properties
+    // Supports: boolean (applies to both) or { name: boolean, ports: boolean }
+    if (typeof noTranslation === "boolean") {
+      this.noTranslation = {
+        name: noTranslation,
+        ports: noTranslation,
+      };
+    } else if (typeof noTranslation === "object" && noTranslation !== null) {
+      this.noTranslation = {
+        name: noTranslation.name ?? false,
+        ports: noTranslation.ports ?? false,
+      };
+    } else {
+      this.noTranslation = {
+        name: false,
+        ports: false,
+      };
+    }
 
     // Shader code for different targets
     // Each target has { dependency: string, execution: function }
