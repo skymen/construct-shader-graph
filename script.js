@@ -771,6 +771,11 @@ class Wire {
   }
 }
 
+// Comment opacity constants
+const COMMENT_BACKGROUND_OPACITY = '33'; // 20% opacity
+const COMMENT_TITLE_OPACITY = '66'; // 40% opacity
+const COMMENT_HANDLE_OPACITY = 'aa'; // 66% opacity
+
 class Comment {
   constructor(x, y, width, height, id) {
     this.id = id;
@@ -784,8 +789,6 @@ class Comment {
     this.isDragging = false;
     this.isResizing = false;
     this.isSelected = false;
-    this.isEditingTitle = false;
-    this.isEditingDescription = false;
     
     // Resize handle dimensions
     this.resizeHandleSize = 12;
@@ -9923,7 +9926,7 @@ class BlueprintSystem {
     const ctx = this.ctx;
 
     // Semi-transparent background
-    ctx.fillStyle = comment.color + "33"; // Add alpha (20% opacity)
+    ctx.fillStyle = comment.color + COMMENT_BACKGROUND_OPACITY;
     ctx.strokeStyle = comment.isSelected ? "#6ab0ff" : comment.color;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -9932,7 +9935,7 @@ class BlueprintSystem {
     ctx.stroke();
 
     // Title bar background (slightly more opaque)
-    ctx.fillStyle = comment.color + "66"; // 40% opacity
+    ctx.fillStyle = comment.color + COMMENT_TITLE_OPACITY;
     ctx.beginPath();
     ctx.roundRect(comment.x, comment.y, comment.width, 30, [8, 8, 0, 0]);
     ctx.fill();
@@ -9980,7 +9983,7 @@ class BlueprintSystem {
 
     // Draw resize handle
     const handleBounds = comment.getResizeHandleBounds();
-    ctx.fillStyle = comment.color + "aa"; // 66% opacity
+    ctx.fillStyle = comment.color + COMMENT_HANDLE_OPACITY;
     ctx.fillRect(
       handleBounds.x,
       handleBounds.y,
