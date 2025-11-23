@@ -6257,7 +6257,7 @@ class BlueprintSystem {
     // Ignore if typing in CodeMirror editor
     // CodeMirror uses contenteditable divs with cm-content class
     let element = document.activeElement;
-    while (element) {
+    while (element && element !== document.body) {
       if (element.classList && (element.classList.contains('cm-content') || element.classList.contains('cm-editor'))) {
         return;
       }
