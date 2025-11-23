@@ -772,10 +772,11 @@ class Wire {
 }
 
 // Comment constants
-const COMMENT_BACKGROUND_OPACITY = '33'; // ~20% opacity (51/255)
-const COMMENT_TITLE_OPACITY = '66'; // ~40% opacity (102/255)
-const COMMENT_HANDLE_OPACITY = 'aa'; // ~67% opacity (170/255)
+const COMMENT_BACKGROUND_OPACITY = '33'; // 0x33 = 51 decimal, ~20% opacity (51/255)
+const COMMENT_TITLE_OPACITY = '66'; // 0x66 = 102 decimal, ~40% opacity (102/255)
+const COMMENT_HANDLE_OPACITY = 'aa'; // 0xaa = 170 decimal, ~67% opacity (170/255)
 const COMMENT_TITLE_HEIGHT = 30;
+const COMMENT_TEXT_MARGIN = 20;
 
 class Comment {
   constructor(x, y, width, height, id) {
@@ -9954,7 +9955,7 @@ class BlueprintSystem {
       ctx.textAlign = "left";
       
       // Word wrap the description
-      const maxWidth = comment.width - 20;
+      const maxWidth = comment.width - COMMENT_TEXT_MARGIN;
       const lineHeight = 16;
       const words = comment.description.split(" ");
       let line = "";
@@ -9970,14 +9971,14 @@ class BlueprintSystem {
           y += lineHeight;
           
           // Stop if we run out of space
-          if (y > comment.y + comment.height - 20) break;
+          if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
         } else {
           line = testLine;
         }
       }
       
       // Draw the last line
-      if (y <= comment.y + comment.height - 20) {
+      if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
         ctx.fillText(line, comment.x + 10, y);
       }
     }
