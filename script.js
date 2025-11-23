@@ -2200,9 +2200,15 @@ class BlueprintSystem {
       });
 
     this.commentModal.addEventListener("mousedown", (e) => {
+      // Only close if clicking on the modal backdrop, not on color picker elements
       if (e.target === this.commentModal) {
         this.hideCommentModal();
       }
+    });
+
+    // Prevent modal from closing when color picker is open
+    this.commentColorInput.addEventListener("click", (e) => {
+      e.stopPropagation();
     });
 
     this.commentTitleInput.addEventListener("keydown", (e) => {

@@ -1258,6 +1258,11 @@ body {
   display: flex;
   gap: 10px;
   align-items: center;
+  pointer-events: all;
+}
+
+.color-input-label {
+  pointer-events: all;
 }
 
 .color-input-wrapper input[type="color"] {
