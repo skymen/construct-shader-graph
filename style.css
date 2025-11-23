@@ -1243,13 +1243,40 @@ body {
 }
 
 .uniform-modal-content input,
-.uniform-modal-content select {
+.uniform-modal-content select,
+.uniform-modal-content textarea {
   background: #1a1a1a;
   border: 1px solid #4a4a4a;
   color: #fff;
   padding: 10px;
   border-radius: 5px;
   font-size: 14px;
+  font-family: inherit;
+}
+
+.color-input-wrapper {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  pointer-events: all;
+}
+
+.color-input-label {
+  pointer-events: all;
+}
+
+.color-input-wrapper input[type="color"] {
+  width: 60px;
+  height: 40px;
+  padding: 2px;
+  cursor: pointer;
+  border: 2px solid #4a4a4a;
+}
+
+.color-input-wrapper input[type="text"] {
+  flex: 1;
+  font-family: 'Courier New', monospace;
+  text-transform: uppercase;
 }
 
 .uniform-modal-buttons {

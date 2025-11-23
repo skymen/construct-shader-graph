@@ -92,8 +92,8 @@ class Port {
     this.portType = portDef.type; // The data type (float, vector, etc.)
     this.name = portDef.name; // Original name for logic
     // Only translate port name if noTranslation.ports is not set on the node type
-    this.displayName = node.nodeType.noTranslation?.ports 
-      ? portDef.name 
+    this.displayName = node.nodeType.noTranslation?.ports
+      ? portDef.name
       : languageManager.getPortDisplayName(portDef.name); // Translated name for display
 
     // Store value for editable input ports
@@ -771,13 +771,112 @@ class Wire {
   }
 }
 
+// Comment constants
+const COMMENT_BACKGROUND_OPACITY = "33"; // 0x33 = 51 decimal, ~20% opacity (51/255)
+const COMMENT_TITLE_OPACITY = "66"; // 0x66 = 102 decimal, ~40% opacity (102/255)
+const COMMENT_HANDLE_OPACITY = "ff"; // 0xaa = 170 decimal, ~67% opacity (170/255)
+const COMMENT_TITLE_HEIGHT = 31;
+const COMMENT_TEXT_MARGIN = 20;
+const COMMENT_DRAG_HANDLE_SIZE = 24; // Size of the drag handle icon
+
+class Comment {
+  constructor(x, y, width, height, id) {
+    this.id = id;
+    this.x = x;
+    this.y = y;
+    this.width = width;
+    this.height = height;
+    this.title = "Comment";
+    this.description = "";
+    this.color = "#4a90e2"; // Default blue color
+    this.isDragging = false;
+    this.isResizing = false;
+    this.isSelected = false;
+
+    // Resize handle dimensions
+    this.resizeHandleSize = 12;
+  }
+
+  getResizeHandleBounds() {
+    return {
+      x: this.x + this.width - this.resizeHandleSize,
+      y: this.y + this.height - this.resizeHandleSize,
+      width: this.resizeHandleSize + 1,
+      height: this.resizeHandleSize + 1,
+    };
+  }
+
+  getDragHandleBounds() {
+    // Small drag handle at the top left corner
+    return {
+      x: this.x + 4,
+      y: this.y + 4,
+      width: COMMENT_DRAG_HANDLE_SIZE,
+      height: COMMENT_DRAG_HANDLE_SIZE,
+    };
+  }
+
+  isPointInResizeHandle(px, py) {
+    const bounds = this.getResizeHandleBounds();
+    return (
+      px >= bounds.x &&
+      px <= bounds.x + bounds.width &&
+      py >= bounds.y &&
+      py <= bounds.y + bounds.height
+    );
+  }
+
+  isPointInDragHandle(px, py) {
+    const bounds = this.getDragHandleBounds();
+    return (
+      px >= bounds.x &&
+      px <= bounds.x + bounds.width &&
+      py >= bounds.y &&
+      py <= bounds.y + bounds.height
+    );
+  }
+
+  isPointInside(px, py) {
+    return (
+      px >= this.x &&
+      px <= this.x + this.width &&
+      py >= this.y &&
+      py <= this.y + this.height
+    );
+  }
+
+  containsNode(node) {
+    // Check if node is within comment bounds
+    const nodeCenterX = node.x + node.width / 2;
+    const nodeCenterY = node.y + node.height / 2;
+    return (
+      nodeCenterX >= this.x &&
+      nodeCenterX <= this.x + this.width &&
+      nodeCenterY >= this.y &&
+      nodeCenterY <= this.y + this.height
+    );
+  }
+
+  containsRerouteNode(rerouteNode) {
+    // Check if reroute node is within comment bounds
+    return (
+      rerouteNode.x >= this.x &&
+      rerouteNode.x <= this.x + this.width &&
+      rerouteNode.y >= this.y &&
+      rerouteNode.y <= this.y + this.height
+    );
+  }
+}
+
 class BlueprintSystem {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.nodes = [];
     this.wires = [];
+    this.comments = [];
     this.nodeIdCounter = 1;
+    this.commentIdCounter = 1;
 
     // Debug state
     this.debugBoundingBoxes = false;
@@ -787,6 +886,8 @@ class BlueprintSystem {
     this.activeWire = null;
     this.hoveredPort = null;
     this.draggedRerouteNode = null;
+    this.draggedComment = null;
+    this.resizingComment = null;
     this.lastClickTime = 0;
     this.lastClickPos = { x: 0, y: 0 };
     this.editingPort = null;
@@ -1304,6 +1405,9 @@ class BlueprintSystem {
     const uniformModalH3 = document.querySelector("#uniformModal h3");
     if (uniformModalH3) uniformModalH3.textContent = t("Add Uniform");
 
+    const commentModalH3 = document.querySelector("#commentModal h3");
+    if (commentModalH3) commentModalH3.textContent = t("Edit Comment");
+
     const uniformNameLabel = document.querySelector(
       "label:has(#uniformNameInput)"
     );
@@ -1354,6 +1458,12 @@ class BlueprintSystem {
 
     const uniformModalAdd = document.getElementById("uniformModalAdd");
     if (uniformModalAdd) uniformModalAdd.textContent = t("Add");
+
+    const commentModalCancel = document.getElementById("commentModalCancel");
+    if (commentModalCancel) commentModalCancel.textContent = t("Cancel");
+
+    const commentModalSave = document.getElementById("commentModalSave");
+    if (commentModalSave) commentModalSave.textContent = t("Save");
 
     // View Code Modal
     const viewCodeModalH2 = document.querySelector("#viewCodeModal h2");
@@ -2054,6 +2164,59 @@ class BlueprintSystem {
       }
     });
 
+    // Comment modal
+    this.commentModal = document.getElementById("commentModal");
+    this.commentTitleInput = document.getElementById("commentTitleInput");
+    this.commentDescriptionInput = document.getElementById(
+      "commentDescriptionInput"
+    );
+    this.commentColorInput = document.getElementById("commentColorInput");
+    this.commentColorText = document.getElementById("commentColorText");
+    this.editingComment = null;
+
+    // Sync color picker and text input
+    this.commentColorInput.addEventListener("input", (e) => {
+      this.commentColorText.value = e.target.value.toUpperCase();
+    });
+
+    this.commentColorText.addEventListener("input", (e) => {
+      const value = e.target.value;
+      // Validate hex color
+      if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
+        this.commentColorInput.value = value;
+      }
+    });
+
+    document
+      .getElementById("commentModalCancel")
+      .addEventListener("click", () => {
+        this.hideCommentModal();
+      });
+
+    document
+      .getElementById("commentModalSave")
+      .addEventListener("click", () => {
+        this.saveCommentEdit();
+      });
+
+    this.commentModal.addEventListener("mousedown", (e) => {
+      // Only close if clicking on the modal backdrop, not on color picker elements
+      if (e.target === this.commentModal) {
+        this.hideCommentModal();
+      }
+    });
+
+    // Prevent modal from closing when color picker is open
+    this.commentColorInput.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+
+    this.commentTitleInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        this.hideCommentModal();
+      }
+    });
+
     // View Code Modal handlers
     const viewCodeModal = document.getElementById("viewCodeModal");
 
@@ -2128,6 +2291,37 @@ class BlueprintSystem {
 
   hideUniformModal() {
     this.uniformModal.classList.remove("visible");
+  }
+
+  showCommentModal(comment) {
+    this.editingComment = comment;
+    this.commentTitleInput.value = comment.title;
+    this.commentDescriptionInput.value = comment.description;
+    this.commentColorInput.value = comment.color;
+    this.commentColorText.value = comment.color.toUpperCase();
+    this.commentModal.classList.add("visible");
+    setTimeout(() => this.commentTitleInput.focus(), 0);
+  }
+
+  hideCommentModal() {
+    this.commentModal.classList.remove("visible");
+    this.editingComment = null;
+  }
+
+  saveCommentEdit() {
+    if (!this.editingComment) return;
+
+    const title = this.commentTitleInput.value.trim() || "Comment";
+    const description = this.commentDescriptionInput.value.trim();
+    const color = this.commentColorInput.value;
+
+    this.editingComment.title = title;
+    this.editingComment.description = description;
+    this.editingComment.color = color;
+
+    this.history.pushState("Edit comment");
+    this.hideCommentModal();
+    this.render();
   }
 
   addUniform() {
@@ -5431,6 +5625,50 @@ class BlueprintSystem {
       });
 
       this.searchResults.appendChild(createCustomBtn);
+
+      // Add "Add Comment" button
+      const addCommentBtn = document.createElement("div");
+      addCommentBtn.className = "search-result-item add-comment-btn";
+      addCommentBtn.tabIndex = 0;
+
+      const commentIconDiv = document.createElement("div");
+      commentIconDiv.className = "search-result-color";
+      commentIconDiv.style.background = "transparent";
+      commentIconDiv.style.display = "flex";
+      commentIconDiv.style.alignItems = "center";
+      commentIconDiv.style.justifyContent = "center";
+      commentIconDiv.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M9,22A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22H9M10,16V19.08L13.08,16H20V4H4V16H10Z" />
+        </svg>
+      `;
+      addCommentBtn.appendChild(commentIconDiv);
+
+      const commentNameDiv = document.createElement("div");
+      commentNameDiv.className = "search-result-name";
+      commentNameDiv.textContent = languageManager.getUIText("Add Comment");
+      commentNameDiv.style.fontWeight = "bold";
+      addCommentBtn.appendChild(commentNameDiv);
+
+      addCommentBtn.addEventListener("click", () => {
+        this.hideSearchMenu();
+        this.createComment(
+          this.searchMenuPosition.x,
+          this.searchMenuPosition.y
+        );
+      });
+
+      addCommentBtn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          this.hideSearchMenu();
+          this.createComment(
+            this.searchMenuPosition.x,
+            this.searchMenuPosition.y
+          );
+        }
+      });
+
+      this.searchResults.appendChild(addCommentBtn);
     }
 
     // Group results by category
@@ -5538,6 +5776,27 @@ class BlueprintSystem {
       noResults.textContent = languageManager.getUIText("No nodes found");
       this.searchResults.appendChild(noResults);
     }
+  }
+
+  createComment(screenX, screenY) {
+    const rect = this.canvas.getBoundingClientRect();
+    // Convert screen coordinates to world coordinates
+    const worldX = (screenX - rect.left - this.camera.x) / this.camera.zoom;
+    const worldY = (screenY - rect.top - this.camera.y) / this.camera.zoom;
+
+    const comment = new Comment(
+      worldX,
+      worldY,
+      300,
+      200,
+      this.commentIdCounter++
+    );
+    this.comments.push(comment);
+
+    // Record state for undo
+    this.history.pushState("Add Comment");
+
+    this.render();
   }
 
   selectNodeType(key, nodeType) {
@@ -5818,6 +6077,7 @@ class BlueprintSystem {
   clearSelection() {
     this.selectedNodes.forEach((node) => (node.isSelected = false));
     this.selectedRerouteNodes.forEach((rn) => (rn.isSelected = false));
+    this.comments.forEach((comment) => (comment.isSelected = false));
     this.selectedNodes.clear();
     this.selectedRerouteNodes.clear();
 
@@ -5870,6 +6130,20 @@ class BlueprintSystem {
   }
 
   deleteSelected() {
+    // Delete selected comments first
+    const commentsToDelete = this.comments.filter((c) => c.isSelected);
+    if (commentsToDelete.length > 0) {
+      commentsToDelete.forEach((comment) => {
+        const index = this.comments.indexOf(comment);
+        if (index > -1) {
+          this.comments.splice(index, 1);
+        }
+      });
+      this.history.pushState("Delete comments");
+      this.render();
+      return;
+    }
+
     // Check if preview node is being deleted
     const deletingPreviewNode =
       this.previewNode && this.selectedNodes.has(this.previewNode);
@@ -6269,7 +6543,7 @@ class BlueprintSystem {
 
     // Ignore if typing in CodeMirror editor
     // CodeMirror uses contenteditable divs with cm-content or cm-editor class
-    if (activeElement?.closest('.cm-content, .cm-editor')) {
+    if (activeElement?.closest(".cm-content, .cm-editor")) {
       return;
     }
 
@@ -7782,6 +8056,16 @@ class BlueprintSystem {
         endPortIndex: wire.endPort.node.inputPorts.indexOf(wire.endPort),
         rerouteNodes: wire.rerouteNodes.map((rn) => ({ x: rn.x, y: rn.y })),
       })),
+      comments: this.comments.map((comment) => ({
+        id: comment.id,
+        x: comment.x,
+        y: comment.y,
+        width: comment.width,
+        height: comment.height,
+        title: comment.title,
+        description: comment.description,
+        color: comment.color,
+      })),
       uniforms: JSON.parse(JSON.stringify(this.uniforms)),
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
       shaderSettings: { ...this.shaderSettings },
@@ -7789,6 +8073,7 @@ class BlueprintSystem {
         nodeIdCounter: this.nodeIdCounter,
         uniformIdCounter: this.uniformIdCounter,
         customNodeIdCounter: this.customNodeIdCounter,
+        commentIdCounter: this.commentIdCounter,
       },
     };
   }
@@ -7809,6 +8094,7 @@ class BlueprintSystem {
     // Clear current state
     this.nodes = [];
     this.wires = [];
+    this.comments = [];
     this.selectedNodes.clear();
     this.selectedRerouteNodes.clear();
 
@@ -7816,6 +8102,7 @@ class BlueprintSystem {
     this.nodeIdCounter = stateData.counters.nodeIdCounter;
     this.uniformIdCounter = stateData.counters.uniformIdCounter;
     this.customNodeIdCounter = stateData.counters.customNodeIdCounter;
+    this.commentIdCounter = stateData.counters.commentIdCounter || 1;
 
     // Restore uniforms and custom nodes
     this.uniforms = JSON.parse(JSON.stringify(stateData.uniforms));
@@ -7883,6 +8170,23 @@ class BlueprintSystem {
         }
       }
     });
+
+    // Restore comments
+    if (stateData.comments) {
+      stateData.comments.forEach((commentData) => {
+        const comment = new Comment(
+          commentData.x,
+          commentData.y,
+          commentData.width,
+          commentData.height,
+          commentData.id
+        );
+        comment.title = commentData.title;
+        comment.description = commentData.description;
+        comment.color = commentData.color;
+        this.comments.push(comment);
+      });
+    }
 
     // After all wires are restored, update editability for all ports
     this.nodes.forEach((node) => {
@@ -8608,6 +8912,103 @@ class BlueprintSystem {
       return;
     }
 
+    // Check if clicking on a comment (from top to bottom for proper layering)
+    for (let i = this.comments.length - 1; i >= 0; i--) {
+      const comment = this.comments[i];
+
+      // Check resize handle first
+      if (comment.isPointInResizeHandle(pos.x, pos.y)) {
+        this.resizingComment = comment;
+        comment.isResizing = true;
+        comment.resizeStartWidth = comment.width;
+        comment.resizeStartHeight = comment.height;
+        comment.resizeStartX = pos.x;
+        comment.resizeStartY = pos.y;
+
+        if (!isMultiSelect) {
+          // Deselect all and select this comment
+          this.clearSelection();
+          comment.isSelected = true;
+        }
+        this.render();
+        return;
+      }
+
+      // Check drag handle (small icon at top left) - drags ONLY the comment (without nodes)
+      if (comment.isPointInDragHandle(pos.x, pos.y)) {
+        this.draggedComment = comment;
+        comment.isDragging = true;
+        comment.dragOffsetX = pos.x - comment.x;
+        comment.dragOffsetY = pos.y - comment.y;
+
+        if (!isMultiSelect) {
+          // Deselect all and select this comment
+          this.clearSelection();
+          comment.isSelected = true;
+        }
+
+        // Don't set containedNodes - we only want to drag the comment box itself
+        comment.containedNodes = [];
+        comment.containedRerouteNodes = [];
+
+        this.render();
+        return;
+      }
+
+      // Check if clicking in the title bar (but not on drag handle)
+      const inTitleBar =
+        pos.x >= comment.x &&
+        pos.x <= comment.x + comment.width &&
+        pos.y >= comment.y &&
+        pos.y <= comment.y + COMMENT_TITLE_HEIGHT;
+
+      if (inTitleBar) {
+        // Check for double-click to edit
+        if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+          this.showCommentModal(comment);
+          return;
+        }
+
+        // Handle selection with Shift/Cmd key
+        if (isMultiSelect) {
+          comment.isSelected = !comment.isSelected;
+          this.render();
+          return;
+        }
+
+        // Regular click on title bar - drag comment WITH all contained nodes
+        this.draggedComment = comment;
+        comment.isDragging = true;
+        comment.dragOffsetX = pos.x - comment.x;
+        comment.dragOffsetY = pos.y - comment.y;
+
+        if (!isMultiSelect) {
+          // Deselect all and select this comment
+          this.clearSelection();
+          comment.isSelected = true;
+        }
+
+        // Find all nodes and reroute nodes contained in this comment
+        comment.containedNodes = this.nodes.filter((n) =>
+          comment.containsNode(n)
+        );
+        comment.containedRerouteNodes = [];
+        this.wires.forEach((wire) => {
+          wire.rerouteNodes.forEach((rn) => {
+            if (comment.containsRerouteNode(rn)) {
+              comment.containedRerouteNodes.push(rn);
+            }
+          });
+        });
+
+        this.render();
+        return;
+      }
+
+      // For clicks inside the comment body (not title bar or handles),
+      // don't intercept - let them fall through to node/box selection logic below
+    }
+
     // Check if clicking on a node
     const node = this.findNodeAtPosition(pos.x, pos.y);
     if (node) {
@@ -8720,6 +9121,8 @@ class BlueprintSystem {
     const isDragging =
       this.draggedNode ||
       this.draggedRerouteNode ||
+      this.draggedComment ||
+      this.resizingComment ||
       this.activeWire ||
       this.isBoxSelecting;
     if (isDragging) {
@@ -8774,6 +9177,50 @@ class BlueprintSystem {
           }
         });
       });
+
+      this.render();
+      return;
+    }
+
+    // Resize comment
+    if (this.resizingComment) {
+      const comment = this.resizingComment;
+      const deltaX = pos.x - comment.resizeStartX;
+      const deltaY = pos.y - comment.resizeStartY;
+
+      // Update size with minimum constraints
+      comment.width = Math.max(150, comment.resizeStartWidth + deltaX);
+      comment.height = Math.max(100, comment.resizeStartHeight + deltaY);
+
+      this.render();
+      return;
+    }
+
+    // Drag comment and its contained nodes/reroute nodes
+    if (this.draggedComment) {
+      const comment = this.draggedComment;
+      const deltaX = pos.x - comment.dragOffsetX - comment.x;
+      const deltaY = pos.y - comment.dragOffsetY - comment.y;
+
+      // Move comment
+      comment.x = pos.x - comment.dragOffsetX;
+      comment.y = pos.y - comment.dragOffsetY;
+
+      // Move contained nodes
+      if (comment.containedNodes) {
+        comment.containedNodes.forEach((node) => {
+          node.x += deltaX;
+          node.y += deltaY;
+        });
+      }
+
+      // Move contained reroute nodes
+      if (comment.containedRerouteNodes) {
+        comment.containedRerouteNodes.forEach((rn) => {
+          rn.x += deltaX;
+          rn.y += deltaY;
+        });
+      }
 
       this.render();
       return;
@@ -8852,11 +9299,46 @@ class BlueprintSystem {
       if (overValueBox) {
         this.canvas.style.cursor = "text";
       } else {
-        const node = this.findNodeAtPosition(pos.x, pos.y);
-        if (node && node.isPointInHeader(pos.x, pos.y)) {
-          this.canvas.style.cursor = "move";
-        } else {
-          this.canvas.style.cursor = "default";
+        // Check if hovering over comment handles
+        let overCommentHandle = false;
+        for (let i = this.comments.length - 1; i >= 0; i--) {
+          const comment = this.comments[i];
+
+          // Check resize handle
+          if (comment.isPointInResizeHandle(pos.x, pos.y)) {
+            this.canvas.style.cursor = "nwse-resize";
+            overCommentHandle = true;
+            break;
+          }
+
+          // Check drag handle
+          if (comment.isPointInDragHandle(pos.x, pos.y)) {
+            this.canvas.style.cursor = "move";
+            overCommentHandle = true;
+            break;
+          }
+
+          // Check title bar
+          const inTitleBar =
+            pos.x >= comment.x &&
+            pos.x <= comment.x + comment.width &&
+            pos.y >= comment.y &&
+            pos.y <= comment.y + COMMENT_TITLE_HEIGHT;
+
+          if (inTitleBar) {
+            this.canvas.style.cursor = "move";
+            overCommentHandle = true;
+            break;
+          }
+        }
+
+        if (!overCommentHandle) {
+          const node = this.findNodeAtPosition(pos.x, pos.y);
+          if (node && node.isPointInHeader(pos.x, pos.y)) {
+            this.canvas.style.cursor = "move";
+          } else {
+            this.canvas.style.cursor = "default";
+          }
         }
       }
     }
@@ -9058,6 +9540,22 @@ class BlueprintSystem {
       this.boxSelectEnd = null;
     }
 
+    // Stop resizing comment
+    if (this.resizingComment) {
+      this.resizingComment.isResizing = false;
+      this.resizingComment = null;
+      this.history.pushState("Resize comment");
+    }
+
+    // Stop dragging comment
+    if (this.draggedComment) {
+      this.draggedComment.isDragging = false;
+      this.draggedComment.containedNodes = null;
+      this.draggedComment.containedRerouteNodes = null;
+      this.draggedComment = null;
+      this.history.pushState("Move comment");
+    }
+
     // Stop dragging reroute node
     if (this.draggedRerouteNode) {
       this.draggedRerouteNode.isDragging = false;
@@ -9084,6 +9582,18 @@ class BlueprintSystem {
   onContextMenu(e) {
     e.preventDefault(); // Prevent default context menu
     const pos = this.getMousePos(e);
+
+    // Check if right-clicking on a comment
+    for (let i = this.comments.length - 1; i >= 0; i--) {
+      const comment = this.comments[i];
+      if (
+        comment.isPointInside(pos.x, pos.y) &&
+        !comment.isPointInResizeHandle(pos.x, pos.y)
+      ) {
+        this.showCommentModal(comment);
+        return;
+      }
+    }
 
     // Check if right-clicking on a reroute node
     const rerouteNode = this.findRerouteNodeAtPosition(pos.x, pos.y);
@@ -9521,6 +10031,127 @@ class BlueprintSystem {
     }
   }
 
+  drawComment(comment) {
+    const ctx = this.ctx;
+
+    // Semi-transparent background
+    ctx.fillStyle = comment.color + COMMENT_BACKGROUND_OPACITY;
+    ctx.strokeStyle = comment.isSelected ? "#6ab0ff" : comment.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(comment.x, comment.y, comment.width, comment.height, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    // Title bar background (slightly more opaque)
+    ctx.fillStyle = comment.color + COMMENT_TITLE_OPACITY;
+    ctx.beginPath();
+    ctx.roundRect(
+      comment.x,
+      comment.y,
+      comment.width,
+      COMMENT_TITLE_HEIGHT,
+      [8, 8, 0, 0]
+    );
+    ctx.fill();
+
+    // Draw drag handle icon at top left
+    const dragHandleBounds = comment.getDragHandleBounds();
+    ctx.fillStyle = comment.color + COMMENT_HANDLE_OPACITY;
+    ctx.beginPath();
+    ctx.roundRect(
+      dragHandleBounds.x,
+      dragHandleBounds.y,
+      dragHandleBounds.width,
+      dragHandleBounds.height,
+      4
+    );
+    ctx.fill();
+
+    // Draw drag handle grip lines
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    const gripY1 = dragHandleBounds.y + 7;
+    const gripY2 = dragHandleBounds.y + 12;
+    const gripY3 = dragHandleBounds.y + 17;
+    const gripX1 = dragHandleBounds.x + 6;
+    const gripX2 = dragHandleBounds.x + 18;
+
+    ctx.beginPath();
+    ctx.moveTo(gripX1, gripY1);
+    ctx.lineTo(gripX2, gripY1);
+    ctx.moveTo(gripX1, gripY2);
+    ctx.lineTo(gripX2, gripY2);
+    ctx.moveTo(gripX1, gripY3);
+    ctx.lineTo(gripX2, gripY3);
+    ctx.stroke();
+
+    // Title text (offset to make room for drag handle)
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(comment.title, comment.x + 35, comment.y + 20);
+
+    // Description text
+    if (comment.description) {
+      ctx.fillStyle = "#cccccc";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "left";
+
+      // Word wrap the description
+      const maxWidth = comment.width - COMMENT_TEXT_MARGIN;
+      const lineHeight = 16;
+      const words = comment.description.split(" ");
+      let line = "";
+      let y = comment.y + 50;
+
+      for (let i = 0; i < words.length; i++) {
+        const testLine = line + words[i] + " ";
+        const metrics = ctx.measureText(testLine);
+
+        if (metrics.width > maxWidth && i > 0) {
+          ctx.fillText(line, comment.x + 10, y);
+          line = words[i] + " ";
+          y += lineHeight;
+
+          // Stop if we run out of space
+          if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
+        } else {
+          line = testLine;
+        }
+      }
+
+      // Draw the last line
+      if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
+        ctx.fillText(line, comment.x + 10, y);
+      }
+    }
+
+    // Draw resize handle
+    const handleBounds = comment.getResizeHandleBounds();
+    ctx.fillStyle = comment.color + COMMENT_HANDLE_OPACITY;
+    ctx.beginPath();
+    ctx.roundRect(
+      handleBounds.x,
+      handleBounds.y,
+      handleBounds.width,
+      handleBounds.height,
+      [3, 0, 3, 0]
+    );
+    ctx.fill();
+
+    // Draw resize icon
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(handleBounds.x + 8, handleBounds.y + 4);
+    ctx.lineTo(handleBounds.x + 4, handleBounds.y + 8);
+    ctx.moveTo(handleBounds.x + 10, handleBounds.y + 2);
+    ctx.lineTo(handleBounds.x + 2, handleBounds.y + 10);
+    ctx.stroke();
+  }
+
   drawNode(node) {
     const ctx = this.ctx;
 
@@ -9954,6 +10585,9 @@ class BlueprintSystem {
     // Draw grid
     this.drawGrid();
 
+    // Draw comments (under everything else)
+    this.comments.forEach((comment) => this.drawComment(comment));
+
     // Draw wires
     this.wires.forEach((wire) => this.drawWire(wire));
 
@@ -10068,7 +10702,7 @@ class BlueprintSystem {
   }
 
   getNodesBounds() {
-    if (this.nodes.length === 0) {
+    if (this.nodes.length === 0 && this.comments.length === 0) {
       return { x: 0, y: 0, width: 800, height: 600 };
     }
 
@@ -10077,6 +10711,7 @@ class BlueprintSystem {
     let maxX = -Infinity;
     let maxY = -Infinity;
 
+    // Include nodes in bounds
     this.nodes.forEach((node) => {
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
@@ -10084,7 +10719,15 @@ class BlueprintSystem {
       maxY = Math.max(maxY, node.y + node.height);
     });
 
-    // Add padding around nodes
+    // Include comments in bounds
+    this.comments.forEach((comment) => {
+      minX = Math.min(minX, comment.x);
+      minY = Math.min(minY, comment.y);
+      maxX = Math.max(maxX, comment.x + comment.width);
+      maxY = Math.max(maxY, comment.y + comment.height);
+    });
+
+    // Add padding around content
     const padding = 100;
     minX -= padding;
     minY -= padding;
@@ -10170,7 +10813,24 @@ class BlueprintSystem {
 
     ctx.save();
 
-    // Draw wires/links first (so they appear behind nodes)
+    // Draw comments first (as background)
+    this.comments.forEach((comment) => {
+      const x = (comment.x - bounds.x) * scale + offsetX;
+      const y = (comment.y - bounds.y) * scale + offsetY;
+      const w = comment.width * scale;
+      const h = comment.height * scale;
+
+      // Draw comment background with low opacity
+      ctx.fillStyle = comment.color + "22"; // Very transparent
+      ctx.fillRect(x, y, w, h);
+
+      // Draw comment border
+      ctx.strokeStyle = comment.color + "66"; // Semi-transparent
+      ctx.lineWidth = Math.max(0.5, 1 * scale);
+      ctx.strokeRect(x, y, w, h);
+    });
+
+    // Draw wires/links (so they appear behind nodes but above comments)
     this.wires.forEach((wire) => {
       const points = wire.getPoints();
       if (points.length < 2) return;

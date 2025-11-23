@@ -1,6 +1,8 @@
 {
   "+ Add Uniform": "+ Add Uniform",
   "+ Create Custom Node": "+ Create Custom Node",
+  "Add Comment": "Add Comment",
+  "Comment": "Comment",
   "2D": "2D",
   "3D": "3D",
   "3D Shape": "3D Shape",
@@ -72,6 +74,7 @@
   "Drag to canvas to create node": "Drag to canvas to create node",
   "Drag to reorder or create node": "Drag to reorder or create node",
   "Edit": "Edit",
+  "Edit Comment": "Edit Comment",
   "Edit custom input": "Edit custom input",
   "Edit custom node": "Edit custom node",
   "Edit uniform value": "Edit uniform value",
