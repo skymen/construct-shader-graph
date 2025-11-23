@@ -30,5 +30,5 @@ export const UniformFloatNode = new NodeType(
   },
   "Input",
   ["uniform", "parameter", "variable", "float"],
-  true // noTranslation
+  { name: true, ports: false } // Don't translate node name, but translate ports
 );
