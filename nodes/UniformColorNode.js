@@ -29,5 +29,6 @@ export const UniformColorNode = new NodeType(
     },
   },
   "Input",
-  ["uniform", "parameter", "variable", "color", "rgb"]
+  ["uniform", "parameter", "variable", "color", "rgb"],
+  { name: true, ports: false } // Don't translate node name, but translate ports
 );

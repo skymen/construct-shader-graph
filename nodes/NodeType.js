@@ -7,7 +7,8 @@ export class NodeType {
     color = "#3a3a3a",
     shaderCode = {},
     category = "Misc",
-    tags = []
+    tags = [],
+    noTranslation = false
   ) {
     this.name = name;
     this.inputs = inputs; // Array of {name, type}
@@ -15,6 +16,25 @@ export class NodeType {
     this.color = color;
     this.category = category; // Category for grouping in search
     this.tags = tags; // Additional search tags
+    
+    // Normalize noTranslation to an object with name and ports properties
+    // Supports: boolean (applies to both) or { name: boolean, ports: boolean }
+    if (typeof noTranslation === "boolean") {
+      this.noTranslation = {
+        name: noTranslation,
+        ports: noTranslation,
+      };
+    } else if (typeof noTranslation === "object" && noTranslation !== null) {
+      this.noTranslation = {
+        name: noTranslation.name ?? false,
+        ports: noTranslation.ports ?? false,
+      };
+    } else {
+      this.noTranslation = {
+        name: false,
+        ports: false,
+      };
+    }
 
     // Shader code for different targets
     // Each target has { dependency: string, execution: function }
