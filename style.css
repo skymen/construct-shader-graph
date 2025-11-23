@@ -1243,13 +1243,15 @@ body {
 }
 
 .uniform-modal-content input,
-.uniform-modal-content select {
+.uniform-modal-content select,
+.uniform-modal-content textarea {
   background: #1a1a1a;
   border: 1px solid #4a4a4a;
   color: #fff;
   padding: 10px;
   border-radius: 5px;
   font-size: 14px;
+  font-family: inherit;
 }
 
 .uniform-modal-buttons {

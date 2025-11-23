@@ -92,8 +92,8 @@ class Port {
     this.portType = portDef.type; // The data type (float, vector, etc.)
     this.name = portDef.name; // Original name for logic
     // Only translate port name if noTranslation.ports is not set on the node type
-    this.displayName = node.nodeType.noTranslation?.ports 
-      ? portDef.name 
+    this.displayName = node.nodeType.noTranslation?.ports
+      ? portDef.name
       : languageManager.getPortDisplayName(portDef.name); // Translated name for display
 
     // Store value for editable input ports
@@ -772,11 +772,12 @@ class Wire {
 }
 
 // Comment constants
-const COMMENT_BACKGROUND_OPACITY = '33'; // 0x33 = 51 decimal, ~20% opacity (51/255)
-const COMMENT_TITLE_OPACITY = '66'; // 0x66 = 102 decimal, ~40% opacity (102/255)
-const COMMENT_HANDLE_OPACITY = 'aa'; // 0xaa = 170 decimal, ~67% opacity (170/255)
+const COMMENT_BACKGROUND_OPACITY = "33"; // 0x33 = 51 decimal, ~20% opacity (51/255)
+const COMMENT_TITLE_OPACITY = "66"; // 0x66 = 102 decimal, ~40% opacity (102/255)
+const COMMENT_HANDLE_OPACITY = "aa"; // 0xaa = 170 decimal, ~67% opacity (170/255)
 const COMMENT_TITLE_HEIGHT = 30;
 const COMMENT_TEXT_MARGIN = 20;
+const COMMENT_DRAG_HANDLE_SIZE = 24; // Size of the drag handle icon
 
 class Comment {
   constructor(x, y, width, height, id) {
@@ -791,7 +792,7 @@ class Comment {
     this.isDragging = false;
     this.isResizing = false;
     this.isSelected = false;
-    
+
     // Resize handle dimensions
     this.resizeHandleSize = 12;
   }
@@ -806,12 +807,12 @@ class Comment {
   }
 
   getDragHandleBounds() {
-    // The entire top portion (title area) is the drag handle
+    // Small drag handle at the top left corner
     return {
-      x: this.x,
-      y: this.y,
-      width: this.width,
-      height: COMMENT_TITLE_HEIGHT,
+      x: this.x + 4,
+      y: this.y + 4,
+      width: COMMENT_DRAG_HANDLE_SIZE,
+      height: COMMENT_DRAG_HANDLE_SIZE,
     };
   }
 
@@ -2166,7 +2167,9 @@ class BlueprintSystem {
     // Comment modal
     this.commentModal = document.getElementById("commentModal");
     this.commentTitleInput = document.getElementById("commentTitleInput");
-    this.commentDescriptionInput = document.getElementById("commentDescriptionInput");
+    this.commentDescriptionInput = document.getElementById(
+      "commentDescriptionInput"
+    );
     this.commentColorInput = document.getElementById("commentColorInput");
     this.editingComment = null;
 
@@ -2176,9 +2179,11 @@ class BlueprintSystem {
         this.hideCommentModal();
       });
 
-    document.getElementById("commentModalSave").addEventListener("click", () => {
-      this.saveCommentEdit();
-    });
+    document
+      .getElementById("commentModalSave")
+      .addEventListener("click", () => {
+        this.saveCommentEdit();
+      });
 
     this.commentModal.addEventListener("mousedown", (e) => {
       if (e.target === this.commentModal) {
@@ -5623,13 +5628,19 @@ class BlueprintSystem {
 
       addCommentBtn.addEventListener("click", () => {
         this.hideSearchMenu();
-        this.createComment(this.searchMenuPosition.x, this.searchMenuPosition.y);
+        this.createComment(
+          this.searchMenuPosition.x,
+          this.searchMenuPosition.y
+        );
       });
 
       addCommentBtn.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
           this.hideSearchMenu();
-          this.createComment(this.searchMenuPosition.x, this.searchMenuPosition.y);
+          this.createComment(
+            this.searchMenuPosition.x,
+            this.searchMenuPosition.y
+          );
         }
       });
 
@@ -5749,7 +5760,13 @@ class BlueprintSystem {
     const worldX = (screenX - rect.left - this.camera.x) / this.camera.zoom;
     const worldY = (screenY - rect.top - this.camera.y) / this.camera.zoom;
 
-    const comment = new Comment(worldX, worldY, 300, 200, this.commentIdCounter++);
+    const comment = new Comment(
+      worldX,
+      worldY,
+      300,
+      200,
+      this.commentIdCounter++
+    );
     this.comments.push(comment);
 
     // Record state for undo
@@ -6090,7 +6107,7 @@ class BlueprintSystem {
 
   deleteSelected() {
     // Delete selected comments first
-    const commentsToDelete = this.comments.filter(c => c.isSelected);
+    const commentsToDelete = this.comments.filter((c) => c.isSelected);
     if (commentsToDelete.length > 0) {
       commentsToDelete.forEach((comment) => {
         const index = this.comments.indexOf(comment);
@@ -6502,7 +6519,7 @@ class BlueprintSystem {
 
     // Ignore if typing in CodeMirror editor
     // CodeMirror uses contenteditable divs with cm-content or cm-editor class
-    if (activeElement?.closest('.cm-content, .cm-editor')) {
+    if (activeElement?.closest(".cm-content, .cm-editor")) {
       return;
     }
 
@@ -8874,7 +8891,7 @@ class BlueprintSystem {
     // Check if clicking on a comment (from top to bottom for proper layering)
     for (let i = this.comments.length - 1; i >= 0; i--) {
       const comment = this.comments[i];
-      
+
       // Check resize handle first
       if (comment.isPointInResizeHandle(pos.x, pos.y)) {
         this.resizingComment = comment;
@@ -8883,7 +8900,7 @@ class BlueprintSystem {
         comment.resizeStartHeight = comment.height;
         comment.resizeStartX = pos.x;
         comment.resizeStartY = pos.y;
-        
+
         if (!isMultiSelect) {
           // Deselect all and select this comment
           this.clearSelection();
@@ -8892,52 +8909,80 @@ class BlueprintSystem {
         this.render();
         return;
       }
-      
-      // Check drag handle (title bar)
+
+      // Check drag handle (small icon at top left) - drags ONLY the comment (without nodes)
       if (comment.isPointInDragHandle(pos.x, pos.y)) {
         this.draggedComment = comment;
         comment.isDragging = true;
         comment.dragOffsetX = pos.x - comment.x;
         comment.dragOffsetY = pos.y - comment.y;
-        
+
         if (!isMultiSelect) {
           // Deselect all and select this comment
           this.clearSelection();
           comment.isSelected = true;
         }
-        
-        // Find all nodes and reroute nodes contained in this comment
-        comment.containedNodes = this.nodes.filter(n => comment.containsNode(n));
+
+        // Don't set containedNodes - we only want to drag the comment box itself
+        comment.containedNodes = [];
         comment.containedRerouteNodes = [];
-        this.wires.forEach(wire => {
-          wire.rerouteNodes.forEach(rn => {
-            if (comment.containsRerouteNode(rn)) {
-              comment.containedRerouteNodes.push(rn);
-            }
-          });
-        });
-        
+
         this.render();
         return;
       }
-      
-      // Check if clicking inside comment (for selection or double-click edit)
-      if (comment.isPointInside(pos.x, pos.y)) {
+
+      // Check if clicking in the title bar (but not on drag handle)
+      const inTitleBar =
+        pos.x >= comment.x &&
+        pos.x <= comment.x + comment.width &&
+        pos.y >= comment.y &&
+        pos.y <= comment.y + COMMENT_TITLE_HEIGHT;
+
+      if (inTitleBar) {
         // Check for double-click to edit
         if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
           this.showCommentModal(comment);
           return;
         }
-        
+
+        // Handle selection with Shift/Cmd key
         if (isMultiSelect) {
           comment.isSelected = !comment.isSelected;
-        } else {
+          this.render();
+          return;
+        }
+
+        // Regular click on title bar - drag comment WITH all contained nodes
+        this.draggedComment = comment;
+        comment.isDragging = true;
+        comment.dragOffsetX = pos.x - comment.x;
+        comment.dragOffsetY = pos.y - comment.y;
+
+        if (!isMultiSelect) {
+          // Deselect all and select this comment
           this.clearSelection();
           comment.isSelected = true;
         }
+
+        // Find all nodes and reroute nodes contained in this comment
+        comment.containedNodes = this.nodes.filter((n) =>
+          comment.containsNode(n)
+        );
+        comment.containedRerouteNodes = [];
+        this.wires.forEach((wire) => {
+          wire.rerouteNodes.forEach((rn) => {
+            if (comment.containsRerouteNode(rn)) {
+              comment.containedRerouteNodes.push(rn);
+            }
+          });
+        });
+
         this.render();
         return;
       }
+
+      // For clicks inside the comment body (not title bar or handles),
+      // don't intercept - let them fall through to node/box selection logic below
     }
 
     // Check if clicking on a node
@@ -9118,11 +9163,11 @@ class BlueprintSystem {
       const comment = this.resizingComment;
       const deltaX = pos.x - comment.resizeStartX;
       const deltaY = pos.y - comment.resizeStartY;
-      
+
       // Update size with minimum constraints
       comment.width = Math.max(150, comment.resizeStartWidth + deltaX);
       comment.height = Math.max(100, comment.resizeStartHeight + deltaY);
-      
+
       this.render();
       return;
     }
@@ -9130,29 +9175,29 @@ class BlueprintSystem {
     // Drag comment and its contained nodes/reroute nodes
     if (this.draggedComment) {
       const comment = this.draggedComment;
-      const deltaX = (pos.x - comment.dragOffsetX) - comment.x;
-      const deltaY = (pos.y - comment.dragOffsetY) - comment.y;
-      
+      const deltaX = pos.x - comment.dragOffsetX - comment.x;
+      const deltaY = pos.y - comment.dragOffsetY - comment.y;
+
       // Move comment
       comment.x = pos.x - comment.dragOffsetX;
       comment.y = pos.y - comment.dragOffsetY;
-      
+
       // Move contained nodes
       if (comment.containedNodes) {
-        comment.containedNodes.forEach(node => {
+        comment.containedNodes.forEach((node) => {
           node.x += deltaX;
           node.y += deltaY;
         });
       }
-      
+
       // Move contained reroute nodes
       if (comment.containedRerouteNodes) {
-        comment.containedRerouteNodes.forEach(rn => {
+        comment.containedRerouteNodes.forEach((rn) => {
           rn.x += deltaX;
           rn.y += deltaY;
         });
       }
-      
+
       this.render();
       return;
     }
@@ -9482,7 +9527,10 @@ class BlueprintSystem {
     // Check if right-clicking on a comment
     for (let i = this.comments.length - 1; i >= 0; i--) {
       const comment = this.comments[i];
-      if (comment.isPointInside(pos.x, pos.y) && !comment.isPointInResizeHandle(pos.x, pos.y)) {
+      if (
+        comment.isPointInside(pos.x, pos.y) &&
+        !comment.isPointInResizeHandle(pos.x, pos.y)
+      ) {
         this.showCommentModal(comment);
         return;
       }
@@ -9939,21 +9987,56 @@ class BlueprintSystem {
     // Title bar background (slightly more opaque)
     ctx.fillStyle = comment.color + COMMENT_TITLE_OPACITY;
     ctx.beginPath();
-    ctx.roundRect(comment.x, comment.y, comment.width, COMMENT_TITLE_HEIGHT, [8, 8, 0, 0]);
+    ctx.roundRect(
+      comment.x,
+      comment.y,
+      comment.width,
+      COMMENT_TITLE_HEIGHT,
+      [8, 8, 0, 0]
+    );
     ctx.fill();
 
-    // Title text
+    // Draw drag handle icon at top left
+    const dragHandleBounds = comment.getDragHandleBounds();
+    ctx.fillStyle = comment.color + COMMENT_HANDLE_OPACITY;
+    ctx.fillRect(
+      dragHandleBounds.x,
+      dragHandleBounds.y,
+      dragHandleBounds.width,
+      dragHandleBounds.height
+    );
+
+    // Draw drag handle grip lines
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    const gripY1 = dragHandleBounds.y + 7;
+    const gripY2 = dragHandleBounds.y + 12;
+    const gripY3 = dragHandleBounds.y + 17;
+    const gripX1 = dragHandleBounds.x + 6;
+    const gripX2 = dragHandleBounds.x + 18;
+
+    ctx.beginPath();
+    ctx.moveTo(gripX1, gripY1);
+    ctx.lineTo(gripX2, gripY1);
+    ctx.moveTo(gripX1, gripY2);
+    ctx.lineTo(gripX2, gripY2);
+    ctx.moveTo(gripX1, gripY3);
+    ctx.lineTo(gripX2, gripY3);
+    ctx.stroke();
+
+    // Title text (offset to make room for drag handle)
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 14px sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(comment.title, comment.x + 10, comment.y + 20);
+    ctx.fillText(comment.title, comment.x + 35, comment.y + 20);
 
     // Description text
     if (comment.description) {
       ctx.fillStyle = "#cccccc";
       ctx.font = "12px sans-serif";
       ctx.textAlign = "left";
-      
+
       // Word wrap the description
       const maxWidth = comment.width - COMMENT_TEXT_MARGIN;
       const lineHeight = 16;
@@ -9964,19 +10047,19 @@ class BlueprintSystem {
       for (let i = 0; i < words.length; i++) {
         const testLine = line + words[i] + " ";
         const metrics = ctx.measureText(testLine);
-        
+
         if (metrics.width > maxWidth && i > 0) {
           ctx.fillText(line, comment.x + 10, y);
           line = words[i] + " ";
           y += lineHeight;
-          
+
           // Stop if we run out of space
           if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
         } else {
           line = testLine;
         }
       }
-      
+
       // Draw the last line
       if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
         ctx.fillText(line, comment.x + 10, y);
@@ -9992,7 +10075,7 @@ class BlueprintSystem {
       handleBounds.width,
       handleBounds.height
     );
-    
+
     // Draw resize icon
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1.5;
@@ -10554,7 +10637,7 @@ class BlueprintSystem {
   }
 
   getNodesBounds() {
-    if (this.nodes.length === 0) {
+    if (this.nodes.length === 0 && this.comments.length === 0) {
       return { x: 0, y: 0, width: 800, height: 600 };
     }
 
@@ -10563,6 +10646,7 @@ class BlueprintSystem {
     let maxX = -Infinity;
     let maxY = -Infinity;
 
+    // Include nodes in bounds
     this.nodes.forEach((node) => {
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
@@ -10570,7 +10654,15 @@ class BlueprintSystem {
       maxY = Math.max(maxY, node.y + node.height);
     });
 
-    // Add padding around nodes
+    // Include comments in bounds
+    this.comments.forEach((comment) => {
+      minX = Math.min(minX, comment.x);
+      minY = Math.min(minY, comment.y);
+      maxX = Math.max(maxX, comment.x + comment.width);
+      maxY = Math.max(maxY, comment.y + comment.height);
+    });
+
+    // Add padding around content
     const padding = 100;
     minX -= padding;
     minY -= padding;
@@ -10656,7 +10748,24 @@ class BlueprintSystem {
 
     ctx.save();
 
-    // Draw wires/links first (so they appear behind nodes)
+    // Draw comments first (as background)
+    this.comments.forEach((comment) => {
+      const x = (comment.x - bounds.x) * scale + offsetX;
+      const y = (comment.y - bounds.y) * scale + offsetY;
+      const w = comment.width * scale;
+      const h = comment.height * scale;
+
+      // Draw comment background with low opacity
+      ctx.fillStyle = comment.color + "22"; // Very transparent
+      ctx.fillRect(x, y, w, h);
+
+      // Draw comment border
+      ctx.strokeStyle = comment.color + "66"; // Semi-transparent
+      ctx.lineWidth = Math.max(0.5, 1 * scale);
+      ctx.strokeRect(x, y, w, h);
+    });
+
+    // Draw wires/links (so they appear behind nodes but above comments)
     this.wires.forEach((wire) => {
       const points = wire.getPoints();
       if (points.length < 2) return;
