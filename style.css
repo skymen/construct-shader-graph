@@ -1254,6 +1254,26 @@ body {
   font-family: inherit;
 }
 
+.color-input-wrapper {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.color-input-wrapper input[type="color"] {
+  width: 60px;
+  height: 40px;
+  padding: 2px;
+  cursor: pointer;
+  border: 2px solid #4a4a4a;
+}
+
+.color-input-wrapper input[type="text"] {
+  flex: 1;
+  font-family: 'Courier New', monospace;
+  text-transform: uppercase;
+}
+
 .uniform-modal-buttons {
   display: flex;
   gap: 10px;

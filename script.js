@@ -2171,7 +2171,21 @@ class BlueprintSystem {
       "commentDescriptionInput"
     );
     this.commentColorInput = document.getElementById("commentColorInput");
+    this.commentColorText = document.getElementById("commentColorText");
     this.editingComment = null;
+
+    // Sync color picker and text input
+    this.commentColorInput.addEventListener("input", (e) => {
+      this.commentColorText.value = e.target.value.toUpperCase();
+    });
+
+    this.commentColorText.addEventListener("input", (e) => {
+      const value = e.target.value;
+      // Validate hex color
+      if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
+        this.commentColorInput.value = value;
+      }
+    });
 
     document
       .getElementById("commentModalCancel")
@@ -2278,6 +2292,7 @@ class BlueprintSystem {
     this.commentTitleInput.value = comment.title;
     this.commentDescriptionInput.value = comment.description;
     this.commentColorInput.value = comment.color;
+    this.commentColorText.value = comment.color.toUpperCase();
     this.commentModal.classList.add("visible");
     setTimeout(() => this.commentTitleInput.focus(), 0);
   }
@@ -5613,11 +5628,14 @@ class BlueprintSystem {
       const commentIconDiv = document.createElement("div");
       commentIconDiv.className = "search-result-color";
       commentIconDiv.style.background = "transparent";
-      commentIconDiv.textContent = "💬";
       commentIconDiv.style.display = "flex";
       commentIconDiv.style.alignItems = "center";
       commentIconDiv.style.justifyContent = "center";
-      commentIconDiv.style.fontSize = "16px";
+      commentIconDiv.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M9,22A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22H9M10,16V19.08L13.08,16H20V4H4V16H10Z" />
+        </svg>
+      `;
       addCommentBtn.appendChild(commentIconDiv);
 
       const commentNameDiv = document.createElement("div");
@@ -9275,11 +9293,46 @@ class BlueprintSystem {
       if (overValueBox) {
         this.canvas.style.cursor = "text";
       } else {
-        const node = this.findNodeAtPosition(pos.x, pos.y);
-        if (node && node.isPointInHeader(pos.x, pos.y)) {
-          this.canvas.style.cursor = "move";
-        } else {
-          this.canvas.style.cursor = "default";
+        // Check if hovering over comment handles
+        let overCommentHandle = false;
+        for (let i = this.comments.length - 1; i >= 0; i--) {
+          const comment = this.comments[i];
+
+          // Check resize handle
+          if (comment.isPointInResizeHandle(pos.x, pos.y)) {
+            this.canvas.style.cursor = "nwse-resize";
+            overCommentHandle = true;
+            break;
+          }
+
+          // Check drag handle
+          if (comment.isPointInDragHandle(pos.x, pos.y)) {
+            this.canvas.style.cursor = "move";
+            overCommentHandle = true;
+            break;
+          }
+
+          // Check title bar
+          const inTitleBar =
+            pos.x >= comment.x &&
+            pos.x <= comment.x + comment.width &&
+            pos.y >= comment.y &&
+            pos.y <= comment.y + COMMENT_TITLE_HEIGHT;
+
+          if (inTitleBar) {
+            this.canvas.style.cursor = "move";
+            overCommentHandle = true;
+            break;
+          }
+        }
+
+        if (!overCommentHandle) {
+          const node = this.findNodeAtPosition(pos.x, pos.y);
+          if (node && node.isPointInHeader(pos.x, pos.y)) {
+            this.canvas.style.cursor = "move";
+          } else {
+            this.canvas.style.cursor = "default";
+          }
         }
       }
     }

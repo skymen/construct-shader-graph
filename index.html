@@ -852,7 +852,16 @@
         </label>
         <label>
           Color:
-          <input type="color" id="commentColorInput" value="#4a90e2" />
+          <div class="color-input-wrapper">
+            <input type="color" id="commentColorInput" value="#4a90e2" />
+            <input
+              type="text"
+              id="commentColorText"
+              value="#4a90e2"
+              maxlength="7"
+              placeholder="#4a90e2"
+            />
+          </div>
         </label>
         <div class="uniform-modal-buttons">
           <button id="commentModalCancel">Cancel</button>
