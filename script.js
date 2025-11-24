@@ -7073,11 +7073,11 @@ class BlueprintSystem {
     const isWebGPU = target === "webgpu";
 
     if (!isWebGPU) {
-      shader += "\nvoid main() {\n";
+      shader += "\nvoid main() {";
     } else {
       shader += "\n@fragment\n";
       shader += "fn main(input : FragmentInput) -> FragmentOutput {\n";
-      shader += "    var output : FragmentOutput;\n";
+      shader += "    var output : FragmentOutput;";
     }
 
     for (const level of levels) {
@@ -7117,7 +7117,7 @@ class BlueprintSystem {
           );
 
           // Generate code with comment indicating which node generated it
-          shader += `\n\n    // ${node.nodeType.name}\n`;
+          shader += `\n    // ${node.nodeType.name}\n`;
           const code = execution(
             inputVars,
             outputVars,
