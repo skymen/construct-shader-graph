@@ -213,12 +213,25 @@ export class AutoLayoutEngine {
         (node) => node.nodeType && node.nodeType.name === "Output"
       );
 
+      // Find root node for this component (for preserving position when selectedOnly)
+      const subgraph = new Map();
+      component.forEach((nodeId) => {
+        if (graph.has(nodeId)) {
+          subgraph.set(nodeId, graph.get(nodeId));
+        }
+      });
+      const rootNodeId = this.findRootNode(subgraph);
+      const rootNode = rootNodeId
+        ? this.bp.nodes.find((n) => n.id === rootNodeId)
+        : null;
+
       componentLayouts.push({
         component,
         branchLayouts,
         width: componentWidth,
         height: componentHeight,
         hasOutputNode,
+        rootNode, // Store root node reference
         x: 0,
         y: 0,
       });
@@ -233,7 +246,12 @@ export class AutoLayoutEngine {
     });
 
     // Pack components efficiently
-    this.packComponents(componentLayouts);
+    // If selectedOnly, preserve root node positions
+    if (selectedOnly) {
+      this.packComponentsPreservingRoots(componentLayouts);
+    } else {
+      this.packComponents(componentLayouts);
+    }
 
     // Record debug step for final packed layout (all components together)
     if (this.debugMode && componentLayouts.length > 1) {
@@ -342,6 +360,88 @@ export class AutoLayoutEngine {
         width: comp.width,
         height: comp.height,
       });
+    }
+  }
+
+  /**
+   * Pack components while preserving root node positions (for selected nodes only)
+   * Root nodes stay at their current positions unless they would overlap
+   */
+  packComponentsPreservingRoots(componentLayouts) {
+    if (componentLayouts.length === 0) return;
+
+    const spacing = this.config.subgraphSpacing;
+
+    // For each component, calculate where it would be positioned based on its root node
+    componentLayouts.forEach((compLayout, index) => {
+      if (!compLayout.rootNode) {
+        // Fallback: if no root node found, use origin
+        compLayout.x = 0;
+        compLayout.y = 0;
+        return;
+      }
+
+      // Find where the root node is positioned in the layout
+      // The layout positions are relative to (0,0), so we need to find the root's offset
+      let rootPosInLayout = { x: 0, y: 0 };
+
+      // Search through all branch layouts to find the root node's position
+      for (const branchLayout of compLayout.branchLayouts) {
+        const rootPos = branchLayout.layout.positions.get(
+          compLayout.rootNode.id
+        );
+        if (rootPos) {
+          rootPosInLayout = {
+            x: rootPos.x + branchLayout.offsetX,
+            y: rootPos.y + branchLayout.offsetY,
+          };
+          break;
+        }
+      }
+
+      // Calculate component position so that root node stays at its current position
+      // If root is at (rootPosInLayout.x, rootPosInLayout.y) in the layout,
+      // and we want it to be at (rootNode.x, rootNode.y) in world space,
+      // then the component offset should be:
+      compLayout.x = compLayout.rootNode.x - rootPosInLayout.x;
+      compLayout.y = compLayout.rootNode.y - rootPosInLayout.y;
+
+      console.log(
+        `Component ${index + 1}: Root node "${compLayout.rootNode.title}" at (${
+          compLayout.rootNode.x
+        }, ${compLayout.rootNode.y}), ` +
+          `layout offset (${rootPosInLayout.x}, ${rootPosInLayout.y}), ` +
+          `component position (${compLayout.x}, ${compLayout.y})`
+      );
+    });
+
+    // Now check for overlaps and adjust positions if necessary
+    const occupiedRects = [];
+
+    for (let i = 0; i < componentLayouts.length; i++) {
+      const comp = componentLayouts[i];
+
+      const compRect = {
+        x: comp.x,
+        y: comp.y,
+        width: comp.width,
+        height: comp.height,
+      };
+
+      // Check if this component overlaps with any already placed components
+      if (this.rectsOverlap(compRect, occupiedRects, spacing)) {
+        console.log(`Component ${i + 1} overlaps, finding new position...`);
+
+        // Find a new position that doesn't overlap
+        const bestPos = this.findBestPosition(comp, occupiedRects, spacing);
+        comp.x = bestPos.x;
+        comp.y = bestPos.y;
+
+        compRect.x = comp.x;
+        compRect.y = comp.y;
+      }
+
+      occupiedRects.push(compRect);
     }
   }
 
