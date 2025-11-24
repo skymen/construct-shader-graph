@@ -43,7 +43,8 @@ export const CompareNode = new NodeType(
     "less",
     "smaller",
     "larger",
-  ]
+  ],
+  { operations: true } // Don't translate comparison symbols
 );
 
 // Add operation options to the node type

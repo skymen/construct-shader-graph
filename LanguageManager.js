@@ -105,6 +105,13 @@ export class LanguageManager {
   }
 
   /**
+   * Get translated operation label
+   */
+  getOperationLabel(operationLabel) {
+    return this.data.operations[operationLabel] || operationLabel;
+  }
+
+  /**
    * Translate a node type object for display
    * This creates a display version without modifying the original
    */

@@ -45,7 +45,8 @@ export const MathNode = new NodeType(
     "-",
     "*",
     "/",
-  ]
+  ],
+  { operations: true } // Don't translate mathematical symbols
 );
 
 // Add operation options to the node type

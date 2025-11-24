@@ -5291,7 +5291,10 @@ class BlueprintSystem {
 
     node.nodeType.operationOptions.forEach((op) => {
       const option = document.createElement("div");
-      option.textContent = op.label;
+      // Only translate operation label if noTranslation.operations is not set
+      option.textContent = node.nodeType.noTranslation?.operations
+        ? op.label
+        : languageManager.getOperationLabel(op.label);
       option.style.padding = "6px 8px";
       option.style.cursor = "pointer";
       option.style.color = "#fff";
@@ -10397,9 +10400,13 @@ class BlueprintSystem {
         const currentOp = node.nodeType.operationOptions.find(
           (op) => op.value === node.operation
         );
-        const displayText = currentOp
+        const operationLabel = currentOp
           ? currentOp.label
           : node.nodeType.operationOptions[0].label;
+        // Only translate operation label if noTranslation.operations is not set
+        const displayText = node.nodeType.noTranslation?.operations
+          ? operationLabel
+          : languageManager.getOperationLabel(operationLabel);
 
         // Dropdown text
         ctx.fillStyle = "#fff";

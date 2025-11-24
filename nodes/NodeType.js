@@ -16,23 +16,26 @@ export class NodeType {
     this.color = color;
     this.category = category; // Category for grouping in search
     this.tags = tags; // Additional search tags
-    
-    // Normalize noTranslation to an object with name and ports properties
-    // Supports: boolean (applies to both) or { name: boolean, ports: boolean }
+
+    // Normalize noTranslation to an object with name, ports, and operations properties
+    // Supports: boolean (applies to all) or { name: boolean, ports: boolean, operations: boolean }
     if (typeof noTranslation === "boolean") {
       this.noTranslation = {
         name: noTranslation,
         ports: noTranslation,
+        operations: noTranslation,
       };
     } else if (typeof noTranslation === "object" && noTranslation !== null) {
       this.noTranslation = {
         name: noTranslation.name ?? false,
         ports: noTranslation.ports ?? false,
+        operations: noTranslation.operations ?? false,
       };
     } else {
       this.noTranslation = {
         name: false,
         ports: false,
+        operations: false,
       };
     }
 
