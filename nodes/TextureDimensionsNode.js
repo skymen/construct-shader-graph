@@ -48,10 +48,10 @@ export const TextureDimensionsNode = new NodeType(
           }
         }
 
-        return `    var ${outputs[0]}_ivec2: vec2<i32> = textureDimensions(${textureName});
+        return `    var ${outputs[0]}_ivec2: vec2<u32> = textureDimensions(${textureName});
         var ${outputs[0]}: vec2<f32> = vec2<f32>(${outputs[0]}_ivec2);
-        var ${outputs[1]}: i32 = ${outputs[0]}_ivec2.x;
-        var ${outputs[2]}: i32 = ${outputs[0]}_ivec2.y;`;
+        var ${outputs[1]}: i32 = i32(${outputs[0]}_ivec2.x);
+        var ${outputs[2]}: i32 = i32(${outputs[0]}_ivec2.y);`;
       },
     },
   },

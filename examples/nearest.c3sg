@@ -1,0 +1,484 @@
+{
+  "version": "1.0.0",
+  "previewScreenshot": "data:image/png;base64,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",
+  "shaderSettings": {
+    "name": "nearest",
+    "version": "1.0.0.0",
+    "author": "skymen",
+    "website": "",
+    "documentation": "",
+    "description": "samples nearest regardless of sample mode",
+    "category": "color",
+    "blendsBackground": false,
+    "crossSampling": false,
+    "preservesOpaqueness": true,
+    "animated": false,
+    "isDeprecated": false,
+    "extendBoxH": 0,
+    "extendBoxV": 0
+  },
+  "uniforms": [
+    {
+      "id": 1,
+      "name": "mixValue",
+      "variableName": "mixValue",
+      "description": "",
+      "type": "float",
+      "value": 1,
+      "isPercent": true
+    }
+  ],
+  "customNodes": [],
+  "previewSettings": {
+    "effectTarget": "sprite",
+    "object": "sprite",
+    "cameraMode": "2d",
+    "autoRotate": true,
+    "samplingMode": "trilinear",
+    "shaderLanguage": "webgpu",
+    "spriteTextureUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgBAMAAACBVGfHAAAAHlBMVEUAAAAyBgBRKSJWKl6OADKRQousVS/HcZjIdzDUsPLa32qzAAAAAXRSTlMAQObYZgAAAKxJREFUKM/Vjz0KwkAQRldPkC0U7CRFSGvhAYQl2FoM1gkyTOsREsLwvLWF2bgewenm8f3MhPDn0x5/97qdfoHWU12XomZoG4aCbFsH+gJgRMbqW4Jz4LVKtoYSGVOssgNzQ0ROH9KAA2cRuS0RODCnGOPiwAC0iFAMvMqlmKkBBcB5zNcVuOHapbRmzAD6yGCTOsALoGopqaZL/mWvvUhcrvpIdvfnM4pUIYQ3atVDENuiuCkAAAAASUVORK5CYII=",
+    "shapeTextureUrl": null
+  },
+  "camera": {
+    "x": 1321.9918930590754,
+    "y": 54.89440068981611,
+    "zoom": 0.7210858555797298
+  },
+  "nodes": [
+    {
+      "id": 4,
+      "x": -690,
+      "y": 300,
+      "nodeTypeKey": "texelFetch",
+      "title": "Texel Fetch",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Sampler",
+          "portType": "texture"
+        },
+        {
+          "name": "X",
+          "portType": "int",
+          "value": 0
+        },
+        {
+          "name": "Y",
+          "portType": "int",
+          "value": 0
+        },
+        {
+          "name": "LOD",
+          "portType": "int",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Color",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "x": -1610,
+      "y": 825,
+      "nodeTypeKey": "textureDimensions",
+      "title": "Texture Dimensions",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Sampler",
+          "portType": "texture"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Size",
+          "portType": "vec2"
+        },
+        {
+          "name": "Width",
+          "portType": "int"
+        },
+        {
+          "name": "Height",
+          "portType": "int"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "x": -950,
+      "y": 300,
+      "nodeTypeKey": "samplerFront",
+      "title": "samplerFront",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Sampler",
+          "portType": "texture"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "x": -1800,
+      "y": 857.5,
+      "nodeTypeKey": "samplerFront",
+      "title": "samplerFront",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Sampler",
+          "portType": "texture"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "x": -1566,
+      "y": 760,
+      "nodeTypeKey": "frontUV",
+      "title": "Front UV",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "x": -1390,
+      "y": 760,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "B",
+          "portType": "genType"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "x": -1180,
+      "y": 790,
+      "nodeTypeKey": "vec2Decompose",
+      "title": "Vec2 Decompose",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Vec2",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "X",
+          "portType": "float"
+        },
+        {
+          "name": "Y",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "x": -970,
+      "y": 425,
+      "nodeTypeKey": "toInt",
+      "title": "To Int",
+      "operation": "floor",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "float",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "int"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "x": -970,
+      "y": 800,
+      "nodeTypeKey": "toInt",
+      "title": "To Int",
+      "operation": "floor",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "float",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "int"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "x": -690,
+      "y": 0,
+      "nodeTypeKey": "textureFront",
+      "title": "Front Texture",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "RGBA",
+          "portType": "vec4"
+        },
+        {
+          "name": "Color",
+          "portType": "vec3"
+        },
+        {
+          "name": "Alpha",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "x": -856,
+      "y": 32.5,
+      "nodeTypeKey": "frontUV",
+      "title": "Front UV",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "x": -200,
+      "y": 0,
+      "nodeTypeKey": "output",
+      "title": "Output",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Color",
+          "portType": "vec4",
+          "value": [
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 14,
+      "x": -670,
+      "y": 640,
+      "nodeTypeKey": "uniform_1",
+      "title": "mixValue",
+      "uniformName": "mixValue",
+      "uniformDisplayName": "mixValue",
+      "uniformVariableName": "mixValue",
+      "uniformId": 1,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "x": -410,
+      "y": 0,
+      "nodeTypeKey": "mix",
+      "title": "Mix",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "T",
+          "portType": "genType2"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    }
+  ],
+  "wires": [
+    {
+      "startNodeId": 5,
+      "startPortIndex": 0,
+      "endNodeId": 4,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 8,
+      "startPortIndex": 0,
+      "endNodeId": 7,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 7,
+      "startPortIndex": 0,
+      "endNodeId": 9,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 1,
+      "startPortIndex": 0,
+      "endNodeId": 9,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 9,
+      "startPortIndex": 0,
+      "endNodeId": 6,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 6,
+      "startPortIndex": 0,
+      "endNodeId": 10,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 6,
+      "startPortIndex": 1,
+      "endNodeId": 11,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 10,
+      "startPortIndex": 0,
+      "endNodeId": 4,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 11,
+      "startPortIndex": 0,
+      "endNodeId": 4,
+      "endPortIndex": 2,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 13,
+      "startPortIndex": 0,
+      "endNodeId": 12,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 12,
+      "startPortIndex": 0,
+      "endNodeId": 15,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 4,
+      "startPortIndex": 0,
+      "endNodeId": 15,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 14,
+      "startPortIndex": 0,
+      "endNodeId": 15,
+      "endPortIndex": 2,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 15,
+      "startPortIndex": 0,
+      "endNodeId": 3,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    }
+  ],
+  "comments": [],
+  "nodeIdCounter": 16,
+  "uniformIdCounter": 2,
+  "customNodeIdCounter": 1,
+  "commentIdCounter": 1
+}

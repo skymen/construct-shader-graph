@@ -3031,6 +3031,13 @@ class BlueprintSystem {
         ),
       },
       {
+        file: "nearest.c3sg",
+        name: languageManager.getUIText("Nearest Neighbor Sampling"),
+        description: languageManager.getUIText(
+          "Shows how to sample textures in nearest mode using integer coordinates, regardless of sampler settings"
+        ),
+      },
+      {
         file: "wave custom texture.c3sg",
         name: languageManager.getUIText("Wave With Custom Texture"),
         description: languageManager.getUIText(
