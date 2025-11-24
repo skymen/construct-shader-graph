@@ -111,6 +111,9 @@ export class HistoryManager {
       nodesModified: [],
       wiresAdded: [],
       wiresRemoved: [],
+      commentsAdded: [],
+      commentsRemoved: [],
+      commentsModified: [],
       uniformsChanged: false,
       customNodesChanged: false,
       settingsChanged: false,
@@ -169,6 +172,43 @@ export class HistoryManager {
       if (!oldWires.includes(wireStr)) {
         diff.wiresAdded.push(wireStr);
         diff.changedProperties.add(`wire:${wireStr}:created`);
+      }
+    });
+
+    // Compare comments
+    const oldComments = new Map(oldState.comments.map((c) => [c.id, c]));
+    const newComments = new Map(newState.comments.map((c) => [c.id, c]));
+
+    // Find added comments
+    newComments.forEach((comment, id) => {
+      if (!oldComments.has(id)) {
+        diff.commentsAdded.push(comment);
+        diff.changedProperties.add(`comment:${id}:created`);
+      }
+    });
+
+    // Find removed comments
+    oldComments.forEach((comment, id) => {
+      if (!newComments.has(id)) {
+        diff.commentsRemoved.push(comment);
+        diff.changedProperties.add(`comment:${id}:deleted`);
+      }
+    });
+
+    // Find modified comments
+    oldComments.forEach((oldComment, id) => {
+      const newComment = newComments.get(id);
+      if (newComment) {
+        const commentDiff = this.calculateCommentDiff(oldComment, newComment);
+        if (commentDiff.hasChanges) {
+          diff.commentsModified.push({
+            id: id,
+            changes: commentDiff.changes,
+          });
+          commentDiff.changedKeys.forEach((key) => {
+            diff.changedProperties.add(`comment:${id}:${key}`);
+          });
+        }
       }
     });
 
@@ -232,6 +272,31 @@ export class HistoryManager {
   }
 
   /**
+   * Calculate diff for a single comment
+   */
+  calculateCommentDiff(oldComment, newComment) {
+    const diff = {
+      hasChanges: false,
+      changes: {},
+      changedKeys: [],
+    };
+
+    // Compare simple properties
+    ["x", "y", "width", "height", "title", "description", "color"].forEach((key) => {
+      if (!this.deepEqual(oldComment[key], newComment[key])) {
+        diff.hasChanges = true;
+        diff.changes[key] = {
+          oldValue: oldComment[key],
+          newValue: newComment[key],
+        };
+        diff.changedKeys.push(key);
+      }
+    });
+
+    return diff;
+  }
+
+  /**
    * Convert wire to string for comparison
    */
   wireToString(wire) {
@@ -275,11 +340,34 @@ export class HistoryManager {
       }
     });
 
+    // Merge commentsModified (same logic as nodesModified)
+    const existingCommentsModified = new Map(
+      existingDiff.commentsModified.map((c) => [c.id, c])
+    );
+
+    newDiff.commentsModified.forEach((newMod) => {
+      const existing = existingCommentsModified.get(newMod.id);
+      if (existing) {
+        // Update: preserve oldValue, update newValue
+        Object.entries(newMod.changes).forEach(([key, change]) => {
+          if (existing.changes[key]) {
+            existing.changes[key].newValue = change.newValue;
+          } else {
+            existing.changes[key] = change;
+          }
+        });
+      } else {
+        existingDiff.commentsModified.push(newMod);
+      }
+    });
+
     // Merge other changes
     existingDiff.nodesAdded.push(...newDiff.nodesAdded);
     existingDiff.nodesRemoved.push(...newDiff.nodesRemoved);
     existingDiff.wiresAdded.push(...newDiff.wiresAdded);
     existingDiff.wiresRemoved.push(...newDiff.wiresRemoved);
+    existingDiff.commentsAdded.push(...newDiff.commentsAdded);
+    existingDiff.commentsRemoved.push(...newDiff.commentsRemoved);
 
     existingDiff.uniformsChanged =
       existingDiff.uniformsChanged || newDiff.uniformsChanged;
