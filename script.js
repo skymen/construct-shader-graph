@@ -981,6 +981,9 @@ class BlueprintSystem {
     // Clipboard for copy/paste
     this.clipboard = null;
 
+    // Keyboard state tracking
+    this.pressedKeys = new Set();
+
     this.setupEventListeners();
     this.setupInputField();
     this.setupSearchMenu();
@@ -5977,6 +5980,7 @@ class BlueprintSystem {
 
     // Keyboard events
     document.addEventListener("keydown", (e) => this.onKeyDown(e));
+    document.addEventListener("keyup", (e) => this.onKeyUp(e));
 
     document.getElementById("newBtn").addEventListener("click", () => {
       this.createNewFile();
@@ -6534,6 +6538,9 @@ class BlueprintSystem {
   }
 
   onKeyDown(e) {
+    // Track pressed keys for shortcuts (1-4 for node creation)
+    this.pressedKeys.add(e.key);
+
     // Ignore if typing in input fields
     const activeElement = document.activeElement;
     if (
@@ -6622,6 +6629,11 @@ class BlueprintSystem {
       e.preventDefault();
       this.deleteSelected();
     }
+  }
+
+  onKeyUp(e) {
+    // Remove key from pressed keys set
+    this.pressedKeys.delete(e.key);
   }
 
   onWheel(e) {
@@ -9140,6 +9152,33 @@ class BlueprintSystem {
       }
 
       this.render();
+      return;
+    }
+
+    // Check for keyboard shortcuts to create nodes (1-4 keys)
+    // 1 = Float Input, 2 = Vec2, 3 = Vec3, 4 = Vec4
+    const nodeCreateShortCuts = {};
+    nodeCreateShortCuts["1"] = NODE_TYPES.floatInput;
+    nodeCreateShortCuts["2"] = NODE_TYPES.vec2;
+    nodeCreateShortCuts["3"] = NODE_TYPES.vec3;
+    nodeCreateShortCuts["4"] = NODE_TYPES.vec4;
+    if (
+      Object.keys(nodeCreateShortCuts).some((key) => this.pressedKeys.has(key))
+    ) {
+      let nodeType;
+      const key = Object.keys(nodeCreateShortCuts).find((key) =>
+        this.pressedKeys.has(key)
+      );
+      nodeType = nodeCreateShortCuts[key];
+
+      if (nodeType) {
+        const newNode = this.addNode(pos.x, pos.y, nodeType);
+        // Select the newly created node
+        this.clearSelection();
+        this.selectNode(newNode, false);
+        // Record state for undo/redo
+        this.history.pushState(`Create ${nodeType.name} node`);
+      }
       return;
     }
 
