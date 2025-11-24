@@ -8493,12 +8493,29 @@ class BlueprintSystem {
               }
             }
           } else {
-            // Non-generic port - use its type directly
-            const connectedType = connectedPort.portType;
+            // Non-generic port - resolve its actual type first
+            let connectedType = connectedPort.portType;
+
+            // Try to resolve custom types through getCustomType
+            if (connectedPort.node.nodeType.getCustomType) {
+              const customType = connectedPort.node.nodeType.getCustomType(
+                connectedPort.node,
+                connectedPort
+              );
+              if (customType) {
+                connectedType = customType;
+              }
+            }
+
+            // Now check if the resolved type is a concrete type
             const connectedTypeDef = PORT_TYPES[connectedType];
 
-            // Only consider concrete types (not composite)
-            if (!connectedTypeDef?.isComposite) {
+            // Only consider concrete types (not composite, not generic, and defined in PORT_TYPES)
+            if (
+              connectedTypeDef &&
+              !connectedTypeDef.isComposite &&
+              !connectedTypeDef.isGeneric
+            ) {
               connectedConcreteTypes.add(connectedType);
             }
           }
