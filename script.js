@@ -5639,7 +5639,7 @@ class BlueprintSystem {
       commentIconDiv.style.justifyContent = "center";
       commentIconDiv.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-          <path d="M9,22A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22H9M10,16V19.08L13.08,16H20V4H4V16H10Z" />
+          <path d="M9,22A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22H9Z" />
         </svg>
       `;
       addCommentBtn.appendChild(commentIconDiv);
@@ -7707,9 +7707,20 @@ class BlueprintSystem {
           y: rn.y,
         })),
       })),
+      comments: this.comments.map((comment) => ({
+        id: comment.id,
+        x: comment.x,
+        y: comment.y,
+        width: comment.width,
+        height: comment.height,
+        title: comment.title,
+        description: comment.description,
+        color: comment.color,
+      })),
       nodeIdCounter: this.nodeIdCounter,
       uniformIdCounter: this.uniformIdCounter,
       customNodeIdCounter: this.customNodeIdCounter,
+      commentIdCounter: this.commentIdCounter,
     };
 
     const json = JSON.stringify(data, null, 2);
@@ -7946,9 +7957,30 @@ class BlueprintSystem {
         }
       }
 
+      // Restore comments
+      this.comments = [];
+      if (data.comments) {
+        data.comments.forEach((commentData) => {
+          const comment = new Comment(
+            commentData.x,
+            commentData.y,
+            commentData.width,
+            commentData.height,
+            commentData.id
+          );
+          comment.title = commentData.title || "Comment";
+          comment.description = commentData.description || "";
+          comment.color = commentData.color || "#4a90e2";
+          this.comments.push(comment);
+        });
+      }
+
       // Restore counters
       if (data.nodeIdCounter) {
         this.nodeIdCounter = data.nodeIdCounter;
+      }
+      if (data.commentIdCounter) {
+        this.commentIdCounter = data.commentIdCounter;
       }
 
       this.render();
