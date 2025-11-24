@@ -2339,7 +2339,7 @@ class BlueprintSystem {
     }
 
     // Generate variable name (sanitized version)
-    let variableName = this.sanitizeVariableName(name);
+    let variableName = `uniform_${this.sanitizeVariableName(name)}`;
 
     // Ensure variable name is unique (check both name and variableName)
     let counter = 1;
@@ -4668,7 +4668,7 @@ class BlueprintSystem {
           uniform.name = newName;
 
           // Regenerate variable name
-          let newVariableName = this.sanitizeVariableName(newName);
+          let newVariableName = `uniform_${this.sanitizeVariableName(newName)}`;
           let counter = 1;
           const baseVariableName = newVariableName;
           while (
@@ -4966,7 +4966,7 @@ class BlueprintSystem {
         name: uniform.name,
         isUniform: true,
         uniformId: uniform.id,
-        uniformName: uniform.name,
+        uniformName: uniform.variableName,
       };
     });
     return uniformNodeTypes;
@@ -7030,15 +7030,18 @@ class BlueprintSystem {
   generateShader(target, levels, portToVarName) {
     let shader = "";
 
-    // Collect unique dependencies for this target
-    const dependencies = new Set();
+    // Collect unique dependencies for this target with their node sources
+    const dependencyMap = new Map(); // Map from dependency string to Set of node names
     for (const level of levels) {
       for (const node of level) {
         // Check if getDependency exists (some dynamically created nodes might not have it)
         if (typeof node.nodeType.getDependency === "function") {
           const dep = node.nodeType.getDependency(target);
           if (dep) {
-            dependencies.add(dep);
+            if (!dependencyMap.has(dep)) {
+              dependencyMap.set(dep, new Set());
+            }
+            dependencyMap.get(dep).add(node.nodeType.name);
           }
         } else if (
           node.nodeType.shaderCode &&
@@ -7047,16 +7050,21 @@ class BlueprintSystem {
           // Fallback for nodes without getDependency method
           const dep = node.nodeType.shaderCode[target].dependency;
           if (dep) {
-            dependencies.add(dep);
+            if (!dependencyMap.has(dep)) {
+              dependencyMap.set(dep, new Set());
+            }
+            dependencyMap.get(dep).add(node.nodeType.name);
           }
         }
       }
     }
 
-    // Add dependencies
-    if (dependencies.size > 0) {
+    // Add dependencies with comments
+    if (dependencyMap.size > 0) {
       shader += "\n// Function dependencies\n";
-      for (const dep of dependencies) {
+      for (const [dep, nodeNames] of dependencyMap) {
+        const nodeList = Array.from(nodeNames).join(", ");
+        shader += `// Dependency code used by: ${nodeList}\n`;
         shader += dep + "\n\n";
       }
     }
@@ -7108,7 +7116,8 @@ class BlueprintSystem {
             port.getResolvedType()
           );
 
-          // Generate code
+          // Generate code with comment indicating which node generated it
+          shader += `\n\n    // ${node.nodeType.name}\n`;
           const code = execution(
             inputVars,
             outputVars,

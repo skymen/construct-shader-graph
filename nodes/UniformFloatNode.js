@@ -9,21 +9,21 @@ export const UniformFloatNode = new NodeType(
     webgl1: {
       dependency: "",
       execution: (inputs, outputs, node) => {
-        const uniformName = node.uniformName || "uUnknown";
+        const uniformName = node.uniformName || "uniform_Unknown";
         return `    float ${outputs[0]} = ${uniformName};`;
       },
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs, node) => {
-        const uniformName = node.uniformName || "uUnknown";
+        const uniformName = node.uniformName || "uniform_Unknown";
         return `    float ${outputs[0]} = ${uniformName};`;
       },
     },
     webgpu: {
       dependency: "",
       execution: (inputs, outputs, node) => {
-        const uniformName = node.uniformName || "uUnknown";
+        const uniformName = node.uniformName || "uniform_Unknown";
         return `    var ${outputs[0]}: f32 = shaderParams.${uniformName};`;
       },
     },

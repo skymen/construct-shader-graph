@@ -9,21 +9,21 @@ export const UniformColorNode = new NodeType(
     webgl1: {
       dependency: "",
       execution: (inputs, outputs, node) => {
-        const uniformName = node.uniformName || "uUnknown";
+        const uniformName = node.uniformName || "uniform_Unknown";
         return `    vec3 ${outputs[0]} = ${uniformName};`;
       },
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs, node) => {
-        const uniformName = node.uniformName || "uUnknown";
+        const uniformName = node.uniformName || "uniform_Unknown";
         return `    vec3 ${outputs[0]} = ${uniformName};`;
       },
     },
     webgpu: {
       dependency: "",
       execution: (inputs, outputs, node) => {
-        const uniformName = node.uniformName || "uUnknown";
+        const uniformName = node.uniformName || "uniform_Unknown";
         return `    var ${outputs[0]}: vec3<f32> = shaderParams.${uniformName};`;
       },
     },
