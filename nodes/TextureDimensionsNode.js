@@ -3,21 +3,31 @@ import { NodeType } from "./NodeType.js";
 export const TextureDimensionsNode = new NodeType(
   "Texture Dimensions",
   [{ name: "Sampler", type: "texture" }],
-  [{ name: "Size", type: "vec2" }],
+  [
+    { name: "Size", type: "vec2" },
+    { name: "Width", type: "int" },
+    { name: "Height", type: "int" },
+  ],
   "#90e24a",
   {
     webgl1: {
       dependency: "",
       execution: (inputs, outputs, node) => {
         const samplerName = getSamplerName(node, "webgl1");
-        return `    vec2 ${outputs[0]} = vec2(textureSize(${samplerName}, 0));`;
+        return `    vec2 ${outputs[0]}_ivec2 = textureSize(${samplerName}, 0);
+        vec2 ${outputs[0]} = vec2(${outputs[0]}_ivec2);
+        int ${outputs[1]} = ${outputs[0]}_ivec2.x;
+        int ${outputs[2]} = ${outputs[0]}_ivec2.y;`;
       },
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs, node) => {
         const samplerName = getSamplerName(node, "webgl2");
-        return `    vec2 ${outputs[0]} = vec2(textureSize(${samplerName}, 0));`;
+        return `    vec2 ${outputs[0]}_ivec2 = textureSize(${samplerName}, 0);
+        vec2 ${outputs[0]} = vec2(${outputs[0]}_ivec2);
+        int ${outputs[1]} = ${outputs[0]}_ivec2.x;
+        int ${outputs[2]} = ${outputs[0]}_ivec2.y;`;
       },
     },
     webgpu: {
@@ -38,7 +48,10 @@ export const TextureDimensionsNode = new NodeType(
           }
         }
 
-        return `    var ${outputs[0]}: vec2<f32> = vec2<f32>(textureDimensions(${textureName}));`;
+        return `    var ${outputs[0]}_ivec2: vec2<i32> = textureDimensions(${textureName});
+        var ${outputs[0]}: vec2<f32> = vec2<f32>(${outputs[0]}_ivec2);
+        var ${outputs[1]}: i32 = ${outputs[0]}_ivec2.x;
+        var ${outputs[2]}: i32 = ${outputs[0]}_ivec2.y;`;
       },
     },
   },

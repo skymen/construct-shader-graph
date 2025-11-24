@@ -38,7 +38,7 @@ export const PORT_TYPES = {
     },
   },
   int: {
-    color: "#4a9fe2",
+    color: "#fa0f0f",
     name: "Int",
     editable: true,
     defaultValue: 0,
