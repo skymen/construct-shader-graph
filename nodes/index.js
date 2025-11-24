@@ -84,6 +84,7 @@ import { SamplerDepthNode } from "./SamplerDepthNode.js";
 import { TextureSampleNode } from "./TextureSampleNode.js";
 import { TextureSampleLODNode } from "./TextureSampleLODNode.js";
 import { TextureSampleGradNode } from "./TextureSampleGradNode.js";
+import { TextureDimensionsNode } from "./TextureDimensionsNode.js";
 import { FrontUVNode } from "./FrontUVNode.js";
 import { BackUVNode } from "./BackUVNode.js";
 import { DepthUVNode } from "./DepthUVNode.js";
@@ -270,6 +271,7 @@ export const NODE_TYPES = {
   textureSample: TextureSampleNode,
   textureSampleLOD: TextureSampleLODNode,
   textureSampleGrad: TextureSampleGradNode,
+  textureDimensions: TextureDimensionsNode,
   frontUV: FrontUVNode,
   backUV: BackUVNode,
   depthUV: DepthUVNode,
