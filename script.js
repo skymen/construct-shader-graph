@@ -352,6 +352,7 @@ class Node {
     this.nodeType = nodeType;
     this.title = nodeType.name; // Keep original name for logic
     // Only translate node name if noTranslation.name is not set
+    debugger;
     this.displayTitle = nodeType.noTranslation?.name
       ? nodeType.name
       : languageManager.getNodeName(nodeType.name); // Translated name for display
@@ -4908,6 +4909,12 @@ class BlueprintSystem {
         ? y
         : (-this.camera.y + this.canvas.height / 2) / this.camera.zoom;
 
+    nodeType = {
+      ...nodeType,
+      name: uniform.name,
+      isUniform: true,
+      uniformId: uniform.id,
+    };
     const node = new Node(posX, posY, this.nodeIdCounter++, nodeType);
     node._blueprintSystem = this;
     node.uniformName = uniform.variableName; // Use variable name for shader code
@@ -4918,12 +4925,6 @@ class BlueprintSystem {
 
     // Update node title to show display name
     node.title = uniform.name;
-    node.nodeType = {
-      ...nodeType,
-      name: uniform.name, // Display name for the node
-      isUniform: true,
-      uniformId: uniform.id,
-    };
 
     this.nodes.push(node);
     this.render();
