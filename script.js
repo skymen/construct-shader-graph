@@ -6180,26 +6180,37 @@ class BlueprintSystem {
         label: "Zoom to Fit",
         menu: "View",
         action: "zoomToFit",
+        shortcut: "Shift+F",
         handler: () => this.zoomToFit(),
       },
       {
         label: "Center View",
         menu: "View",
         action: "centerView",
+        shortcut: "F",
         handler: () => this.centerView(),
       },
       {
         label: "Hide Preview",
         menu: "View",
         action: "togglePreview",
+        shortcut: "P",
         handler: () => this.togglePreviewWindow(),
         getLabel: () =>
           this.isPreviewVisible() ? "Hide Preview" : "Show Preview",
       },
       {
+        label: "Reload Preview",
+        menu: "View",
+        action: "reloadPreview",
+        shortcut: "R",
+        handler: () => this.updatePreview(),
+      },
+      {
         label: "Reset Preview Position",
         menu: "View",
         action: "resetPreviewPosition",
+        shortcut: "Shift+P",
         handler: () => this.resetPreviewPosition(),
       },
       // Project menu
@@ -7037,6 +7048,57 @@ class BlueprintSystem {
     else if ((e.ctrlKey || e.metaKey) && e.key === "l") {
       e.preventDefault();
       this.autoArrange();
+    }
+    // Ctrl/Cmd + A: Select All
+    else if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+      e.preventDefault();
+      this.selectAllNodes();
+    }
+    // Escape: Clear Selection
+    else if (e.key === "Escape") {
+      e.preventDefault();
+      this.clearSelection();
+      this.render();
+    }
+    // Ctrl/Cmd + Plus: Zoom In
+    else if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) {
+      e.preventDefault();
+      this.zoomIn();
+    }
+    // Ctrl/Cmd + Minus: Zoom Out
+    else if ((e.ctrlKey || e.metaKey) && e.key === "-") {
+      e.preventDefault();
+      this.zoomOut();
+    }
+    // Ctrl/Cmd + 0: Reset Zoom
+    else if ((e.ctrlKey || e.metaKey) && e.key === "0") {
+      e.preventDefault();
+      this.resetZoom();
+    }
+    // Shift + F: Zoom to Fit
+    else if (e.shiftKey && (e.key === "F" || e.key === "f")) {
+      e.preventDefault();
+      this.zoomToFit();
+    }
+    // F: Center View (without Shift)
+    else if (!e.shiftKey && (e.key === "f" || e.key === "F")) {
+      e.preventDefault();
+      this.centerView();
+    }
+    // P: Toggle Preview Window (without Shift)
+    else if (!e.shiftKey && (e.key === "p" || e.key === "P")) {
+      e.preventDefault();
+      this.togglePreviewWindow();
+    }
+    // Shift + P: Reset Preview Position
+    else if (e.shiftKey && (e.key === "P" || e.key === "p")) {
+      e.preventDefault();
+      this.resetPreviewPosition();
+    }
+    // R: Reload Preview
+    else if (!e.ctrlKey && !e.metaKey && (e.key === "r" || e.key === "R")) {
+      e.preventDefault();
+      this.updatePreview();
     }
     // L: Toggle Preview Node
     else if (e.key === "l" || e.key === "L") {
