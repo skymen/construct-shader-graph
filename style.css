@@ -3463,11 +3463,17 @@ body {
 .manual-modal .modal-footer {
   display: flex;
   gap: 10px;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   padding: 15px 25px;
   border-top: 1px solid #4a4a4a;
   background: #2a2a2a;
   flex-shrink: 0;
+}
+
+.manual-node-count {
+  color: #888;
+  font-size: 13px;
 }
 
 .manual-modal .modal-footer button {

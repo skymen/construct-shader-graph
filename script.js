@@ -8557,9 +8557,14 @@ class BlueprintSystem {
     const categoriesContainer = document.getElementById("manualCategories");
     const contentContainer = document.getElementById("manualContent");
     const searchInput = document.getElementById("manualSearchInput");
+    const nodeCountElement = document.getElementById("manualNodeCount");
 
     // Clear search
     searchInput.value = "";
+
+    // Update total node count
+    const totalNodes = Object.keys(NODE_TYPES).length;
+    nodeCountElement.textContent = `${totalNodes} nodes available`;
 
     // Check if exactly one node is selected
     let selectedNodeKey = null;
