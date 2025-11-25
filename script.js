@@ -6140,19 +6140,12 @@ class BlueprintSystem {
         isEnabled: () => this.selectedNodes.size > 0,
       },
       {
-        label: "Preview Node",
+        label: "Toggle Node Preview",
         menu: "Edit",
         action: "previewNode",
         shortcut: "L",
         handler: () => this.togglePreviewNode(),
         isEnabled: () => this.selectedNodes.size === 1,
-      },
-      {
-        label: "Clear Node Preview",
-        menu: "Edit",
-        action: "clearNodePreview",
-        handler: () => this.clearNodePreview(),
-        isEnabled: () => !!this.previewNode,
       },
       // View menu
       {
@@ -6451,15 +6444,6 @@ class BlueprintSystem {
       this.selectedNodes.add(node);
     });
     this.render();
-  }
-
-  clearNodePreview() {
-    if (this.previewNode) {
-      this.previewNode = null;
-      this.previewNeedsUpdate = true;
-      this.updatePreview();
-      this.render();
-    }
   }
 
   isPreviewVisible() {
