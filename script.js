@@ -352,7 +352,6 @@ class Node {
     this.nodeType = nodeType;
     this.title = nodeType.name; // Keep original name for logic
     // Only translate node name if noTranslation.name is not set
-    debugger;
     this.displayTitle = nodeType.noTranslation?.name
       ? nodeType.name
       : languageManager.getNodeName(nodeType.name); // Translated name for display

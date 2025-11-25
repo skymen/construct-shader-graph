@@ -24,6 +24,14 @@ const genType3OrLess = {
   allowedTypes: ["float", "vec2", "vec3"],
 };
 
+const genMatType = {
+  color: "#2a9d8f",
+  name: "genMatType",
+  editable: false,
+  isGeneric: true,
+  allowedTypes: ["mat2", "mat3", "mat4"],
+};
+
 export const PORT_TYPES = {
   // Scalar types
   float: {
@@ -119,6 +127,23 @@ export const PORT_TYPES = {
     },
   },
 
+  // Matrix types
+  mat2: {
+    color: "#2a9d8f",
+    name: "Mat2",
+    editable: false,
+  },
+  mat3: {
+    color: "#264653",
+    name: "Mat3",
+    editable: false,
+  },
+  mat4: {
+    color: "#1d3557",
+    name: "Mat4",
+    editable: false,
+  },
+
   // Special types
   texture: { color: "#90e24a", name: "Texture", editable: false },
 
@@ -203,6 +228,8 @@ export const PORT_TYPES = {
   genType2OrLess2: { ...genType2OrLess },
   genType3OrLess,
   genType3OrLess2: { ...genType3OrLess },
+  genMatType,
+  genMatType2: { ...genMatType },
 };
 
 // Helper function to check if a type is generic

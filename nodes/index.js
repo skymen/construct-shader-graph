@@ -196,6 +196,27 @@ import { BooleanOrNode } from "./BooleanOrNode.js";
 import { BooleanXorNode } from "./BooleanXorNode.js";
 import { BooleanNotNode } from "./BooleanNotNode.js";
 
+// Import matrix nodes
+import { Mat2Node } from "./Mat2Node.js";
+import { Mat3Node } from "./Mat3Node.js";
+import { Mat4Node } from "./Mat4Node.js";
+import { Mat2DecomposeNode } from "./Mat2DecomposeNode.js";
+import { Mat3DecomposeNode } from "./Mat3DecomposeNode.js";
+import { Mat4DecomposeNode } from "./Mat4DecomposeNode.js";
+import { IdentityMatrixNode } from "./IdentityMatrixNode.js";
+import { MatrixMultiplyNode } from "./MatrixMultiplyNode.js";
+import {
+  Mat2VectorMultiplyNode,
+  Mat3VectorMultiplyNode,
+  Mat4VectorMultiplyNode,
+} from "./MatrixVectorMultiplyNode.js";
+import { TransposeNode } from "./TransposeNode.js";
+import { DeterminantNode } from "./DeterminantNode.js";
+import { InverseMatrixNode } from "./InverseMatrixNode.js";
+import { TranslationMatrixNode } from "./TranslationMatrixNode.js";
+import { ScaleMatrixNode } from "./ScaleMatrixNode.js";
+import { RotationMatrixNode } from "./RotationMatrixNode.js";
+
 // Export NODE_TYPES object
 export const NODE_TYPES = {
   math: MathNode,
@@ -381,4 +402,23 @@ export const NODE_TYPES = {
   booleanOr: BooleanOrNode,
   booleanXor: BooleanXorNode,
   booleanNot: BooleanNotNode,
+
+  // Matrix nodes
+  mat2: Mat2Node,
+  mat3: Mat3Node,
+  mat4: Mat4Node,
+  mat2Decompose: Mat2DecomposeNode,
+  mat3Decompose: Mat3DecomposeNode,
+  mat4Decompose: Mat4DecomposeNode,
+  identityMatrix: IdentityMatrixNode,
+  matrixMultiply: MatrixMultiplyNode,
+  mat2VectorMultiply: Mat2VectorMultiplyNode,
+  mat3VectorMultiply: Mat3VectorMultiplyNode,
+  mat4VectorMultiply: Mat4VectorMultiplyNode,
+  transpose: TransposeNode,
+  determinant: DeterminantNode,
+  inverseMatrix: InverseMatrixNode,
+  translationMatrix: TranslationMatrixNode,
+  scaleMatrix: ScaleMatrixNode,
+  rotationMatrix: RotationMatrixNode,
 };
