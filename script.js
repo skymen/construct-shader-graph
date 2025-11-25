@@ -1548,8 +1548,23 @@ class BlueprintSystem {
   setupCanvas() {
     const resize = () => {
       const container = this.canvas.parentElement;
-      this.canvas.width = container.clientWidth;
-      this.canvas.height = container.clientHeight;
+      const dpr = window.devicePixelRatio || 1;
+
+      // Store logical dimensions for calculations
+      this.logicalWidth = container.clientWidth;
+      this.logicalHeight = container.clientHeight;
+
+      // Set canvas buffer size (scaled for retina)
+      this.canvas.width = this.logicalWidth * dpr;
+      this.canvas.height = this.logicalHeight * dpr;
+
+      // Set CSS display size
+      this.canvas.style.width = this.logicalWidth + "px";
+      this.canvas.style.height = this.logicalHeight + "px";
+
+      // Scale context for retina
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
       this.render();
     };
     resize();
@@ -4368,7 +4383,7 @@ class BlueprintSystem {
         title: "Preview Error",
         message:
           message.length > 100 ? message.substring(0, 100) + "..." : message,
-        duration: 5000,
+        duration: 2000,
       });
     }
   }
@@ -4516,6 +4531,16 @@ class BlueprintSystem {
     this.previewConsoleContent.innerHTML = "";
     this.updateConsoleBadge();
     this.updateConsoleEmptyState();
+
+    // Auto-collapse console on clear/refresh
+    this.collapsePreviewConsole();
+  }
+
+  collapsePreviewConsole() {
+    if (this.previewConsole) {
+      this.previewConsole.classList.add("preview-console-collapsed");
+      this.previewConsole.classList.remove("preview-console-expanded");
+    }
   }
 
   updateConsoleEmptyState() {
@@ -5380,11 +5405,13 @@ class BlueprintSystem {
     const posX =
       x !== undefined
         ? x
-        : (-this.camera.x + this.canvas.width / 2) / this.camera.zoom;
+        : (-this.camera.x + (this.logicalWidth || this.canvas.width) / 2) /
+          this.camera.zoom;
     const posY =
       y !== undefined
         ? y
-        : (-this.camera.y + this.canvas.height / 2) / this.camera.zoom;
+        : (-this.camera.y + (this.logicalHeight || this.canvas.height) / 2) /
+          this.camera.zoom;
 
     nodeType = {
       ...nodeType,
@@ -6790,12 +6817,14 @@ class BlueprintSystem {
         action: "undo",
         shortcut: "Ctrl+Z",
         handler: () => {
-          if (this.history?.undo()) {
+          const result = this.history?.undo();
+          if (result) {
             this.updateUndoRedoButtons();
             this.render();
             this.showNotification({
               type: "info",
               title: "Undo",
+              message: result.description || "",
               duration: 1500,
             });
           }
@@ -6808,12 +6837,14 @@ class BlueprintSystem {
         action: "redo",
         shortcut: "Ctrl+Y",
         handler: () => {
-          if (this.history?.redo()) {
+          const result = this.history?.redo();
+          if (result) {
             this.updateUndoRedoButtons();
             this.render();
             this.showNotification({
               type: "info",
               title: "Redo",
+              message: result.description || "",
               duration: 1500,
             });
           }
@@ -7701,12 +7732,14 @@ class BlueprintSystem {
     // Ctrl/Cmd + Z: Undo (without Shift)
     if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
       e.preventDefault();
-      if (this.history && this.history.undo()) {
+      const result = this.history && this.history.undo();
+      if (result) {
         this.updateUndoRedoButtons();
         this.render();
         this.showNotification({
           type: "info",
           title: "Undo",
+          message: result.description || "",
           duration: 1500,
         });
       }
@@ -7718,12 +7751,14 @@ class BlueprintSystem {
       ((e.key === "z" && e.shiftKey) || e.key === "y")
     ) {
       e.preventDefault();
-      if (this.history && this.history.redo()) {
+      const result = this.history && this.history.redo();
+      if (result) {
         this.updateUndoRedoButtons();
         this.render();
         this.showNotification({
           type: "info",
           title: "Redo",
+          message: result.description || "",
           duration: 1500,
         });
       }
@@ -9327,7 +9362,7 @@ class BlueprintSystem {
         type: "error",
         title: "Failed to Load Project",
         message: error.message,
-        duration: 5000,
+        duration: 2000,
       });
     }
   }
@@ -11090,9 +11125,13 @@ class BlueprintSystem {
     const startY =
       Math.floor(-this.camera.y / this.camera.zoom / gridSize) * gridSize;
     const endX =
-      startX + Math.ceil(this.canvas.width / this.camera.zoom) + gridSize;
+      startX +
+      Math.ceil((this.logicalWidth || this.canvas.width) / this.camera.zoom) +
+      gridSize;
     const endY =
-      startY + Math.ceil(this.canvas.height / this.camera.zoom) + gridSize;
+      startY +
+      Math.ceil((this.logicalHeight || this.canvas.height) / this.camera.zoom) +
+      gridSize;
 
     // Vertical lines
     for (let x = startX; x < endX; x += gridSize) {
@@ -12047,8 +12086,13 @@ class BlueprintSystem {
       requestAnimationFrame(this.render.bind(this));
     }
 
-    // Clear canvas
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    // Clear canvas (use logical dimensions since context is scaled)
+    ctx.clearRect(
+      0,
+      0,
+      this.logicalWidth || this.canvas.width,
+      this.logicalHeight || this.canvas.height
+    );
 
     // Save context and apply camera transform
     ctx.save();
@@ -12234,9 +12278,9 @@ class BlueprintSystem {
     // Get bounds of all nodes
     let bounds = this.getNodesBounds();
 
-    // Calculate the viewport size at 100% zoom
-    const viewportWidth = this.canvas.width;
-    const viewportHeight = this.canvas.height;
+    // Calculate the viewport size at 100% zoom (use logical dimensions)
+    const viewportWidth = this.logicalWidth || this.canvas.width;
+    const viewportHeight = this.logicalHeight || this.canvas.height;
     const viewportX = -this.camera.x;
     const viewportY = -this.camera.y;
 
@@ -12353,9 +12397,11 @@ class BlueprintSystem {
 
     ctx.restore();
 
-    // Draw camera viewport (using actual current zoom level)
-    const currentViewportWidth = this.canvas.width / this.camera.zoom;
-    const currentViewportHeight = this.canvas.height / this.camera.zoom;
+    // Draw camera viewport (using actual current zoom level, logical dimensions)
+    const currentViewportWidth =
+      (this.logicalWidth || this.canvas.width) / this.camera.zoom;
+    const currentViewportHeight =
+      (this.logicalHeight || this.canvas.height) / this.camera.zoom;
     const currentViewportX = -this.camera.x / this.camera.zoom;
     const currentViewportY = -this.camera.y / this.camera.zoom;
 
@@ -12434,9 +12480,11 @@ class BlueprintSystem {
     const worldX = (clickX - offsetX) / scale + bounds.x;
     const worldY = (clickY - offsetY) / scale + bounds.y;
 
-    // Center camera on clicked position
-    const currentViewportWidth = this.canvas.width / this.camera.zoom;
-    const currentViewportHeight = this.canvas.height / this.camera.zoom;
+    // Center camera on clicked position (use logical dimensions)
+    const currentViewportWidth =
+      (this.logicalWidth || this.canvas.width) / this.camera.zoom;
+    const currentViewportHeight =
+      (this.logicalHeight || this.canvas.height) / this.camera.zoom;
 
     this.camera.x = -(worldX - currentViewportWidth / 2) * this.camera.zoom;
     this.camera.y = -(worldY - currentViewportHeight / 2) * this.camera.zoom;

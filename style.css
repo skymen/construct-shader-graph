@@ -3068,11 +3068,11 @@ body {
 
 #notification-container {
   position: fixed;
-  top: 70px;
-  right: 20px;
+  bottom: 20px;
+  left: 340px; /* After the left sidebar (320px + 20px padding) */
   z-index: 10000;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   gap: 10px;
   pointer-events: none;
   max-width: 380px;
@@ -3237,7 +3237,7 @@ body {
 }
 
 #preview-console.preview-console-expanded {
-  height: 120px;
+  height: 160px;
 }
 
 #preview-console-header {

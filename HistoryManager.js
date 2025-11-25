@@ -282,16 +282,18 @@ export class HistoryManager {
     };
 
     // Compare simple properties
-    ["x", "y", "width", "height", "title", "description", "color"].forEach((key) => {
-      if (!this.deepEqual(oldComment[key], newComment[key])) {
-        diff.hasChanges = true;
-        diff.changes[key] = {
-          oldValue: oldComment[key],
-          newValue: newComment[key],
-        };
-        diff.changedKeys.push(key);
+    ["x", "y", "width", "height", "title", "description", "color"].forEach(
+      (key) => {
+        if (!this.deepEqual(oldComment[key], newComment[key])) {
+          diff.hasChanges = true;
+          diff.changes[key] = {
+            oldValue: oldComment[key],
+            newValue: newComment[key],
+          };
+          diff.changedKeys.push(key);
+        }
       }
-    });
+    );
 
     return diff;
   }
@@ -412,6 +414,7 @@ export class HistoryManager {
 
   /**
    * Undo the last change
+   * @returns {object|false} { success: true, description: string } or false
    */
   undo() {
     if (this.undoStack.length === 0) {
@@ -430,7 +433,7 @@ export class HistoryManager {
       this.blueprint.loadState(undoEntry.beforeState);
       this.currentState = undoEntry.beforeState;
       console.log(`Undid: ${undoEntry.description}`);
-      return true;
+      return { success: true, description: undoEntry.description };
     } catch (error) {
       console.error("Failed to undo:", error);
       return false;
@@ -441,6 +444,7 @@ export class HistoryManager {
 
   /**
    * Redo the last undone change
+   * @returns {object|false} { success: true, description: string } or false
    */
   redo() {
     if (this.redoStack.length === 0) {
@@ -459,7 +463,7 @@ export class HistoryManager {
       this.blueprint.loadState(redoEntry.afterState);
       this.currentState = redoEntry.afterState;
       console.log(`Redid: ${redoEntry.description}`);
-      return true;
+      return { success: true, description: redoEntry.description };
     } catch (error) {
       console.error("Failed to redo:", error);
       return false;
