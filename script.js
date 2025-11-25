@@ -779,6 +779,14 @@ const COMMENT_TITLE_HEIGHT = 31;
 const COMMENT_TEXT_MARGIN = 20;
 const COMMENT_DRAG_HANDLE_SIZE = 24; // Size of the drag handle icon
 
+// Wire insertion constants
+const WIRE_INSERTION_THRESHOLD = 30; // Distance threshold for detecting wire insertion
+const WIRE_HIGHLIGHT_COLOR = "#00ff88"; // Color for highlighted wire
+const WIRE_HIGHLIGHT_GLOW_WIDTH = 8; // Width of the glow effect
+const WIRE_HIGHLIGHT_WIDTH = 4; // Width of the highlighted wire
+const WIRE_NORMAL_WIDTH = 3; // Normal wire width
+const WIRE_HIGHLIGHT_SHADOW_BLUR = 15; // Shadow blur for glow effect
+
 class Comment {
   constructor(x, y, width, height, id) {
     this.id = id;
@@ -10236,9 +10244,6 @@ class BlueprintSystem {
   canInsertNodeIntoWire(node, wire) {
     if (!wire.startPort || !wire.endPort) return false;
 
-    const wireOutputType = wire.startPort.getResolvedType();
-    const wireInputType = wire.endPort.getResolvedType();
-
     // Find an input port on the node that can accept the wire's output type
     let compatibleInput = null;
     for (const inputPort of node.inputPorts) {
@@ -10265,7 +10270,7 @@ class BlueprintSystem {
   }
 
   // Find the closest wire that a node can be inserted into
-  findClosestCompatibleWire(node, x, y, threshold = 30) {
+  findClosestCompatibleWire(node, x, y, threshold = WIRE_INSERTION_THRESHOLD) {
     if (!this.nodeHasNoConnections(node)) return null;
     if (node.inputPorts.length === 0 || node.outputPorts.length === 0) return null;
 
@@ -11730,10 +11735,10 @@ class BlueprintSystem {
     // If highlighted, draw a glow effect first
     if (isHighlighted) {
       ctx.save();
-      ctx.strokeStyle = "#00ff88";
-      ctx.lineWidth = 8;
-      ctx.shadowColor = "#00ff88";
-      ctx.shadowBlur = 15;
+      ctx.strokeStyle = WIRE_HIGHLIGHT_COLOR;
+      ctx.lineWidth = WIRE_HIGHLIGHT_GLOW_WIDTH;
+      ctx.shadowColor = WIRE_HIGHLIGHT_COLOR;
+      ctx.shadowBlur = WIRE_HIGHLIGHT_SHADOW_BLUR;
 
       // Draw glow wire segments
       for (let i = 0; i < points.length - 1; i++) {
@@ -11766,8 +11771,8 @@ class BlueprintSystem {
       ctx.restore();
     }
 
-    ctx.strokeStyle = isHighlighted ? "#00ff88" : wireColor;
-    ctx.lineWidth = isHighlighted ? 4 : 3;
+    ctx.strokeStyle = isHighlighted ? WIRE_HIGHLIGHT_COLOR : wireColor;
+    ctx.lineWidth = isHighlighted ? WIRE_HIGHLIGHT_WIDTH : WIRE_NORMAL_WIDTH;
 
     // Draw wire segments with bezier curves
     for (let i = 0; i < points.length - 1; i++) {
@@ -13115,9 +13120,6 @@ class BlueprintSystem {
 // Initialize the system
 const canvas = document.getElementById("canvas");
 const blueprint = new BlueprintSystem(canvas);
-
-// Expose to window for debugging
-window.blueprint = blueprint;
 
 // Initialize with default nodes
 
