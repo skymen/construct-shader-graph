@@ -11551,12 +11551,23 @@ class BlueprintSystem {
       const dx = Math.abs(end.x - start.x);
       const offset = Math.min(dx * 0.5, 100);
 
+      // For reversed wires (dragging from input to output), flip the control points
+      // so the bezier curves in the correct direction
+      let startOffset = offset;
+      let endOffset = -offset;
+
+      if (wire.isReversed) {
+        // Reversed wire: start is input (curve left), end is toward output (curve right)
+        startOffset = -offset;
+        endOffset = offset;
+      }
+
       ctx.beginPath();
       ctx.moveTo(start.x, start.y);
       ctx.bezierCurveTo(
-        start.x + offset,
+        start.x + startOffset,
         start.y,
-        end.x - offset,
+        end.x + endOffset,
         end.y,
         end.x,
         end.y
