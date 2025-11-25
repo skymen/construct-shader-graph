@@ -4504,6 +4504,9 @@ class BlueprintSystem {
         item.draggable = false;
         isDraggingFromHandle = false;
         dragHandle.style.cursor = "grab";
+        // Re-render to ensure visual order matches the array order
+        // This prevents visual reordering when dragging to canvas
+        this.renderCustomNodesList();
       });
 
       const nameSpan = document.createElement("span");
@@ -4652,6 +4655,9 @@ class BlueprintSystem {
         item.classList.remove("dragging");
         item.draggable = false;
         dragFromHandle = false;
+        // Re-render to ensure visual order matches the array order
+        // This prevents visual reordering when dragging to canvas
+        this.renderUniformList();
       });
 
       // Name and info container
