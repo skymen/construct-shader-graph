@@ -12285,14 +12285,11 @@ class BlueprintSystem {
           : languageManager.getOperationLabel(operationLabel);
 
         // Scale font size with camera zoom to maintain readability
-        // Use inverse scaling with a minimum zoom threshold to prevent fonts from getting too large
-        const effectiveZoom = Math.max(this.camera.zoom, 0.35);
-        const scaledFontSize = Math.round(14 / effectiveZoom);
-        const scaledArrowSize = Math.round(10 / effectiveZoom);
+        const fontSizes = this.getScaledDropdownFontSizes();
 
         // Dropdown text
         ctx.fillStyle = "#fff";
-        ctx.font = `${scaledFontSize}px sans-serif`;
+        ctx.font = `${fontSizes.text}px sans-serif`;
         ctx.textAlign = "center";
         ctx.fillText(
           displayText,
@@ -12302,7 +12299,7 @@ class BlueprintSystem {
 
         // Dropdown arrow
         ctx.fillStyle = "#888";
-        ctx.font = `${scaledArrowSize}px sans-serif`;
+        ctx.font = `${fontSizes.arrow}px sans-serif`;
         ctx.textAlign = "right";
         ctx.fillText(
           "▼",
@@ -12371,15 +12368,11 @@ class BlueprintSystem {
         const dropdown = node.getVariableDropdownBounds();
 
         // Scale font size with camera zoom to maintain readability
-        // Use inverse scaling with a minimum zoom threshold to prevent fonts from getting too large
-        const effectiveZoom = Math.max(this.camera.zoom, 0.35);
-        const scaledLabelSize = Math.round(10 / effectiveZoom);
-        const scaledFontSize = Math.round(14 / effectiveZoom);
-        const scaledArrowSize = Math.round(10 / effectiveZoom);
+        const fontSizes = this.getScaledDropdownFontSizes();
 
         // Dropdown label
         ctx.fillStyle = "#888";
-        ctx.font = `${scaledLabelSize}px sans-serif`;
+        ctx.font = `${fontSizes.label}px sans-serif`;
         ctx.textAlign = "left";
         ctx.fillText("Variable", dropdown.x, dropdown.labelY + 10);
 
@@ -12403,7 +12396,7 @@ class BlueprintSystem {
 
         // Dropdown text
         ctx.fillStyle = node.selectedVariable ? "#fff" : "#888";
-        ctx.font = `${scaledFontSize}px monospace`;
+        ctx.font = `${fontSizes.text}px monospace`;
         ctx.textAlign = "left";
 
         // Clip text to dropdown bounds
@@ -12425,7 +12418,7 @@ class BlueprintSystem {
 
         // Dropdown arrow
         ctx.fillStyle = "#888";
-        ctx.font = `${scaledArrowSize}px sans-serif`;
+        ctx.font = `${fontSizes.arrow}px sans-serif`;
         ctx.textAlign = "right";
         ctx.fillText(
           "▼",
@@ -12483,6 +12476,18 @@ class BlueprintSystem {
 
       ctx.restore();
     }
+  }
+
+  // Calculate scaled font size for dropdowns based on camera zoom
+  // Returns an object with scaled sizes for text and arrows
+  getScaledDropdownFontSizes() {
+    // Use inverse scaling with a minimum zoom threshold to prevent fonts from getting too large
+    const effectiveZoom = Math.max(this.camera.zoom, 0.35);
+    return {
+      text: Math.round(14 / effectiveZoom),
+      label: Math.round(10 / effectiveZoom),
+      arrow: Math.round(10 / effectiveZoom),
+    };
   }
 
   adjustBrightness(color, amount) {
