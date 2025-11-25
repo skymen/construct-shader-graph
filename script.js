@@ -8564,7 +8564,7 @@ class BlueprintSystem {
 
     // Update total node count
     const totalNodes = Object.keys(NODE_TYPES).length;
-    nodeCountElement.textContent = `${totalNodes} nodes available`;
+    nodeCountElement.textContent = `${totalNodes} nodes`;
 
     // Check if exactly one node is selected
     let selectedNodeKey = null;
@@ -8697,7 +8697,11 @@ class BlueprintSystem {
       .querySelectorAll(".manual-category")
       .forEach((category) => {
         const nodes = category.querySelectorAll(".manual-node-item");
-        let hasVisibleNode = false;
+        const categoryCountEl = category.querySelector(
+          ".manual-category-count"
+        );
+        const totalInCategory = nodes.length;
+        let categoryVisibleCount = 0;
 
         nodes.forEach((node) => {
           const nodeKey = node.dataset.nodeKey;
@@ -8714,15 +8718,22 @@ class BlueprintSystem {
 
           if (matches || !normalizedSearch) {
             node.style.display = "";
-            hasVisibleNode = true;
+            categoryVisibleCount++;
             visibleCount++;
           } else {
             node.style.display = "none";
           }
         });
 
+        // Update category count
+        if (normalizedSearch) {
+          categoryCountEl.textContent = `${categoryVisibleCount}/${totalInCategory}`;
+        } else {
+          categoryCountEl.textContent = totalInCategory;
+        }
+
         // Show/hide category based on whether it has visible nodes
-        if (hasVisibleNode || !normalizedSearch) {
+        if (categoryVisibleCount > 0 || !normalizedSearch) {
           category.style.display = "";
           // Expand categories that have search results
           if (normalizedSearch) {
@@ -8737,7 +8748,7 @@ class BlueprintSystem {
     if (normalizedSearch) {
       nodeCountElement.textContent = `${visibleCount} of ${totalNodes} nodes`;
     } else {
-      nodeCountElement.textContent = `${totalNodes} nodes available`;
+      nodeCountElement.textContent = `${totalNodes} nodes`;
     }
   }
 
