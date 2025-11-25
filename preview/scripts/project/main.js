@@ -17,6 +17,9 @@ runOnStartup(async (runtime) => {
   globalThis.loadShapeUrl = (url) => {
     runtime.callFunction("loadShapeUrl", url, false);
   };
+  globalThis.loadBgUrl = (url) => {
+    runtime.callFunction("loadBgUrl", url, false);
+  };
   globalThis.updatePreviewSpriteUrl = (url) => {
     if (window !== window.parent) {
       window.parent.postMessage(
@@ -71,6 +74,7 @@ let autoRotate = true;
 let cameraAzimuth = 0; // Horizontal angle (around Z axis)
 let cameraPolar = Math.PI / 4; // Vertical angle from Z axis (45 degrees)
 let cameraDistance = 300;
+let baseCameraDistance = 300;
 let targetPosition = { x: 120, y: 120, z: 60 };
 let isDragging = false;
 let dragStartX = 0;
@@ -86,6 +90,13 @@ let scrollY = 120;
 let zoomLevel = 1;
 let dragStartScrollX = 0;
 let dragStartScrollY = 0;
+
+// Scale state
+let objectScale = 1;
+let roomScale = 1;
+let baseObjectSize = { sprite: { w: 80, h: 130 }, shape: 100 };
+let baseBackground3dSize = 240;
+let baseBackgroundSize = 240;
 
 // Promise that waits for shader data from parent window
 function waitForShaderData() {
@@ -255,6 +266,52 @@ function setAutoRotate(enabled) {
   }
 }
 
+function setShowBackgroundCube(visible) {
+  if (background3d) {
+    background3d.isVisible = visible;
+  }
+}
+
+function setObjectScale(scale) {
+  objectScale = scale;
+  applyObjectScale();
+}
+
+function applyObjectScale() {
+  if (piggy) {
+    piggy.width = baseObjectSize.sprite.w * objectScale;
+    piggy.height = baseObjectSize.sprite.h * objectScale;
+  }
+  if (shape3D) {
+    shape3D.width = baseObjectSize.shape * objectScale;
+    shape3D.height = baseObjectSize.shape * objectScale;
+    shape3D.zHeight = baseObjectSize.shape * objectScale;
+  }
+}
+
+function setRoomScale(scale) {
+  roomScale = scale;
+  applyRoomScale();
+}
+
+function applyRoomScale() {
+  // Scale background 3D cube
+  if (background3d) {
+    background3d.width = -1 * baseBackground3dSize * roomScale;
+    background3d.height = baseBackground3dSize * roomScale;
+    background3d.zHeight = baseBackground3dSize * roomScale;
+  }
+
+  // Scale 2D background (tiled)
+  if (background) {
+    background.width = baseBackgroundSize * roomScale;
+    background.height = baseBackgroundSize * roomScale;
+  }
+
+  // Update camera distance for 3D modes
+  cameraDistance = baseCameraDistance * roomScale;
+}
+
 function handlePreviewCommand(command, value) {
   switch (command) {
     case "setEffectTarget":
@@ -268,6 +325,15 @@ function handlePreviewCommand(command, value) {
       break;
     case "setAutoRotate":
       setAutoRotate(value);
+      break;
+    case "setShowBackgroundCube":
+      setShowBackgroundCube(value);
+      break;
+    case "setObjectScale":
+      setObjectScale(value);
+      break;
+    case "setRoomScale":
+      setRoomScale(value);
       break;
   }
 }

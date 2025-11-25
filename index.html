@@ -332,135 +332,255 @@
           </div>
           <div id="preview-content">
             <div id="preview-controls" class="preview-controls-hidden">
-              <div class="preview-control-group">
-                <label>Effect Target:</label>
-                <select id="effectTargetSelect">
-                  <option value="sprite">Sprite</option>
-                  <option value="shape3D">3D Shape</option>
-                  <option value="layout">Layout</option>
-                  <option value="layer">Layer</option>
-                </select>
-              </div>
-              <div class="preview-control-group">
-                <label>Object:</label>
-                <select id="objectSelect">
-                  <option value="sprite">Sprite</option>
-                  <option value="box">Box</option>
-                  <option value="prism">Prism</option>
-                  <option value="wedge">Wedge</option>
-                  <option value="pyramid">Pyramid</option>
-                  <option value="corner-out">Corner Out</option>
-                  <option value="corner-in">Corner In</option>
-                </select>
-              </div>
-              <div class="preview-control-group">
-                <label>Camera:</label>
-                <select id="cameraModeSelect">
-                  <option value="2d">2D</option>
-                  <option value="perspective">Perspective</option>
-                  <option value="orthographic">Orthographic</option>
-                </select>
-              </div>
-              <div class="preview-control-group" id="autoRotateGroup">
-                <label>
-                  <input type="checkbox" id="autoRotateCheckbox" checked />
-                  Auto Rotate
-                </label>
-              </div>
-              <div class="preview-control-group">
-                <label>Sampling:</label>
-                <select id="samplingModeSelect">
-                  <option value="trilinear">Trilinear</option>
-                  <option value="bilinear">Bilinear</option>
-                  <option value="nearest">Nearest</option>
-                </select>
-              </div>
-              <div class="preview-control-group">
-                <label>Shader Language:</label>
-                <select id="shaderLanguageSelect">
-                  <option value="webgpu">WebGPU</option>
-                  <option value="webgl2">WebGL 2</option>
-                  <option value="webgl1">WebGL 1</option>
-                </select>
-              </div>
-              <div class="preview-control-group preview-texture-group">
-                <label>Sprite Texture:</label>
-                <div class="texture-preview-container">
-                  <div id="spriteTexturePreview" class="texture-preview">
-                    <span>No image</span>
-                  </div>
-                  <input
-                    type="file"
-                    id="spriteTextureInput"
-                    accept="image/*"
-                    style="display: none"
-                  />
-                  <button
-                    id="spriteTextureBtn"
-                    class="texture-btn"
-                    title="Load sprite texture"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                      <path
-                        d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    id="clearSpriteTextureBtn"
-                    class="texture-clear-btn"
-                    title="Clear sprite texture"
-                    style="display: none"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                      <path
-                        d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              <div class="preview-control-group preview-texture-group">
-                <label>Shape Texture:</label>
-                <div class="texture-preview-container">
-                  <div id="shapeTexturePreview" class="texture-preview">
-                    <span>No image</span>
-                  </div>
-                  <input
-                    type="file"
-                    id="shapeTextureInput"
-                    accept="image/*"
-                    style="display: none"
-                  />
-                  <button
-                    id="shapeTextureBtn"
-                    class="texture-btn"
-                    title="Load shape texture"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                      <path
-                        d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    id="clearShapeTextureBtn"
-                    class="texture-clear-btn"
-                    title="Clear shape texture"
-                    style="display: none"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                      <path
-                        d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              <div class="preview-control-group">
-                <button id="resetPreviewSettingsBtn" class="reset-preview-btn">
-                  Reset Preview Settings
+              <!-- Tab Navigation -->
+              <div class="preview-tabs">
+                <button class="preview-tab active" data-tab="display">
+                  Display
                 </button>
+                <button class="preview-tab" data-tab="textures">
+                  Textures
+                </button>
+                <button class="preview-tab" data-tab="technical">
+                  Technical
+                </button>
+              </div>
+
+              <!-- Display Tab -->
+              <div class="preview-tab-content active" data-tab="display">
+                <div class="preview-control-group">
+                  <label>Effect Target:</label>
+                  <select id="effectTargetSelect">
+                    <option value="sprite">Sprite</option>
+                    <option value="shape3D">3D Shape</option>
+                    <option value="layout">Layout</option>
+                    <option value="layer">Layer</option>
+                  </select>
+                </div>
+                <div class="preview-control-group">
+                  <label>Object:</label>
+                  <select id="objectSelect">
+                    <option value="sprite">Sprite</option>
+                    <option value="box">Box</option>
+                    <option value="prism">Prism</option>
+                    <option value="wedge">Wedge</option>
+                    <option value="pyramid">Pyramid</option>
+                    <option value="corner-out">Corner Out</option>
+                    <option value="corner-in">Corner In</option>
+                  </select>
+                </div>
+                <div class="preview-control-group">
+                  <label>Camera:</label>
+                  <select id="cameraModeSelect">
+                    <option value="2d">2D</option>
+                    <option value="perspective">Perspective</option>
+                    <option value="orthographic">Orthographic</option>
+                  </select>
+                </div>
+                <div class="preview-control-group" id="autoRotateGroup">
+                  <label>
+                    <input type="checkbox" id="autoRotateCheckbox" checked />
+                    Auto Rotate
+                  </label>
+                </div>
+                <div class="preview-control-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      id="showBackgroundCubeCheckbox"
+                      checked
+                    />
+                    Show 3D Background
+                  </label>
+                </div>
+                <div class="preview-control-group preview-slider-group">
+                  <label>Object Scale:</label>
+                  <div class="preview-slider-container">
+                    <input
+                      type="range"
+                      id="objectScaleSlider"
+                      min="0.1"
+                      max="3"
+                      step="0.05"
+                      value="1"
+                    />
+                    <span id="objectScaleValue">1.00</span>
+                  </div>
+                </div>
+                <div class="preview-control-group preview-slider-group">
+                  <label>Room Scale:</label>
+                  <div class="preview-slider-container">
+                    <input
+                      type="range"
+                      id="roomScaleSlider"
+                      min="0.5"
+                      max="3"
+                      step="0.05"
+                      value="1"
+                    />
+                    <span id="roomScaleValue">1.00</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Textures Tab -->
+              <div class="preview-tab-content" data-tab="textures">
+                <div class="preview-control-group preview-texture-group">
+                  <label>Sprite Texture:</label>
+                  <div class="texture-preview-container">
+                    <div id="spriteTexturePreview" class="texture-preview">
+                      <span>No image</span>
+                    </div>
+                    <input
+                      type="file"
+                      id="spriteTextureInput"
+                      accept="image/*"
+                      style="display: none"
+                    />
+                    <button
+                      id="spriteTextureBtn"
+                      class="texture-btn"
+                      title="Load sprite texture"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      id="clearSpriteTextureBtn"
+                      class="texture-clear-btn"
+                      title="Clear sprite texture"
+                      style="display: none"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="preview-control-group preview-texture-group">
+                  <label>Shape Texture:</label>
+                  <div class="texture-preview-container">
+                    <div id="shapeTexturePreview" class="texture-preview">
+                      <span>No image</span>
+                    </div>
+                    <input
+                      type="file"
+                      id="shapeTextureInput"
+                      accept="image/*"
+                      style="display: none"
+                    />
+                    <button
+                      id="shapeTextureBtn"
+                      class="texture-btn"
+                      title="Load shape texture"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      id="clearShapeTextureBtn"
+                      class="texture-clear-btn"
+                      title="Clear shape texture"
+                      style="display: none"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="preview-control-group preview-texture-group">
+                  <label>Background Texture:</label>
+                  <div class="texture-preview-container">
+                    <div id="bgTexturePreview" class="texture-preview">
+                      <span>No image</span>
+                    </div>
+                    <input
+                      type="file"
+                      id="bgTextureInput"
+                      accept="image/*"
+                      style="display: none"
+                    />
+                    <button
+                      id="bgTextureBtn"
+                      class="texture-btn"
+                      title="Load background texture"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      id="clearBgTextureBtn"
+                      class="texture-clear-btn"
+                      title="Clear background texture"
+                      style="display: none"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Technical Tab -->
+              <div class="preview-tab-content" data-tab="technical">
+                <div class="preview-control-group">
+                  <label>Sampling:</label>
+                  <select id="samplingModeSelect">
+                    <option value="trilinear">Trilinear</option>
+                    <option value="bilinear">Bilinear</option>
+                    <option value="nearest">Nearest</option>
+                  </select>
+                </div>
+                <div class="preview-control-group">
+                  <label>Shader Language:</label>
+                  <select id="shaderLanguageSelect">
+                    <option value="webgpu">WebGPU</option>
+                    <option value="webgl2">WebGL 2</option>
+                    <option value="webgl1">WebGL 1</option>
+                  </select>
+                </div>
+                <div class="preview-control-group">
+                  <button
+                    id="resetPreviewSettingsBtn"
+                    class="reset-preview-btn"
+                  >
+                    Reset Preview Settings
+                  </button>
+                </div>
               </div>
             </div>
             <iframe id="preview-iframe" src="./preview/index.html"></iframe>

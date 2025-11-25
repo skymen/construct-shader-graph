@@ -969,6 +969,10 @@ class BlueprintSystem {
       shaderLanguage: "webgpu",
       spriteTextureUrl: null,
       shapeTextureUrl: null,
+      bgTextureUrl: null,
+      showBackgroundCube: true,
+      objectScale: 1,
+      roomScale: 1,
     };
 
     // History Manager for undo/redo
@@ -3534,6 +3538,55 @@ class BlueprintSystem {
       this.resetPreviewSettings();
     });
 
+    // Preview Tabs
+    const previewTabs = document.querySelectorAll(".preview-tab");
+    const previewTabContents = document.querySelectorAll(
+      ".preview-tab-content"
+    );
+
+    previewTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const tabName = tab.dataset.tab;
+
+        previewTabs.forEach((t) => t.classList.remove("active"));
+        previewTabContents.forEach((c) => c.classList.remove("active"));
+
+        tab.classList.add("active");
+        document
+          .querySelector(`.preview-tab-content[data-tab="${tabName}"]`)
+          .classList.add("active");
+      });
+    });
+
+    // Show/Hide 3D Background Cube
+    const showBackgroundCubeCheckbox = document.getElementById(
+      "showBackgroundCubeCheckbox"
+    );
+    showBackgroundCubeCheckbox.addEventListener("change", (e) => {
+      this.previewSettings.showBackgroundCube = e.target.checked;
+      this.sendPreviewCommand("setShowBackgroundCube", e.target.checked);
+    });
+
+    // Object Scale Slider
+    const objectScaleSlider = document.getElementById("objectScaleSlider");
+    const objectScaleValue = document.getElementById("objectScaleValue");
+    objectScaleSlider.addEventListener("input", (e) => {
+      const scale = parseFloat(e.target.value);
+      this.previewSettings.objectScale = scale;
+      objectScaleValue.textContent = scale.toFixed(2);
+      this.sendPreviewCommand("setObjectScale", scale);
+    });
+
+    // Room Scale Slider
+    const roomScaleSlider = document.getElementById("roomScaleSlider");
+    const roomScaleValue = document.getElementById("roomScaleValue");
+    roomScaleSlider.addEventListener("input", (e) => {
+      const scale = parseFloat(e.target.value);
+      this.previewSettings.roomScale = scale;
+      roomScaleValue.textContent = scale.toFixed(2);
+      this.sendPreviewCommand("setRoomScale", scale);
+    });
+
     // Screenshot preview button
     const screenshotPreviewBtn = document.getElementById(
       "screenshotPreviewBtn"
@@ -3572,6 +3625,15 @@ class BlueprintSystem {
           "setAutoRotate",
           this.previewSettings.autoRotate
         );
+        this.sendPreviewCommand(
+          "setShowBackgroundCube",
+          this.previewSettings.showBackgroundCube
+        );
+        this.sendPreviewCommand(
+          "setObjectScale",
+          this.previewSettings.objectScale
+        );
+        this.sendPreviewCommand("setRoomScale", this.previewSettings.roomScale);
 
         // Load textures if they exist
         if (this.previewSettings.spriteTextureUrl) {
@@ -3586,6 +3648,9 @@ class BlueprintSystem {
             this.previewSettings.shapeTextureUrl
           );
         }
+        if (this.previewSettings.bgTextureUrl) {
+          this.loadPreviewTexture("bg", this.previewSettings.bgTextureUrl);
+        }
       } else if (event.data && event.data.type === "shaderError") {
         this.displayShaderError(event.data.message, event.data.severity);
       } else if (event.data && event.data.type === "updatePreviewSpriteUrl") {
@@ -3594,6 +3659,9 @@ class BlueprintSystem {
       } else if (event.data && event.data.type === "updatePreviewShapeUrl") {
         console.log("Received updatePreviewShapeUrl message", event.data);
         this.handleTextureUpdate("shape", event.data.url);
+      } else if (event.data && event.data.type === "updatePreviewBgUrl") {
+        console.log("Received updatePreviewBgUrl message", event.data);
+        this.handleTextureUpdate("bg", event.data.url);
       }
     });
 
@@ -3619,6 +3687,11 @@ class BlueprintSystem {
       "clearShapeTextureBtn"
     );
     const shapeTexturePreview = document.getElementById("shapeTexturePreview");
+
+    const bgTextureInput = document.getElementById("bgTextureInput");
+    const bgTextureBtn = document.getElementById("bgTextureBtn");
+    const clearBgTextureBtn = document.getElementById("clearBgTextureBtn");
+    const bgTexturePreview = document.getElementById("bgTexturePreview");
 
     // Sprite texture button
     spriteTextureBtn.addEventListener("click", () => {
@@ -3651,6 +3724,22 @@ class BlueprintSystem {
     clearShapeTextureBtn.addEventListener("click", () => {
       this.clearTexture("shape");
     });
+
+    // Background texture button
+    bgTextureBtn.addEventListener("click", () => {
+      bgTextureInput.click();
+    });
+
+    bgTextureInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        this.loadTextureFromFile(file, "bg");
+      }
+    });
+
+    clearBgTextureBtn.addEventListener("click", () => {
+      this.clearTexture("bg");
+    });
   }
 
   loadTextureFromFile(file, type) {
@@ -3678,6 +3767,9 @@ class BlueprintSystem {
         "clearShapeTextureBtn",
         url
       );
+    } else if (type === "bg") {
+      this.previewSettings.bgTextureUrl = url;
+      this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", url);
     }
   }
 
@@ -3697,7 +3789,15 @@ class BlueprintSystem {
   loadPreviewTexture(type, url) {
     if (!this.previewIframe || !this.previewReady) return;
 
-    const functionName = type === "sprite" ? "loadSpriteUrl" : "loadShapeUrl";
+    let functionName;
+    if (type === "sprite") {
+      functionName = "loadSpriteUrl";
+    } else if (type === "shape") {
+      functionName = "loadShapeUrl";
+    } else if (type === "bg") {
+      functionName = "loadBgUrl";
+    }
+
     this.previewIframe.contentWindow.postMessage(
       {
         type: "callFunction",
@@ -3723,6 +3823,9 @@ class BlueprintSystem {
         "clearShapeTextureBtn",
         null
       );
+    } else if (type === "bg") {
+      this.previewSettings.bgTextureUrl = null;
+      this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", null);
     }
 
     // Clearing requires a reload
@@ -8182,6 +8285,10 @@ class BlueprintSystem {
       shaderLanguage: "webgpu",
       spriteTextureUrl: null,
       shapeTextureUrl: null,
+      bgTextureUrl: null,
+      showBackgroundCube: true,
+      objectScale: 1,
+      roomScale: 1,
     };
 
     // Update UI elements
@@ -8194,6 +8301,13 @@ class BlueprintSystem {
     const shaderLanguageSelect = document.getElementById(
       "shaderLanguageSelect"
     );
+    const showBackgroundCubeCheckbox = document.getElementById(
+      "showBackgroundCubeCheckbox"
+    );
+    const objectScaleSlider = document.getElementById("objectScaleSlider");
+    const objectScaleValue = document.getElementById("objectScaleValue");
+    const roomScaleSlider = document.getElementById("roomScaleSlider");
+    const roomScaleValue = document.getElementById("roomScaleValue");
 
     if (effectTargetSelect) effectTargetSelect.value = "sprite";
     if (objectSelect) objectSelect.value = "sprite";
@@ -8202,6 +8316,11 @@ class BlueprintSystem {
     if (autoRotateGroup) autoRotateGroup.style.display = "none";
     if (samplingModeSelect) samplingModeSelect.value = "trilinear";
     if (shaderLanguageSelect) shaderLanguageSelect.value = "webgpu";
+    if (showBackgroundCubeCheckbox) showBackgroundCubeCheckbox.checked = true;
+    if (objectScaleSlider) objectScaleSlider.value = 1;
+    if (objectScaleValue) objectScaleValue.textContent = "1.00";
+    if (roomScaleSlider) roomScaleSlider.value = 1;
+    if (roomScaleValue) roomScaleValue.textContent = "1.00";
 
     // Reset texture preview UI
     this.updateTexturePreview(
@@ -8214,6 +8333,7 @@ class BlueprintSystem {
       "clearShapeTextureBtn",
       null
     );
+    this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", null);
 
     // Send commands to preview iframe if ready
     if (this.previewReady) {
@@ -8221,6 +8341,9 @@ class BlueprintSystem {
       this.sendPreviewCommand("setObject", "sprite");
       this.sendPreviewCommand("setCameraMode", "2d");
       this.sendPreviewCommand("setAutoRotate", true);
+      this.sendPreviewCommand("setShowBackgroundCube", true);
+      this.sendPreviewCommand("setObjectScale", 1);
+      this.sendPreviewCommand("setRoomScale", 1);
       // Reload preview to clear textures
       this.updatePreview();
     }
@@ -9014,6 +9137,13 @@ class BlueprintSystem {
     const autoRotateCheckbox = document.getElementById("autoRotateCheckbox");
     const autoRotateGroup = document.getElementById("autoRotateGroup");
     const samplingModeSelect = document.getElementById("samplingModeSelect");
+    const showBackgroundCubeCheckbox = document.getElementById(
+      "showBackgroundCubeCheckbox"
+    );
+    const objectScaleSlider = document.getElementById("objectScaleSlider");
+    const objectScaleValue = document.getElementById("objectScaleValue");
+    const roomScaleSlider = document.getElementById("roomScaleSlider");
+    const roomScaleValue = document.getElementById("roomScaleValue");
 
     if (effectTargetSelect) {
       effectTargetSelect.value = this.previewSettings.effectTarget;
@@ -9043,6 +9173,24 @@ class BlueprintSystem {
       shaderLanguageSelect.value =
         this.previewSettings.shaderLanguage || "webgpu";
     }
+    if (showBackgroundCubeCheckbox) {
+      showBackgroundCubeCheckbox.checked =
+        this.previewSettings.showBackgroundCube !== false;
+    }
+    if (objectScaleSlider) {
+      const objScale = this.previewSettings.objectScale || 1;
+      objectScaleSlider.value = objScale;
+      if (objectScaleValue) {
+        objectScaleValue.textContent = objScale.toFixed(2);
+      }
+    }
+    if (roomScaleSlider) {
+      const roomScale = this.previewSettings.roomScale || 1;
+      roomScaleSlider.value = roomScale;
+      if (roomScaleValue) {
+        roomScaleValue.textContent = roomScale.toFixed(2);
+      }
+    }
 
     // Update texture previews
     this.updateTexturePreview(
@@ -9054,6 +9202,11 @@ class BlueprintSystem {
       "shapeTexturePreview",
       "clearShapeTextureBtn",
       this.previewSettings.shapeTextureUrl
+    );
+    this.updateTexturePreview(
+      "bgTexturePreview",
+      "clearBgTextureBtn",
+      this.previewSettings.bgTextureUrl
     );
   }
 

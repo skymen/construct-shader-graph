@@ -2276,18 +2276,18 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(2px);
-  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+  padding: 0;
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   z-index: 10;
   border-bottom: 1px solid rgba(74, 74, 74, 0.5);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   transition: transform 0.3s ease, opacity 0.3s ease;
   transform-origin: top;
+  max-height: 280px;
+  overflow-y: auto;
 }
 
 #preview-controls.preview-controls-hidden {
@@ -2299,6 +2299,50 @@ body {
 #preview-controls.preview-controls-visible {
   transform: translateY(0);
   opacity: 1;
+}
+
+/* Preview Tabs */
+.preview-tabs {
+  display: flex;
+  gap: 0;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid rgba(74, 74, 74, 0.5);
+  flex-shrink: 0;
+}
+
+.preview-tab {
+  background: transparent;
+  border: none;
+  color: #aaa;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.preview-tab:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.preview-tab.active {
+  color: #4a90e2;
+  border-bottom-color: #4a90e2;
+  background: rgba(74, 144, 226, 0.1);
+}
+
+.preview-tab-content {
+  display: none;
+  padding: 10px 12px;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.preview-tab-content.active {
+  display: flex;
 }
 
 .preview-control-group {
@@ -2341,6 +2385,58 @@ body {
   cursor: pointer;
   width: 14px;
   height: 14px;
+}
+
+/* Preview Slider Controls */
+.preview-slider-group {
+  width: 100%;
+}
+
+.preview-slider-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.preview-slider-container input[type="range"] {
+  flex: 1;
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.preview-slider-container input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #4a90e2;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.preview-slider-container input[type="range"]::-webkit-slider-thumb:hover {
+  background: #5ba3ff;
+}
+
+.preview-slider-container input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: #4a90e2;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
+
+.preview-slider-container span {
+  min-width: 35px;
+  text-align: right;
+  font-size: 11px;
+  color: #4a90e2;
+  font-family: 'Courier New', monospace;
 }
 
 .preview-texture-group {
