@@ -10583,8 +10583,18 @@ class BlueprintSystem {
         }
 
         // Immediately start dragging the new reroute node
+        // First select it (this also clears any previous selection)
+        this.selectRerouteNode(rerouteNode, false);
+
         this.draggedRerouteNode = rerouteNode;
         rerouteNode.isDragging = true;
+
+        // Store initial positions for dragging
+        this.selectedRerouteNodes.forEach((rn) => {
+          rn.dragStartX = rn.x;
+          rn.dragStartY = rn.y;
+        });
+
         this.render();
         return;
       }
