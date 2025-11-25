@@ -5255,14 +5255,36 @@ class BlueprintSystem {
     this.searchFilterPort = filterPort;
     this.searchFilterType = filterType;
 
-    // Position the menu
-    this.searchMenu.style.left = `${x}px`;
-    this.searchMenu.style.top = `${y}px`;
-
-    // Clear and show
+    // Clear and show (need to show first to measure dimensions)
     this.searchInput.value = "";
     this.searchMenu.classList.add("visible");
     this.updateSearchResults();
+
+    // Measure menu dimensions after rendering
+    const menuRect = this.searchMenu.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+
+    // Check if menu would go off-screen at the bottom
+    let finalY = y;
+    let finalX = x;
+
+    // If menu would extend past bottom of viewport, position above mouse
+    if (y + menuRect.height > viewportHeight - 10) {
+      finalY = Math.max(10, viewportHeight - menuRect.height - 10);
+    }
+
+    // If menu would extend past right edge, adjust x
+    if (x + menuRect.width > viewportWidth - 10) {
+      finalX = Math.max(10, viewportWidth - menuRect.width - 10);
+    }
+
+    // Position the menu
+    this.searchMenu.style.left = `${finalX}px`;
+    this.searchMenu.style.top = `${finalY}px`;
+
+    // Update stored position for node creation
+    this.searchMenuPosition = { x: finalX, y: finalY };
 
     // Focus the input
     setTimeout(() => {
@@ -5587,21 +5609,185 @@ class BlueprintSystem {
     };
   }
 
+  // Levenshtein distance algorithm for fuzzy matching
+  levenshteinDistance(str1, str2) {
+    const m = str1.length;
+    const n = str2.length;
+
+    // Create a 2D array to store distances
+    const dp = Array(m + 1)
+      .fill(null)
+      .map(() => Array(n + 1).fill(0));
+
+    // Initialize base cases
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+    // Fill the DP table
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (str1[i - 1] === str2[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1];
+        } else {
+          dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+        }
+      }
+    }
+
+    return dp[m][n];
+  }
+
+  // Normalize string for comparison (lowercase, remove spaces)
+  normalizeForSearch(str) {
+    return str.toLowerCase().replace(/\s+/g, "");
+  }
+
+  // Calculate search relevancy score for a node type
+  calculateSearchScore(nodeType, query, normalizedQuery) {
+    const englishName = nodeType.name.toLowerCase();
+    const translatedName = languageManager
+      .getNodeName(nodeType.name)
+      .toLowerCase();
+    const normalizedEnglish = this.normalizeForSearch(englishName);
+    const normalizedTranslated = this.normalizeForSearch(translatedName);
+
+    // Get translated tags
+    const tags = (nodeType.tags || []).map((tag) => tag.toLowerCase());
+    const translatedTags = tags.map((tag) =>
+      languageManager.getTagName(tag).toLowerCase()
+    );
+
+    let score = 0;
+
+    // Exact match (highest priority) - score 1000
+    if (englishName === query || translatedName === query) {
+      score = 1000;
+    }
+    // Exact match with normalized (no spaces) - score 950
+    else if (
+      normalizedEnglish === normalizedQuery ||
+      normalizedTranslated === normalizedQuery
+    ) {
+      score = 950;
+    }
+    // Starts with query - score 800
+    else if (
+      englishName.startsWith(query) ||
+      translatedName.startsWith(query)
+    ) {
+      score = 800;
+    }
+    // Starts with normalized query - score 750
+    else if (
+      normalizedEnglish.startsWith(normalizedQuery) ||
+      normalizedTranslated.startsWith(normalizedQuery)
+    ) {
+      score = 750;
+    }
+    // Contains query - score 600
+    else if (englishName.includes(query) || translatedName.includes(query)) {
+      score = 600;
+    }
+    // Contains normalized query - score 550
+    else if (
+      normalizedEnglish.includes(normalizedQuery) ||
+      normalizedTranslated.includes(normalizedQuery)
+    ) {
+      score = 550;
+    }
+    // Word boundary match (query matches start of any word) - score 500
+    else {
+      const words = [
+        ...englishName.split(/\s+/),
+        ...translatedName.split(/\s+/),
+      ];
+      if (words.some((word) => word.startsWith(query))) {
+        score = 500;
+      }
+    }
+
+    // Tag exact match - score 400
+    if (
+      score < 400 &&
+      (tags.includes(query) || translatedTags.includes(query))
+    ) {
+      score = 400;
+    }
+
+    // Tag partial match - score 300
+    if (
+      score < 300 &&
+      (tags.some((tag) => tag.includes(query)) ||
+        translatedTags.some((tag) => tag.includes(query)))
+    ) {
+      score = 300;
+    }
+
+    // Tag normalized match - score 250
+    if (score < 250) {
+      const normalizedTags = tags.map((t) => this.normalizeForSearch(t));
+      const normalizedTranslatedTags = translatedTags.map((t) =>
+        this.normalizeForSearch(t)
+      );
+      if (
+        normalizedTags.some((tag) => tag.includes(normalizedQuery)) ||
+        normalizedTranslatedTags.some((tag) => tag.includes(normalizedQuery))
+      ) {
+        score = 250;
+      }
+    }
+
+    // Levenshtein distance for fuzzy matching - score based on distance
+    if (score === 0 && query.length >= 2) {
+      const minEnglishDist = this.levenshteinDistance(
+        normalizedQuery,
+        normalizedEnglish
+      );
+      const minTranslatedDist = this.levenshteinDistance(
+        normalizedQuery,
+        normalizedTranslated
+      );
+      const minDist = Math.min(minEnglishDist, minTranslatedDist);
+
+      // Allow matches with distance up to 40% of query length (max 3)
+      const maxAllowedDist = Math.min(3, Math.ceil(query.length * 0.4));
+
+      if (minDist <= maxAllowedDist) {
+        // Score decreases with distance: 200, 150, 100
+        score = Math.max(50, 200 - minDist * 50);
+      }
+    }
+
+    return score;
+  }
+
   updateSearchResults() {
-    const query = this.searchInput.value.toLowerCase();
+    const query = this.searchInput.value.toLowerCase().trim();
+    const normalizedQuery = this.normalizeForSearch(query);
     const filteredTypes = this.getFilteredNodeTypes();
 
-    // Filter by search query (check name and tags)
-    const results = filteredTypes.filter(([key, nodeType]) => {
-      const translatedName = languageManager.getNodeName(nodeType.name);
-      const nameMatch =
-        nodeType.name.toLowerCase().includes(query) ||
-        translatedName.toLowerCase().includes(query);
-      const tagMatch =
-        nodeType.tags &&
-        nodeType.tags.some((tag) => tag.toLowerCase().includes(query));
-      return nameMatch || tagMatch;
+    // Score and filter results
+    const scoredResults = filteredTypes
+      .map(([key, nodeType]) => {
+        const score = query
+          ? this.calculateSearchScore(nodeType, query, normalizedQuery)
+          : 1; // Include all when no query
+        return { key, nodeType, score };
+      })
+      .filter((result) => result.score > 0);
+
+    // Sort by score (highest first), then alphabetically by translated name
+    scoredResults.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      const nameA = languageManager.getNodeName(a.nodeType.name);
+      const nameB = languageManager.getNodeName(b.nodeType.name);
+      return nameA.localeCompare(nameB);
     });
+
+    // Convert back to [key, nodeType] format
+    const results = scoredResults.map((r) => [r.key, r.nodeType]);
 
     // Clear results
     this.searchResults.innerHTML = "";
@@ -5694,110 +5880,147 @@ class BlueprintSystem {
       this.searchResults.appendChild(addCommentBtn);
     }
 
-    // Group results by category
-    const categorizedResults = {};
-    results.forEach(([key, nodeType]) => {
-      const category = nodeType.category || "Misc";
-      if (!categorizedResults[category]) {
-        categorizedResults[category] = [];
+    // Helper function to create a node item
+    const createNodeItem = (key, nodeType, isFirst = false) => {
+      const item = document.createElement("div");
+      item.className = "search-result-item";
+      item.dataset.nodeTypeKey = key;
+      item.tabIndex = 0; // Make focusable
+
+      // Mark first result as selected by default when searching
+      if (isFirst && query.length > 0) {
+        item.classList.add("search-selected");
+        this.selectedSearchItem = item;
       }
-      categorizedResults[category].push([key, nodeType]);
-    });
 
-    // Sort categories (by translated names)
-    const sortedCategories = Object.keys(categorizedResults).sort((a, b) => {
-      const nameA = languageManager.getCategoryName(a);
-      const nameB = languageManager.getCategoryName(b);
-      return nameA.localeCompare(nameB);
-    });
+      // Color indicator
+      const colorDiv = document.createElement("div");
+      colorDiv.className = "search-result-color";
+      colorDiv.style.background = nodeType.color;
+      item.appendChild(colorDiv);
 
-    // Determine if categories should be expanded (when there's a search query)
-    const expandAll = query.length > 0;
+      // Name
+      const nameDiv = document.createElement("div");
+      nameDiv.className = "search-result-name";
+      nameDiv.textContent = languageManager.getNodeName(nodeType.name);
+      item.appendChild(nameDiv);
 
-    // Render each category
-    sortedCategories.forEach((category) => {
-      const categoryNodes = categorizedResults[category];
+      // Type info
+      const typeDiv = document.createElement("div");
+      typeDiv.className = "search-result-type";
+      const inputCount = nodeType.inputs.length;
+      const outputCount = nodeType.outputs.length;
+      typeDiv.textContent = `${inputCount}→${outputCount}`;
+      item.appendChild(typeDiv);
 
-      // Create category header
-      const categoryHeader = document.createElement("div");
-      categoryHeader.className = "search-category-header";
-      categoryHeader.textContent = languageManager.getCategoryName(category);
-      categoryHeader.dataset.category = category;
+      // Click handler
+      item.addEventListener("click", () => {
+        this.selectNodeType(key, nodeType);
+      });
 
-      // Make category collapsible
-      const isExpanded = expandAll;
-      categoryHeader.classList.toggle("expanded", isExpanded);
-
-      categoryHeader.addEventListener("click", () => {
-        categoryHeader.classList.toggle("expanded");
-        const categoryContent = categoryHeader.nextElementSibling;
-        if (categoryContent) {
-          categoryContent.classList.toggle("collapsed");
+      // Enter key handler
+      item.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          this.selectNodeType(key, nodeType);
         }
       });
 
-      this.searchResults.appendChild(categoryHeader);
+      // Hover to select
+      item.addEventListener("mouseenter", () => {
+        this.setSearchSelection(item);
+      });
 
-      // Create category content container
-      const categoryContent = document.createElement("div");
-      categoryContent.className = "search-category-content";
-      if (!isExpanded) {
-        categoryContent.classList.add("collapsed");
-      }
+      return item;
+    };
 
-      // Add nodes in this category
-      categoryNodes.forEach(([key, nodeType]) => {
-        const item = document.createElement("div");
-        item.className = "search-result-item";
-        item.dataset.nodeTypeKey = key;
-        item.tabIndex = 0; // Make focusable
+    // When searching, show a flat sorted list (already sorted by relevancy)
+    if (query.length > 0) {
+      let isFirst = true;
+      results.forEach(([key, nodeType]) => {
+        const item = createNodeItem(key, nodeType, isFirst);
+        this.searchResults.appendChild(item);
+        isFirst = false;
+      });
+    } else {
+      // When not searching, show categorized view
+      // Group results by category
+      const categorizedResults = {};
+      results.forEach(([key, nodeType]) => {
+        const category = nodeType.category || "Misc";
+        if (!categorizedResults[category]) {
+          categorizedResults[category] = [];
+        }
+        categorizedResults[category].push([key, nodeType]);
+      });
 
-        // Color indicator
-        const colorDiv = document.createElement("div");
-        colorDiv.className = "search-result-color";
-        colorDiv.style.background = nodeType.color;
-        item.appendChild(colorDiv);
+      // Sort categories (by translated names)
+      const sortedCategories = Object.keys(categorizedResults).sort((a, b) => {
+        const nameA = languageManager.getCategoryName(a);
+        const nameB = languageManager.getCategoryName(b);
+        return nameA.localeCompare(nameB);
+      });
 
-        // Name
-        const nameDiv = document.createElement("div");
-        nameDiv.className = "search-result-name";
-        nameDiv.textContent = languageManager.getNodeName(nodeType.name);
-        item.appendChild(nameDiv);
+      // Render each category
+      sortedCategories.forEach((category) => {
+        const categoryNodes = categorizedResults[category];
 
-        // Type info
-        const typeDiv = document.createElement("div");
-        typeDiv.className = "search-result-type";
-        const inputCount = nodeType.inputs.length;
-        const outputCount = nodeType.outputs.length;
-        typeDiv.textContent = `${inputCount}→${outputCount}`;
-        item.appendChild(typeDiv);
+        // Create category header
+        const categoryHeader = document.createElement("div");
+        categoryHeader.className = "search-category-header";
+        categoryHeader.textContent = languageManager.getCategoryName(category);
+        categoryHeader.dataset.category = category;
 
-        // Click handler
-        item.addEventListener("click", () => {
-          this.selectNodeType(key, nodeType);
-        });
+        // Categories start collapsed
+        categoryHeader.classList.remove("expanded");
 
-        // Enter key handler
-        item.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            this.selectNodeType(key, nodeType);
+        categoryHeader.addEventListener("click", () => {
+          categoryHeader.classList.toggle("expanded");
+          const categoryContent = categoryHeader.nextElementSibling;
+          if (categoryContent) {
+            categoryContent.classList.toggle("collapsed");
           }
         });
 
-        categoryContent.appendChild(item);
-      });
+        this.searchResults.appendChild(categoryHeader);
 
-      this.searchResults.appendChild(categoryContent);
-    });
+        // Create category content container
+        const categoryContent = document.createElement("div");
+        categoryContent.className = "search-category-content collapsed";
+
+        // Add nodes in this category
+        categoryNodes.forEach(([key, nodeType]) => {
+          const item = createNodeItem(key, nodeType, false);
+          categoryContent.appendChild(item);
+        });
+
+        this.searchResults.appendChild(categoryContent);
+      });
+    }
 
     // If no results
-    if (results.length === 0) {
+    if (results.length === 0 && query.length > 0) {
       const noResults = document.createElement("div");
       noResults.style.padding = "20px";
       noResults.style.textAlign = "center";
       noResults.style.color = "#888";
       noResults.textContent = languageManager.getUIText("No nodes found");
       this.searchResults.appendChild(noResults);
+    }
+  }
+
+  // Set visual selection on a search item
+  setSearchSelection(item) {
+    // Remove previous selection
+    const prevSelected = this.searchResults.querySelector(".search-selected");
+    if (prevSelected) {
+      prevSelected.classList.remove("search-selected");
+    }
+    // Add selection to new item
+    if (item) {
+      item.classList.add("search-selected");
+      this.selectedSearchItem = item;
+      // Scroll into view if needed
+      item.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }
 
@@ -5908,42 +6131,65 @@ class BlueprintSystem {
   }
 
   focusNextSearchResult() {
-    const items = this.searchResults.querySelectorAll(".search-result-item");
+    const items = Array.from(
+      this.searchResults.querySelectorAll(".search-result-item")
+    );
     if (items.length === 0) return;
 
-    const focused = document.activeElement;
-    let index = Array.from(items).indexOf(focused);
-    index = (index + 1) % items.length;
-    items[index].focus();
+    // Find currently selected item
+    const currentSelected =
+      this.searchResults.querySelector(".search-selected");
+    let currentIndex = currentSelected ? items.indexOf(currentSelected) : -1;
+
+    // Move to next item
+    let nextIndex = (currentIndex + 1) % items.length;
+    this.setSearchSelection(items[nextIndex]);
   }
 
   focusPrevSearchResult() {
-    const items = this.searchResults.querySelectorAll(".search-result-item");
+    const items = Array.from(
+      this.searchResults.querySelectorAll(".search-result-item")
+    );
     if (items.length === 0) return;
 
-    const focused = document.activeElement;
-    let index = Array.from(items).indexOf(focused);
-    index = (index - 1 + items.length) % items.length;
-    items[index].focus();
+    // Find currently selected item
+    const currentSelected =
+      this.searchResults.querySelector(".search-selected");
+    let currentIndex = currentSelected ? items.indexOf(currentSelected) : 0;
+
+    // Move to previous item
+    let prevIndex = (currentIndex - 1 + items.length) % items.length;
+    this.setSearchSelection(items[prevIndex]);
   }
 
   selectFocusedSearchResult() {
+    // First check for selected item
+    const selectedItem = this.searchResults.querySelector(".search-selected");
+    if (selectedItem && selectedItem.dataset.nodeTypeKey) {
+      const key = selectedItem.dataset.nodeTypeKey;
+      const nodeType = NODE_TYPES[key];
+      this.selectNodeType(key, nodeType);
+      return;
+    }
+
+    // Fallback to first item
     const items = this.searchResults.querySelectorAll(".search-result-item");
     if (items.length === 0) return;
 
-    // If input is focused, select first item
-    if (document.activeElement === this.searchInput) {
-      const key = items[0].dataset.nodeTypeKey;
+    const firstItem = items[0];
+    if (firstItem.dataset.nodeTypeKey) {
+      const key = firstItem.dataset.nodeTypeKey;
       const nodeType = NODE_TYPES[key];
       this.selectNodeType(key, nodeType);
-    } else {
-      // Select the focused item
-      const focused = document.activeElement;
-      if (focused.classList.contains("search-result-item")) {
-        const key = focused.dataset.nodeTypeKey;
-        const nodeType = NODE_TYPES[key];
-        this.selectNodeType(key, nodeType);
-      }
+    } else if (firstItem.classList.contains("create-custom-node-btn")) {
+      // Handle Create Custom Node button
+      this.pendingCustomNodePosition = { ...this.searchMenuPosition };
+      this.hideSearchMenu();
+      this.showCustomNodeModal();
+    } else if (firstItem.classList.contains("add-comment-btn")) {
+      // Handle Add Comment button
+      this.hideSearchMenu();
+      this.createComment(this.searchMenuPosition.x, this.searchMenuPosition.y);
     }
   }
 

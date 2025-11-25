@@ -812,6 +812,15 @@ body {
   background: #3a3a3a;
 }
 
+.search-result-item.search-selected {
+  background: #4f4f4f;
+  color: #fff;
+}
+
+.search-result-item.search-selected:hover {
+  background: #5f5f5f;
+}
+
 .search-result-color {
   width: 12px;
   height: 12px;
