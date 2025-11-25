@@ -3778,6 +3778,14 @@ body {
   transition: all 0.15s;
 }
 
+.manual-operation-item.has-description {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  flex: 1 1 calc(50% - 4px);
+  min-width: 200px;
+}
+
 .manual-operation-item:hover {
   border-color: #4a90e2;
   background: rgba(74, 144, 226, 0.1);
@@ -3787,6 +3795,12 @@ body {
   color: #fff;
   font-size: 13px;
   font-weight: 500;
+}
+
+.manual-operation-description {
+  color: #888;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .manual-operation-value {

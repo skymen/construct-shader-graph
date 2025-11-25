@@ -230,28 +230,97 @@ export const BlendModeNode = new NodeType(
 // Add operation options to the node type
 BlendModeNode.hasOperation = true;
 BlendModeNode.operationOptions = [
-  { value: "normal", label: "Normal" },
-  { value: "multiply", label: "Multiply" },
-  { value: "screen", label: "Screen" },
-  { value: "overlay", label: "Overlay" },
-  { value: "add", label: "Add" },
-  { value: "subtract", label: "Subtract" },
-  { value: "difference", label: "Difference" },
-  { value: "darken", label: "Darken" },
-  { value: "lighten", label: "Lighten" },
-  { value: "colorDodge", label: "Color Dodge" },
-  { value: "colorBurn", label: "Color Burn" },
-  { value: "hardLight", label: "Hard Light" },
-  { value: "softLight", label: "Soft Light" },
-  { value: "linearDodge", label: "Linear Dodge" },
-  { value: "linearBurn", label: "Linear Burn" },
-  { value: "exclusion", label: "Exclusion" },
-  { value: "divide", label: "Divide" },
+  {
+    value: "normal",
+    label: "Normal",
+    description: "Replaces base color with blend color",
+  },
+  {
+    value: "multiply",
+    label: "Multiply",
+    description: "Multiplies colors, always darkens",
+  },
+  {
+    value: "screen",
+    label: "Screen",
+    description: "Inverts, multiplies, inverts again - always lightens",
+  },
+  {
+    value: "overlay",
+    label: "Overlay",
+    description: "Combines Multiply and Screen based on base color",
+  },
+  {
+    value: "add",
+    label: "Add",
+    description: "Adds colors together, clamped to 1.0",
+  },
+  {
+    value: "subtract",
+    label: "Subtract",
+    description: "Subtracts blend from base, clamped to 0.0",
+  },
+  {
+    value: "difference",
+    label: "Difference",
+    description: "Absolute difference between colors",
+  },
+  {
+    value: "darken",
+    label: "Darken",
+    description: "Keeps the darker of two colors",
+  },
+  {
+    value: "lighten",
+    label: "Lighten",
+    description: "Keeps the lighter of two colors",
+  },
+  {
+    value: "colorDodge",
+    label: "Color Dodge",
+    description: "Brightens base by decreasing contrast",
+  },
+  {
+    value: "colorBurn",
+    label: "Color Burn",
+    description: "Darkens base by increasing contrast",
+  },
+  {
+    value: "hardLight",
+    label: "Hard Light",
+    description: "Combines Multiply and Screen based on blend color",
+  },
+  {
+    value: "softLight",
+    label: "Soft Light",
+    description: "Softer version of Hard Light",
+  },
+  {
+    value: "linearDodge",
+    label: "Linear Dodge",
+    description: "Same as Add - adds colors together",
+  },
+  {
+    value: "linearBurn",
+    label: "Linear Burn",
+    description: "Adds colors then subtracts 1.0",
+  },
+  {
+    value: "exclusion",
+    label: "Exclusion",
+    description: "Similar to Difference but lower contrast",
+  },
+  {
+    value: "divide",
+    label: "Divide",
+    description: "Divides base by blend color",
+  },
 ];
 
 // Manual entry for documentation
 BlendModeNode.manual = {
-  description: "Combines two colors using various blending algorithms commonly found in image editing software like Photoshop. Each blend mode produces different visual effects based on mathematical operations between the base and blend colors.",
+  description:
+    "Combines two colors using various blending algorithms commonly found in image editing software like Photoshop. Each blend mode produces different visual effects based on mathematical operations between the base and blend colors.",
   html: `
     <h4>Blend Mode Categories</h4>
     <p><strong>Darkening modes:</strong> Multiply, Darken, Color Burn, Linear Burn</p>
@@ -271,5 +340,5 @@ BlendModeNode.manual = {
     <div class="tip">
       <strong>Tip:</strong> For alpha-aware blending, decompose the color first and handle the alpha channel separately.
     </div>
-  `
+  `,
 };

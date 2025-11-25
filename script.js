@@ -8561,6 +8561,19 @@ class BlueprintSystem {
     // Clear search
     searchInput.value = "";
 
+    // Check if exactly one node is selected
+    let selectedNodeKey = null;
+    if (this.selectedNodes.size === 1) {
+      const selectedNode = Array.from(this.selectedNodes)[0];
+      // Find the node key from NODE_TYPES
+      for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
+        if (nodeType === selectedNode.nodeType) {
+          selectedNodeKey = key;
+          break;
+        }
+      }
+    }
+
     // Build categories from NODE_TYPES
     const categories = {};
     for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
@@ -8607,16 +8620,36 @@ class BlueprintSystem {
 
     categoriesContainer.innerHTML = sidebarHtml;
 
-    // Show placeholder in content area
-    contentContainer.innerHTML = `
-      <div class="manual-placeholder">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="64" height="64">
-          <path fill="currentColor" d="M19 2L14 6.5V17.5L19 13V2M6.5 5C4.55 5 2.45 5.4 1 6.5V21.16C1 21.41 1.25 21.66 1.5 21.66C1.6 21.66 1.65 21.59 1.75 21.59C3.1 20.94 5.05 20.5 6.5 20.5C8.45 20.5 10.55 20.9 12 22C13.35 21.15 15.8 20.5 17.5 20.5C19.15 20.5 20.85 20.81 22.25 21.56C22.35 21.61 22.4 21.59 22.5 21.59C22.75 21.59 23 21.34 23 21.09V6.5C22.4 6.05 21.75 5.75 21 5.5V7.5L21 13V19C19.9 18.65 18.7 18.5 17.5 18.5C15.8 18.5 13.35 19.15 12 20V13L12 6.5C10.55 5.4 8.45 5 6.5 5Z"/>
-        </svg>
-        <h3>Select a node to view documentation</h3>
-        <p>Browse the categories on the left or use the search bar to find a specific node.</p>
-      </div>
-    `;
+    // Show placeholder in content area or auto-select node if one is selected
+    if (selectedNodeKey) {
+      this.showNodeManualEntry(selectedNodeKey);
+      // Mark the node item as active in the sidebar
+      setTimeout(() => {
+        const nodeItem = categoriesContainer.querySelector(
+          `[data-node-key="${selectedNodeKey}"]`
+        );
+        if (nodeItem) {
+          nodeItem.classList.add("active");
+          // Expand its parent category
+          const category = nodeItem.closest(".manual-category");
+          if (category) {
+            category.classList.remove("collapsed");
+          }
+          // Scroll node item into view
+          nodeItem.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 0);
+    } else {
+      contentContainer.innerHTML = `
+        <div class="manual-placeholder">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="64" height="64">
+            <path fill="currentColor" d="M19 2L14 6.5V17.5L19 13V2M6.5 5C4.55 5 2.45 5.4 1 6.5V21.16C1 21.41 1.25 21.66 1.5 21.66C1.6 21.66 1.65 21.59 1.75 21.59C3.1 20.94 5.05 20.5 6.5 20.5C8.45 20.5 10.55 20.9 12 22C13.35 21.15 15.8 20.5 17.5 20.5C19.15 20.5 20.85 20.81 22.25 21.56C22.35 21.61 22.4 21.59 22.5 21.59C22.75 21.59 23 21.34 23 21.09V6.5C22.4 6.05 21.75 5.75 21 5.5V7.5L21 13V19C19.9 18.65 18.7 18.5 17.5 18.5C15.8 18.5 13.35 19.15 12 20V13L12 6.5C10.55 5.4 8.45 5 6.5 5Z"/>
+          </svg>
+          <h3>Select a node to view documentation</h3>
+          <p>Browse the categories on the left or use the search bar to find a specific node.</p>
+        </div>
+      `;
+    }
 
     // Add event listeners for category headers
     categoriesContainer
@@ -8801,9 +8834,15 @@ class BlueprintSystem {
             ${nodeType.operationOptions
               .map(
                 (op) => `
-              <div class="manual-operation-item">
+              <div class="manual-operation-item${
+                op.description ? " has-description" : ""
+              }">
                 <span class="manual-operation-label">${op.label}</span>
-                <code class="manual-operation-value">${op.value}</code>
+                ${
+                  op.description
+                    ? `<span class="manual-operation-description">${op.description}</span>`
+                    : ""
+                }
               </div>
             `
               )
