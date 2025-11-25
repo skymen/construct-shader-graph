@@ -1,5 +1,166 @@
 // Wait for shader data from parent window before starting
 
+// Helper to send errors to parent window
+function sendErrorToParent(message, severity = "error") {
+  if (window !== window.parent) {
+    window.parent.postMessage(
+      {
+        type: "shaderError",
+        message: message,
+        severity: severity,
+      },
+      "*"
+    );
+  }
+}
+
+// Helper to send console logs to parent window
+function sendConsoleLogToParent(message, level = "log") {
+  if (window !== window.parent) {
+    window.parent.postMessage(
+      {
+        type: "consoleLog",
+        message: message,
+        level: level,
+      },
+      "*"
+    );
+  }
+}
+
+// Set up WebGPU error capturing IMMEDIATELY before any WebGPU code runs
+// This must happen before Construct 3 initializes its renderer
+function setupWebGPUErrorCapture() {
+  if (!navigator.gpu) return;
+
+  // Hook into GPUDevice creation to capture uncaptured errors
+  const originalRequestAdapter = navigator.gpu.requestAdapter.bind(
+    navigator.gpu
+  );
+  navigator.gpu.requestAdapter = async function (...args) {
+    const adapter = await originalRequestAdapter(...args);
+    if (adapter) {
+      const originalRequestDevice = adapter.requestDevice.bind(adapter);
+      adapter.requestDevice = async function (...deviceArgs) {
+        const device = await originalRequestDevice(...deviceArgs);
+        if (device) {
+          // Capture uncaptured errors from this device
+          device.addEventListener("uncapturederror", (event) => {
+            const error = event.error;
+            let message = "WebGPU Error";
+
+            if (error instanceof GPUValidationError) {
+              message = `WebGPU Validation Error: ${error.message}`;
+            } else if (error instanceof GPUOutOfMemoryError) {
+              message = `WebGPU Out of Memory Error: ${error.message}`;
+            } else if (error instanceof GPUInternalError) {
+              message = `WebGPU Internal Error: ${error.message}`;
+            } else if (error && error.message) {
+              message = `WebGPU Error: ${error.message}`;
+            }
+
+            sendErrorToParent(message, "error");
+          });
+
+          // Also intercept createShaderModule to capture shader compilation errors
+          const originalCreateShaderModule =
+            device.createShaderModule.bind(device);
+          device.createShaderModule = function (descriptor) {
+            const shaderModule = originalCreateShaderModule(descriptor);
+
+            // Check for compilation info asynchronously
+            if (shaderModule && shaderModule.getCompilationInfo) {
+              shaderModule
+                .getCompilationInfo()
+                .then((compilationInfo) => {
+                  for (const msg of compilationInfo.messages) {
+                    const severity = msg.type === "error" ? "error" : "warning";
+                    const location =
+                      msg.lineNum > 0
+                        ? ` (line ${msg.lineNum}, col ${msg.linePos})`
+                        : "";
+                    sendErrorToParent(
+                      `WGSL ${msg.type}${location}: ${msg.message}`,
+                      severity
+                    );
+                  }
+                })
+                .catch(() => {
+                  // Ignore errors from getCompilationInfo
+                });
+            }
+
+            return shaderModule;
+          };
+
+          // Intercept createRenderPipeline for pipeline creation errors
+          const originalCreateRenderPipeline =
+            device.createRenderPipeline.bind(device);
+          device.createRenderPipeline = function (descriptor) {
+            try {
+              return originalCreateRenderPipeline(descriptor);
+            } catch (e) {
+              sendErrorToParent(`WebGPU Pipeline Error: ${e.message}`, "error");
+              throw e;
+            }
+          };
+
+          // Intercept createRenderPipelineAsync
+          const originalCreateRenderPipelineAsync =
+            device.createRenderPipelineAsync.bind(device);
+          device.createRenderPipelineAsync = async function (descriptor) {
+            try {
+              return await originalCreateRenderPipelineAsync(descriptor);
+            } catch (e) {
+              sendErrorToParent(`WebGPU Pipeline Error: ${e.message}`, "error");
+              throw e;
+            }
+          };
+        }
+        return device;
+      };
+    }
+    return adapter;
+  };
+}
+
+// Run WebGPU interception immediately
+setupWebGPUErrorCapture();
+
+// Also set up global error handlers for ALL uncaught errors
+window.addEventListener("error", (event) => {
+  const message = event.message || "Unknown error";
+  const filename = event.filename || "";
+  const lineno = event.lineno || 0;
+  const colno = event.colno || 0;
+
+  // Send all uncaught errors to parent
+  const locationStr = filename ? ` (${filename}:${lineno}:${colno})` : "";
+  sendErrorToParent(`${message}${locationStr}`, "error");
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  let message = "Unhandled Promise Rejection";
+
+  if (reason instanceof Error) {
+    message = reason.message;
+    if (reason.stack) {
+      // Include first line of stack for context
+      const stackLine = reason.stack.split("\n")[1];
+      if (stackLine) {
+        message += ` ${stackLine.trim()}`;
+      }
+    }
+  } else if (typeof reason === "string") {
+    message = reason;
+  } else if (reason && reason.message) {
+    message = reason.message;
+  }
+
+  sendErrorToParent(`Unhandled Rejection: ${message}`, "error");
+});
+
 let shaderDataPromise = (async () => {
   // If we're in an iframe, wait for shader data from parent
   if (window !== window.parent) {
@@ -555,42 +716,36 @@ function updateCamera() {
 }
 
 function setupShaderErrorCapture() {
-  // Capture console errors and warnings
+  // Capture all console methods
   const originalError = console.error;
   const originalWarn = console.warn;
+  const originalLog = console.log;
+  const originalInfo = console.info;
 
   console.error = function (...args) {
     originalError.apply(console, args);
-
-    // Check if it's a shader-related error
     const message = args.join(" ");
-    if (window !== window.parent) {
-      window.parent.postMessage(
-        {
-          type: "shaderError",
-          message: message,
-          severity: "error",
-        },
-        "*"
-      );
-    }
+    sendErrorToParent(message, "error");
+    sendConsoleLogToParent(message, "error");
   };
 
   console.warn = function (...args) {
     originalWarn.apply(console, args);
-
-    // Check if it's a shader-related warning
     const message = args.join(" ");
-    if (window !== window.parent) {
-      window.parent.postMessage(
-        {
-          type: "shaderError",
-          message: message,
-          severity: "warning",
-        },
-        "*"
-      );
-    }
+    sendErrorToParent(message, "warning");
+    sendConsoleLogToParent(message, "warning");
+  };
+
+  console.log = function (...args) {
+    originalLog.apply(console, args);
+    const message = args.join(" ");
+    sendConsoleLogToParent(message, "log");
+  };
+
+  console.info = function (...args) {
+    originalInfo.apply(console, args);
+    const message = args.join(" ");
+    sendConsoleLogToParent(message, "info");
   };
 
   // Capture WebGL errors
@@ -599,15 +754,11 @@ function setupShaderErrorCapture() {
       WebGLRenderingContext.prototype.getShaderInfoLog;
     WebGLRenderingContext.prototype.getShaderInfoLog = function (shader) {
       const log = originalGetShaderInfoLog.call(this, shader);
-      if (log && log.trim() && window !== window.parent) {
-        window.parent.postMessage(
-          {
-            type: "shaderError",
-            message: log,
-            severity: log.toLowerCase().includes("error") ? "error" : "warning",
-          },
-          "*"
-        );
+      if (log && log.trim()) {
+        const severity = log.toLowerCase().includes("error")
+          ? "error"
+          : "warning";
+        sendErrorToParent(`WebGL Shader: ${log}`, severity);
       }
       return log;
     };
@@ -616,15 +767,11 @@ function setupShaderErrorCapture() {
       WebGLRenderingContext.prototype.getProgramInfoLog;
     WebGLRenderingContext.prototype.getProgramInfoLog = function (program) {
       const log = originalGetProgramInfoLog.call(this, program);
-      if (log && log.trim() && window !== window.parent) {
-        window.parent.postMessage(
-          {
-            type: "shaderError",
-            message: log,
-            severity: log.toLowerCase().includes("error") ? "error" : "warning",
-          },
-          "*"
-        );
+      if (log && log.trim()) {
+        const severity = log.toLowerCase().includes("error")
+          ? "error"
+          : "warning";
+        sendErrorToParent(`WebGL Program: ${log}`, severity);
       }
       return log;
     };
@@ -636,15 +783,11 @@ function setupShaderErrorCapture() {
       WebGL2RenderingContext.prototype.getShaderInfoLog;
     WebGL2RenderingContext.prototype.getShaderInfoLog = function (shader) {
       const log = originalGetShaderInfoLog.call(this, shader);
-      if (log && log.trim() && window !== window.parent) {
-        window.parent.postMessage(
-          {
-            type: "shaderError",
-            message: log,
-            severity: log.toLowerCase().includes("error") ? "error" : "warning",
-          },
-          "*"
-        );
+      if (log && log.trim()) {
+        const severity = log.toLowerCase().includes("error")
+          ? "error"
+          : "warning";
+        sendErrorToParent(`WebGL2 Shader: ${log}`, severity);
       }
       return log;
     };
@@ -653,15 +796,11 @@ function setupShaderErrorCapture() {
       WebGL2RenderingContext.prototype.getProgramInfoLog;
     WebGL2RenderingContext.prototype.getProgramInfoLog = function (program) {
       const log = originalGetProgramInfoLog.call(this, program);
-      if (log && log.trim() && window !== window.parent) {
-        window.parent.postMessage(
-          {
-            type: "shaderError",
-            message: log,
-            severity: log.toLowerCase().includes("error") ? "error" : "warning",
-          },
-          "*"
-        );
+      if (log && log.trim()) {
+        const severity = log.toLowerCase().includes("error")
+          ? "error"
+          : "warning";
+        sendErrorToParent(`WebGL2 Program: ${log}`, severity);
       }
       return log;
     };
@@ -718,6 +857,15 @@ function setupShaderErrorCapture() {
 
       // Set sampling mode (t[14] is the sampling mode property)
       t[14] = samplingMode;
+
+      t[15] =
+        t[15] ||
+        self["C3_Shaders"]["skymen_Placeholdereffect"].blendsBackground;
+
+      t[42] =
+        t[42] || self["C3_Shaders"]["skymen_Placeholdereffect"].crossSampling;
+
+      t[17] = t[17] || self["C3_Shaders"]["skymen_Placeholdereffect"].usesDepth;
 
       await super._LoadDataJson(e);
     }

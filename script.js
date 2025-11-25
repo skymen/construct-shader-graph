@@ -9104,7 +9104,29 @@ class BlueprintSystem {
 
       // Restore uniforms
       if (data.uniforms) {
-        this.uniforms = data.uniforms;
+        this.uniforms = [];
+        for (const uniformData of data.uniforms) {
+          // Recalculate variableName from the uniform name
+          let variableName = `uniform_${this.sanitizeVariableName(
+            uniformData.name
+          )}`;
+
+          // Ensure variable name is unique
+          let counter = 1;
+          const baseVariableName = variableName;
+          while (
+            this.uniforms.some((u) => u.variableName === variableName) ||
+            this.uniforms.some((u) => u.name === variableName)
+          ) {
+            variableName = `${baseVariableName}_${counter}`;
+            counter++;
+          }
+
+          this.uniforms.push({
+            ...uniformData,
+            variableName: variableName,
+          });
+        }
         this.uniformIdCounter =
           data.uniformIdCounter || this.uniforms.length + 1;
         this.renderUniformList();
@@ -9156,7 +9178,7 @@ class BlueprintSystem {
                 name: uniform.name,
                 isUniform: true,
                 uniformId: uniform.id,
-                uniformName: uniform.name,
+                uniformName: uniform.variableName,
               };
             } else {
               console.warn(`Uniform with ID ${nodeData.uniformId} not found`);
@@ -9180,13 +9202,19 @@ class BlueprintSystem {
             node.customInput = nodeData.customInput;
           if (nodeData.selectedVariable !== undefined)
             node.selectedVariable = nodeData.selectedVariable;
-          if (nodeData.uniformName) node.uniformName = nodeData.uniformName;
-          if (nodeData.uniformDisplayName)
-            node.uniformDisplayName = nodeData.uniformDisplayName;
-          if (nodeData.uniformVariableName)
-            node.uniformVariableName = nodeData.uniformVariableName;
-          if (nodeData.uniformId !== undefined)
+
+          // For uniform nodes, recalculate uniformName and uniformVariableName from the uniform
+          if (nodeData.uniformId !== undefined) {
             node.uniformId = nodeData.uniformId;
+            const uniform = this.uniforms.find(
+              (u) => u.id === nodeData.uniformId
+            );
+            if (uniform) {
+              node.uniformName = uniform.variableName;
+              node.uniformDisplayName = uniform.name;
+              node.uniformVariableName = uniform.variableName;
+            }
+          }
           if (nodeData.isVariable !== undefined)
             node.isVariable = nodeData.isVariable;
 
