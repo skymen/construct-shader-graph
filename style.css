@@ -2466,6 +2466,18 @@ body {
   text-align: right;
   padding: 2px 4px;
   outline: none;
+  -moz-appearance: textfield;
+}
+
+.slider-value-input::-webkit-outer-spin-button,
+.slider-value-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.slider-value-input::selection {
+  background: rgba(255, 255, 255, 0.3);
+  color: #fff;
 }
 
 .preview-texture-group {
