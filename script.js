@@ -899,6 +899,8 @@ class BlueprintSystem {
     this.isBoxSelecting = false;
     this.boxSelectStart = null;
     this.boxSelectEnd = null;
+    this.boxSelectInitialNodes = new Set();
+    this.boxSelectInitialRerouteNodes = new Set();
 
     // Camera state
     this.camera = {
@@ -9206,6 +9208,9 @@ class BlueprintSystem {
     this.isBoxSelecting = true;
     this.boxSelectStart = { x: pos.x, y: pos.y };
     this.boxSelectEnd = { x: pos.x, y: pos.y };
+    // Store initially selected nodes to preserve them during box selection
+    this.boxSelectInitialNodes = new Set(this.selectedNodes);
+    this.boxSelectInitialRerouteNodes = new Set(this.selectedRerouteNodes);
     this.render();
   }
 
@@ -9261,7 +9266,7 @@ class BlueprintSystem {
 
         if (inBox && !node.isSelected) {
           this.selectNode(node, true);
-        } else if (!inBox && node.isSelected && !this.selectedNodes.has(node)) {
+        } else if (!inBox && node.isSelected && !this.boxSelectInitialNodes.has(node)) {
           // Only deselect if it wasn't previously selected before box selection
           this.deselectNode(node);
         }
@@ -9278,7 +9283,7 @@ class BlueprintSystem {
           } else if (
             !inBox &&
             rn.isSelected &&
-            !this.selectedRerouteNodes.has(rn)
+            !this.boxSelectInitialRerouteNodes.has(rn)
           ) {
             this.deselectRerouteNode(rn);
           }
@@ -9645,6 +9650,8 @@ class BlueprintSystem {
       this.isBoxSelecting = false;
       this.boxSelectStart = null;
       this.boxSelectEnd = null;
+      this.boxSelectInitialNodes.clear();
+      this.boxSelectInitialRerouteNodes.clear();
     }
 
     // Stop resizing comment
