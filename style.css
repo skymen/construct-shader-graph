@@ -3400,12 +3400,89 @@ body {
 }
 
 /* ==================== Manual Modal ==================== */
+#manualModal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 10000;
+  justify-content: center;
+  align-items: center;
+}
+
 .manual-modal {
+  background: #2a2a2a;
+  border: 2px solid #4a4a4a;
+  border-radius: 8px;
   max-width: 1100px;
   width: 90vw;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.manual-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 25px;
+  border-bottom: 1px solid #4a4a4a;
+  flex-shrink: 0;
+}
+
+.manual-modal .modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #fff;
+}
+
+.manual-modal .modal-close {
+  background: transparent;
+  border: none;
+  color: #aaa;
+  font-size: 24px;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.manual-modal .modal-close:hover {
+  background: #4a4a4a;
+  color: #fff;
+}
+
+.manual-modal .modal-footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 15px 25px;
+  border-top: 1px solid #4a4a4a;
+  background: #2a2a2a;
+  flex-shrink: 0;
+}
+
+.manual-modal .modal-footer button {
+  padding: 10px 20px;
+  border-radius: 5px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  background: #4a90e2;
+  color: #fff;
+  transition: background 0.2s;
+}
+
+.manual-modal .modal-footer button:hover {
+  background: #357abd;
 }
 
 .manual-modal .modal-body {
@@ -3417,8 +3494,7 @@ body {
 .manual-layout {
   display: flex;
   flex: 1;
-  min-height: 500px;
-  max-height: calc(85vh - 130px);
+  min-height: 400px;
   overflow: hidden;
 }
 
