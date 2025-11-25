@@ -2439,6 +2439,35 @@ body {
   font-family: 'Courier New', monospace;
 }
 
+.editable-slider-value {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+
+.editable-slider-value:hover {
+  background: rgba(74, 144, 226, 0.2);
+}
+
+.editable-slider-value.editing {
+  background: #1a1a1a;
+  outline: 1px solid #4a90e2;
+}
+
+.slider-value-input {
+  width: 45px;
+  background: #1a1a1a;
+  border: 1px solid #4a90e2;
+  border-radius: 3px;
+  color: #4a90e2;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  text-align: right;
+  padding: 2px 4px;
+  outline: none;
+}
+
 .preview-texture-group {
   width: 100%;
 }

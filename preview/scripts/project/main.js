@@ -13,6 +13,26 @@ let shaderDataPromise = (async () => {
 runOnStartup(async (runtime) => {
   globalThis.loadSpriteUrl = (url) => {
     runtime.callFunction("loadSpriteUrl", url, false);
+    // After loading, update the base size based on the new sprite dimensions
+    setTimeout(() => {
+      if (piggy) {
+        // Store new base size (accounting for current scale)
+        baseObjectSize.sprite.w = piggy.width / spriteScale;
+        baseObjectSize.sprite.h = piggy.height / spriteScale;
+
+        // Report size change to parent
+        if (window !== window.parent) {
+          window.parent.postMessage(
+            {
+              type: "spriteSizeChanged",
+              width: baseObjectSize.sprite.w,
+              height: baseObjectSize.sprite.h,
+            },
+            "*"
+          );
+        }
+      }
+    }, 100);
   };
   globalThis.loadShapeUrl = (url) => {
     runtime.callFunction("loadShapeUrl", url, false);
@@ -92,11 +112,16 @@ let dragStartScrollX = 0;
 let dragStartScrollY = 0;
 
 // Scale state
-let objectScale = 1;
+let spriteScale = 1;
+let shapeScale = 1;
 let roomScale = 1;
 let baseObjectSize = { sprite: { w: 80, h: 130 }, shape: 100 };
 let baseBackground3dSize = 240;
 let baseBackgroundSize = 240;
+
+// Opacity state
+let bgOpacity = 0.15;
+let bg3dOpacity = 0.15;
 
 // Promise that waits for shader data from parent window
 function waitForShaderData() {
@@ -272,20 +297,49 @@ function setShowBackgroundCube(visible) {
   }
 }
 
-function setObjectScale(scale) {
-  objectScale = scale;
-  applyObjectScale();
+function setSpriteScale(scale) {
+  spriteScale = scale;
+  applySpriteScale();
 }
 
-function applyObjectScale() {
+function applySpriteScale() {
   if (piggy) {
-    piggy.width = baseObjectSize.sprite.w * objectScale;
-    piggy.height = baseObjectSize.sprite.h * objectScale;
+    piggy.width = baseObjectSize.sprite.w * spriteScale;
+    piggy.height = baseObjectSize.sprite.h * spriteScale;
   }
+}
+
+function setShapeScale(scale) {
+  shapeScale = scale;
+  applyShapeScale();
+}
+
+function applyShapeScale() {
   if (shape3D) {
-    shape3D.width = baseObjectSize.shape * objectScale;
-    shape3D.height = baseObjectSize.shape * objectScale;
-    shape3D.zHeight = baseObjectSize.shape * objectScale;
+    shape3D.width = baseObjectSize.shape * shapeScale;
+    shape3D.height = baseObjectSize.shape * shapeScale;
+    shape3D.zHeight = baseObjectSize.shape * shapeScale;
+  }
+}
+
+function setBgOpacity(opacity) {
+  bgOpacity = opacity;
+  if (background) {
+    background.opacity = opacity;
+  }
+}
+
+function setBg3dOpacity(opacity) {
+  bg3dOpacity = opacity;
+  if (background3d) {
+    background3d.opacity = opacity;
+  }
+}
+
+function setZoomLevel(level) {
+  if (cameraMode === "2d") {
+    zoomLevel = level;
+    layout.scale = zoomLevel;
   }
 }
 
@@ -329,11 +383,23 @@ function handlePreviewCommand(command, value) {
     case "setShowBackgroundCube":
       setShowBackgroundCube(value);
       break;
-    case "setObjectScale":
-      setObjectScale(value);
+    case "setSpriteScale":
+      setSpriteScale(value);
+      break;
+    case "setShapeScale":
+      setShapeScale(value);
       break;
     case "setRoomScale":
       setRoomScale(value);
+      break;
+    case "setBgOpacity":
+      setBgOpacity(value);
+      break;
+    case "setBg3dOpacity":
+      setBg3dOpacity(value);
+      break;
+    case "setZoomLevel":
+      setZoomLevel(value);
       break;
   }
 }
@@ -421,6 +487,17 @@ function setupCameraControls() {
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
       zoomLevel = Math.max(0.1, Math.min(5, zoomLevel * zoomFactor));
       layout.scale = zoomLevel;
+
+      // Report zoom change to parent
+      if (window !== window.parent) {
+        window.parent.postMessage(
+          {
+            type: "zoomLevelChanged",
+            zoomLevel: zoomLevel,
+          },
+          "*"
+        );
+      }
     } else {
       // Zoom 3D camera by adjusting distance from target
       const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;

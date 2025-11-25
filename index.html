@@ -393,17 +393,41 @@
                   </label>
                 </div>
                 <div class="preview-control-group preview-slider-group">
-                  <label>Object Scale:</label>
+                  <label>Sprite Scale:</label>
                   <div class="preview-slider-container">
                     <input
                       type="range"
-                      id="objectScaleSlider"
+                      id="spriteScaleSlider"
                       min="0.1"
                       max="3"
                       step="0.05"
                       value="1"
                     />
-                    <span id="objectScaleValue">1.00</span>
+                    <span
+                      id="spriteScaleValue"
+                      class="editable-slider-value"
+                      data-slider="spriteScaleSlider"
+                      >1.00</span
+                    >
+                  </div>
+                </div>
+                <div class="preview-control-group preview-slider-group">
+                  <label>Shape Scale:</label>
+                  <div class="preview-slider-container">
+                    <input
+                      type="range"
+                      id="shapeScaleSlider"
+                      min="0.1"
+                      max="3"
+                      step="0.05"
+                      value="1"
+                    />
+                    <span
+                      id="shapeScaleValue"
+                      class="editable-slider-value"
+                      data-slider="shapeScaleSlider"
+                      >1.00</span
+                    >
                   </div>
                 </div>
                 <div class="preview-control-group preview-slider-group">
@@ -417,7 +441,50 @@
                       step="0.05"
                       value="1"
                     />
-                    <span id="roomScaleValue">1.00</span>
+                    <span
+                      id="roomScaleValue"
+                      class="editable-slider-value"
+                      data-slider="roomScaleSlider"
+                      >1.00</span
+                    >
+                  </div>
+                </div>
+                <div class="preview-control-group preview-slider-group">
+                  <label>BG Opacity:</label>
+                  <div class="preview-slider-container">
+                    <input
+                      type="range"
+                      id="bgOpacitySlider"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value="0.15"
+                    />
+                    <span
+                      id="bgOpacityValue"
+                      class="editable-slider-value"
+                      data-slider="bgOpacitySlider"
+                      >0.15</span
+                    >
+                  </div>
+                </div>
+                <div class="preview-control-group preview-slider-group">
+                  <label>3D BG Opacity:</label>
+                  <div class="preview-slider-container">
+                    <input
+                      type="range"
+                      id="bg3dOpacitySlider"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value="0.15"
+                    />
+                    <span
+                      id="bg3dOpacityValue"
+                      class="editable-slider-value"
+                      data-slider="bg3dOpacitySlider"
+                      >0.15</span
+                    >
                   </div>
                 </div>
               </div>

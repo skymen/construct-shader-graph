@@ -971,8 +971,12 @@ class BlueprintSystem {
       shapeTextureUrl: null,
       bgTextureUrl: null,
       showBackgroundCube: true,
-      objectScale: 1,
+      spriteScale: 1,
+      shapeScale: 1,
       roomScale: 1,
+      bgOpacity: 0.15,
+      bg3dOpacity: 0.15,
+      zoomLevel: 1,
     };
 
     // History Manager for undo/redo
@@ -3567,14 +3571,24 @@ class BlueprintSystem {
       this.sendPreviewCommand("setShowBackgroundCube", e.target.checked);
     });
 
-    // Object Scale Slider
-    const objectScaleSlider = document.getElementById("objectScaleSlider");
-    const objectScaleValue = document.getElementById("objectScaleValue");
-    objectScaleSlider.addEventListener("input", (e) => {
+    // Sprite Scale Slider
+    const spriteScaleSlider = document.getElementById("spriteScaleSlider");
+    const spriteScaleValue = document.getElementById("spriteScaleValue");
+    spriteScaleSlider.addEventListener("input", (e) => {
       const scale = parseFloat(e.target.value);
-      this.previewSettings.objectScale = scale;
-      objectScaleValue.textContent = scale.toFixed(2);
-      this.sendPreviewCommand("setObjectScale", scale);
+      this.previewSettings.spriteScale = scale;
+      spriteScaleValue.textContent = scale.toFixed(2);
+      this.sendPreviewCommand("setSpriteScale", scale);
+    });
+
+    // Shape Scale Slider
+    const shapeScaleSlider = document.getElementById("shapeScaleSlider");
+    const shapeScaleValue = document.getElementById("shapeScaleValue");
+    shapeScaleSlider.addEventListener("input", (e) => {
+      const scale = parseFloat(e.target.value);
+      this.previewSettings.shapeScale = scale;
+      shapeScaleValue.textContent = scale.toFixed(2);
+      this.sendPreviewCommand("setShapeScale", scale);
     });
 
     // Room Scale Slider
@@ -3586,6 +3600,29 @@ class BlueprintSystem {
       roomScaleValue.textContent = scale.toFixed(2);
       this.sendPreviewCommand("setRoomScale", scale);
     });
+
+    // Background Opacity Slider
+    const bgOpacitySlider = document.getElementById("bgOpacitySlider");
+    const bgOpacityValue = document.getElementById("bgOpacityValue");
+    bgOpacitySlider.addEventListener("input", (e) => {
+      const opacity = parseFloat(e.target.value);
+      this.previewSettings.bgOpacity = opacity;
+      bgOpacityValue.textContent = opacity.toFixed(2);
+      this.sendPreviewCommand("setBgOpacity", opacity);
+    });
+
+    // 3D Background Opacity Slider
+    const bg3dOpacitySlider = document.getElementById("bg3dOpacitySlider");
+    const bg3dOpacityValue = document.getElementById("bg3dOpacityValue");
+    bg3dOpacitySlider.addEventListener("input", (e) => {
+      const opacity = parseFloat(e.target.value);
+      this.previewSettings.bg3dOpacity = opacity;
+      bg3dOpacityValue.textContent = opacity.toFixed(2);
+      this.sendPreviewCommand("setBg3dOpacity", opacity);
+    });
+
+    // Setup editable slider values
+    this.setupEditableSliderValues();
 
     // Screenshot preview button
     const screenshotPreviewBtn = document.getElementById(
@@ -3630,10 +3667,20 @@ class BlueprintSystem {
           this.previewSettings.showBackgroundCube
         );
         this.sendPreviewCommand(
-          "setObjectScale",
-          this.previewSettings.objectScale
+          "setSpriteScale",
+          this.previewSettings.spriteScale
+        );
+        this.sendPreviewCommand(
+          "setShapeScale",
+          this.previewSettings.shapeScale
         );
         this.sendPreviewCommand("setRoomScale", this.previewSettings.roomScale);
+        this.sendPreviewCommand("setBgOpacity", this.previewSettings.bgOpacity);
+        this.sendPreviewCommand(
+          "setBg3dOpacity",
+          this.previewSettings.bg3dOpacity
+        );
+        this.sendPreviewCommand("setZoomLevel", this.previewSettings.zoomLevel);
 
         // Load textures if they exist
         if (this.previewSettings.spriteTextureUrl) {
@@ -3662,6 +3709,12 @@ class BlueprintSystem {
       } else if (event.data && event.data.type === "updatePreviewBgUrl") {
         console.log("Received updatePreviewBgUrl message", event.data);
         this.handleTextureUpdate("bg", event.data.url);
+      } else if (event.data && event.data.type === "zoomLevelChanged") {
+        this.previewSettings.zoomLevel = event.data.zoomLevel;
+      } else if (event.data && event.data.type === "spriteSizeChanged") {
+        // Update sprite base size when texture changes
+        // This allows the scale to work proportionally with the new texture
+        console.log("Sprite size changed:", event.data);
       }
     });
 
@@ -3695,7 +3748,6 @@ class BlueprintSystem {
 
     // Sprite texture button
     spriteTextureBtn.addEventListener("click", () => {
-      debugger;
       spriteTextureInput.click();
     });
 
@@ -3740,6 +3792,70 @@ class BlueprintSystem {
 
     clearBgTextureBtn.addEventListener("click", () => {
       this.clearTexture("bg");
+    });
+  }
+
+  setupEditableSliderValues() {
+    const editableValues = document.querySelectorAll(".editable-slider-value");
+
+    editableValues.forEach((valueSpan) => {
+      valueSpan.addEventListener("click", (e) => {
+        e.stopPropagation();
+
+        // Get the associated slider
+        const sliderId = valueSpan.dataset.slider;
+        const slider = document.getElementById(sliderId);
+        if (!slider) return;
+
+        // Create input element
+        const input = document.createElement("input");
+        input.type = "number";
+        input.className = "slider-value-input";
+        input.value = parseFloat(valueSpan.textContent);
+        input.min = slider.min;
+        input.max = slider.max;
+        input.step = slider.step;
+
+        // Replace span with input
+        valueSpan.style.display = "none";
+        valueSpan.parentNode.insertBefore(input, valueSpan.nextSibling);
+        input.focus();
+        input.select();
+
+        const finishEditing = () => {
+          let value = parseFloat(input.value);
+          if (isNaN(value)) {
+            value = parseFloat(slider.value);
+          }
+          // Clamp value to slider range
+          value = Math.max(
+            parseFloat(slider.min),
+            Math.min(parseFloat(slider.max), value)
+          );
+
+          // Update slider and span
+          slider.value = value;
+          valueSpan.textContent = value.toFixed(2);
+          valueSpan.style.display = "";
+
+          // Trigger slider input event
+          slider.dispatchEvent(new Event("input", { bubbles: true }));
+
+          // Remove input
+          input.remove();
+        };
+
+        input.addEventListener("blur", finishEditing);
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            finishEditing();
+          } else if (e.key === "Escape") {
+            valueSpan.style.display = "";
+            input.remove();
+          }
+        });
+      });
     });
   }
 
@@ -8288,8 +8404,12 @@ class BlueprintSystem {
       shapeTextureUrl: null,
       bgTextureUrl: null,
       showBackgroundCube: true,
-      objectScale: 1,
+      spriteScale: 1,
+      shapeScale: 1,
       roomScale: 1,
+      bgOpacity: 0.15,
+      bg3dOpacity: 0.15,
+      zoomLevel: 1,
     };
 
     // Update UI elements
@@ -8305,10 +8425,16 @@ class BlueprintSystem {
     const showBackgroundCubeCheckbox = document.getElementById(
       "showBackgroundCubeCheckbox"
     );
-    const objectScaleSlider = document.getElementById("objectScaleSlider");
-    const objectScaleValue = document.getElementById("objectScaleValue");
+    const spriteScaleSlider = document.getElementById("spriteScaleSlider");
+    const spriteScaleValue = document.getElementById("spriteScaleValue");
+    const shapeScaleSlider = document.getElementById("shapeScaleSlider");
+    const shapeScaleValue = document.getElementById("shapeScaleValue");
     const roomScaleSlider = document.getElementById("roomScaleSlider");
     const roomScaleValue = document.getElementById("roomScaleValue");
+    const bgOpacitySlider = document.getElementById("bgOpacitySlider");
+    const bgOpacityValue = document.getElementById("bgOpacityValue");
+    const bg3dOpacitySlider = document.getElementById("bg3dOpacitySlider");
+    const bg3dOpacityValue = document.getElementById("bg3dOpacityValue");
 
     if (effectTargetSelect) effectTargetSelect.value = "sprite";
     if (objectSelect) objectSelect.value = "sprite";
@@ -8318,10 +8444,16 @@ class BlueprintSystem {
     if (samplingModeSelect) samplingModeSelect.value = "trilinear";
     if (shaderLanguageSelect) shaderLanguageSelect.value = "webgpu";
     if (showBackgroundCubeCheckbox) showBackgroundCubeCheckbox.checked = true;
-    if (objectScaleSlider) objectScaleSlider.value = 1;
-    if (objectScaleValue) objectScaleValue.textContent = "1.00";
+    if (spriteScaleSlider) spriteScaleSlider.value = 1;
+    if (spriteScaleValue) spriteScaleValue.textContent = "1.00";
+    if (shapeScaleSlider) shapeScaleSlider.value = 1;
+    if (shapeScaleValue) shapeScaleValue.textContent = "1.00";
     if (roomScaleSlider) roomScaleSlider.value = 1;
     if (roomScaleValue) roomScaleValue.textContent = "1.00";
+    if (bgOpacitySlider) bgOpacitySlider.value = 0.15;
+    if (bgOpacityValue) bgOpacityValue.textContent = "0.15";
+    if (bg3dOpacitySlider) bg3dOpacitySlider.value = 0.15;
+    if (bg3dOpacityValue) bg3dOpacityValue.textContent = "0.15";
 
     // Reset texture preview UI
     this.updateTexturePreview(
@@ -8343,8 +8475,12 @@ class BlueprintSystem {
       this.sendPreviewCommand("setCameraMode", "2d");
       this.sendPreviewCommand("setAutoRotate", true);
       this.sendPreviewCommand("setShowBackgroundCube", true);
-      this.sendPreviewCommand("setObjectScale", 1);
+      this.sendPreviewCommand("setSpriteScale", 1);
+      this.sendPreviewCommand("setShapeScale", 1);
       this.sendPreviewCommand("setRoomScale", 1);
+      this.sendPreviewCommand("setBgOpacity", 0.15);
+      this.sendPreviewCommand("setBg3dOpacity", 0.15);
+      this.sendPreviewCommand("setZoomLevel", 1);
       // Reload preview to clear textures
       this.updatePreview();
     }
@@ -9141,10 +9277,16 @@ class BlueprintSystem {
     const showBackgroundCubeCheckbox = document.getElementById(
       "showBackgroundCubeCheckbox"
     );
-    const objectScaleSlider = document.getElementById("objectScaleSlider");
-    const objectScaleValue = document.getElementById("objectScaleValue");
+    const spriteScaleSlider = document.getElementById("spriteScaleSlider");
+    const spriteScaleValue = document.getElementById("spriteScaleValue");
+    const shapeScaleSlider = document.getElementById("shapeScaleSlider");
+    const shapeScaleValue = document.getElementById("shapeScaleValue");
     const roomScaleSlider = document.getElementById("roomScaleSlider");
     const roomScaleValue = document.getElementById("roomScaleValue");
+    const bgOpacitySlider = document.getElementById("bgOpacitySlider");
+    const bgOpacityValue = document.getElementById("bgOpacityValue");
+    const bg3dOpacitySlider = document.getElementById("bg3dOpacitySlider");
+    const bg3dOpacityValue = document.getElementById("bg3dOpacityValue");
 
     if (effectTargetSelect) {
       effectTargetSelect.value = this.previewSettings.effectTarget;
@@ -9178,11 +9320,18 @@ class BlueprintSystem {
       showBackgroundCubeCheckbox.checked =
         this.previewSettings.showBackgroundCube !== false;
     }
-    if (objectScaleSlider) {
-      const objScale = this.previewSettings.objectScale || 1;
-      objectScaleSlider.value = objScale;
-      if (objectScaleValue) {
-        objectScaleValue.textContent = objScale.toFixed(2);
+    if (spriteScaleSlider) {
+      const spriteScale = this.previewSettings.spriteScale || 1;
+      spriteScaleSlider.value = spriteScale;
+      if (spriteScaleValue) {
+        spriteScaleValue.textContent = spriteScale.toFixed(2);
+      }
+    }
+    if (shapeScaleSlider) {
+      const shapeScale = this.previewSettings.shapeScale || 1;
+      shapeScaleSlider.value = shapeScale;
+      if (shapeScaleValue) {
+        shapeScaleValue.textContent = shapeScale.toFixed(2);
       }
     }
     if (roomScaleSlider) {
@@ -9190,6 +9339,20 @@ class BlueprintSystem {
       roomScaleSlider.value = roomScale;
       if (roomScaleValue) {
         roomScaleValue.textContent = roomScale.toFixed(2);
+      }
+    }
+    if (bgOpacitySlider) {
+      const bgOpacity = this.previewSettings.bgOpacity ?? 0.15;
+      bgOpacitySlider.value = bgOpacity;
+      if (bgOpacityValue) {
+        bgOpacityValue.textContent = bgOpacity.toFixed(2);
+      }
+    }
+    if (bg3dOpacitySlider) {
+      const bg3dOpacity = this.previewSettings.bg3dOpacity ?? 0.15;
+      bg3dOpacitySlider.value = bg3dOpacity;
+      if (bg3dOpacityValue) {
+        bg3dOpacityValue.textContent = bg3dOpacity.toFixed(2);
       }
     }
 
