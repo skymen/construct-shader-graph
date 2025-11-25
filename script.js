@@ -988,6 +988,7 @@ class BlueprintSystem {
     this.pressedKeys = new Set();
 
     this.setupEventListeners();
+    this.setupToolbarMenus();
     this.setupInputField();
     this.setupSearchMenu();
     this.setupShaderSettings();
@@ -5992,10 +5993,6 @@ class BlueprintSystem {
     document.addEventListener("keydown", (e) => this.onKeyDown(e));
     document.addEventListener("keyup", (e) => this.onKeyUp(e));
 
-    document.getElementById("newBtn").addEventListener("click", () => {
-      this.createNewFile();
-    });
-
     document.getElementById("closeSidebarBtn").addEventListener("click", () => {
       this.closeSidebar();
     });
@@ -6007,64 +6004,9 @@ class BlueprintSystem {
       languageManager.setLanguage(e.target.value);
     });
 
-    document.getElementById("autoArrangeBtn").addEventListener("click", () => {
-      this.autoArrange();
-    });
-
-    document.getElementById("debugArrangeBtn").addEventListener("click", () => {
-      this.debugAutoArrange();
-    });
-
-    document.getElementById("viewCodeBtn").addEventListener("click", () => {
-      this.showViewCodeModal();
-    });
-
+    // Export button (standalone button that remains in toolbar)
     document.getElementById("exportBtn").addEventListener("click", () => {
       this.exportGLSL();
-    });
-
-    document.getElementById("reportIssueBtn").addEventListener("click", () => {
-      window.open(
-        "https://github.com/skymen/construct-shader-graph/issues/new",
-        "_blank"
-      );
-    });
-
-    document.getElementById("githubBtn").addEventListener("click", () => {
-      window.open("https://github.com/skymen/construct-shader-graph", "_blank");
-    });
-
-    document.getElementById("saveBtn").addEventListener("click", () => {
-      this.saveToJSON();
-    });
-
-    document.getElementById("saveAsBtn").addEventListener("click", () => {
-      this.fileHandle = null; // Clear handle to force "Save As"
-      this.saveToJSON();
-    });
-
-    document.getElementById("undoBtn").addEventListener("click", () => {
-      if (this.history && this.history.undo()) {
-        this.updateUndoRedoButtons();
-        this.render();
-      }
-    });
-
-    document.getElementById("redoBtn").addEventListener("click", () => {
-      if (this.history && this.history.redo()) {
-        this.updateUndoRedoButtons();
-        this.render();
-      }
-    });
-
-    // Examples button
-    document.getElementById("examplesBtn").addEventListener("click", () => {
-      this.showOpenFilesModal("examples");
-    });
-
-    document.getElementById("loadBtn").addEventListener("click", () => {
-      // Show open files modal with recent files tab
-      this.showOpenFilesModal("recent");
     });
 
     document.getElementById("loadFileInput").addEventListener("change", (e) => {
@@ -6075,6 +6017,448 @@ class BlueprintSystem {
         e.target.value = ""; // Reset input so same file can be loaded again
       }
     });
+  }
+
+  setupToolbarMenus() {
+    const menus = document.querySelectorAll(".toolbar-menu");
+    let openMenu = null;
+
+    // Define all menu actions for help search
+    this.menuActions = [
+      // File menu
+      {
+        label: "New",
+        menu: "File",
+        action: "new",
+        shortcut: "Ctrl+N",
+        handler: () => this.createNewFile(),
+      },
+      {
+        label: "Open",
+        menu: "File",
+        action: "open",
+        shortcut: "Ctrl+O",
+        handler: () => this.showOpenFilesModal("recent"),
+      },
+      {
+        label: "Save",
+        menu: "File",
+        action: "save",
+        shortcut: "Ctrl+S",
+        handler: () => this.saveToJSON(),
+      },
+      {
+        label: "Save As",
+        menu: "File",
+        action: "saveAs",
+        shortcut: "Ctrl+Shift+S",
+        handler: () => {
+          this.fileHandle = null;
+          this.saveToJSON();
+        },
+      },
+      {
+        label: "Examples",
+        menu: "File",
+        action: "examples",
+        handler: () => this.showOpenFilesModal("examples"),
+      },
+      // Edit menu
+      {
+        label: "Undo",
+        menu: "Edit",
+        action: "undo",
+        shortcut: "Ctrl+Z",
+        handler: () => {
+          if (this.history?.undo()) {
+            this.updateUndoRedoButtons();
+            this.render();
+          }
+        },
+        isEnabled: () => this.history?.canUndo(),
+      },
+      {
+        label: "Redo",
+        menu: "Edit",
+        action: "redo",
+        shortcut: "Ctrl+Y",
+        handler: () => {
+          if (this.history?.redo()) {
+            this.updateUndoRedoButtons();
+            this.render();
+          }
+        },
+        isEnabled: () => this.history?.canRedo(),
+      },
+      {
+        label: "Select All",
+        menu: "Edit",
+        action: "selectAll",
+        shortcut: "Ctrl+A",
+        handler: () => this.selectAllNodes(),
+      },
+      {
+        label: "Clear Selection",
+        menu: "Edit",
+        action: "clearSelection",
+        shortcut: "Esc",
+        handler: () => this.clearSelection(),
+        isEnabled: () =>
+          this.selectedNodes.size > 0 || this.selectedRerouteNodes.size > 0,
+      },
+      {
+        label: "Copy",
+        menu: "Edit",
+        action: "copy",
+        shortcut: "Ctrl+C",
+        handler: () => this.copySelected(),
+        isEnabled: () => this.selectedNodes.size > 0,
+      },
+      {
+        label: "Paste",
+        menu: "Edit",
+        action: "paste",
+        shortcut: "Ctrl+V",
+        handler: () => this.paste(),
+        isEnabled: () => !!this.clipboard,
+      },
+      {
+        label: "Delete",
+        menu: "Edit",
+        action: "delete",
+        shortcut: "Del",
+        handler: () => this.deleteSelected(),
+        isEnabled: () =>
+          this.selectedNodes.size > 0 || this.selectedRerouteNodes.size > 0,
+      },
+      {
+        label: "Duplicate",
+        menu: "Edit",
+        action: "duplicate",
+        shortcut: "Ctrl+D",
+        handler: () => this.duplicateSelected(),
+        isEnabled: () => this.selectedNodes.size > 0,
+      },
+      {
+        label: "Preview Node",
+        menu: "Edit",
+        action: "previewNode",
+        shortcut: "L",
+        handler: () => this.togglePreviewNode(),
+        isEnabled: () => this.selectedNodes.size === 1,
+      },
+      {
+        label: "Clear Node Preview",
+        menu: "Edit",
+        action: "clearNodePreview",
+        handler: () => this.clearNodePreview(),
+        isEnabled: () => !!this.previewNode,
+      },
+      // View menu
+      {
+        label: "Zoom In",
+        menu: "View",
+        action: "zoomIn",
+        shortcut: "Ctrl++",
+        handler: () => this.zoomIn(),
+      },
+      {
+        label: "Zoom Out",
+        menu: "View",
+        action: "zoomOut",
+        shortcut: "Ctrl+-",
+        handler: () => this.zoomOut(),
+      },
+      {
+        label: "Reset Zoom",
+        menu: "View",
+        action: "resetZoom",
+        shortcut: "Ctrl+0",
+        handler: () => this.resetZoom(),
+      },
+      {
+        label: "Zoom to Fit",
+        menu: "View",
+        action: "zoomToFit",
+        handler: () => this.zoomToFit(),
+      },
+      {
+        label: "Center View",
+        menu: "View",
+        action: "centerView",
+        handler: () => this.centerView(),
+      },
+      {
+        label: "Hide Preview",
+        menu: "View",
+        action: "togglePreview",
+        handler: () => this.togglePreviewWindow(),
+        getLabel: () =>
+          this.isPreviewVisible() ? "Hide Preview" : "Show Preview",
+      },
+      {
+        label: "Reset Preview Position",
+        menu: "View",
+        action: "resetPreviewPosition",
+        handler: () => this.resetPreviewPosition(),
+      },
+      // Project menu
+      {
+        label: "Auto Arrange Nodes",
+        menu: "Project",
+        action: "autoArrange",
+        shortcut: "Ctrl+L",
+        handler: () => this.autoArrange(),
+      },
+      {
+        label: "View Code",
+        menu: "Project",
+        action: "viewCode",
+        handler: () => this.showViewCodeModal(),
+      },
+      // Help menu
+      {
+        label: "Report Issue",
+        menu: "Help",
+        action: "reportIssue",
+        handler: () =>
+          window.open(
+            "https://github.com/skymen/construct-shader-graph/issues/new",
+            "_blank"
+          ),
+      },
+      {
+        label: "View Source Code",
+        menu: "Help",
+        action: "viewSource",
+        handler: () =>
+          window.open(
+            "https://github.com/skymen/construct-shader-graph",
+            "_blank"
+          ),
+      },
+    ];
+
+    const closeAllMenus = () => {
+      menus.forEach((m) => m.classList.remove("open"));
+      openMenu = null;
+    };
+
+    // Menu button click handling
+    menus.forEach((menu) => {
+      const btn = menu.querySelector(".toolbar-menu-btn");
+      const dropdown = menu.querySelector(".toolbar-dropdown");
+
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (openMenu === menu) {
+          closeAllMenus();
+        } else {
+          closeAllMenus();
+          menu.classList.add("open");
+          openMenu = menu;
+          this.updateMenuItemStates();
+          // Focus search input if help menu
+          const searchInput = dropdown.querySelector("#helpSearchInput");
+          if (searchInput) {
+            setTimeout(() => searchInput.focus(), 50);
+          }
+        }
+      });
+
+      // Hover to switch menus when one is open
+      btn.addEventListener("mouseenter", () => {
+        if (openMenu && openMenu !== menu) {
+          closeAllMenus();
+          menu.classList.add("open");
+          openMenu = menu;
+          this.updateMenuItemStates();
+        }
+      });
+
+      // Handle dropdown item clicks
+      dropdown.querySelectorAll(".dropdown-item").forEach((item) => {
+        item.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (item.disabled) return;
+          const action = item.dataset.action;
+          const menuAction = this.menuActions.find((a) => a.action === action);
+          if (menuAction) {
+            closeAllMenus();
+            menuAction.handler();
+          }
+        });
+      });
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener("click", () => {
+      closeAllMenus();
+    });
+
+    // Close menu on escape
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && openMenu) {
+        closeAllMenus();
+      }
+    });
+
+    // Setup help search
+    this.setupHelpSearch();
+  }
+
+  setupHelpSearch() {
+    const searchInput = document.getElementById("helpSearchInput");
+    const resultsContainer = document.getElementById("helpSearchResults");
+
+    if (!searchInput || !resultsContainer) return;
+
+    searchInput.addEventListener("input", () => {
+      const query = searchInput.value.toLowerCase().trim();
+
+      if (!query) {
+        resultsContainer.innerHTML = "";
+        resultsContainer.classList.remove("visible");
+        return;
+      }
+
+      const matches = this.menuActions.filter(
+        (action) =>
+          action.label.toLowerCase().includes(query) ||
+          action.menu.toLowerCase().includes(query)
+      );
+
+      if (matches.length === 0) {
+        resultsContainer.innerHTML =
+          '<div class="help-search-result"><span class="help-search-result-label" style="color: #888">No results found</span></div>';
+        resultsContainer.classList.add("visible");
+        return;
+      }
+
+      resultsContainer.innerHTML = matches
+        .map(
+          (action) => `
+        <div class="help-search-result" data-action="${action.action}">
+          <span class="help-search-result-menu">${action.menu}</span>
+          <span class="help-search-result-label">${action.label}</span>
+          ${
+            action.shortcut
+              ? `<span class="help-search-result-shortcut">${action.shortcut}</span>`
+              : ""
+          }
+        </div>
+      `
+        )
+        .join("");
+
+      resultsContainer.classList.add("visible");
+
+      // Add click handlers to results
+      resultsContainer
+        .querySelectorAll(".help-search-result")
+        .forEach((result) => {
+          result.addEventListener("click", () => {
+            const action = result.dataset.action;
+            const menuAction = this.menuActions.find(
+              (a) => a.action === action
+            );
+            if (menuAction) {
+              // Close the menu
+              document
+                .querySelectorAll(".toolbar-menu")
+                .forEach((m) => m.classList.remove("open"));
+              searchInput.value = "";
+              resultsContainer.innerHTML = "";
+              resultsContainer.classList.remove("visible");
+              // Execute the action
+              menuAction.handler();
+            }
+          });
+        });
+    });
+
+    // Handle keyboard navigation in search
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const firstResult = resultsContainer.querySelector(
+          ".help-search-result[data-action]"
+        );
+        if (firstResult) {
+          firstResult.click();
+        }
+      }
+    });
+  }
+
+  updateMenuItemStates() {
+    this.menuActions.forEach((action) => {
+      const item = document.querySelector(
+        `.dropdown-item[data-action="${action.action}"]`
+      );
+      if (item) {
+        // Update enabled state
+        if (action.isEnabled) {
+          item.disabled = !action.isEnabled();
+        }
+        // Update dynamic label
+        if (action.getLabel) {
+          const labelSpan = item.querySelector(".dropdown-item-label");
+          if (labelSpan) {
+            labelSpan.textContent = action.getLabel();
+          }
+        }
+      }
+    });
+  }
+
+  selectAllNodes() {
+    this.nodes.forEach((node) => {
+      node.isSelected = true;
+      this.selectedNodes.add(node);
+    });
+    this.render();
+  }
+
+  clearNodePreview() {
+    if (this.previewNode) {
+      this.previewNode = null;
+      this.previewNeedsUpdate = true;
+      this.updatePreview();
+      this.render();
+    }
+  }
+
+  isPreviewVisible() {
+    const previewWindow = document.getElementById("preview-window");
+    return previewWindow && previewWindow.style.display !== "none";
+  }
+
+  togglePreviewWindow() {
+    const previewWindow = document.getElementById("preview-window");
+    const openPreviewBtn = document.getElementById("openPreviewBtn");
+
+    if (this.isPreviewVisible()) {
+      previewWindow.style.display = "none";
+      openPreviewBtn.style.display = "flex";
+    } else {
+      previewWindow.style.display = "flex";
+      openPreviewBtn.style.display = "none";
+    }
+  }
+
+  resetPreviewPosition() {
+    const previewWindow = document.getElementById("preview-window");
+    const openPreviewBtn = document.getElementById("openPreviewBtn");
+
+    // Reset to default position and show
+    previewWindow.style.display = "flex";
+    previewWindow.style.bottom = "20px";
+    previewWindow.style.right = "20px";
+    previewWindow.style.left = "";
+    previewWindow.style.top = "";
+    previewWindow.style.width = "400px";
+    previewWindow.style.height = "300px";
+    openPreviewBtn.style.display = "none";
   }
 
   toggleSidebar() {
@@ -9266,7 +9650,11 @@ class BlueprintSystem {
 
         if (inBox && !node.isSelected) {
           this.selectNode(node, true);
-        } else if (!inBox && node.isSelected && !this.boxSelectInitialNodes.has(node)) {
+        } else if (
+          !inBox &&
+          node.isSelected &&
+          !this.boxSelectInitialNodes.has(node)
+        ) {
           // Only deselect if it wasn't previously selected before box selection
           this.deselectNode(node);
         }
