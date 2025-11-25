@@ -6292,8 +6292,13 @@ class BlueprintSystem {
     });
 
     // Close menu when clicking outside
-    document.addEventListener("click", () => {
-      closeAllMenus();
+    document.addEventListener("click", (e) => {
+      // Don't close if clicking inside a dropdown menu
+      const clickedMenu = e.target.closest(".toolbar-menu");
+      const clickedDropdown = e.target.closest(".toolbar-dropdown");
+      if (!clickedMenu && !clickedDropdown) {
+        closeAllMenus();
+      }
     });
 
     // Close menu on escape
@@ -6310,8 +6315,26 @@ class BlueprintSystem {
   setupHelpSearch() {
     const searchInput = document.getElementById("helpSearchInput");
     const resultsContainer = document.getElementById("helpSearchResults");
+    const searchContainer = document.querySelector(".help-search-container");
 
     if (!searchInput || !resultsContainer) return;
+
+    // Prevent clicks on search input from closing the menu
+    if (searchInput) {
+      searchInput.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+    }
+    if (searchContainer) {
+      searchContainer.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+    }
+    if (resultsContainer) {
+      resultsContainer.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+    }
 
     searchInput.addEventListener("input", () => {
       const query = searchInput.value.toLowerCase().trim();

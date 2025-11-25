@@ -136,7 +136,7 @@ body {
 .toolbar-menus {
   display: flex;
   gap: 2px;
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .toolbar-menu {
@@ -330,7 +330,7 @@ body {
 
 /* Standalone toolbar buttons */
 .toolbar-standalone {
-  margin-left: 8px;
+  margin-left: auto;
   padding-left: 8px;
   border-left: 1px solid #4a4a4a;
 }
