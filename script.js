@@ -8688,7 +8688,10 @@ class BlueprintSystem {
 
   filterManualNodes(searchTerm) {
     const categoriesContainer = document.getElementById("manualCategories");
+    const nodeCountElement = document.getElementById("manualNodeCount");
     const normalizedSearch = searchTerm.toLowerCase().trim();
+    const totalNodes = Object.keys(NODE_TYPES).length;
+    let visibleCount = 0;
 
     categoriesContainer
       .querySelectorAll(".manual-category")
@@ -8712,6 +8715,7 @@ class BlueprintSystem {
           if (matches || !normalizedSearch) {
             node.style.display = "";
             hasVisibleNode = true;
+            visibleCount++;
           } else {
             node.style.display = "none";
           }
@@ -8728,6 +8732,13 @@ class BlueprintSystem {
           category.style.display = "none";
         }
       });
+
+    // Update the node count display
+    if (normalizedSearch) {
+      nodeCountElement.textContent = `${visibleCount} of ${totalNodes} nodes`;
+    } else {
+      nodeCountElement.textContent = `${totalNodes} nodes available`;
+    }
   }
 
   showNodeManualEntry(nodeKey) {
