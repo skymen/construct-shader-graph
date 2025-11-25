@@ -248,7 +248,9 @@ class Port {
     const pos = this.getPosition();
     const dx = px - pos.x;
     const dy = py - pos.y;
-    return Math.sqrt(dx * dx + dy * dy) <= this.radius;
+    // Use a larger hitbox radius (1.5x visual radius) to prevent near misses
+    const hitboxRadius = this.radius * 1.5;
+    return Math.sqrt(dx * dx + dy * dy) <= hitboxRadius;
   }
 
   // Get the actual type of this port (resolved if generic or custom)
