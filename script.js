@@ -3695,6 +3695,7 @@ class BlueprintSystem {
 
     // Sprite texture button
     spriteTextureBtn.addEventListener("click", () => {
+      debugger;
       spriteTextureInput.click();
     });
 

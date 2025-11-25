@@ -2493,6 +2493,11 @@ body {
   width: 22px;
   height: 22px;
   fill: currentColor;
+  pointer-events: none;
+}
+
+.texture-btn svg * {
+  pointer-events: none;
 }
 
 .texture-btn:hover {
@@ -2520,6 +2525,11 @@ body {
   width: 16px;
   height: 16px;
   fill: currentColor;
+  pointer-events: none;
+}
+
+.texture-clear-btn svg * {
+  pointer-events: none;
 }
 
 .texture-clear-btn:hover {
