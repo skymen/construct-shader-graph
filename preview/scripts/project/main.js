@@ -39,6 +39,17 @@ runOnStartup(async (runtime) => {
       );
     }
   };
+  globalThis.updatePreviewBgUrl = (url) => {
+    if (window !== window.parent) {
+      window.parent.postMessage(
+        {
+          type: "updatePreviewBgUrl",
+          url: url,
+        },
+        "*"
+      );
+    }
+  };
   await shaderDataPromise;
   runtime.addEventListener("beforeprojectstart", () =>
     OnBeforeProjectStart(runtime)
@@ -153,22 +164,6 @@ async function OnBeforeProjectStart(rt) {
         if (typeof globalThis[event.data.function] === "function") {
           globalThis[event.data.function](event.data.url);
         }
-      } else if (event.data && event.data.type === "requestScreenshot") {
-        // Capture canvas and send back as base64 data URL
-        runtime.saveCanvasImage().then((blob) => {
-          // Convert blob to base64 data URL
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            window.parent.postMessage(
-              {
-                type: "screenshotData",
-                dataUrl: reader.result, // This is a base64 data URL
-              },
-              "*"
-            );
-          };
-          reader.readAsDataURL(blob);
-        });
       }
     });
   }
@@ -580,15 +575,6 @@ function setupShaderErrorCapture() {
 
       // Set sampling mode (t[14] is the sampling mode property)
       t[14] = samplingMode;
-
-      t[15] =
-        t[15] ||
-        self["C3_Shaders"]["skymen_Placeholdereffect"].blendsBackground;
-
-      t[42] =
-        t[42] || self["C3_Shaders"]["skymen_Placeholdereffect"].crossSampling;
-
-      t[17] = t[17] || self["C3_Shaders"]["skymen_Placeholdereffect"].usesDepth;
 
       await super._LoadDataJson(e);
     }

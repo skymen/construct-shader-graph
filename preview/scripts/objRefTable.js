@@ -26,7 +26,9 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.System.Cnds.CompareBoolVar,
 		C3.JavaScriptInEvents.EventSheet1_Event7_Act1,
 		C3.Plugins.System.Acts.WaitForPreviousActions,
-		C3.JavaScriptInEvents.EventSheet1_Event10_Act1
+		C3.JavaScriptInEvents.EventSheet1_Event10_Act1,
+		C3.Plugins.TiledBg.Acts.LoadURL,
+		C3.JavaScriptInEvents.EventSheet1_Event13_Act1
 	];
 };
 self.C3_JsPropNameTable = [
