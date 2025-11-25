@@ -12284,9 +12284,15 @@ class BlueprintSystem {
           ? operationLabel
           : languageManager.getOperationLabel(operationLabel);
 
+        // Scale font size with camera zoom to maintain readability
+        // Use inverse scaling with a minimum zoom threshold to prevent fonts from getting too large
+        const effectiveZoom = Math.max(this.camera.zoom, 0.35);
+        const scaledFontSize = Math.round(14 / effectiveZoom);
+        const scaledArrowSize = Math.round(10 / effectiveZoom);
+
         // Dropdown text
         ctx.fillStyle = "#fff";
-        ctx.font = "14px sans-serif";
+        ctx.font = `${scaledFontSize}px sans-serif`;
         ctx.textAlign = "center";
         ctx.fillText(
           displayText,
@@ -12296,7 +12302,7 @@ class BlueprintSystem {
 
         // Dropdown arrow
         ctx.fillStyle = "#888";
-        ctx.font = "10px sans-serif";
+        ctx.font = `${scaledArrowSize}px sans-serif`;
         ctx.textAlign = "right";
         ctx.fillText(
           "▼",
@@ -12364,9 +12370,16 @@ class BlueprintSystem {
       if (node.nodeType.hasVariableDropdown) {
         const dropdown = node.getVariableDropdownBounds();
 
+        // Scale font size with camera zoom to maintain readability
+        // Use inverse scaling with a minimum zoom threshold to prevent fonts from getting too large
+        const effectiveZoom = Math.max(this.camera.zoom, 0.35);
+        const scaledLabelSize = Math.round(10 / effectiveZoom);
+        const scaledFontSize = Math.round(14 / effectiveZoom);
+        const scaledArrowSize = Math.round(10 / effectiveZoom);
+
         // Dropdown label
         ctx.fillStyle = "#888";
-        ctx.font = "10px sans-serif";
+        ctx.font = `${scaledLabelSize}px sans-serif`;
         ctx.textAlign = "left";
         ctx.fillText("Variable", dropdown.x, dropdown.labelY + 10);
 
@@ -12390,7 +12403,7 @@ class BlueprintSystem {
 
         // Dropdown text
         ctx.fillStyle = node.selectedVariable ? "#fff" : "#888";
-        ctx.font = "14px monospace";
+        ctx.font = `${scaledFontSize}px monospace`;
         ctx.textAlign = "left";
 
         // Clip text to dropdown bounds
@@ -12412,7 +12425,7 @@ class BlueprintSystem {
 
         // Dropdown arrow
         ctx.fillStyle = "#888";
-        ctx.font = "10px sans-serif";
+        ctx.font = `${scaledArrowSize}px sans-serif`;
         ctx.textAlign = "right";
         ctx.fillText(
           "▼",
