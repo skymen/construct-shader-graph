@@ -3379,10 +3379,11 @@ class BlueprintSystem {
     const previewHeader = document.getElementById("preview-header");
     const closePreviewBtn = document.getElementById("closePreviewBtn");
     const openPreviewBtn = document.getElementById("openPreviewBtn");
-    this.shaderErrorsContainer = document.getElementById(
-      "shader-errors-container"
-    );
-    this.shaderErrors = new Map(); // Track unique errors
+
+    // Error tracking with rate limiting
+    this.previewErrorCount = 0; // Total errors for console
+    this.previewNotificationCount = 0; // Errors shown as notifications
+    this.previewErrorKeys = new Set(); // Track unique errors
 
     // Make preview window draggable
     let isDragging = false;
@@ -3647,7 +3648,7 @@ class BlueprintSystem {
         this.sendShaderDataToPreview();
       } else if (event.data && event.data.type === "projectReady") {
         this.previewReady = true;
-        this.clearShaderErrors(); // Clear errors on new load
+        this.resetPreviewErrors(); // Reset error count on new load
         this.clearPreviewConsole(); // Clear console on new load
         this.sendUniformValuesToPreview();
 
@@ -3705,27 +3706,8 @@ class BlueprintSystem {
         const severity = event.data.severity;
         const message = event.data.message;
 
-        // Add to the legacy shader errors display
-        this.displayShaderError(message, severity);
-
-        // Add to the preview console
-        this.addConsoleEntry(
-          message,
-          severity === "error" ? "error" : "warning"
-        );
-
-        // Show a notification for errors (but not for every warning)
-        if (severity === "error") {
-          this.showNotification({
-            type: "error",
-            title: "Preview Error",
-            message:
-              message.length > 100
-                ? message.substring(0, 100) + "..."
-                : message,
-            duration: 5000,
-          });
-        }
+        // Handle error with limiting (max 10 notifications, max 100 console entries)
+        this.handlePreviewError(message, severity);
       } else if (event.data && event.data.type === "updatePreviewSpriteUrl") {
         console.log("Received updatePreviewSpriteUrl message", event.data);
         this.handleTextureUpdate("sprite", event.data.url);
@@ -4172,14 +4154,14 @@ class BlueprintSystem {
   updatePreview() {
     if (!this.previewIframe) return;
 
-    // Clear previous errors
-    this.clearShaderErrors();
+    // Reset error count for new shader compilation
+    this.resetPreviewErrors();
 
     // Generate shader code and cache it
     const shaders = this.generateAllShaders();
     if (!shaders) {
       // Display error if shader generation failed
-      this.displayShaderError(
+      this.handlePreviewError(
         "Failed to generate shader. Make sure you have an Output node and all required connections are made.",
         "error"
       );
@@ -4352,45 +4334,49 @@ class BlueprintSystem {
     this.sendUniformValuesToPreview();
   }
 
-  displayShaderError(message, severity) {
+  /**
+   * Handle preview errors with rate limiting
+   * - First 10 errors: show notification + add to console
+   * - Errors 11-100: add to console only
+   * - Errors 100+: ignore
+   */
+  handlePreviewError(message, severity) {
     // Use message as key to avoid duplicates
     const errorKey = `${severity}:${message}`;
 
-    // Don't add duplicate errors
-    if (this.shaderErrors.has(errorKey)) {
+    // Don't handle duplicate errors
+    if (this.previewErrorKeys.has(errorKey)) {
       return;
     }
+    this.previewErrorKeys.add(errorKey);
 
-    const errorItem = document.createElement("div");
-    errorItem.className = `shader-error-item ${severity}`;
+    // Check if we've hit the max errors limit
+    if (this.previewErrorCount >= 100) {
+      return; // Ignore errors after 100
+    }
 
-    const icon = document.createElement("div");
-    icon.className = "shader-error-icon";
-    icon.textContent = severity === "error" ? "⚠" : "⚠";
+    this.previewErrorCount++;
 
-    const messageDiv = document.createElement("div");
-    messageDiv.className = "shader-error-message";
-    messageDiv.textContent = message;
+    // Add to console (for errors 1-100)
+    this.addConsoleEntry(message, severity === "error" ? "error" : "warning");
 
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "shader-error-close";
-    closeBtn.textContent = "×";
-    closeBtn.addEventListener("click", () => {
-      errorItem.remove();
-      this.shaderErrors.delete(errorKey);
-    });
-
-    errorItem.appendChild(icon);
-    errorItem.appendChild(messageDiv);
-    errorItem.appendChild(closeBtn);
-
-    this.shaderErrorsContainer.appendChild(errorItem);
-    this.shaderErrors.set(errorKey, errorItem);
+    // Show notification only for first 10 errors
+    if (this.previewNotificationCount < 10 && severity === "error") {
+      this.previewNotificationCount++;
+      this.showNotification({
+        type: "error",
+        title: "Preview Error",
+        message:
+          message.length > 100 ? message.substring(0, 100) + "..." : message,
+        duration: 5000,
+      });
+    }
   }
 
-  clearShaderErrors() {
-    this.shaderErrorsContainer.innerHTML = "";
-    this.shaderErrors.clear();
+  resetPreviewErrors() {
+    this.previewErrorCount = 0;
+    this.previewNotificationCount = 0;
+    this.previewErrorKeys.clear();
   }
 
   // ==================== NOTIFICATION SYSTEM ====================
