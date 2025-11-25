@@ -9906,17 +9906,19 @@ class BlueprintSystem {
       return;
     }
 
-    // Start box selection if clicking on empty space
-    if (!isMultiSelect) {
-      this.clearSelection();
+    // Start box selection if clicking on empty space (left click only)
+    if (e.button === 0) {
+      if (!isMultiSelect) {
+        this.clearSelection();
+      }
+      this.isBoxSelecting = true;
+      this.boxSelectStart = { x: pos.x, y: pos.y };
+      this.boxSelectEnd = { x: pos.x, y: pos.y };
+      // Store initially selected nodes to preserve them during box selection
+      this.boxSelectInitialNodes = new Set(this.selectedNodes);
+      this.boxSelectInitialRerouteNodes = new Set(this.selectedRerouteNodes);
+      this.render();
     }
-    this.isBoxSelecting = true;
-    this.boxSelectStart = { x: pos.x, y: pos.y };
-    this.boxSelectEnd = { x: pos.x, y: pos.y };
-    // Store initially selected nodes to preserve them during box selection
-    this.boxSelectInitialNodes = new Set(this.selectedNodes);
-    this.boxSelectInitialRerouteNodes = new Set(this.selectedRerouteNodes);
-    this.render();
   }
 
   onMouseMove(e) {
