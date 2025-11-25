@@ -1004,6 +1004,8 @@ class BlueprintSystem {
     this.setupOpenFilesModal();
     this.setupPreview();
     this.setupMinimap();
+    this.setupNotifications();
+    this.setupPreviewConsole();
     this.render();
     this.updateUndoRedoButtons();
 
@@ -3646,6 +3648,7 @@ class BlueprintSystem {
       } else if (event.data && event.data.type === "projectReady") {
         this.previewReady = true;
         this.clearShaderErrors(); // Clear errors on new load
+        this.clearPreviewConsole(); // Clear console on new load
         this.sendUniformValuesToPreview();
 
         // Send saved preview settings
@@ -3699,7 +3702,30 @@ class BlueprintSystem {
           this.loadPreviewTexture("bg", this.previewSettings.bgTextureUrl);
         }
       } else if (event.data && event.data.type === "shaderError") {
-        this.displayShaderError(event.data.message, event.data.severity);
+        const severity = event.data.severity;
+        const message = event.data.message;
+
+        // Add to the legacy shader errors display
+        this.displayShaderError(message, severity);
+
+        // Add to the preview console
+        this.addConsoleEntry(
+          message,
+          severity === "error" ? "error" : "warning"
+        );
+
+        // Show a notification for errors (but not for every warning)
+        if (severity === "error") {
+          this.showNotification({
+            type: "error",
+            title: "Preview Error",
+            message:
+              message.length > 100
+                ? message.substring(0, 100) + "..."
+                : message,
+            duration: 5000,
+          });
+        }
       } else if (event.data && event.data.type === "updatePreviewSpriteUrl") {
         console.log("Received updatePreviewSpriteUrl message", event.data);
         this.handleTextureUpdate("sprite", event.data.url);
@@ -3715,6 +3741,9 @@ class BlueprintSystem {
         // Update sprite base size when texture changes
         // This allows the scale to work proportionally with the new texture
         console.log("Sprite size changed:", event.data);
+      } else if (event.data && event.data.type === "consoleLog") {
+        // Add regular console logs to the preview console
+        this.addConsoleEntry(event.data.message, event.data.level);
       }
     });
 
@@ -4362,6 +4391,240 @@ class BlueprintSystem {
   clearShaderErrors() {
     this.shaderErrorsContainer.innerHTML = "";
     this.shaderErrors.clear();
+  }
+
+  // ==================== NOTIFICATION SYSTEM ====================
+
+  setupNotifications() {
+    this.notificationContainer = document.getElementById(
+      "notification-container"
+    );
+    this.notifications = [];
+  }
+
+  /**
+   * Show a notification toast
+   * @param {Object} options - Notification options
+   * @param {string} options.type - 'success' | 'error' | 'warning' | 'info'
+   * @param {string} options.title - Notification title
+   * @param {string} options.message - Notification message (optional)
+   * @param {number} options.duration - Duration in ms (default: 3000, 0 for persistent)
+   */
+  showNotification({ type = "info", title, message = "", duration = 3000 }) {
+    const notification = document.createElement("div");
+    notification.className = `notification ${type}`;
+    notification.style.position = "relative";
+
+    // Icon SVGs
+    const icons = {
+      success:
+        '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>',
+      error:
+        '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>',
+      warning:
+        '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>',
+      info: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>',
+    };
+
+    notification.innerHTML = `
+      <div class="notification-icon">${icons[type]}</div>
+      <div class="notification-content">
+        <div class="notification-title">${title}</div>
+        ${message ? `<div class="notification-message">${message}</div>` : ""}
+      </div>
+      <button class="notification-close">
+        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+      ${
+        duration > 0
+          ? `<div class="notification-progress" style="animation-duration: ${duration}ms"></div>`
+          : ""
+      }
+    `;
+
+    const closeBtn = notification.querySelector(".notification-close");
+    closeBtn.addEventListener("click", () =>
+      this.dismissNotification(notification)
+    );
+
+    this.notificationContainer.appendChild(notification);
+    this.notifications.push(notification);
+
+    if (duration > 0) {
+      setTimeout(() => this.dismissNotification(notification), duration);
+    }
+
+    return notification;
+  }
+
+  dismissNotification(notification) {
+    if (!notification || !notification.parentNode) return;
+
+    notification.classList.add("exiting");
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.remove();
+      }
+      const index = this.notifications.indexOf(notification);
+      if (index > -1) {
+        this.notifications.splice(index, 1);
+      }
+    }, 250);
+  }
+
+  // ==================== PREVIEW CONSOLE ====================
+
+  setupPreviewConsole() {
+    this.previewConsole = document.getElementById("preview-console");
+    this.previewConsoleContent = document.getElementById(
+      "preview-console-content"
+    );
+    this.previewConsoleBadge = document.getElementById("preview-console-badge");
+    this.consoleEntries = [];
+    this.consoleErrorCount = 0;
+    this.consoleWarningCount = 0;
+
+    const toggleBtn = document.getElementById("toggleConsoleBtn");
+    const clearBtn = document.getElementById("clearConsoleBtn");
+    const consoleHeader = document.getElementById("preview-console-header");
+
+    // Toggle console on header click
+    consoleHeader.addEventListener("click", (e) => {
+      // Don't toggle if clicking a button
+      if (e.target.closest("button")) return;
+      this.togglePreviewConsole();
+    });
+
+    toggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.togglePreviewConsole();
+    });
+
+    clearBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.clearPreviewConsole();
+    });
+
+    // Show empty state initially
+    this.updateConsoleEmptyState();
+  }
+
+  togglePreviewConsole() {
+    const isExpanded = this.previewConsole.classList.contains(
+      "preview-console-expanded"
+    );
+    this.previewConsole.classList.toggle(
+      "preview-console-collapsed",
+      isExpanded
+    );
+    this.previewConsole.classList.toggle(
+      "preview-console-expanded",
+      !isExpanded
+    );
+  }
+
+  clearPreviewConsole() {
+    this.consoleEntries = [];
+    this.consoleErrorCount = 0;
+    this.consoleWarningCount = 0;
+    this.previewConsoleContent.innerHTML = "";
+    this.updateConsoleBadge();
+    this.updateConsoleEmptyState();
+  }
+
+  updateConsoleEmptyState() {
+    if (this.consoleEntries.length === 0) {
+      this.previewConsoleContent.innerHTML =
+        '<div class="console-empty">No console messages</div>';
+    }
+  }
+
+  updateConsoleBadge() {
+    const total = this.consoleErrorCount + this.consoleWarningCount;
+    if (total === 0) {
+      this.previewConsoleBadge.classList.add("hidden");
+    } else {
+      this.previewConsoleBadge.classList.remove("hidden");
+      this.previewConsoleBadge.textContent = total > 99 ? "99+" : total;
+      // Use different color if only warnings
+      if (this.consoleErrorCount === 0) {
+        this.previewConsoleBadge.classList.add("warning-only");
+      } else {
+        this.previewConsoleBadge.classList.remove("warning-only");
+      }
+    }
+  }
+
+  /**
+   * Add a log entry to the preview console
+   * @param {string} message - The log message
+   * @param {'log' | 'info' | 'warning' | 'error'} level - Log level
+   */
+  addConsoleEntry(message, level = "log") {
+    // Remove empty state if present
+    const emptyState =
+      this.previewConsoleContent.querySelector(".console-empty");
+    if (emptyState) {
+      emptyState.remove();
+    }
+
+    const entry = document.createElement("div");
+    entry.className = `console-entry ${level}`;
+
+    const icons = {
+      log: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>',
+      info: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>',
+      warning:
+        '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>',
+      error:
+        '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>',
+    };
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+
+    entry.innerHTML = `
+      <div class="console-entry-icon">${icons[level]}</div>
+      <div class="console-entry-message">${this.escapeHtml(message)}</div>
+      <div class="console-entry-time">${timeStr}</div>
+    `;
+
+    this.previewConsoleContent.appendChild(entry);
+    this.consoleEntries.push({ message, level, time: now });
+
+    // Update counts
+    if (level === "error") {
+      this.consoleErrorCount++;
+    } else if (level === "warning") {
+      this.consoleWarningCount++;
+    }
+
+    this.updateConsoleBadge();
+
+    // Auto-scroll to bottom
+    this.previewConsoleContent.scrollTop =
+      this.previewConsoleContent.scrollHeight;
+
+    // Auto-expand on error
+    if (
+      level === "error" &&
+      this.previewConsole.classList.contains("preview-console-collapsed")
+    ) {
+      this.togglePreviewConsole();
+    }
+
+    return entry;
+  }
+
+  escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   addCustomPortItem(container, portType, name = "", type = "float") {
@@ -6544,6 +6807,11 @@ class BlueprintSystem {
           if (this.history?.undo()) {
             this.updateUndoRedoButtons();
             this.render();
+            this.showNotification({
+              type: "info",
+              title: "Undo",
+              duration: 1500,
+            });
           }
         },
         isEnabled: () => this.history?.canUndo(),
@@ -6557,6 +6825,11 @@ class BlueprintSystem {
           if (this.history?.redo()) {
             this.updateUndoRedoButtons();
             this.render();
+            this.showNotification({
+              type: "info",
+              title: "Redo",
+              duration: 1500,
+            });
           }
         },
         isEnabled: () => this.history?.canRedo(),
@@ -7445,6 +7718,11 @@ class BlueprintSystem {
       if (this.history && this.history.undo()) {
         this.updateUndoRedoButtons();
         this.render();
+        this.showNotification({
+          type: "info",
+          title: "Undo",
+          duration: 1500,
+        });
       }
       return;
     }
@@ -7457,6 +7735,11 @@ class BlueprintSystem {
       if (this.history && this.history.redo()) {
         this.updateUndoRedoButtons();
         this.render();
+        this.showNotification({
+          type: "info",
+          title: "Redo",
+          duration: 1500,
+        });
       }
       return;
     }
@@ -8757,6 +9040,15 @@ class BlueprintSystem {
           "Blueprint saved successfully using File System Access API"
         );
 
+        // Show save notification
+        const fileName = handle.name || filename;
+        this.showNotification({
+          type: "success",
+          title: "Project Saved",
+          message: fileName,
+          duration: 2500,
+        });
+
         // Add to recent files after successful save
         if (this.fileHandle && previewScreenshot) {
           await this.addRecentFile(this.fileHandle, previewScreenshot);
@@ -8789,6 +9081,14 @@ class BlueprintSystem {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    // Show save notification for fallback method
+    this.showNotification({
+      type: "success",
+      title: "Project Downloaded",
+      message: filename,
+      duration: 2500,
+    });
   }
 
   async loadFromJSON(file) {
@@ -8985,6 +9285,15 @@ class BlueprintSystem {
 
       console.log("Blueprint loaded successfully");
 
+      // Show load notification
+      const fileName = file.name || "Project";
+      this.showNotification({
+        type: "success",
+        title: "Project Loaded",
+        message: fileName,
+        duration: 2500,
+      });
+
       // Refresh preview with loaded shader (delay to ensure render is complete)
       setTimeout(() => {
         this.onShaderChanged();
@@ -9000,7 +9309,12 @@ class BlueprintSystem {
       }
     } catch (error) {
       console.error("Failed to load blueprint:", error);
-      alert(`Failed to load blueprint: ${error.message}`);
+      this.showNotification({
+        type: "error",
+        title: "Failed to Load Project",
+        message: error.message,
+        duration: 5000,
+      });
     }
   }
 

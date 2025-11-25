@@ -282,6 +282,9 @@
         accept=".c3sg,.json"
         style="display: none"
       />
+      <!-- Notification Container (Toast Notifications) -->
+      <div id="notification-container"></div>
+
       <div id="main-content">
         <div id="shader-errors-container"></div>
         <button id="openPreviewBtn" title="Open Preview" style="display: none">
@@ -651,6 +654,59 @@
               </div>
             </div>
             <iframe id="preview-iframe" src="./preview/index.html"></iframe>
+            <!-- Preview Console -->
+            <div id="preview-console" class="preview-console-collapsed">
+              <div id="preview-console-header">
+                <div class="preview-console-title">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    width="14"
+                    height="14"
+                  >
+                    <path
+                      fill="currentColor"
+                      d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"
+                    />
+                  </svg>
+                  <span>Console</span>
+                  <span
+                    id="preview-console-badge"
+                    class="preview-console-badge hidden"
+                    >0</span
+                  >
+                </div>
+                <div class="preview-console-actions">
+                  <button id="clearConsoleBtn" title="Clear Console">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
+                      />
+                    </svg>
+                  </button>
+                  <button id="toggleConsoleBtn" title="Toggle Console">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div id="preview-console-content"></div>
+            </div>
           </div>
         </div>
         <div id="uniform-sidebar">
