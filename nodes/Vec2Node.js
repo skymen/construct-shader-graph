@@ -28,3 +28,14 @@ export const Vec2Node = new NodeType(
   "Value",
   ["compose", "construct", "combine", "2d", "xy", "vector"]
 );
+
+// Manual documentation
+Vec2Node.manual = {
+  description:
+    "Composes two float values (X, Y) into a 2-component vector. Useful for creating UV coordinates, 2D positions, or any data that needs two components.",
+  html: `
+    <div class="tip">
+      <strong>Tip:</strong> Press <kbd>2</kbd> and left-click on the canvas to quickly create a Vec2 node.
+    </div>
+  `,
+};

@@ -29,3 +29,14 @@ export const Vec3Node = new NodeType(
   "Value",
   ["compose", "construct", "combine", "3d", "rgb", "xyz", "vector"]
 );
+
+// Manual documentation
+Vec3Node.manual = {
+  description:
+    "Composes three float values (X, Y, Z) into a 3-component vector. Commonly used for RGB colors, 3D positions, normals, or any data requiring three components.",
+  html: `
+    <div class="tip">
+      <strong>Tip:</strong> Press <kbd>3</kbd> and left-click on the canvas to quickly create a Vec3 node.
+    </div>
+  `,
+};

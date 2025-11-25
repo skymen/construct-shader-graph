@@ -30,3 +30,14 @@ export const Vec4Node = new NodeType(
   "Value",
   ["compose", "construct", "combine", "rgba", "color", "xyzw", "vector"]
 );
+
+// Manual documentation
+Vec4Node.manual = {
+  description:
+    "Composes four float values (X, Y, Z, W) into a 4-component vector. Essential for RGBA colors with alpha, homogeneous coordinates, or any data requiring four components.",
+  html: `
+    <div class="tip">
+      <strong>Tip:</strong> Press <kbd>4</kbd> and left-click on the canvas to quickly create a Vec4 node.
+    </div>
+  `,
+};

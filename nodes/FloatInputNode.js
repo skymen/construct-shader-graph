@@ -27,6 +27,17 @@ export const FloatInputNode = new NodeType(
   ["float", "number", "constant", "value", "input", "literal", "decimal"]
 );
 
+// Manual documentation
+FloatInputNode.manual = {
+  description:
+    "Creates a constant float value that can be used as input to other nodes. Double-click the value field to edit it directly.",
+  html: `
+    <div class="tip">
+      <strong>Tip:</strong> Press <kbd>1</kbd> and left-click on the canvas to quickly create a Float Input node.
+    </div>
+  `,
+};
+
 // Add custom input configuration with validation
 FloatInputNode.hasCustomInput = true;
 FloatInputNode.customInputConfig = {
