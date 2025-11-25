@@ -17,6 +17,10 @@ export class NodeType {
     this.category = category; // Category for grouping in search
     this.tags = tags; // Additional search tags
 
+    // Manual entry for documentation (optional)
+    // Can be set after construction: NodeType.manual = { description: string, html: string }
+    this.manual = null;
+
     // Normalize noTranslation to an object with name, ports, and operations properties
     // Supports: boolean (applies to all) or { name: boolean, ports: boolean, operations: boolean }
     if (typeof noTranslation === "boolean") {

@@ -248,3 +248,28 @@ BlendModeNode.operationOptions = [
   { value: "exclusion", label: "Exclusion" },
   { value: "divide", label: "Divide" },
 ];
+
+// Manual entry for documentation
+BlendModeNode.manual = {
+  description: "Combines two colors using various blending algorithms commonly found in image editing software like Photoshop. Each blend mode produces different visual effects based on mathematical operations between the base and blend colors.",
+  html: `
+    <h4>Blend Mode Categories</h4>
+    <p><strong>Darkening modes:</strong> Multiply, Darken, Color Burn, Linear Burn</p>
+    <p><strong>Lightening modes:</strong> Screen, Lighten, Color Dodge, Linear Dodge, Add</p>
+    <p><strong>Contrast modes:</strong> Overlay, Hard Light, Soft Light</p>
+    <p><strong>Comparative modes:</strong> Difference, Exclusion, Subtract, Divide</p>
+    
+    <h4>Common Use Cases</h4>
+    <ul>
+      <li><strong>Multiply:</strong> Darkening, shadows, texture overlays</li>
+      <li><strong>Screen:</strong> Lightening, glow effects, light leaks</li>
+      <li><strong>Overlay:</strong> Contrast enhancement, color grading</li>
+      <li><strong>Add:</strong> Bright glow effects, fire, light sources</li>
+      <li><strong>Difference:</strong> Psychedelic effects, edge detection</li>
+    </ul>
+    
+    <div class="tip">
+      <strong>Tip:</strong> For alpha-aware blending, decompose the color first and handle the alpha channel separately.
+    </div>
+  `
+};

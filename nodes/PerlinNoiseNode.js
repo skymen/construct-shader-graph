@@ -74,3 +74,32 @@ fn perlinNoise(p: vec2<f32>) -> f32 {
   "Noise",
   ["noise", "procedural", "gradient", "smooth"]
 );
+
+// Manual entry for documentation
+PerlinNoiseNode.manual = {
+  description: "Generates smooth, natural-looking procedural noise based on the classic Perlin noise algorithm. The output ranges from 0 to 1 with smooth transitions between values.",
+  html: `
+    <h4>What is Perlin Noise?</h4>
+    <p>Perlin noise is a gradient noise algorithm that produces smooth, continuous random patterns. Unlike pure random noise, Perlin noise has natural-looking transitions that make it ideal for organic effects.</p>
+    
+    <h4>Parameters</h4>
+    <ul>
+      <li><strong>UV:</strong> The sampling coordinates (usually texture coordinates)</li>
+      <li><strong>Scale:</strong> How "zoomed in" the noise is. Higher values = more detail</li>
+      <li><strong>Offset:</strong> Shifts the noise pattern. Animate this for flowing effects</li>
+    </ul>
+    
+    <h4>Common Uses</h4>
+    <ul>
+      <li>Clouds, smoke, and fog effects</li>
+      <li>Water caustics and ripples</li>
+      <li>Terrain generation and heightmaps</li>
+      <li>Organic distortion effects</li>
+      <li>Animated effects (by animating offset)</li>
+    </ul>
+    
+    <div class="tip">
+      <strong>Tip:</strong> Combine multiple octaves of Perlin noise with the FBM node for more complex, natural-looking patterns!
+    </div>
+  `
+};

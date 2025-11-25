@@ -32,3 +32,33 @@ export const SmoothstepNode = new NodeType(
   "Math",
   ["smooth", "interpolate", "hermite"]
 );
+
+// Manual entry for documentation
+SmoothstepNode.manual = {
+  description: "Performs smooth Hermite interpolation between 0 and 1 when the input is between Edge0 and Edge1. Returns 0 if less than Edge0, 1 if greater than Edge1, with a smooth S-curve transition between.",
+  html: `
+    <h4>How it Works</h4>
+    <pre><code>t = clamp((x - edge0) / (edge1 - edge0), 0, 1)
+result = t * t * (3 - 2 * t)</code></pre>
+    
+    <h4>Behavior</h4>
+    <ul>
+      <li>Value ≤ Edge0 → Returns 0</li>
+      <li>Value ≥ Edge1 → Returns 1</li>
+      <li>Edge0 < Value < Edge1 → Smooth interpolation</li>
+    </ul>
+    
+    <h4>Common Uses</h4>
+    <ul>
+      <li>Creating soft transitions and gradients</li>
+      <li>Anti-aliasing procedural patterns</li>
+      <li>Thresholding with smooth edges</li>
+      <li>Creating vignettes and falloffs</li>
+      <li>Easing animations and color transitions</li>
+    </ul>
+    
+    <div class="tip">
+      <strong>Tip:</strong> Use smoothstep instead of step when you want soft edges. For example, use it to create glowing outlines or soft masks!
+    </div>
+  `
+};

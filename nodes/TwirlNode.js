@@ -72,3 +72,24 @@ export const TwirlNode = new NodeType(
   "UV",
   ["twirl", "swirl", "rotate", "distortion", "uv", "effect"]
 );
+
+// Manual entry for documentation
+TwirlNode.manual = {
+  description: "Creates a swirling distortion effect by rotating UV coordinates around a center point. The rotation amount decreases with distance from the center, creating a spiral or whirlpool-like effect.",
+  html: `
+    <h4>How it works</h4>
+    <p>The Twirl node calculates the distance from each pixel to the center point. Pixels within the radius are rotated based on their distance - pixels closer to the center rotate more, creating the characteristic spiral effect.</p>
+    
+    <h4>Usage Tips</h4>
+    <ul>
+      <li>Use <code>Front UV</code> as the UV input for standard texture distortion</li>
+      <li>Connect to a <code>Texture Sample</code> node to see the effect</li>
+      <li>Animate the <strong>Strength</strong> parameter for dynamic effects</li>
+      <li>Combine multiple twirl nodes at different positions for complex distortions</li>
+    </ul>
+    
+    <div class="tip">
+      <strong>Tip:</strong> Negative strength values will twist in the opposite direction!
+    </div>
+  `
+};

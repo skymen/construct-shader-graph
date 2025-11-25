@@ -1002,6 +1002,7 @@ class BlueprintSystem {
     this.setupUniformSidebar();
     this.setupCustomNodeModal();
     this.setupOpenFilesModal();
+    this.setupManualModal();
     this.setupPreview();
     this.setupMinimap();
     this.setupNotifications();
@@ -6983,6 +6984,13 @@ class BlueprintSystem {
       },
       // Help menu
       {
+        label: "Manual",
+        menu: "Help",
+        action: "manual",
+        shortcut: "F1",
+        handler: () => this.showManualModal(),
+      },
+      {
         label: "Report Issue",
         menu: "Help",
         action: "reportIssue",
@@ -8506,6 +8514,331 @@ class BlueprintSystem {
     };
 
     checkCodeMirror();
+  }
+
+  setupManualModal() {
+    const modal = document.getElementById("manualModal");
+    const closeBtn = document.getElementById("manualModalClose");
+    const closeBtn2 = document.getElementById("manualModalClose2");
+    const searchInput = document.getElementById("manualSearchInput");
+    const categoriesContainer = document.getElementById("manualCategories");
+
+    // Close handlers
+    closeBtn.addEventListener("click", () => {
+      modal.style.display = "none";
+    });
+
+    closeBtn2.addEventListener("click", () => {
+      modal.style.display = "none";
+    });
+
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) {
+        modal.style.display = "none";
+      }
+    });
+
+    // Search functionality
+    searchInput.addEventListener("input", () => {
+      this.filterManualNodes(searchInput.value);
+    });
+
+    // F1 keyboard shortcut
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "F1") {
+        e.preventDefault();
+        this.showManualModal();
+      }
+    });
+  }
+
+  showManualModal() {
+    const modal = document.getElementById("manualModal");
+    const categoriesContainer = document.getElementById("manualCategories");
+    const contentContainer = document.getElementById("manualContent");
+    const searchInput = document.getElementById("manualSearchInput");
+
+    // Clear search
+    searchInput.value = "";
+
+    // Build categories from NODE_TYPES
+    const categories = {};
+    for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
+      const category = nodeType.category || "Misc";
+      if (!categories[category]) {
+        categories[category] = [];
+      }
+      categories[category].push({ key, nodeType });
+    }
+
+    // Sort categories and nodes within each category
+    const sortedCategories = Object.keys(categories).sort();
+
+    // Build the sidebar HTML
+    let sidebarHtml = "";
+    for (const category of sortedCategories) {
+      const nodes = categories[category].sort((a, b) =>
+        a.nodeType.name.localeCompare(b.nodeType.name)
+      );
+
+      sidebarHtml += `
+        <div class="manual-category">
+          <div class="manual-category-header" data-category="${category}">
+            <svg class="manual-category-arrow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16">
+              <path fill="currentColor" d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/>
+            </svg>
+            <span>${category}</span>
+            <span class="manual-category-count">${nodes.length}</span>
+          </div>
+          <div class="manual-category-nodes">
+            ${nodes
+              .map(
+                ({ key, nodeType }) => `
+              <div class="manual-node-item" data-node-key="${key}" style="border-left-color: ${nodeType.color}">
+                ${nodeType.name}
+              </div>
+            `
+              )
+              .join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    categoriesContainer.innerHTML = sidebarHtml;
+
+    // Show placeholder in content area
+    contentContainer.innerHTML = `
+      <div class="manual-placeholder">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="64" height="64">
+          <path fill="currentColor" d="M19 2L14 6.5V17.5L19 13V2M6.5 5C4.55 5 2.45 5.4 1 6.5V21.16C1 21.41 1.25 21.66 1.5 21.66C1.6 21.66 1.65 21.59 1.75 21.59C3.1 20.94 5.05 20.5 6.5 20.5C8.45 20.5 10.55 20.9 12 22C13.35 21.15 15.8 20.5 17.5 20.5C19.15 20.5 20.85 20.81 22.25 21.56C22.35 21.61 22.4 21.59 22.5 21.59C22.75 21.59 23 21.34 23 21.09V6.5C22.4 6.05 21.75 5.75 21 5.5V7.5L21 13V19C19.9 18.65 18.7 18.5 17.5 18.5C15.8 18.5 13.35 19.15 12 20V13L12 6.5C10.55 5.4 8.45 5 6.5 5Z"/>
+        </svg>
+        <h3>Select a node to view documentation</h3>
+        <p>Browse the categories on the left or use the search bar to find a specific node.</p>
+      </div>
+    `;
+
+    // Add event listeners for category headers
+    categoriesContainer
+      .querySelectorAll(".manual-category-header")
+      .forEach((header) => {
+        header.addEventListener("click", () => {
+          const category = header.closest(".manual-category");
+          category.classList.toggle("collapsed");
+        });
+      });
+
+    // Add event listeners for node items
+    categoriesContainer
+      .querySelectorAll(".manual-node-item")
+      .forEach((item) => {
+        item.addEventListener("click", () => {
+          // Remove active class from all items
+          categoriesContainer
+            .querySelectorAll(".manual-node-item")
+            .forEach((i) => i.classList.remove("active"));
+          // Add active class to clicked item
+          item.classList.add("active");
+          // Show node documentation
+          const nodeKey = item.dataset.nodeKey;
+          this.showNodeManualEntry(nodeKey);
+        });
+      });
+
+    modal.style.display = "flex";
+  }
+
+  filterManualNodes(searchTerm) {
+    const categoriesContainer = document.getElementById("manualCategories");
+    const normalizedSearch = searchTerm.toLowerCase().trim();
+
+    categoriesContainer
+      .querySelectorAll(".manual-category")
+      .forEach((category) => {
+        const nodes = category.querySelectorAll(".manual-node-item");
+        let hasVisibleNode = false;
+
+        nodes.forEach((node) => {
+          const nodeKey = node.dataset.nodeKey;
+          const nodeType = NODE_TYPES[nodeKey];
+          const nodeName = nodeType.name.toLowerCase();
+          const nodeTags = (nodeType.tags || []).join(" ").toLowerCase();
+          const nodeCategory = (nodeType.category || "").toLowerCase();
+
+          const matches =
+            nodeName.includes(normalizedSearch) ||
+            nodeTags.includes(normalizedSearch) ||
+            nodeCategory.includes(normalizedSearch) ||
+            nodeKey.toLowerCase().includes(normalizedSearch);
+
+          if (matches || !normalizedSearch) {
+            node.style.display = "";
+            hasVisibleNode = true;
+          } else {
+            node.style.display = "none";
+          }
+        });
+
+        // Show/hide category based on whether it has visible nodes
+        if (hasVisibleNode || !normalizedSearch) {
+          category.style.display = "";
+          // Expand categories that have search results
+          if (normalizedSearch) {
+            category.classList.remove("collapsed");
+          }
+        } else {
+          category.style.display = "none";
+        }
+      });
+  }
+
+  showNodeManualEntry(nodeKey) {
+    const contentContainer = document.getElementById("manualContent");
+    const nodeType = NODE_TYPES[nodeKey];
+
+    if (!nodeType) {
+      contentContainer.innerHTML = `<div class="manual-error">Node not found</div>`;
+      return;
+    }
+
+    // Build the documentation HTML
+    let html = `
+      <div class="manual-entry">
+        <div class="manual-entry-header" style="border-left-color: ${nodeType.color}">
+          <h2>${nodeType.name}</h2>
+          <span class="manual-entry-category">${nodeType.category}</span>
+        </div>
+    `;
+
+    // Add manual description if available
+    if (nodeType.manual?.description) {
+      html += `
+        <div class="manual-section">
+          <h3>Description</h3>
+          <p>${nodeType.manual.description}</p>
+        </div>
+      `;
+    }
+
+    // Inputs section
+    if (nodeType.inputs && nodeType.inputs.length > 0) {
+      html += `
+        <div class="manual-section">
+          <h3>Inputs</h3>
+          <table class="manual-ports-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${nodeType.inputs
+                .map(
+                  (input) => `
+                <tr>
+                  <td><code>${input.name}</code></td>
+                  <td><span class="manual-type-badge">${input.type}</span></td>
+                </tr>
+              `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="manual-section">
+          <h3>Inputs</h3>
+          <p class="manual-no-items">This node has no inputs.</p>
+        </div>
+      `;
+    }
+
+    // Outputs section
+    if (nodeType.outputs && nodeType.outputs.length > 0) {
+      html += `
+        <div class="manual-section">
+          <h3>Outputs</h3>
+          <table class="manual-ports-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${nodeType.outputs
+                .map(
+                  (output) => `
+                <tr>
+                  <td><code>${output.name}</code></td>
+                  <td><span class="manual-type-badge">${output.type}</span></td>
+                </tr>
+              `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="manual-section">
+          <h3>Outputs</h3>
+          <p class="manual-no-items">This node has no outputs.</p>
+        </div>
+      `;
+    }
+
+    // Operations section
+    if (nodeType.hasOperation && nodeType.operationOptions) {
+      html += `
+        <div class="manual-section">
+          <h3>Operations</h3>
+          <div class="manual-operations">
+            ${nodeType.operationOptions
+              .map(
+                (op) => `
+              <div class="manual-operation-item">
+                <span class="manual-operation-label">${op.label}</span>
+                <code class="manual-operation-value">${op.value}</code>
+              </div>
+            `
+              )
+              .join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    // Tags section
+    if (nodeType.tags && nodeType.tags.length > 0) {
+      html += `
+        <div class="manual-section">
+          <h3>Search Tags</h3>
+          <div class="manual-tags">
+            ${nodeType.tags
+              .map((tag) => `<span class="manual-tag">${tag}</span>`)
+              .join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    // Custom HTML content from manual
+    if (nodeType.manual?.html) {
+      html += `
+        <div class="manual-section manual-custom-content">
+          ${nodeType.manual.html}
+        </div>
+      `;
+    }
+
+    html += `</div>`;
+
+    contentContainer.innerHTML = html;
   }
 
   async exportGLSL() {
