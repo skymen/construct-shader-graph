@@ -65,7 +65,7 @@
       "variableName": "uniform_offset",
       "description": "",
       "type": "float",
-      "value": 0,
+      "value": 10,
       "isPercent": false
     },
     {
@@ -92,7 +92,7 @@
       "variableName": "uniform_outlineAngle",
       "description": "",
       "type": "float",
-      "value": 90,
+      "value": 150,
       "isPercent": false
     }
   ],
@@ -113,12 +113,12 @@
     "roomScale": 1,
     "bgOpacity": 0.15,
     "bg3dOpacity": 0.15,
-    "zoomLevel": 1
+    "zoomLevel": 0.7290000000000001
   },
   "camera": {
-    "x": 1242.6574187316132,
-    "y": 440.0551291556226,
-    "zoom": 0.3890058018363857
+    "x": 2093.3105005963325,
+    "y": -957.3952439622274,
+    "zoom": 0.9461412451494811
   },
   "nodes": [
     {
@@ -1163,25 +1163,6 @@
       ]
     },
     {
-      "id": 65,
-      "x": -1470,
-      "y": 1762.5,
-      "nodeTypeKey": "uniform_6",
-      "title": "outlineScale",
-      "uniformName": "uniform_outlineScale",
-      "uniformDisplayName": "outlineScale",
-      "uniformVariableName": "uniform_outlineScale",
-      "uniformId": 6,
-      "isVariable": true,
-      "inputPorts": [],
-      "outputPorts": [
-        {
-          "name": "Value",
-          "portType": "float"
-        }
-      ]
-    },
-    {
       "id": 35,
       "x": -180.3355617823884,
       "y": -954.0855462503664,
@@ -1344,26 +1325,6 @@
       ]
     },
     {
-      "id": 74,
-      "x": -1780,
-      "y": 1610,
-      "nodeTypeKey": "toRadians",
-      "title": "To Radians",
-      "isVariable": false,
-      "inputPorts": [
-        {
-          "name": "Degrees",
-          "portType": "genType"
-        }
-      ],
-      "outputPorts": [
-        {
-          "name": "Radians",
-          "portType": "genType"
-        }
-      ]
-    },
-    {
       "id": 71,
       "x": -1137,
       "y": -462.5,
@@ -1417,6 +1378,45 @@
       "outputPorts": [
         {
           "name": "Result",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 75,
+      "x": -1794.1624050203884,
+      "y": 1594.3267604805758,
+      "nodeTypeKey": "toRadians",
+      "title": "To Radians",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Degrees",
+          "portType": "genType"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Radians",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 65,
+      "x": -1583.1247636329342,
+      "y": 1757.1131064936696,
+      "nodeTypeKey": "uniform_6",
+      "title": "outlineScale",
+      "uniformName": "uniform_outlineScale",
+      "uniformDisplayName": "outlineScale",
+      "uniformVariableName": "uniform_outlineScale",
+      "uniformId": 6,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
           "portType": "float"
         }
       ]
@@ -1811,12 +1811,12 @@
     {
       "startNodeId": 73,
       "startPortIndex": 0,
-      "endNodeId": 74,
+      "endNodeId": 75,
       "endPortIndex": 0,
       "rerouteNodes": []
     },
     {
-      "startNodeId": 74,
+      "startNodeId": 75,
       "startPortIndex": 0,
       "endNodeId": 72,
       "endPortIndex": 2,
@@ -1824,7 +1824,7 @@
     }
   ],
   "comments": [],
-  "nodeIdCounter": 75,
+  "nodeIdCounter": 76,
   "uniformIdCounter": 9,
   "customNodeIdCounter": 1,
   "commentIdCounter": 1
