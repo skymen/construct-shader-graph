@@ -9030,7 +9030,7 @@ class BlueprintSystem {
   generateParametersJson() {
     return this.uniforms.map((uniform) => {
       const param = {
-        id: uniform.variableName,
+        id: this.sanitizeVariableName(uniform.name),
         uniform: uniform.variableName,
         interpolatable: true,
         name: uniform.name,
