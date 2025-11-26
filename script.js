@@ -9476,13 +9476,15 @@ class BlueprintSystem {
 
         return;
       } catch (error) {
-        // User cancelled or error occurred, fall back to download
-        if (error.name !== "AbortError") {
-          console.warn(
-            "File System Access API failed, falling back to download:",
-            error
-          );
+        // User cancelled - don't save
+        if (error.name === "AbortError") {
+          return;
         }
+        // Other error - fall back to download
+        console.warn(
+          "File System Access API failed, falling back to download:",
+          error
+        );
       }
     }
 
