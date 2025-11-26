@@ -781,6 +781,14 @@ const COMMENT_TITLE_HEIGHT = 31;
 const COMMENT_TEXT_MARGIN = 20;
 const COMMENT_DRAG_HANDLE_SIZE = 24; // Size of the drag handle icon
 
+// Wire insertion constants
+const WIRE_INSERTION_THRESHOLD = 30; // Distance threshold for detecting wire insertion
+const WIRE_HIGHLIGHT_COLOR = "#00ff88"; // Color for highlighted wire
+const WIRE_HIGHLIGHT_GLOW_WIDTH = 8; // Width of the glow effect
+const WIRE_HIGHLIGHT_WIDTH = 4; // Width of the highlighted wire
+const WIRE_NORMAL_WIDTH = 3; // Normal wire width
+const WIRE_HIGHLIGHT_SHADOW_BLUR = 15; // Shadow blur for glow effect
+
 class Comment {
   constructor(x, y, width, height, id) {
     this.id = id;
@@ -916,6 +924,9 @@ class BlueprintSystem {
     this.autoPanPadding = 50; // Distance from edge to trigger auto-pan
     this.autoPanSpeed = 10; // Pixels per frame to pan
     this.autoPanInterval = null;
+
+    // Wire insertion state - for dragging unconnected nodes onto wires
+    this.highlightedWire = null;
 
     // File System Access API support
     this.fileHandle = null;
@@ -10220,6 +10231,117 @@ class BlueprintSystem {
     return null;
   }
 
+  // Check if a node has no connections (all ports are unconnected)
+  nodeHasNoConnections(node) {
+    for (const port of node.inputPorts) {
+      if (port.connections.length > 0) return false;
+    }
+    for (const port of node.outputPorts) {
+      if (port.connections.length > 0) return false;
+    }
+    return true;
+  }
+
+  // Check if a node can be inserted into a wire as an intermediate step
+  // The node must have at least one input that can accept the wire's output type
+  // and at least one output that can connect to the wire's input type
+  canInsertNodeIntoWire(node, wire) {
+    if (!wire.startPort || !wire.endPort) return false;
+
+    // Find an input port on the node that can accept the wire's output type
+    let compatibleInput = null;
+    for (const inputPort of node.inputPorts) {
+      if (wire.startPort.canConnectTo(inputPort)) {
+        compatibleInput = inputPort;
+        break;
+      }
+    }
+
+    if (!compatibleInput) return false;
+
+    // Find an output port on the node that can connect to the wire's input
+    let compatibleOutput = null;
+    for (const outputPort of node.outputPorts) {
+      if (outputPort.canConnectTo(wire.endPort)) {
+        compatibleOutput = outputPort;
+        break;
+      }
+    }
+
+    if (!compatibleOutput) return false;
+
+    return { inputPort: compatibleInput, outputPort: compatibleOutput };
+  }
+
+  // Find the closest wire that a node can be inserted into
+  findClosestCompatibleWire(node, x, y, threshold = WIRE_INSERTION_THRESHOLD) {
+    if (!this.nodeHasNoConnections(node)) return null;
+    if (node.inputPorts.length === 0 || node.outputPorts.length === 0) return null;
+
+    let closestWire = null;
+    let closestDistance = Infinity;
+    let closestResult = null;
+
+    for (const wire of this.wires) {
+      const nearResult = wire.isPointNearWire(x, y, threshold);
+      if (nearResult) {
+        const compatibility = this.canInsertNodeIntoWire(node, wire);
+        if (compatibility) {
+          if (nearResult.distance < closestDistance) {
+            closestDistance = nearResult.distance;
+            closestWire = wire;
+            closestResult = {
+              wire,
+              distance: nearResult.distance,
+              segmentIndex: nearResult.segmentIndex,
+              ...compatibility,
+            };
+          }
+        }
+      }
+    }
+
+    return closestResult;
+  }
+
+  // Insert a node into a wire, making it an intermediate step
+  insertNodeIntoWire(node, wire, inputPort, outputPort) {
+    // Store the original end port
+    const originalEndPort = wire.endPort;
+    const originalStartPort = wire.startPort;
+
+    // Disconnect the wire from the end port
+    const endIndex = originalEndPort.connections.indexOf(wire);
+    if (endIndex > -1) originalEndPort.connections.splice(endIndex, 1);
+
+    // Re-evaluate resolved generics if needed for the end port
+    if (isGenericType(originalEndPort.portType)) {
+      this.reevaluateGenericType(originalEndPort.node, originalEndPort.portType);
+    }
+    originalEndPort.updateEditability();
+    originalEndPort.node.inputPorts.forEach((port) => port.updateEditability());
+    originalEndPort.node.recalculateHeight();
+
+    // Connect the wire to the node's input port
+    wire.endPort = inputPort;
+    inputPort.connections.push(wire);
+
+    // Resolve generic types for the new connection
+    this.resolveGenericsForConnection(originalStartPort, inputPort);
+
+    // Create a new wire from the node's output to the original end port
+    const newWire = new Wire(outputPort, originalEndPort);
+    this.wires.push(newWire);
+    outputPort.connections.push(newWire);
+    originalEndPort.connections.push(newWire);
+
+    // Resolve generic types for the new wire
+    this.resolveGenericsForConnection(outputPort, originalEndPort);
+
+    this.onShaderChanged();
+    this.history.pushState("Insert node into wire");
+  }
+
   disconnectWire(wire) {
     // Remove wire from connections
     if (wire.startPort) {
@@ -11176,6 +11298,19 @@ class BlueprintSystem {
         rn.y = pos.y - rn.dragOffsetY;
       });
 
+      // Check for wire insertion when dragging a single unconnected node
+      if (this.selectedNodes.size === 1) {
+        const draggedNode = Array.from(this.selectedNodes)[0];
+        const wireResult = this.findClosestCompatibleWire(
+          draggedNode,
+          pos.x,
+          pos.y
+        );
+        this.highlightedWire = wireResult ? wireResult.wire : null;
+      } else {
+        this.highlightedWire = null;
+      }
+
       this.render();
       return;
     }
@@ -11484,6 +11619,32 @@ class BlueprintSystem {
     // Stop dragging node
     if (this.draggedNode) {
       this.draggedNode.isDragging = false;
+
+      // Check for wire insertion if we're dragging a single unconnected node
+      if (this.selectedNodes.size === 1 && this.highlightedWire) {
+        const draggedNode = Array.from(this.selectedNodes)[0];
+        const wireResult = this.findClosestCompatibleWire(
+          draggedNode,
+          pos.x,
+          pos.y
+        );
+        if (wireResult) {
+          this.insertNodeIntoWire(
+            draggedNode,
+            wireResult.wire,
+            wireResult.inputPort,
+            wireResult.outputPort
+          );
+          // Clear the highlighted wire and drag state
+          this.highlightedWire = null;
+          this.draggedNode = null;
+          this.dragStartPositions.clear();
+          this.render();
+          return;
+        }
+      }
+
+      this.highlightedWire = null;
       this.draggedNode = null;
 
       // Push state for node movement if nodes actually moved
@@ -11569,10 +11730,53 @@ class BlueprintSystem {
 
     if (points.length < 2) return;
 
+    // Check if this wire should be highlighted
+    const isHighlighted = this.highlightedWire === wire;
+
     // Use the color of the output port (start port)
     const wireColor = wire.startPort.getColor();
-    ctx.strokeStyle = wireColor;
-    ctx.lineWidth = 3;
+
+    // If highlighted, draw a glow effect first
+    if (isHighlighted) {
+      ctx.save();
+      ctx.strokeStyle = WIRE_HIGHLIGHT_COLOR;
+      ctx.lineWidth = WIRE_HIGHLIGHT_GLOW_WIDTH;
+      ctx.shadowColor = WIRE_HIGHLIGHT_COLOR;
+      ctx.shadowBlur = WIRE_HIGHLIGHT_SHADOW_BLUR;
+
+      // Draw glow wire segments
+      for (let i = 0; i < points.length - 1; i++) {
+        const start = points[i];
+        const end = points[i + 1];
+
+        const dx = Math.abs(end.x - start.x);
+        const offset = Math.min(dx * 0.5, 100);
+
+        let startOffset = offset;
+        let endOffset = -offset;
+
+        if (wire.isReversed) {
+          startOffset = -offset;
+          endOffset = offset;
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.bezierCurveTo(
+          start.x + startOffset,
+          start.y,
+          end.x + endOffset,
+          end.y,
+          end.x,
+          end.y
+        );
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    ctx.strokeStyle = isHighlighted ? WIRE_HIGHLIGHT_COLOR : wireColor;
+    ctx.lineWidth = isHighlighted ? WIRE_HIGHLIGHT_WIDTH : WIRE_NORMAL_WIDTH;
 
     // Draw wire segments with bezier curves
     for (let i = 0; i < points.length - 1; i++) {
