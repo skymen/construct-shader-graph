@@ -307,8 +307,10 @@ export class AutoLayoutEngine {
     // Render the updated positions
     this.bp.render();
 
-    // Center the camera view on the arranged nodes
-    this.bp.centerView();
+    // Center the camera view on the arranged nodes (only when arranging all nodes)
+    if (!selectedOnly) {
+      this.bp.centerView();
+    }
 
     // Record state for undo/redo with descriptive message
     this.bp.history.pushState(
