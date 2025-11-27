@@ -12325,10 +12325,9 @@ class BlueprintSystem {
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
 
-      // Title - use scaled font sizes to maintain readability at any zoom level
-      const fontSizes = this.getScaledDropdownFontSizes();
+      // Title
       ctx.fillStyle = "#fff";
-      ctx.font = `bold ${fontSizes.text}px sans-serif`;
+      ctx.font = "bold 12px sans-serif";
       ctx.textAlign = "center";
 
       // For uniform nodes, show both names if they differ
@@ -12346,7 +12345,7 @@ class BlueprintSystem {
 
         // Variable name (smaller, gray)
         ctx.fillStyle = "#fff";
-        ctx.font = `${fontSizes.label}px sans-serif`;
+        ctx.font = "10px sans-serif";
         ctx.fillText(
           `(${node.uniformVariableName})`,
           node.x + node.width / 2,
@@ -12687,15 +12686,13 @@ class BlueprintSystem {
     }
   }
 
-  // Calculate scaled font size for dropdowns based on camera zoom
-  // Returns an object with scaled sizes for text and arrows
+  // Calculate font size for dropdowns
+  // Returns fixed sizes so text scales naturally with camera zoom
   getScaledDropdownFontSizes() {
-    // Use inverse scaling with a minimum zoom threshold to prevent fonts from getting too large
-    const effectiveZoom = Math.max(this.camera.zoom, 0.35);
     return {
-      text: Math.round(14 / effectiveZoom),
-      label: Math.round(10 / effectiveZoom),
-      arrow: Math.round(10 / effectiveZoom),
+      text: 14,
+      label: 10,
+      arrow: 10,
     };
   }
 
