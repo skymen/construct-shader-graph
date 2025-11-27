@@ -12492,8 +12492,8 @@ class BlueprintSystem {
           ? operationLabel
           : languageManager.getOperationLabel(operationLabel);
 
-        // Scale font size with camera zoom to maintain readability
-        const fontSizes = this.getScaledDropdownFontSizes();
+        // Get font sizes for dropdown
+        const fontSizes = this.getDropdownFontSizes();
 
         // Dropdown text
         ctx.fillStyle = "#fff";
@@ -12575,8 +12575,8 @@ class BlueprintSystem {
       if (node.nodeType.hasVariableDropdown) {
         const dropdown = node.getVariableDropdownBounds();
 
-        // Scale font size with camera zoom to maintain readability
-        const fontSizes = this.getScaledDropdownFontSizes();
+        // Get font sizes for dropdown
+        const fontSizes = this.getDropdownFontSizes();
 
         // Dropdown label
         ctx.fillStyle = "#888";
@@ -12686,9 +12686,9 @@ class BlueprintSystem {
     }
   }
 
-  // Calculate font size for dropdowns
-  // Returns fixed sizes so text scales naturally with camera zoom
-  getScaledDropdownFontSizes() {
+  // Returns font sizes for dropdowns
+  // Text scales naturally with camera zoom via canvas transform
+  getDropdownFontSizes() {
     return {
       text: 14,
       label: 10,
