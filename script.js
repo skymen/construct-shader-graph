@@ -12325,9 +12325,10 @@ class BlueprintSystem {
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
 
-      // Title
+      // Title - use scaled font sizes to maintain readability at any zoom level
+      const fontSizes = this.getScaledDropdownFontSizes();
       ctx.fillStyle = "#fff";
-      ctx.font = "bold 12px sans-serif";
+      ctx.font = `bold ${fontSizes.text}px sans-serif`;
       ctx.textAlign = "center";
 
       // For uniform nodes, show both names if they differ
@@ -12345,7 +12346,7 @@ class BlueprintSystem {
 
         // Variable name (smaller, gray)
         ctx.fillStyle = "#fff";
-        ctx.font = "10px sans-serif";
+        ctx.font = `${fontSizes.label}px sans-serif`;
         ctx.fillText(
           `(${node.uniformVariableName})`,
           node.x + node.width / 2,
