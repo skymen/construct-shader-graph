@@ -5830,13 +5830,21 @@ class BlueprintSystem {
       rect.top;
     const menuWidth = dropdownBounds.width * this.camera.zoom;
 
+    // Scale font and padding with zoom
+    const scaledFontSize = 14 * this.camera.zoom;
+    const scaledPaddingV = 6 * this.camera.zoom;
+    const scaledPaddingH = 8 * this.camera.zoom;
+    const scaledBorderRadius = 3 * this.camera.zoom;
+    const scaledMenuPadding = 2 * this.camera.zoom;
+    const scaledMenuBorderRadius = 4 * this.camera.zoom;
+
     menu.style.left = `${screenX}px`;
     menu.style.top = `${screenY}px`;
     menu.style.width = `${menuWidth}px`;
     menu.style.background = "#2a2a2a";
     menu.style.border = "2px solid #4a4a4a";
-    menu.style.borderRadius = "4px";
-    menu.style.padding = "2px";
+    menu.style.borderRadius = `${scaledMenuBorderRadius}px`;
+    menu.style.padding = `${scaledMenuPadding}px`;
     menu.style.zIndex = "10000";
     menu.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.5)";
 
@@ -5846,11 +5854,11 @@ class BlueprintSystem {
       option.textContent = node.nodeType.noTranslation?.operations
         ? op.label
         : languageManager.getOperationLabel(op.label);
-      option.style.padding = "6px 8px";
+      option.style.padding = `${scaledPaddingV}px ${scaledPaddingH}px`;
       option.style.cursor = "pointer";
       option.style.color = "#fff";
-      option.style.fontSize = "14px";
-      option.style.borderRadius = "3px";
+      option.style.fontSize = `${scaledFontSize}px`;
+      option.style.borderRadius = `${scaledBorderRadius}px`;
       option.style.textAlign = "center";
       option.style.userSelect = "none";
 
@@ -5918,26 +5926,36 @@ class BlueprintSystem {
       rect.top;
     const menuWidth = dropdownBounds.width * this.camera.zoom;
 
+    // Scale font and padding with zoom
+    const scaledFontSize = 14 * this.camera.zoom;
+    const scaledSmallFontSize = 12 * this.camera.zoom;
+    const scaledPaddingV = 6 * this.camera.zoom;
+    const scaledPaddingH = 8 * this.camera.zoom;
+    const scaledBorderRadius = 3 * this.camera.zoom;
+    const scaledMenuPadding = 2 * this.camera.zoom;
+    const scaledMenuBorderRadius = 4 * this.camera.zoom;
+    const scaledMaxHeight = 200 * this.camera.zoom;
+
     menu.style.left = `${screenX}px`;
     menu.style.top = `${screenY}px`;
     menu.style.width = `${menuWidth}px`;
     menu.style.background = "#2a2a2a";
     menu.style.border = "2px solid #4a4a4a";
-    menu.style.borderRadius = "4px";
-    menu.style.padding = "2px";
+    menu.style.borderRadius = `${scaledMenuBorderRadius}px`;
+    menu.style.padding = `${scaledMenuPadding}px`;
     menu.style.zIndex = "10000";
     menu.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.5)";
-    menu.style.maxHeight = "200px";
+    menu.style.maxHeight = `${scaledMaxHeight}px`;
     menu.style.overflowY = "auto";
 
     // Add "(none)" option
     const noneOption = document.createElement("div");
     noneOption.textContent = "(none)";
-    noneOption.style.padding = "6px 8px";
+    noneOption.style.padding = `${scaledPaddingV}px ${scaledPaddingH}px`;
     noneOption.style.cursor = "pointer";
     noneOption.style.color = "#888";
-    noneOption.style.fontSize = "14px";
-    noneOption.style.borderRadius = "3px";
+    noneOption.style.fontSize = `${scaledFontSize}px`;
+    noneOption.style.borderRadius = `${scaledBorderRadius}px`;
     noneOption.style.fontFamily = "monospace";
     noneOption.style.userSelect = "none";
 
@@ -5973,9 +5991,9 @@ class BlueprintSystem {
     if (availableVariables.length === 0) {
       const noVarsOption = document.createElement("div");
       noVarsOption.textContent = "No variables defined";
-      noVarsOption.style.padding = "6px 8px";
+      noVarsOption.style.padding = `${scaledPaddingV}px ${scaledPaddingH}px`;
       noVarsOption.style.color = "#666";
-      noVarsOption.style.fontSize = "12px";
+      noVarsOption.style.fontSize = `${scaledSmallFontSize}px`;
       noVarsOption.style.fontStyle = "italic";
       noVarsOption.style.textAlign = "center";
       noVarsOption.style.userSelect = "none";
@@ -5984,11 +6002,11 @@ class BlueprintSystem {
       availableVariables.forEach((varName) => {
         const option = document.createElement("div");
         option.textContent = varName;
-        option.style.padding = "6px 8px";
+        option.style.padding = `${scaledPaddingV}px ${scaledPaddingH}px`;
         option.style.cursor = "pointer";
         option.style.color = "#fff";
-        option.style.fontSize = "14px";
-        option.style.borderRadius = "3px";
+        option.style.fontSize = `${scaledFontSize}px`;
+        option.style.borderRadius = `${scaledBorderRadius}px`;
         option.style.fontFamily = "monospace";
         option.style.userSelect = "none";
 
@@ -10276,7 +10294,8 @@ class BlueprintSystem {
   // Find the closest wire that a node can be inserted into
   findClosestCompatibleWire(node, x, y, threshold = WIRE_INSERTION_THRESHOLD) {
     if (!this.nodeHasNoConnections(node)) return null;
-    if (node.inputPorts.length === 0 || node.outputPorts.length === 0) return null;
+    if (node.inputPorts.length === 0 || node.outputPorts.length === 0)
+      return null;
 
     let closestWire = null;
     let closestDistance = Infinity;
@@ -10316,7 +10335,10 @@ class BlueprintSystem {
 
     // Re-evaluate resolved generics if needed for the end port
     if (isGenericType(originalEndPort.portType)) {
-      this.reevaluateGenericType(originalEndPort.node, originalEndPort.portType);
+      this.reevaluateGenericType(
+        originalEndPort.node,
+        originalEndPort.portType
+      );
     }
     originalEndPort.updateEditability();
     originalEndPort.node.inputPorts.forEach((port) => port.updateEditability());
@@ -12492,8 +12514,8 @@ class BlueprintSystem {
           ? operationLabel
           : languageManager.getOperationLabel(operationLabel);
 
-        // Scale font size with camera zoom to maintain readability
-        const fontSizes = this.getScaledDropdownFontSizes();
+        // Get font sizes for dropdown
+        const fontSizes = this.getDropdownFontSizes();
 
         // Dropdown text
         ctx.fillStyle = "#fff";
@@ -12575,8 +12597,8 @@ class BlueprintSystem {
       if (node.nodeType.hasVariableDropdown) {
         const dropdown = node.getVariableDropdownBounds();
 
-        // Scale font size with camera zoom to maintain readability
-        const fontSizes = this.getScaledDropdownFontSizes();
+        // Get font sizes for dropdown
+        const fontSizes = this.getDropdownFontSizes();
 
         // Dropdown label
         ctx.fillStyle = "#888";
@@ -12686,15 +12708,13 @@ class BlueprintSystem {
     }
   }
 
-  // Calculate scaled font size for dropdowns based on camera zoom
-  // Returns an object with scaled sizes for text and arrows
-  getScaledDropdownFontSizes() {
-    // Use inverse scaling with a minimum zoom threshold to prevent fonts from getting too large
-    const effectiveZoom = Math.max(this.camera.zoom, 0.35);
+  // Returns font sizes for dropdowns
+  // Text scales naturally with camera zoom via canvas transform
+  getDropdownFontSizes() {
     return {
-      text: Math.round(14 / effectiveZoom),
-      label: Math.round(10 / effectiveZoom),
-      arrow: Math.round(10 / effectiveZoom),
+      text: 14,
+      label: 10,
+      arrow: 10,
     };
   }
 
