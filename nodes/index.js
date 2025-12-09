@@ -159,6 +159,7 @@ import { InvertNode } from "./InvertNode.js";
 import { PixellateNode } from "./PixellateNode.js";
 import { PosterizeNode } from "./PosterizeNode.js";
 import { BlendModeNode } from "./BlendModeNode.js";
+import { LuminosityNode } from "./LuminosityNode.js";
 
 // Import constant nodes
 import { PiNode } from "./PiNode.js";
@@ -365,6 +366,7 @@ export const NODE_TYPES = {
   pixellate: PixellateNode,
   posterize: PosterizeNode,
   blendMode: BlendModeNode,
+  luminosity: LuminosityNode,
 
   // Constants
   pi: PiNode,
