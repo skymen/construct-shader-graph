@@ -3093,6 +3093,11 @@ class BlueprintSystem {
           "Simple example showing how to use custom nodes"
         ),
       },
+      {
+        file: "fast blur.c3sg",
+        name: languageManager.getUIText("Fast Blur"),
+        description: languageManager.getUIText("Optimized blur effect shader"),
+      },
     ];
 
     // Clear grid
