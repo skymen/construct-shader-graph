@@ -1,204 +1,216 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
 
 export const BlendModeNode = new NodeType(
   "Blend Mode",
   [
-    { name: "Base", type: "vec3" },
-    { name: "Blend", type: "vec3" },
+    { name: "Base", type: "genType3Plus" },
+    { name: "Blend", type: "genType3Plus" },
   ],
-  [{ name: "Result", type: "vec3" }],
-  PORT_TYPES.vec3.color,
+  [{ name: "Result", type: "genType3Plus" }],
+  PORT_TYPES.genType3Plus.color,
   {
     webgl1: {
       dependency: "",
-      execution: (inputs, outputs, node) => {
+      execution: (inputs, outputs, node, inputTypes, outputTypes) => {
         const mode = node.operation || "normal";
         const base = inputs[0];
         const blend = inputs[1];
+        const t = outputTypes[0];
+        const one = `${t}(1.0)`;
+        const zero = `${t}(0.0)`;
+        const half = `${t}(0.5)`;
 
         switch (mode) {
           case "normal":
-            return `    vec3 ${outputs[0]} = ${blend};`;
+            return `    ${t} ${outputs[0]} = ${blend};`;
 
           case "multiply":
-            return `    vec3 ${outputs[0]} = ${base} * ${blend};`;
+            return `    ${t} ${outputs[0]} = ${base} * ${blend};`;
 
           case "screen":
-            return `    vec3 ${outputs[0]} = vec3(1.0) - (vec3(1.0) - ${base}) * (vec3(1.0) - ${blend});`;
+            return `    ${t} ${outputs[0]} = ${one} - (${one} - ${base}) * (${one} - ${blend});`;
 
           case "overlay":
-            return `    vec3 ${outputs[0]} = mix(2.0 * ${base} * ${blend}, vec3(1.0) - 2.0 * (vec3(1.0) - ${base}) * (vec3(1.0) - ${blend}), step(0.5, ${base}));`;
+            return `    ${t} ${outputs[0]} = mix(2.0 * ${base} * ${blend}, ${one} - 2.0 * (${one} - ${base}) * (${one} - ${blend}), step(${half}, ${base}));`;
 
           case "add":
-            return `    vec3 ${outputs[0]} = min(${base} + ${blend}, vec3(1.0));`;
+            return `    ${t} ${outputs[0]} = min(${base} + ${blend}, ${one});`;
 
           case "subtract":
-            return `    vec3 ${outputs[0]} = max(${base} - ${blend}, vec3(0.0));`;
+            return `    ${t} ${outputs[0]} = max(${base} - ${blend}, ${zero});`;
 
           case "difference":
-            return `    vec3 ${outputs[0]} = abs(${base} - ${blend});`;
+            return `    ${t} ${outputs[0]} = abs(${base} - ${blend});`;
 
           case "darken":
-            return `    vec3 ${outputs[0]} = min(${base}, ${blend});`;
+            return `    ${t} ${outputs[0]} = min(${base}, ${blend});`;
 
           case "lighten":
-            return `    vec3 ${outputs[0]} = max(${base}, ${blend});`;
+            return `    ${t} ${outputs[0]} = max(${base}, ${blend});`;
 
           case "colorDodge":
-            return `    vec3 ${outputs[0]} = ${base} / (vec3(1.0) - ${blend} + 0.000001);`;
+            return `    ${t} ${outputs[0]} = ${base} / (${one} - ${blend} + 0.000001);`;
 
           case "colorBurn":
-            return `    vec3 ${outputs[0]} = vec3(1.0) - (vec3(1.0) - ${base}) / (${blend} + 0.000001);`;
+            return `    ${t} ${outputs[0]} = ${one} - (${one} - ${base}) / (${blend} + 0.000001);`;
 
           case "hardLight":
-            return `    vec3 ${outputs[0]} = mix(2.0 * ${base} * ${blend}, vec3(1.0) - 2.0 * (vec3(1.0) - ${base}) * (vec3(1.0) - ${blend}), step(0.5, ${blend}));`;
+            return `    ${t} ${outputs[0]} = mix(2.0 * ${base} * ${blend}, ${one} - 2.0 * (${one} - ${base}) * (${one} - ${blend}), step(${half}, ${blend}));`;
 
           case "softLight":
-            return `    vec3 ${outputs[0]} = mix(2.0 * ${base} * ${blend} + ${base} * ${base} * (vec3(1.0) - 2.0 * ${blend}), sqrt(${base}) * (2.0 * ${blend} - vec3(1.0)) + 2.0 * ${base} * (vec3(1.0) - ${blend}), step(0.5, ${blend}));`;
+            return `    ${t} ${outputs[0]} = mix(2.0 * ${base} * ${blend} + ${base} * ${base} * (${one} - 2.0 * ${blend}), sqrt(${base}) * (2.0 * ${blend} - ${one}) + 2.0 * ${base} * (${one} - ${blend}), step(${half}, ${blend}));`;
 
           case "linearDodge":
-            return `    vec3 ${outputs[0]} = min(${base} + ${blend}, vec3(1.0));`;
+            return `    ${t} ${outputs[0]} = min(${base} + ${blend}, ${one});`;
 
           case "linearBurn":
-            return `    vec3 ${outputs[0]} = max(${base} + ${blend} - vec3(1.0), vec3(0.0));`;
+            return `    ${t} ${outputs[0]} = max(${base} + ${blend} - ${one}, ${zero});`;
 
           case "exclusion":
-            return `    vec3 ${outputs[0]} = ${base} + ${blend} - 2.0 * ${base} * ${blend};`;
+            return `    ${t} ${outputs[0]} = ${base} + ${blend} - 2.0 * ${base} * ${blend};`;
 
           case "divide":
-            return `    vec3 ${outputs[0]} = ${base} / (${blend} + 0.000001);`;
+            return `    ${t} ${outputs[0]} = ${base} / (${blend} + 0.000001);`;
 
           default:
-            return `    vec3 ${outputs[0]} = ${blend};`;
+            return `    ${t} ${outputs[0]} = ${blend};`;
         }
       },
     },
     webgl2: {
       dependency: "",
-      execution: (inputs, outputs, node) => {
+      execution: (inputs, outputs, node, inputTypes, outputTypes) => {
         const mode = node.operation || "normal";
         const base = inputs[0];
         const blend = inputs[1];
+        const t = outputTypes[0];
+        const one = `${t}(1.0)`;
+        const zero = `${t}(0.0)`;
+        const half = `${t}(0.5)`;
 
         switch (mode) {
           case "normal":
-            return `    vec3 ${outputs[0]} = ${blend};`;
+            return `    ${t} ${outputs[0]} = ${blend};`;
 
           case "multiply":
-            return `    vec3 ${outputs[0]} = ${base} * ${blend};`;
+            return `    ${t} ${outputs[0]} = ${base} * ${blend};`;
 
           case "screen":
-            return `    vec3 ${outputs[0]} = vec3(1.0) - (vec3(1.0) - ${base}) * (vec3(1.0) - ${blend});`;
+            return `    ${t} ${outputs[0]} = ${one} - (${one} - ${base}) * (${one} - ${blend});`;
 
           case "overlay":
-            return `    vec3 ${outputs[0]} = mix(2.0 * ${base} * ${blend}, vec3(1.0) - 2.0 * (vec3(1.0) - ${base}) * (vec3(1.0) - ${blend}), step(0.5, ${base}));`;
+            return `    ${t} ${outputs[0]} = mix(2.0 * ${base} * ${blend}, ${one} - 2.0 * (${one} - ${base}) * (${one} - ${blend}), step(${half}, ${base}));`;
 
           case "add":
-            return `    vec3 ${outputs[0]} = min(${base} + ${blend}, vec3(1.0));`;
+            return `    ${t} ${outputs[0]} = min(${base} + ${blend}, ${one});`;
 
           case "subtract":
-            return `    vec3 ${outputs[0]} = max(${base} - ${blend}, vec3(0.0));`;
+            return `    ${t} ${outputs[0]} = max(${base} - ${blend}, ${zero});`;
 
           case "difference":
-            return `    vec3 ${outputs[0]} = abs(${base} - ${blend});`;
+            return `    ${t} ${outputs[0]} = abs(${base} - ${blend});`;
 
           case "darken":
-            return `    vec3 ${outputs[0]} = min(${base}, ${blend});`;
+            return `    ${t} ${outputs[0]} = min(${base}, ${blend});`;
 
           case "lighten":
-            return `    vec3 ${outputs[0]} = max(${base}, ${blend});`;
+            return `    ${t} ${outputs[0]} = max(${base}, ${blend});`;
 
           case "colorDodge":
-            return `    vec3 ${outputs[0]} = ${base} / (vec3(1.0) - ${blend} + 0.000001);`;
+            return `    ${t} ${outputs[0]} = ${base} / (${one} - ${blend} + 0.000001);`;
 
           case "colorBurn":
-            return `    vec3 ${outputs[0]} = vec3(1.0) - (vec3(1.0) - ${base}) / (${blend} + 0.000001);`;
+            return `    ${t} ${outputs[0]} = ${one} - (${one} - ${base}) / (${blend} + 0.000001);`;
 
           case "hardLight":
-            return `    vec3 ${outputs[0]} = mix(2.0 * ${base} * ${blend}, vec3(1.0) - 2.0 * (vec3(1.0) - ${base}) * (vec3(1.0) - ${blend}), step(0.5, ${blend}));`;
+            return `    ${t} ${outputs[0]} = mix(2.0 * ${base} * ${blend}, ${one} - 2.0 * (${one} - ${base}) * (${one} - ${blend}), step(${half}, ${blend}));`;
 
           case "softLight":
-            return `    vec3 ${outputs[0]} = mix(2.0 * ${base} * ${blend} + ${base} * ${base} * (vec3(1.0) - 2.0 * ${blend}), sqrt(${base}) * (2.0 * ${blend} - vec3(1.0)) + 2.0 * ${base} * (vec3(1.0) - ${blend}), step(0.5, ${blend}));`;
+            return `    ${t} ${outputs[0]} = mix(2.0 * ${base} * ${blend} + ${base} * ${base} * (${one} - 2.0 * ${blend}), sqrt(${base}) * (2.0 * ${blend} - ${one}) + 2.0 * ${base} * (${one} - ${blend}), step(${half}, ${blend}));`;
 
           case "linearDodge":
-            return `    vec3 ${outputs[0]} = min(${base} + ${blend}, vec3(1.0));`;
+            return `    ${t} ${outputs[0]} = min(${base} + ${blend}, ${one});`;
 
           case "linearBurn":
-            return `    vec3 ${outputs[0]} = max(${base} + ${blend} - vec3(1.0), vec3(0.0));`;
+            return `    ${t} ${outputs[0]} = max(${base} + ${blend} - ${one}, ${zero});`;
 
           case "exclusion":
-            return `    vec3 ${outputs[0]} = ${base} + ${blend} - 2.0 * ${base} * ${blend};`;
+            return `    ${t} ${outputs[0]} = ${base} + ${blend} - 2.0 * ${base} * ${blend};`;
 
           case "divide":
-            return `    vec3 ${outputs[0]} = ${base} / (${blend} + 0.000001);`;
+            return `    ${t} ${outputs[0]} = ${base} / (${blend} + 0.000001);`;
 
           default:
-            return `    vec3 ${outputs[0]} = ${blend};`;
+            return `    ${t} ${outputs[0]} = ${blend};`;
         }
       },
     },
     webgpu: {
       dependency: "",
-      execution: (inputs, outputs, node) => {
+      execution: (inputs, outputs, node, inputTypes, outputTypes) => {
         const mode = node.operation || "normal";
         const base = inputs[0];
         const blend = inputs[1];
+        const t = toWGSLType(outputTypes[0]);
+        const one = `${t}(1.0)`;
+        const zero = `${t}(0.0)`;
+        const half = `${t}(0.5)`;
 
         switch (mode) {
           case "normal":
-            return `    var ${outputs[0]}: vec3<f32> = ${blend};`;
+            return `    var ${outputs[0]}: ${t} = ${blend};`;
 
           case "multiply":
-            return `    var ${outputs[0]}: vec3<f32> = ${base} * ${blend};`;
+            return `    var ${outputs[0]}: ${t} = ${base} * ${blend};`;
 
           case "screen":
-            return `    var ${outputs[0]}: vec3<f32> = vec3<f32>(1.0) - (vec3<f32>(1.0) - ${base}) * (vec3<f32>(1.0) - ${blend});`;
+            return `    var ${outputs[0]}: ${t} = ${one} - (${one} - ${base}) * (${one} - ${blend});`;
 
           case "overlay":
-            return `    var ${outputs[0]}: vec3<f32> = mix(2.0 * ${base} * ${blend}, vec3<f32>(1.0) - 2.0 * (vec3<f32>(1.0) - ${base}) * (vec3<f32>(1.0) - ${blend}), step(0.5, ${base}));`;
+            return `    var ${outputs[0]}: ${t} = mix(2.0 * ${base} * ${blend}, ${one} - 2.0 * (${one} - ${base}) * (${one} - ${blend}), step(${half}, ${base}));`;
 
           case "add":
-            return `    var ${outputs[0]}: vec3<f32> = min(${base} + ${blend}, vec3<f32>(1.0));`;
+            return `    var ${outputs[0]}: ${t} = min(${base} + ${blend}, ${one});`;
 
           case "subtract":
-            return `    var ${outputs[0]}: vec3<f32> = max(${base} - ${blend}, vec3<f32>(0.0));`;
+            return `    var ${outputs[0]}: ${t} = max(${base} - ${blend}, ${zero});`;
 
           case "difference":
-            return `    var ${outputs[0]}: vec3<f32> = abs(${base} - ${blend});`;
+            return `    var ${outputs[0]}: ${t} = abs(${base} - ${blend});`;
 
           case "darken":
-            return `    var ${outputs[0]}: vec3<f32> = min(${base}, ${blend});`;
+            return `    var ${outputs[0]}: ${t} = min(${base}, ${blend});`;
 
           case "lighten":
-            return `    var ${outputs[0]}: vec3<f32> = max(${base}, ${blend});`;
+            return `    var ${outputs[0]}: ${t} = max(${base}, ${blend});`;
 
           case "colorDodge":
-            return `    var ${outputs[0]}: vec3<f32> = ${base} / (vec3<f32>(1.0) - ${blend} + 0.000001);`;
+            return `    var ${outputs[0]}: ${t} = ${base} / (${one} - ${blend} + 0.000001);`;
 
           case "colorBurn":
-            return `    var ${outputs[0]}: vec3<f32> = vec3<f32>(1.0) - (vec3<f32>(1.0) - ${base}) / (${blend} + 0.000001);`;
+            return `    var ${outputs[0]}: ${t} = ${one} - (${one} - ${base}) / (${blend} + 0.000001);`;
 
           case "hardLight":
-            return `    var ${outputs[0]}: vec3<f32> = mix(2.0 * ${base} * ${blend}, vec3<f32>(1.0) - 2.0 * (vec3<f32>(1.0) - ${base}) * (vec3<f32>(1.0) - ${blend}), step(0.5, ${blend}));`;
+            return `    var ${outputs[0]}: ${t} = mix(2.0 * ${base} * ${blend}, ${one} - 2.0 * (${one} - ${base}) * (${one} - ${blend}), step(${half}, ${blend}));`;
 
           case "softLight":
-            return `    var ${outputs[0]}: vec3<f32> = mix(2.0 * ${base} * ${blend} + ${base} * ${base} * (vec3<f32>(1.0) - 2.0 * ${blend}), sqrt(${base}) * (2.0 * ${blend} - vec3<f32>(1.0)) + 2.0 * ${base} * (vec3<f32>(1.0) - ${blend}), step(0.5, ${blend}));`;
+            return `    var ${outputs[0]}: ${t} = mix(2.0 * ${base} * ${blend} + ${base} * ${base} * (${one} - 2.0 * ${blend}), sqrt(${base}) * (2.0 * ${blend} - ${one}) + 2.0 * ${base} * (${one} - ${blend}), step(${half}, ${blend}));`;
 
           case "linearDodge":
-            return `    var ${outputs[0]}: vec3<f32> = min(${base} + ${blend}, vec3<f32>(1.0));`;
+            return `    var ${outputs[0]}: ${t} = min(${base} + ${blend}, ${one});`;
 
           case "linearBurn":
-            return `    var ${outputs[0]}: vec3<f32> = max(${base} + ${blend} - vec3<f32>(1.0), vec3<f32>(0.0));`;
+            return `    var ${outputs[0]}: ${t} = max(${base} + ${blend} - ${one}, ${zero});`;
 
           case "exclusion":
-            return `    var ${outputs[0]}: vec3<f32> = ${base} + ${blend} - 2.0 * ${base} * ${blend};`;
+            return `    var ${outputs[0]}: ${t} = ${base} + ${blend} - 2.0 * ${base} * ${blend};`;
 
           case "divide":
-            return `    var ${outputs[0]}: vec3<f32> = ${base} / (${blend} + 0.000001);`;
+            return `    var ${outputs[0]}: ${t} = ${base} / (${blend} + 0.000001);`;
 
           default:
-            return `    var ${outputs[0]}: vec3<f32> = ${blend};`;
+            return `    var ${outputs[0]}: ${t} = ${blend};`;
         }
       },
     },
