@@ -1,9 +1,9 @@
 import { NodeType } from "./NodeType.js";
 
-export const ToFloatNode = new NodeType(
-  "To Float",
+export const ToVec2Node = new NodeType(
+  "To Vec2",
   [{ name: "Value", type: "T" }],
-  [{ name: "Result", type: "float" }],
+  [{ name: "Result", type: "vec2" }],
   "#3a4a3a",
   {
     webgl1: {
@@ -12,17 +12,18 @@ export const ToFloatNode = new NodeType(
         const inputType = inputTypes[0];
         switch (inputType) {
           case "float":
-            return `    float ${outputs[0]} = ${inputs[0]};`;
+            return `    vec2 ${outputs[0]} = vec2(${inputs[0]});`;
           case "int":
           case "bool":
-            return `    float ${outputs[0]} = float(${inputs[0]});`;
+            return `    vec2 ${outputs[0]} = vec2(float(${inputs[0]}));`;
           case "vec2":
+            return `    vec2 ${outputs[0]} = ${inputs[0]};`;
           case "vec3":
           case "vec4":
           case "color":
-            return `    float ${outputs[0]} = ${inputs[0]}.x;`;
+            return `    vec2 ${outputs[0]} = ${inputs[0]}.xy;`;
           default:
-            return `    float ${outputs[0]} = float(${inputs[0]});`;
+            return `    vec2 ${outputs[0]} = vec2(${inputs[0]});`;
         }
       },
     },
@@ -32,17 +33,18 @@ export const ToFloatNode = new NodeType(
         const inputType = inputTypes[0];
         switch (inputType) {
           case "float":
-            return `    float ${outputs[0]} = ${inputs[0]};`;
+            return `    vec2 ${outputs[0]} = vec2(${inputs[0]});`;
           case "int":
           case "bool":
-            return `    float ${outputs[0]} = float(${inputs[0]});`;
+            return `    vec2 ${outputs[0]} = vec2(float(${inputs[0]}));`;
           case "vec2":
+            return `    vec2 ${outputs[0]} = ${inputs[0]};`;
           case "vec3":
           case "vec4":
           case "color":
-            return `    float ${outputs[0]} = ${inputs[0]}.x;`;
+            return `    vec2 ${outputs[0]} = ${inputs[0]}.xy;`;
           default:
-            return `    float ${outputs[0]} = float(${inputs[0]});`;
+            return `    vec2 ${outputs[0]} = vec2(${inputs[0]});`;
         }
       },
     },
@@ -52,21 +54,22 @@ export const ToFloatNode = new NodeType(
         const inputType = inputTypes[0];
         switch (inputType) {
           case "float":
-            return `    var ${outputs[0]}: f32 = ${inputs[0]};`;
+            return `    var ${outputs[0]}: vec2<f32> = vec2<f32>(${inputs[0]});`;
           case "int":
           case "bool":
-            return `    var ${outputs[0]}: f32 = f32(${inputs[0]});`;
+            return `    var ${outputs[0]}: vec2<f32> = vec2<f32>(f32(${inputs[0]}));`;
           case "vec2":
+            return `    var ${outputs[0]}: vec2<f32> = ${inputs[0]};`;
           case "vec3":
           case "vec4":
           case "color":
-            return `    var ${outputs[0]}: f32 = ${inputs[0]}.x;`;
+            return `    var ${outputs[0]}: vec2<f32> = ${inputs[0]}.xy;`;
           default:
-            return `    var ${outputs[0]}: f32 = f32(${inputs[0]});`;
+            return `    var ${outputs[0]}: vec2<f32> = vec2<f32>(${inputs[0]});`;
         }
       },
     },
   },
   "Conversion",
-  ["cast", "convert", "int to float", "type"]
+  ["cast", "convert", "vector", "type"]
 );

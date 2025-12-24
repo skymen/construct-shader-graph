@@ -29,6 +29,9 @@ import { SignNode } from "./SignNode.js";
 import { SelectNode } from "./SelectNode.js";
 import { ToFloatNode } from "./ToFloatNode.js";
 import { ToIntNode } from "./ToIntNode.js";
+import { ToVec2Node } from "./ToVec2Node.js";
+import { ToVec3Node } from "./ToVec3Node.js";
+import { ToVec4Node } from "./ToVec4Node.js";
 import { CompareNode } from "./CompareNode.js";
 import { MinNode } from "./MinNode.js";
 import { MaxNode } from "./MaxNode.js";
@@ -239,6 +242,9 @@ export const NODE_TYPES = {
   select: SelectNode,
   toFloat: ToFloatNode,
   toInt: ToIntNode,
+  toVec2: ToVec2Node,
+  toVec3: ToVec3Node,
+  toVec4: ToVec4Node,
   compare: CompareNode,
   min: MinNode,
   max: MaxNode,
