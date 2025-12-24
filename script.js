@@ -9069,8 +9069,6 @@ class BlueprintSystem {
         id: this.sanitizeVariableName(uniform.name),
         uniform: uniform.variableName,
         interpolatable: true,
-        name: uniform.name,
-        desc: uniform.description || "",
         type:
           uniform.type === "color"
             ? "color"
@@ -9119,7 +9117,7 @@ class BlueprintSystem {
     if (this.uniforms.length > 0) {
       const params = {};
       this.uniforms.forEach((uniform) => {
-        params[uniform.variableName] = {
+        params[this.sanitizeVariableName(uniform.name)] = {
           name: uniform.name,
           desc: uniform.description || "",
         };
