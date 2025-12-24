@@ -2626,7 +2626,7 @@ class BlueprintSystem {
       });
 
     // Close on background click
-    this.customNodeModal.addEventListener("click", (e) => {
+    this.customNodeModal.addEventListener("mousedown", (e) => {
       if (e.target === this.customNodeModal) {
         this.hideCustomNodeModal();
       }
