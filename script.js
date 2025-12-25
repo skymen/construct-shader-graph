@@ -821,7 +821,7 @@ class Comment {
     return {
       x: this.x + 4,
       y: this.y + 4,
-      width: COMMENT_DRAG_HANDLE_SIZE,
+      width: (3 * COMMENT_DRAG_HANDLE_SIZE) / 4,
       height: COMMENT_DRAG_HANDLE_SIZE,
     };
   }
@@ -12334,20 +12334,28 @@ class BlueprintSystem {
 
     // Draw drag handle grip lines
     ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.lineCap = "round";
     const gripY1 = dragHandleBounds.y + 7;
     const gripY2 = dragHandleBounds.y + 12;
     const gripY3 = dragHandleBounds.y + 17;
-    const gripX1 = dragHandleBounds.x + 6;
-    const gripX2 = dragHandleBounds.x + 18;
+    const gripX1 = dragHandleBounds.x + dragHandleBounds.width / 2 - 3;
+    const gripX2 = dragHandleBounds.x + dragHandleBounds.width / 2 + 3;
 
     ctx.beginPath();
     ctx.moveTo(gripX1, gripY1);
+    ctx.lineTo(gripX1, gripY1);
+    ctx.moveTo(gripX2, gripY1);
     ctx.lineTo(gripX2, gripY1);
+
     ctx.moveTo(gripX1, gripY2);
+    ctx.lineTo(gripX1, gripY2);
+    ctx.moveTo(gripX2, gripY2);
     ctx.lineTo(gripX2, gripY2);
+
     ctx.moveTo(gripX1, gripY3);
+    ctx.lineTo(gripX1, gripY3);
+    ctx.moveTo(gripX2, gripY3);
     ctx.lineTo(gripX2, gripY3);
     ctx.stroke();
 
