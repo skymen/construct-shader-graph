@@ -9105,6 +9105,7 @@ class BlueprintSystem {
 
     return {
       "is-c3-addon": true,
+      "sdk-version": 2,
       type: "effect",
       name: name,
       id: addonId,
