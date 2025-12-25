@@ -925,6 +925,9 @@ class BlueprintSystem {
     this.autoPanSpeed = 10; // Pixels per frame to pan
     this.autoPanInterval = null;
 
+    this.drawTextZoomThreshold = 0;
+    this.drawShadowZoomThreshold = 0.7;
+
     // Wire insertion state - for dragging unconnected nodes onto wires
     this.highlightedWire = null;
 
@@ -11874,6 +11877,9 @@ class BlueprintSystem {
     const isHovered = this.hoveredPort === port;
     const portColor = port.getColor();
 
+    // Skip text rendering when zoomed out (text becomes unreadable anyway)
+    const shouldDrawText = this.camera.zoom >= this.drawTextZoomThreshold;
+
     // Port circle
     ctx.fillStyle = port.connections.length > 0 ? portColor : "#2d2d2d";
     ctx.strokeStyle = isHovered ? "#ffffff" : portColor;
@@ -11885,15 +11891,16 @@ class BlueprintSystem {
     ctx.stroke();
 
     // Port label
-    ctx.fillStyle = "#aaa";
-    ctx.font = "12px sans-serif";
     const label = port.displayName || port.name;
 
     if (port.type === "input") {
-      ctx.textAlign = "left";
-
       // Draw label
-      ctx.fillText(label, pos.x + 15, pos.y + 4);
+      if (shouldDrawText) {
+        ctx.fillStyle = "#aaa";
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(label, pos.x + 15, pos.y + 4);
+      }
 
       // Draw value box for editable ports with no connections
       if (
@@ -11934,10 +11941,16 @@ class BlueprintSystem {
             ctx.stroke();
 
             // Draw value text
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "12px monospace";
-            ctx.textAlign = "center";
-            ctx.fillText(value, boxX + boxWidth / 2, boxY + boxHeight / 2 + 4);
+            if (shouldDrawText) {
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "12px monospace";
+              ctx.textAlign = "center";
+              ctx.fillText(
+                value,
+                boxX + boxWidth / 2,
+                boxY + boxHeight / 2 + 4
+              );
+            }
           });
 
           valueStr = null; // Already drawn
@@ -11988,14 +12001,16 @@ class BlueprintSystem {
               ctx.stroke();
 
               // Draw value text
-              ctx.fillStyle = "#ffffff";
-              ctx.font = "12px monospace";
-              ctx.textAlign = "center";
-              ctx.fillText(
-                values[i],
-                boxX + boxWidth / 2,
-                boxY + boxHeight / 2 + 4
-              );
+              if (shouldDrawText) {
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "12px monospace";
+                ctx.textAlign = "center";
+                ctx.fillText(
+                  values[i],
+                  boxX + boxWidth / 2,
+                  boxY + boxHeight / 2 + 4
+                );
+              }
             }
 
             // Draw third value in bottom-left
@@ -12010,14 +12025,16 @@ class BlueprintSystem {
             ctx.fill();
             ctx.stroke();
 
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "12px monospace";
-            ctx.textAlign = "center";
-            ctx.fillText(
-              values[2],
-              boxX + boxWidth / 2,
-              boxY + boxHeight / 2 + 4
-            );
+            if (shouldDrawText) {
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "12px monospace";
+              ctx.textAlign = "center";
+              ctx.fillText(
+                values[2],
+                boxX + boxWidth / 2,
+                boxY + boxHeight / 2 + 4
+              );
+            }
 
             valueStr = null; // Already drawn
           }
@@ -12087,14 +12104,16 @@ class BlueprintSystem {
                 ctx.stroke();
 
                 // Draw value text
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "12px monospace";
-                ctx.textAlign = "center";
-                ctx.fillText(
-                  values[index],
-                  boxX + boxWidth / 2,
-                  boxY + boxHeight / 2 + 4
-                );
+                if (shouldDrawText) {
+                  ctx.fillStyle = "#ffffff";
+                  ctx.font = "12px monospace";
+                  ctx.textAlign = "center";
+                  ctx.fillText(
+                    values[index],
+                    boxX + boxWidth / 2,
+                    boxY + boxHeight / 2 + 4
+                  );
+                }
               }
             }
 
@@ -12115,19 +12134,26 @@ class BlueprintSystem {
           ctx.stroke();
 
           // Draw value text
-          ctx.fillStyle = "#ffffff";
-          ctx.font = "11px monospace";
-          ctx.textAlign = "center";
-          ctx.fillText(
-            valueStr,
-            bounds.x + bounds.width / 2,
-            bounds.y + bounds.height / 2 + 4
-          );
+          if (shouldDrawText) {
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "11px monospace";
+            ctx.textAlign = "center";
+            ctx.fillText(
+              valueStr,
+              bounds.x + bounds.width / 2,
+              bounds.y + bounds.height / 2 + 4
+            );
+          }
         }
       }
     } else {
-      ctx.textAlign = "right";
-      ctx.fillText(label, pos.x - 15, pos.y + 4);
+      // Output port label
+      if (shouldDrawText) {
+        ctx.fillStyle = "#aaa";
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "right";
+        ctx.fillText(label, pos.x - 15, pos.y + 4);
+      }
     }
 
     // Draw tooltip for hovered port
@@ -12195,6 +12221,9 @@ class BlueprintSystem {
   drawComment(comment) {
     const ctx = this.ctx;
 
+    // Skip text rendering when zoomed out (text becomes unreadable anyway)
+    const shouldDrawText = this.camera.zoom >= this.drawTextZoomThreshold;
+
     // Semi-transparent background
     ctx.fillStyle = comment.color + COMMENT_BACKGROUND_OPACITY;
     ctx.strokeStyle = comment.isSelected ? "#6ab0ff" : comment.color;
@@ -12249,43 +12278,45 @@ class BlueprintSystem {
     ctx.stroke();
 
     // Title text (offset to make room for drag handle)
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 14px sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText(comment.title, comment.x + 35, comment.y + 20);
-
-    // Description text
-    if (comment.description) {
-      ctx.fillStyle = "#cccccc";
-      ctx.font = "12px sans-serif";
+    if (shouldDrawText) {
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "left";
+      ctx.fillText(comment.title, comment.x + 35, comment.y + 20);
 
-      // Word wrap the description
-      const maxWidth = comment.width - COMMENT_TEXT_MARGIN;
-      const lineHeight = 16;
-      const words = comment.description.split(" ");
-      let line = "";
-      let y = comment.y + 50;
+      // Description text
+      if (comment.description) {
+        ctx.fillStyle = "#cccccc";
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "left";
 
-      for (let i = 0; i < words.length; i++) {
-        const testLine = line + words[i] + " ";
-        const metrics = ctx.measureText(testLine);
+        // Word wrap the description
+        const maxWidth = comment.width - COMMENT_TEXT_MARGIN;
+        const lineHeight = 16;
+        const words = comment.description.split(" ");
+        let line = "";
+        let y = comment.y + 50;
 
-        if (metrics.width > maxWidth && i > 0) {
-          ctx.fillText(line, comment.x + 10, y);
-          line = words[i] + " ";
-          y += lineHeight;
+        for (let i = 0; i < words.length; i++) {
+          const testLine = line + words[i] + " ";
+          const metrics = ctx.measureText(testLine);
 
-          // Stop if we run out of space
-          if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
-        } else {
-          line = testLine;
+          if (metrics.width > maxWidth && i > 0) {
+            ctx.fillText(line, comment.x + 10, y);
+            line = words[i] + " ";
+            y += lineHeight;
+
+            // Stop if we run out of space
+            if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
+          } else {
+            line = testLine;
+          }
         }
-      }
 
-      // Draw the last line
-      if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
-        ctx.fillText(line, comment.x + 10, y);
+        // Draw the last line
+        if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
+          ctx.fillText(line, comment.x + 10, y);
+        }
       }
     }
 
@@ -12316,11 +12347,21 @@ class BlueprintSystem {
   drawNode(node) {
     const ctx = this.ctx;
 
+    // Skip text rendering when zoomed out (text becomes unreadable anyway)
+    const shouldDrawText = this.camera.zoom >= this.drawTextZoomThreshold;
+
     // Shadow
-    ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 4;
+    if (this.camera.zoom >= this.drawShadowZoomThreshold) {
+      ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 4;
+    } else if (this.camera.zoom >= this.drawShadowZoomThreshold / 3) {
+      ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 4;
+    }
 
     if (node.isVariable) {
       // Variable nodes are pill-shaped with gradient
@@ -12351,38 +12392,40 @@ class BlueprintSystem {
       ctx.shadowBlur = 0;
 
       // Title
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 12px sans-serif";
-      ctx.textAlign = "center";
-
-      // For uniform nodes, show both names if they differ
-      if (
-        node.uniformDisplayName &&
-        node.uniformVariableName &&
-        node.uniformDisplayName !== node.uniformVariableName
-      ) {
-        // Display name
-        ctx.fillText(
-          node.uniformDisplayName,
-          node.x + node.width / 2,
-          node.y + node.height / 2 - 2
-        );
-
-        // Variable name (smaller, gray)
+      if (shouldDrawText) {
         ctx.fillStyle = "#fff";
-        ctx.font = "10px sans-serif";
-        ctx.fillText(
-          `(${node.uniformVariableName})`,
-          node.x + node.width / 2,
-          node.y + node.height / 2 + 10
-        );
-      } else {
-        // Single title
-        ctx.fillText(
-          node.displayTitle || node.title,
-          node.x + node.width / 2,
-          node.y + node.height / 2 + 4
-        );
+        ctx.font = "bold 12px sans-serif";
+        ctx.textAlign = "center";
+
+        // For uniform nodes, show both names if they differ
+        if (
+          node.uniformDisplayName &&
+          node.uniformVariableName &&
+          node.uniformDisplayName !== node.uniformVariableName
+        ) {
+          // Display name
+          ctx.fillText(
+            node.uniformDisplayName,
+            node.x + node.width / 2,
+            node.y + node.height / 2 - 2
+          );
+
+          // Variable name (smaller, gray)
+          ctx.fillStyle = "#fff";
+          ctx.font = "10px sans-serif";
+          ctx.fillText(
+            `(${node.uniformVariableName})`,
+            node.x + node.width / 2,
+            node.y + node.height / 2 + 10
+          );
+        } else {
+          // Single title
+          ctx.fillText(
+            node.displayTitle || node.title,
+            node.x + node.width / 2,
+            node.y + node.height / 2 + 4
+          );
+        }
       }
 
       // Draw output port (no label for variable nodes)
@@ -12422,14 +12465,16 @@ class BlueprintSystem {
       ctx.fill();
 
       // Title
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 14px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(
-        node.displayTitle || node.title,
-        node.x + node.width / 2,
-        node.y + 22
-      );
+      if (shouldDrawText) {
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 14px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          node.displayTitle || node.title,
+          node.x + node.width / 2,
+          node.y + 22
+        );
+      }
 
       // Edit button for custom nodes
       if (node.nodeType.isCustom) {
@@ -12505,40 +12550,42 @@ class BlueprintSystem {
         ctx.fill();
         ctx.stroke();
 
-        // Get the label for the current operation
-        const currentOp = node.nodeType.operationOptions.find(
-          (op) => op.value === node.operation
-        );
-        const operationLabel = currentOp
-          ? currentOp.label
-          : node.nodeType.operationOptions[0].label;
-        // Only translate operation label if noTranslation.operations is not set
-        const displayText = node.nodeType.noTranslation?.operations
-          ? operationLabel
-          : languageManager.getOperationLabel(operationLabel);
+        if (shouldDrawText) {
+          // Get the label for the current operation
+          const currentOp = node.nodeType.operationOptions.find(
+            (op) => op.value === node.operation
+          );
+          const operationLabel = currentOp
+            ? currentOp.label
+            : node.nodeType.operationOptions[0].label;
+          // Only translate operation label if noTranslation.operations is not set
+          const displayText = node.nodeType.noTranslation?.operations
+            ? operationLabel
+            : languageManager.getOperationLabel(operationLabel);
 
-        // Get font sizes for dropdown
-        const fontSizes = this.getDropdownFontSizes();
+          // Get font sizes for dropdown
+          const fontSizes = this.getDropdownFontSizes();
 
-        // Dropdown text
-        ctx.fillStyle = "#fff";
-        ctx.font = `${fontSizes.text}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.fillText(
-          displayText,
-          dropdown.x + dropdown.width / 2,
-          dropdown.y + dropdown.height / 2 + 5
-        );
+          // Dropdown text
+          ctx.fillStyle = "#fff";
+          ctx.font = `${fontSizes.text}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.fillText(
+            displayText,
+            dropdown.x + dropdown.width / 2,
+            dropdown.y + dropdown.height / 2 + 5
+          );
 
-        // Dropdown arrow
-        ctx.fillStyle = "#888";
-        ctx.font = `${fontSizes.arrow}px sans-serif`;
-        ctx.textAlign = "right";
-        ctx.fillText(
-          "▼",
-          dropdown.x + dropdown.width - 5,
-          dropdown.y + dropdown.height / 2 + 3
-        );
+          // Dropdown arrow
+          ctx.fillStyle = "#888";
+          ctx.font = `${fontSizes.arrow}px sans-serif`;
+          ctx.textAlign = "right";
+          ctx.fillText(
+            "▼",
+            dropdown.x + dropdown.width - 5,
+            dropdown.y + dropdown.height / 2 + 3
+          );
+        }
       }
 
       // Custom input field (if node has custom input)
@@ -12562,52 +12609,45 @@ class BlueprintSystem {
         ctx.stroke();
 
         // Input text
-        ctx.fillStyle = "#fff";
-        ctx.font = "14px monospace";
-        ctx.textAlign = "left";
-        const displayValue =
-          node.customInput || node.nodeType.customInputConfig.placeholder;
-        const textX = inputBounds.x + 8;
-        const textY = inputBounds.y + inputBounds.height / 2 + 5;
-
-        // Clip text to input bounds
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(
-          inputBounds.x,
-          inputBounds.y,
-          inputBounds.width,
-          inputBounds.height
-        );
-        ctx.clip();
-        ctx.fillText(displayValue, textX, textY);
-        ctx.restore();
-
-        // Show label if available
-        if (node.nodeType.customInputConfig.label) {
-          ctx.fillStyle = "#888";
-          ctx.font = "10px sans-serif";
+        if (shouldDrawText) {
+          ctx.fillStyle = "#fff";
+          ctx.font = "14px monospace";
           ctx.textAlign = "left";
-          ctx.fillText(
-            node.nodeType.customInputConfig.label,
+          const displayValue =
+            node.customInput || node.nodeType.customInputConfig.placeholder;
+          const textX = inputBounds.x + 8;
+          const textY = inputBounds.y + inputBounds.height / 2 + 5;
+
+          // Clip text to input bounds
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(
             inputBounds.x,
-            inputBounds.y - 3
+            inputBounds.y,
+            inputBounds.width,
+            inputBounds.height
           );
+          ctx.clip();
+          ctx.fillText(displayValue, textX, textY);
+          ctx.restore();
+
+          // Show label if available
+          if (node.nodeType.customInputConfig.label) {
+            ctx.fillStyle = "#888";
+            ctx.font = "10px sans-serif";
+            ctx.textAlign = "left";
+            ctx.fillText(
+              node.nodeType.customInputConfig.label,
+              inputBounds.x,
+              inputBounds.y - 3
+            );
+          }
         }
       }
 
       // Variable dropdown (if node has variable dropdown)
       if (node.nodeType.hasVariableDropdown) {
         const dropdown = node.getVariableDropdownBounds();
-
-        // Get font sizes for dropdown
-        const fontSizes = this.getDropdownFontSizes();
-
-        // Dropdown label
-        ctx.fillStyle = "#888";
-        ctx.font = `${fontSizes.label}px sans-serif`;
-        ctx.textAlign = "left";
-        ctx.fillText("Variable", dropdown.x, dropdown.labelY + 10);
 
         // Dropdown background
         ctx.fillStyle = "#1a1a1a";
@@ -12624,40 +12664,51 @@ class BlueprintSystem {
         ctx.fill();
         ctx.stroke();
 
-        // Get display text
-        const displayText = node.selectedVariable || "(none)";
+        if (shouldDrawText) {
+          // Get font sizes for dropdown
+          const fontSizes = this.getDropdownFontSizes();
 
-        // Dropdown text
-        ctx.fillStyle = node.selectedVariable ? "#fff" : "#888";
-        ctx.font = `${fontSizes.text}px monospace`;
-        ctx.textAlign = "left";
+          // Dropdown label
+          ctx.fillStyle = "#888";
+          ctx.font = `${fontSizes.label}px sans-serif`;
+          ctx.textAlign = "left";
+          ctx.fillText("Variable", dropdown.x, dropdown.labelY + 10);
 
-        // Clip text to dropdown bounds
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(
-          dropdown.x,
-          dropdown.y,
-          dropdown.width - 20, // Leave space for arrow
-          dropdown.height
-        );
-        ctx.clip();
-        ctx.fillText(
-          displayText,
-          dropdown.x + 8,
-          dropdown.y + dropdown.height / 2 + 5
-        );
-        ctx.restore();
+          // Get display text
+          const displayText = node.selectedVariable || "(none)";
 
-        // Dropdown arrow
-        ctx.fillStyle = "#888";
-        ctx.font = `${fontSizes.arrow}px sans-serif`;
-        ctx.textAlign = "right";
-        ctx.fillText(
-          "▼",
-          dropdown.x + dropdown.width - 5,
-          dropdown.y + dropdown.height / 2 + 3
-        );
+          // Dropdown text
+          ctx.fillStyle = node.selectedVariable ? "#fff" : "#888";
+          ctx.font = `${fontSizes.text}px monospace`;
+          ctx.textAlign = "left";
+
+          // Clip text to dropdown bounds
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(
+            dropdown.x,
+            dropdown.y,
+            dropdown.width - 20, // Leave space for arrow
+            dropdown.height
+          );
+          ctx.clip();
+          ctx.fillText(
+            displayText,
+            dropdown.x + 8,
+            dropdown.y + dropdown.height / 2 + 5
+          );
+          ctx.restore();
+
+          // Dropdown arrow
+          ctx.fillStyle = "#888";
+          ctx.font = `${fontSizes.arrow}px sans-serif`;
+          ctx.textAlign = "right";
+          ctx.fillText(
+            "▼",
+            dropdown.x + dropdown.width - 5,
+            dropdown.y + dropdown.height / 2 + 3
+          );
+        }
       }
 
       // Ports
