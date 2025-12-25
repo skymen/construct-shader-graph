@@ -271,18 +271,54 @@
 
         <!-- Standalone buttons -->
         <div class="toolbar-section toolbar-standalone">
-          <button
-            id="exportBtn"
-            class="toolbar-btn toolbar-btn-primary"
-            title="Export Addon"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-              <path
-                d="M23,12L19,8V11H10V13H19V16M1,18V6C1,4.89 1.9,4 3,4H15A2,2 0 0,1 17,6V9H15V6H3V18H15V15H17V18A2,2 0 0,1 15,20H3A2,2 0 0,1 1,18Z"
-              />
-            </svg>
-            <span>Export</span>
-          </button>
+          <div class="export-btn-group">
+            <button
+              id="exportBtn"
+              class="toolbar-btn toolbar-btn-primary export-btn-main"
+              title="Export Addon"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <path
+                  d="M23,12L19,8V11H10V13H19V16M1,18V6C1,4.89 1.9,4 3,4H15A2,2 0 0,1 17,6V9H15V6H3V18H15V15H17V18A2,2 0 0,1 15,20H3A2,2 0 0,1 1,18Z"
+                />
+              </svg>
+              <span>Export</span>
+            </button>
+            <button
+              id="exportDropdownBtn"
+              class="toolbar-btn toolbar-btn-primary export-btn-arrow"
+              title="Export with version bump"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                width="12"
+                height="12"
+              >
+                <path d="M7,10L12,15L17,10H7Z" />
+              </svg>
+            </button>
+            <div class="export-dropdown" id="exportDropdown">
+              <button class="dropdown-item" data-version-bump="major">
+                <span class="dropdown-item-label">New Major</span>
+                <span class="dropdown-item-desc"
+                  >X.0.0.0 — Breaking changes</span
+                >
+              </button>
+              <button class="dropdown-item" data-version-bump="minor">
+                <span class="dropdown-item-label">New Minor</span>
+                <span class="dropdown-item-desc">0.X.0.0 — New features</span>
+              </button>
+              <button class="dropdown-item" data-version-bump="patch">
+                <span class="dropdown-item-label">New Patch</span>
+                <span class="dropdown-item-desc">0.0.X.0 — Bug fixes</span>
+              </button>
+              <button class="dropdown-item" data-version-bump="revision">
+                <span class="dropdown-item-label">New Revision</span>
+                <span class="dropdown-item-desc">0.0.0.X — Minor tweaks</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       <input

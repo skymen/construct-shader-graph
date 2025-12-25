@@ -939,7 +939,7 @@ class BlueprintSystem {
     // Shader settings
     this.shaderSettings = {
       name: "",
-      version: "1.0.0.0",
+      version: "0.0.0.0",
       author: "",
       website: "",
       documentation: "",
@@ -2054,7 +2054,7 @@ class BlueprintSystem {
         alert("Version must follow X.X.X.X format (e.g., 1.0.0.0)");
         versionInput.value = this.shaderSettings.version;
       } else {
-        this.shaderSettings.version = value || "1.0.0.0";
+        this.shaderSettings.version = value || "0.0.0.0";
       }
     });
 
@@ -6796,6 +6796,34 @@ class BlueprintSystem {
       this.exportGLSL();
     });
 
+    // Export dropdown for version bumping
+    const exportDropdownBtn = document.getElementById("exportDropdownBtn");
+    const exportDropdown = document.getElementById("exportDropdown");
+
+    exportDropdownBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      exportDropdown.classList.toggle("open");
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener("click", (e) => {
+      if (
+        !exportDropdown.contains(e.target) &&
+        e.target !== exportDropdownBtn
+      ) {
+        exportDropdown.classList.remove("open");
+      }
+    });
+
+    // Handle version bump exports
+    exportDropdown.querySelectorAll("[data-version-bump]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const bumpType = btn.dataset.versionBump;
+        this.bumpVersionAndExport(bumpType);
+        exportDropdown.classList.remove("open");
+      });
+    });
+
     document.getElementById("loadFileInput").addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (file) {
@@ -9000,11 +9028,12 @@ class BlueprintSystem {
     const a = document.createElement("a");
     a.href = url;
 
-    // Use sanitized name for the download filename
+    // Use sanitized name for the download filename with version
     const addonId = this.sanitizeAddonId(
       this.shaderSettings.name || "MyEffect"
     );
-    a.download = `${addonId}.c3addon`;
+    const version = this.shaderSettings.version || "0.0.0.0";
+    a.download = `${addonId}-${version}.c3addon`;
 
     document.body.appendChild(a);
     a.click();
@@ -9018,6 +9047,50 @@ class BlueprintSystem {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "");
+  }
+
+  bumpVersionAndExport(bumpType) {
+    // Parse current version (X.X.X.X format)
+    const currentVersion = this.shaderSettings.version || "0.0.0.0";
+    const parts = currentVersion.split(".").map((n) => parseInt(n, 10) || 0);
+
+    // Ensure we have exactly 4 parts
+    while (parts.length < 4) parts.push(0);
+
+    // Bump the appropriate part and reset lower parts
+    switch (bumpType) {
+      case "major":
+        parts[0]++;
+        parts[1] = 0;
+        parts[2] = 0;
+        parts[3] = 0;
+        break;
+      case "minor":
+        parts[1]++;
+        parts[2] = 0;
+        parts[3] = 0;
+        break;
+      case "patch":
+        parts[2]++;
+        parts[3] = 0;
+        break;
+      case "revision":
+        parts[3]++;
+        break;
+    }
+
+    // Update the version in settings
+    const newVersion = parts.join(".");
+    this.shaderSettings.version = newVersion;
+
+    // Update the version input field if it exists
+    const versionInput = document.getElementById("settingVersion");
+    if (versionInput) {
+      versionInput.value = newVersion;
+    }
+
+    // Export with the new version
+    this.exportGLSL();
   }
 
   generateAddonJson() {
@@ -9342,7 +9415,7 @@ class BlueprintSystem {
     // Reset shader settings to defaults
     this.shaderSettings = {
       name: "",
-      version: "1.0.0.0",
+      version: "0.0.0.0",
       author: "",
       website: "",
       documentation: "",
