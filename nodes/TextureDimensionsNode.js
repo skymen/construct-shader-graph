@@ -12,22 +12,22 @@ export const TextureDimensionsNode = new NodeType(
   {
     webgl1: {
       dependency: "",
+      // Note: textureSize is not available in WebGL1/GLSL ES 1.0
+      // We use 1.0/pixelSize as an approximation for the front texture
       execution: (inputs, outputs, node) => {
-        const samplerName = getSamplerName(node, "webgl1");
-        return `    vec2 ${outputs[0]}_ivec2 = textureSize(${samplerName}, 0);
-        vec2 ${outputs[0]} = vec2(${outputs[0]}_ivec2);
-        int ${outputs[1]} = ${outputs[0]}_ivec2.x;
-        int ${outputs[2]} = ${outputs[0]}_ivec2.y;`;
+        return `    vec2 ${outputs[0]} = vec2(1.0) / pixelSize;
+    int ${outputs[1]} = int(${outputs[0]}.x);
+    int ${outputs[2]} = int(${outputs[0]}.y);`;
       },
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs, node) => {
         const samplerName = getSamplerName(node, "webgl2");
-        return `    vec2 ${outputs[0]}_ivec2 = textureSize(${samplerName}, 0);
-        vec2 ${outputs[0]} = vec2(${outputs[0]}_ivec2);
-        int ${outputs[1]} = ${outputs[0]}_ivec2.x;
-        int ${outputs[2]} = ${outputs[0]}_ivec2.y;`;
+        return `    ivec2 ${outputs[0]}_ivec2 = textureSize(${samplerName}, 0);
+    vec2 ${outputs[0]} = vec2(${outputs[0]}_ivec2);
+    int ${outputs[1]} = ${outputs[0]}_ivec2.x;
+    int ${outputs[2]} = ${outputs[0]}_ivec2.y;`;
       },
     },
     webgpu: {

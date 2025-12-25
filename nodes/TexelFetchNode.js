@@ -14,9 +14,11 @@ export const TexelFetchNode = new NodeType(
   {
     webgl1: {
       dependency: "",
+      // Note: texelFetch is not available in WebGL1/GLSL ES 1.0
+      // We use texture2D with calculated UV coordinates as a fallback (ignores LOD)
       execution: (inputs, outputs, node, inputTypes, outputTypes) => {
         const samplerName = getSamplerName(node, "webgl1");
-        return `    ${outputTypes[0]} ${outputs[0]} = texelFetch(${samplerName}, ivec2(${inputs[1]}, ${inputs[2]}), ${inputs[3]});`;
+        return `    ${outputTypes[0]} ${outputs[0]} = texture2D(${samplerName}, (vec2(float(${inputs[1]}), float(${inputs[2]})) + 0.5) * pixelSize);`;
       },
     },
     webgl2: {
