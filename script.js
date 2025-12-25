@@ -12752,7 +12752,19 @@ class BlueprintSystem {
     // Update animation time for preview node outline
     if (this.previewNode) {
       this.previewAnimationTime = Date.now();
-      requestAnimationFrame(this.render.bind(this));
+      if (!this._boundRenderForAnimation) {
+        this._boundRenderForAnimation = this.render.bind(this);
+      }
+      if (this.previewAnimationFrameId) {
+        cancelAnimationFrame(this.previewAnimationFrameId);
+      }
+      this.previewAnimationFrameId = requestAnimationFrame(
+        this._boundRenderForAnimation
+      );
+    } else if (this.previewAnimationFrameId) {
+      // Cancel pending animation frame and clear state when preview node is disabled
+      cancelAnimationFrame(this.previewAnimationFrameId);
+      this.previewAnimationFrameId = null;
     }
 
     // Clear canvas (use logical dimensions since context is scaled)
