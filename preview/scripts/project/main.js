@@ -377,8 +377,47 @@ async function OnBeforeProjectStart(rt) {
           };
           reader.readAsDataURL(blob);
         });
+      } else if (event.data && event.data.type === "runStartupScript") {
+        // Execute user-provided startup script
+        runStartupScript(event.data.script);
       }
     });
+  }
+}
+
+function runStartupScript(script) {
+  if (!script) return;
+
+  try {
+    // Create a function with access to runtime objects
+    const scriptFn = new Function(
+      "runtime",
+      "sprite",
+      "shape3D",
+      "background",
+      "background3d",
+      "camera",
+      "layout",
+      "layer",
+      script
+    );
+
+    // Execute the script with runtime context
+    scriptFn(
+      runtime,
+      piggy,
+      shape3D,
+      background,
+      background3d,
+      camera,
+      layout,
+      layer
+    );
+
+    sendConsoleLogToParent("Startup script executed successfully", "log");
+  } catch (error) {
+    sendErrorToParent(`Startup script error: ${error.message}`, "error");
+    console.error("Startup script error:", error);
   }
 }
 

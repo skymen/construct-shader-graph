@@ -1033,6 +1033,7 @@ class BlueprintSystem {
       bgOpacity: 0.15,
       bg3dOpacity: 0.15,
       zoomLevel: 1,
+      startupScript: "",
     };
 
     // History Manager for undo/redo
@@ -3710,6 +3711,30 @@ class BlueprintSystem {
     // Texture controls
     this.setupTextureControls();
 
+    // Startup script textarea
+    const startupScriptTextarea = document.getElementById(
+      "previewStartupScript"
+    );
+    if (startupScriptTextarea) {
+      startupScriptTextarea.addEventListener("input", (e) => {
+        this.previewSettings.startupScript = e.target.value;
+      });
+      // Handle Tab key for indentation
+      startupScriptTextarea.addEventListener("keydown", (e) => {
+        if (e.key === "Tab") {
+          e.preventDefault();
+          const start = e.target.selectionStart;
+          const end = e.target.selectionEnd;
+          e.target.value =
+            e.target.value.substring(0, start) +
+            "  " +
+            e.target.value.substring(end);
+          e.target.selectionStart = e.target.selectionEnd = start + 2;
+          this.previewSettings.startupScript = e.target.value;
+        }
+      });
+    }
+
     // Minimap controls
     this.setupMinimapControls();
 
@@ -3773,6 +3798,11 @@ class BlueprintSystem {
         }
         if (this.previewSettings.bgTextureUrl) {
           this.loadPreviewTexture("bg", this.previewSettings.bgTextureUrl);
+        }
+
+        // Execute startup script if present
+        if (this.previewSettings.startupScript) {
+          this.sendStartupScript(this.previewSettings.startupScript);
         }
       } else if (event.data && event.data.type === "shaderError") {
         const severity = event.data.severity;
@@ -4313,6 +4343,18 @@ class BlueprintSystem {
         type: "previewCommand",
         command: command,
         value: value,
+      },
+      "*"
+    );
+  }
+
+  sendStartupScript(script) {
+    if (!this.previewIframe || !script) return;
+
+    this.previewIframe.contentWindow.postMessage(
+      {
+        type: "runStartupScript",
+        script: script,
       },
       "*"
     );
@@ -9535,6 +9577,7 @@ class BlueprintSystem {
       bgOpacity: 0.15,
       bg3dOpacity: 0.15,
       zoomLevel: 1,
+      startupScript: "",
     };
 
     // Update UI elements
@@ -9579,6 +9622,12 @@ class BlueprintSystem {
     if (bgOpacityValue) bgOpacityValue.textContent = "0.15";
     if (bg3dOpacitySlider) bg3dOpacitySlider.value = 0.15;
     if (bg3dOpacityValue) bg3dOpacityValue.textContent = "0.15";
+
+    // Reset startup script
+    const startupScriptTextarea = document.getElementById(
+      "previewStartupScript"
+    );
+    if (startupScriptTextarea) startupScriptTextarea.value = "";
 
     // Reset texture preview UI
     this.updateTexturePreview(
@@ -10558,6 +10607,14 @@ class BlueprintSystem {
       "clearBgTextureBtn",
       this.previewSettings.bgTextureUrl
     );
+
+    // Update startup script textarea
+    const startupScriptTextarea = document.getElementById(
+      "previewStartupScript"
+    );
+    if (startupScriptTextarea) {
+      startupScriptTextarea.value = this.previewSettings.startupScript || "";
+    }
   }
 
   downloadFile(filename, content) {

@@ -2442,6 +2442,74 @@ body {
   display: flex;
 }
 
+.preview-tab-content[data-tab="script"].active {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+}
+
+/* Script Tab Styles */
+.script-tab-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: 8px;
+}
+
+.script-tab-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.script-tab-header label {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.script-tab-hint {
+  color: #888;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.script-tab-hint code {
+  background: rgba(74, 158, 255, 0.15);
+  color: #4a9eff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  font-size: 10px;
+}
+
+.script-editor {
+  width: 100%;
+  flex: 1;
+  min-height: 200px;
+  background: #0d0d0d;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #e8e8e8;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 12px;
+  resize: none;
+  outline: none;
+  tab-size: 2;
+}
+
+.script-editor:focus {
+  border-color: #4a9eff;
+  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.15);
+}
+
+.script-editor::placeholder {
+  color: #555;
+}
+
 .preview-control-group {
   display: flex;
   align-items: center;

@@ -428,6 +428,7 @@
                 <button class="preview-tab" data-tab="technical">
                   Technical
                 </button>
+                <button class="preview-tab" data-tab="script">Script</button>
               </div>
 
               <!-- Display Tab -->
@@ -732,6 +733,30 @@
                   >
                     Reset Preview Settings
                   </button>
+                </div>
+              </div>
+
+              <!-- Script Tab -->
+              <div class="preview-tab-content" data-tab="script">
+                <div class="script-tab-container">
+                  <div class="script-tab-header">
+                    <label>Startup Script</label>
+                    <span class="script-tab-hint"
+                      >Runs when preview starts. Access runtime objects via
+                      <code>runtime</code>, <code>sprite</code>,
+                      <code>shape3D</code>, etc.</span
+                    >
+                  </div>
+                  <textarea
+                    id="previewStartupScript"
+                    class="script-editor"
+                    placeholder="// Example: Set effect parameter at runtime
+// piggy.effects[0].setParameter(0, 0.5);
+
+// Example: Log to preview console
+// console.log('Preview started!');"
+                    spellcheck="false"
+                  ></textarea>
                 </div>
               </div>
             </div>
