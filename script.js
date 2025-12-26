@@ -7275,8 +7275,8 @@ class BlueprintSystem {
 
     const options = {
       floatHeight: 50,
-      heartsPerSecond: 7,
-      burstCount: 13, // Number of hearts in the initial burst on hover
+      heartsPerSecond: 3,
+      burstCount: 7, // Number of hearts in the initial burst on hover
       burstDelay: 10, // Delay (ms) between each heart in the burst
       heartSizeMin: 4,
       heartSizeMax: 8,
@@ -7286,24 +7286,37 @@ class BlueprintSystem {
 
     const spawnInterval = 1000 / options.heartsPerSecond;
     let spawnIntervalId = null;
+    const positionRandomness = 8; // pixels of randomness for mouse position
 
-    const createHeart = () => {
+    // Create heart at specified position, or random position within button if not specified
+    const createHeart = (x, y) => {
       const heartSize =
         randomNum(options.heartSizeMin * 10, options.heartSizeMax * 10) / 10;
       const heart = document.createElement("span");
       const duration =
         randomNum(options.durationMin * 10, options.durationMax * 10) / 10;
 
-      const containerRect = donateBtn.getBoundingClientRect();
-      const spawnWidth = containerRect.width;
-      const spawnHeight = containerRect.height;
-
-      const spawnLeft = containerRect.left;
-      const spawnTop = containerRect.top;
+      let posX, posY;
+      if (x !== undefined && y !== undefined) {
+        // Use provided position with randomness
+        posX =
+          x +
+          randomNum(-positionRandomness, positionRandomness) -
+          heartSize / 2;
+        posY =
+          y +
+          randomNum(-positionRandomness, positionRandomness) -
+          heartSize / 2;
+      } else {
+        // Random position within button bounds
+        const containerRect = donateBtn.getBoundingClientRect();
+        posX = containerRect.left + randomNum(0, containerRect.width);
+        posY = containerRect.top + randomNum(0, containerRect.height);
+      }
 
       heart.className = "donate-tiny-heart";
-      heart.style.left = spawnLeft + randomNum(0, spawnWidth) + "px";
-      heart.style.top = spawnTop + randomNum(0, spawnHeight) + "px";
+      heart.style.left = posX + "px";
+      heart.style.top = posY + "px";
       heart.style.width = heartSize + "px";
       heart.style.height = heartSize + "px";
       heart.style.setProperty("--duration", duration + "s");
@@ -7322,20 +7335,41 @@ class BlueprintSystem {
 
     const start = () => {
       for (let i = 0; i < options.burstCount; i++) {
-        setTimeout(createHeart, i * options.burstDelay);
+        setTimeout(() => createHeart(), i * options.burstDelay);
       }
-      spawnIntervalId = setInterval(createHeart, spawnInterval);
+      spawnIntervalId = setInterval(() => createHeart(), spawnInterval);
     };
+
+    // Create heart at mouse position (distance-based throttle)
+    let lastMouseX = null;
+    let lastMouseY = null;
+    const minDistance = 15; // Minimum pixels between hearts
 
     const stop = () => {
       if (spawnIntervalId) {
         clearInterval(spawnIntervalId);
         spawnIntervalId = null;
       }
+      // Reset mouse position tracking
+      lastMouseX = null;
+      lastMouseY = null;
+    };
+
+    const onMouseMove = (e) => {
+      if (lastMouseX !== null && lastMouseY !== null) {
+        const dx = e.clientX - lastMouseX;
+        const dy = e.clientY - lastMouseY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < minDistance) return;
+      }
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      createHeart(e.clientX, e.clientY);
     };
 
     donateBtn.addEventListener("mouseenter", start);
     donateBtn.addEventListener("mouseleave", stop);
+    donateBtn.addEventListener("mousemove", onMouseMove);
   }
 
   updateMenuItemStates() {
