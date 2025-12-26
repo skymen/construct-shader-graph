@@ -76,6 +76,7 @@ import { Vec3DecomposeNode } from "./Vec3DecomposeNode.js";
 import { Vec4DecomposeNode } from "./Vec4DecomposeNode.js";
 import { ColorDecomposeNode } from "./ColorDecomposeNode.js";
 import { SetVec4AlphaNode } from "./SetVec4AlphaNode.js";
+import { SetVec3AlphaNode } from "./SetVec3AlphaNode.js";
 import { LinearGradientNode } from "./LinearGradientNode.js";
 import { RadialGradientNode } from "./RadialGradientNode.js";
 import { TextureFrontNode } from "./TextureFrontNode.js";
@@ -289,6 +290,7 @@ export const NODE_TYPES = {
   vec4Decompose: Vec4DecomposeNode,
   colorDecompose: ColorDecomposeNode,
   setVec4Alpha: SetVec4AlphaNode,
+  setVec3Alpha: SetVec3AlphaNode,
   linearGradient: LinearGradientNode,
   radialGradient: RadialGradientNode,
   textureFront: TextureFrontNode,
