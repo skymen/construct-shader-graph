@@ -162,6 +162,19 @@ body {
   color: #fff;
 }
 
+/* Debug menu styling */
+.debug-menu-btn {
+  color: #ff9500 !important;
+  border: 1px dashed rgba(255, 149, 0, 0.4) !important;
+}
+
+.debug-menu-btn:hover,
+.toolbar-menu.open .debug-menu-btn {
+  background: rgba(255, 149, 0, 0.15) !important;
+  color: #ffb340 !important;
+  border-color: rgba(255, 149, 0, 0.6) !important;
+}
+
 .toolbar-dropdown {
   position: absolute;
   top: 100%;

@@ -7,6 +7,16 @@ import {
   getAllowedTypesForGeneric,
   toShaderValue,
 } from "./nodes/index.js";
+
+// Debug mode detection
+function isDebugMode() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isLocalhost =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
+  const hasDebugParam = urlParams.get("debug") === "true";
+  return isLocalhost || hasDebugParam;
+}
 import { UniformFloatNode } from "./nodes/UniformFloatNode.js";
 import { UniformColorNode } from "./nodes/UniformColorNode.js";
 import JSZip from "jszip";
@@ -7112,7 +7122,22 @@ class BlueprintSystem {
             "_blank"
           ),
       },
+      // Debug menu (only available in debug mode)
+      {
+        label: "Create All Nodes",
+        menu: "Debug",
+        action: "createAllNodes",
+        handler: () => this.debugCreateAllNodes(),
+      },
     ];
+
+    // Show debug menu if in debug mode
+    if (isDebugMode()) {
+      const debugMenu = document.getElementById("debugMenu");
+      if (debugMenu) {
+        debugMenu.style.display = "";
+      }
+    }
 
     const closeAllMenus = () => {
       menus.forEach((m) => m.classList.remove("open"));
@@ -7661,6 +7686,148 @@ class BlueprintSystem {
     }
 
     this.autoLayoutEngine.debugAutoArrange(selectedOnly);
+  }
+
+  debugCreateAllNodes() {
+    // Group all node types by category
+    const categories = {};
+
+    for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
+      // Skip output node since there can only be one
+      if (key === "output") continue;
+
+      const category = nodeType.category || "Misc";
+      if (!categories[category]) {
+        categories[category] = {
+          nodes: [],
+          colors: {},
+        };
+      }
+      categories[category].nodes.push({ key, nodeType });
+
+      // Count color occurrences for this category
+      const color = nodeType.color || "#3a3a3a";
+      categories[category].colors[color] =
+        (categories[category].colors[color] || 0) + 1;
+    }
+
+    // Sort categories alphabetically
+    const sortedCategories = Object.keys(categories).sort();
+
+    // Configuration for layout
+    const NODES_PER_ROW = 6;
+    const NODE_SPACING_X = 40;
+    const NODE_SPACING_Y = 40;
+    const CATEGORY_SPACING_Y = 80;
+    const COMMENT_PADDING = 30;
+    const COMMENT_TITLE_HEIGHT = 40;
+
+    let currentY = 100;
+    const createdNodes = [];
+    const createdComments = [];
+
+    for (const categoryName of sortedCategories) {
+      const categoryData = categories[categoryName];
+      const categoryNodes = categoryData.nodes;
+
+      // Find most common color for this category
+      let mostCommonColor = "#4a90e2";
+      let maxCount = 0;
+      for (const [color, count] of Object.entries(categoryData.colors)) {
+        if (count > maxCount) {
+          maxCount = count;
+          mostCommonColor = color;
+        }
+      }
+
+      // First pass: Create all nodes for this category to get their actual dimensions
+      // We'll position them later
+      const categoryCreatedNodes = [];
+      for (const { key, nodeType } of categoryNodes) {
+        const node = this.addNode(0, 0, nodeType); // Temporary position
+        categoryCreatedNodes.push(node);
+        createdNodes.push(node);
+      }
+
+      // Organize nodes into rows and calculate row dimensions
+      const rows = [];
+      for (let i = 0; i < categoryCreatedNodes.length; i += NODES_PER_ROW) {
+        const rowNodes = categoryCreatedNodes.slice(i, i + NODES_PER_ROW);
+
+        // Find the tallest node in this row
+        const maxHeight = Math.max(...rowNodes.map((n) => n.height));
+
+        // Calculate total row width (sum of node widths + spacing between them)
+        const totalWidth =
+          rowNodes.reduce((sum, n) => sum + n.width, 0) +
+          (rowNodes.length - 1) * NODE_SPACING_X;
+
+        rows.push({
+          nodes: rowNodes,
+          maxHeight,
+          totalWidth,
+        });
+      }
+
+      // Calculate comment dimensions based on actual node sizes
+      const maxRowWidth = Math.max(...rows.map((r) => r.totalWidth));
+      const totalRowsHeight =
+        rows.reduce((sum, r) => sum + r.maxHeight, 0) +
+        (rows.length - 1) * NODE_SPACING_Y;
+
+      const commentWidth = maxRowWidth + COMMENT_PADDING * 2;
+      const commentHeight =
+        totalRowsHeight + COMMENT_PADDING * 2 + COMMENT_TITLE_HEIGHT;
+
+      // Create comment for this category
+      const comment = new Comment(
+        100 - COMMENT_PADDING,
+        currentY - COMMENT_PADDING,
+        commentWidth,
+        commentHeight,
+        this.commentIdCounter++
+      );
+      comment.title = categoryName;
+      comment.color = mostCommonColor;
+      this.comments.push(comment);
+      createdComments.push(comment);
+
+      // Second pass: Position nodes using actual dimensions
+      let rowY = currentY + COMMENT_TITLE_HEIGHT;
+      for (const row of rows) {
+        let nodeX = 100;
+
+        for (const node of row.nodes) {
+          node.x = nodeX;
+          // Vertically center nodes in the row based on tallest node
+          node.y = rowY + (row.maxHeight - node.height) / 2;
+          nodeX += node.width + NODE_SPACING_X;
+        }
+
+        rowY += row.maxHeight + NODE_SPACING_Y;
+      }
+
+      // Move to next category position
+      currentY += commentHeight + CATEGORY_SPACING_Y;
+    }
+
+    // Record state for undo
+    this.history.pushState("Create All Nodes (Debug)");
+
+    // Center view on created content
+    this.centerView();
+
+    // Show notification
+    this.showNotification({
+      type: "info",
+      title: "Debug: All Nodes Created",
+      message: `Created ${createdNodes.length} nodes in ${sortedCategories.length} categories`,
+      duration: 3000,
+    });
+
+    console.log(
+      `Created ${createdNodes.length} nodes in ${sortedCategories.length} categories`
+    );
   }
 
   copySelected() {
