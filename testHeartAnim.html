@@ -28,7 +28,7 @@
       }
 
       .tiny-heart {
-        position: absolute;
+        position: fixed;
         background-color: #d90429;
         box-shadow: 0px 0px 50px 4px rgba(239, 35, 60, 0.7);
         animation: heart-float var(--duration) ease-in-out forwards,
@@ -36,6 +36,8 @@
           heart-bounce var(--duration) ease-out forwards,
           heart-sway 1.3s ease-in-out infinite;
         animation-delay: 0s, 0s, 0s, var(--sway-delay, 0s);
+        z-index: 999999;
+        pointer-events: none;
       }
 
       .tiny-heart::before,
@@ -129,10 +131,8 @@
       function createHeartEffect(container, config = {}) {
         // Default configuration
         const options = {
-          spawnWidth: config.spawnWidth ?? 200, // Width of spawn area in pixels
-          spawnHeight: config.spawnHeight ?? 40, // Height of spawn area in pixels
           floatHeight: config.floatHeight ?? 80, // How far hearts float up in pixels
-          spawnInterval: config.spawnInterval ?? 300, // Ms between heart spawns
+          heartsPerSecond: config.heartsPerSecond ?? 3, // Number of hearts spawned per second
           initialBurst: config.initialBurst ?? 4, // Number of hearts on initial hover
           heartSizeMin: config.heartSizeMin ?? 8, // Min heart size in pixels
           heartSizeMax: config.heartSizeMax ?? 15, // Max heart size in pixels
@@ -142,6 +142,8 @@
           offsetY: config.offsetY ?? 0, // Vertical offset from center
         };
 
+        // Calculate spawn interval from hearts per second
+        const spawnInterval = 1000 / options.heartsPerSecond;
         let spawnIntervalId = null;
 
         function createHeart() {
@@ -152,22 +154,19 @@
           const duration =
             randomNum(options.durationMin * 10, options.durationMax * 10) / 10;
 
-          // Get container dimensions
+          // Get container position and dimensions in viewport
           const containerRect = container.getBoundingClientRect();
-          const containerWidth = containerRect.width;
-          const containerHeight = containerRect.height;
+          const spawnWidth = containerRect.width;
+          const spawnHeight = containerRect.height;
 
-          // Calculate spawn area centered on container
-          const spawnLeft =
-            (containerWidth - options.spawnWidth) / 2 + options.offsetX;
-          const spawnTop =
-            (containerHeight - options.spawnHeight) / 2 + options.offsetY;
+          // Calculate spawn area based on container bounds (in viewport coordinates)
+          const spawnLeft = containerRect.left + options.offsetX;
+          const spawnTop = containerRect.top + options.offsetY;
 
           heart.className = "tiny-heart";
-          // Position within centered spawn area
-          heart.style.left =
-            spawnLeft + randomNum(0, options.spawnWidth) + "px";
-          heart.style.top = spawnTop + randomNum(0, options.spawnHeight) + "px";
+          // Position in viewport coordinates (fixed positioning)
+          heart.style.left = spawnLeft + randomNum(0, spawnWidth) + "px";
+          heart.style.top = spawnTop + randomNum(0, spawnHeight) + "px";
           heart.style.width = heartSize + "px";
           heart.style.height = heartSize + "px";
           heart.style.setProperty("--duration", duration + "s");
@@ -181,7 +180,8 @@
             "-" + (Math.random() * 1.3).toFixed(2) + "s"
           );
 
-          container.appendChild(heart);
+          // Append to document body (above everything)
+          document.body.appendChild(heart);
 
           // Remove heart after animation completes
           heart.addEventListener("animationend", () => heart.remove(), {
@@ -194,8 +194,8 @@
           for (let i = 0; i < options.initialBurst; i++) {
             setTimeout(createHeart, i * 50);
           }
-          // Continue spawning hearts
-          spawnIntervalId = setInterval(createHeart, options.spawnInterval);
+          // Continue spawning hearts based on heartsPerSecond
+          spawnIntervalId = setInterval(createHeart, spawnInterval);
         }
 
         function stop() {
@@ -214,10 +214,8 @@
         const effectText = document.querySelector(".effect-text");
 
         const heartEffect = createHeartEffect(effectText, {
-          spawnWidth: 200,
-          spawnHeight: 40,
           floatHeight: 70,
-          spawnInterval: 300,
+          heartsPerSecond: 3,
           initialBurst: 5,
           heartSizeMin: 8,
           heartSizeMax: 15,

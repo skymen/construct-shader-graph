@@ -7261,6 +7261,80 @@ class BlueprintSystem {
         }
       }
     });
+
+    // Setup donate button heart effect
+    this.setupDonateHeartEffect();
+  }
+
+  setupDonateHeartEffect() {
+    const donateBtn = document.getElementById("donateBtn");
+    if (!donateBtn) return;
+
+    const randomNum = (min, max) =>
+      Math.floor(Math.random() * (max - min + 1)) + min;
+
+    const options = {
+      floatHeight: 50,
+      heartsPerSecond: 4,
+      initialBurst: 3,
+      heartSizeMin: 4,
+      heartSizeMax: 8,
+      durationMin: 1.2,
+      durationMax: 2,
+    };
+
+    const spawnInterval = 1000 / options.heartsPerSecond;
+    let spawnIntervalId = null;
+
+    const createHeart = () => {
+      const heartSize =
+        randomNum(options.heartSizeMin * 10, options.heartSizeMax * 10) / 10;
+      const heart = document.createElement("span");
+      const duration =
+        randomNum(options.durationMin * 10, options.durationMax * 10) / 10;
+
+      const containerRect = donateBtn.getBoundingClientRect();
+      const spawnWidth = containerRect.width;
+      const spawnHeight = containerRect.height;
+
+      const spawnLeft = containerRect.left;
+      const spawnTop = containerRect.top;
+
+      heart.className = "donate-tiny-heart";
+      heart.style.left = spawnLeft + randomNum(0, spawnWidth) + "px";
+      heart.style.top = spawnTop + randomNum(0, spawnHeight) + "px";
+      heart.style.width = heartSize + "px";
+      heart.style.height = heartSize + "px";
+      heart.style.setProperty("--duration", duration + "s");
+      heart.style.setProperty("--float-height", -options.floatHeight + "px");
+      heart.style.setProperty(
+        "--sway-delay",
+        "-" + (Math.random() * 1.3).toFixed(2) + "s"
+      );
+
+      document.body.appendChild(heart);
+
+      heart.addEventListener("animationend", () => heart.remove(), {
+        once: true,
+      });
+    };
+
+    const start = () => {
+      for (let i = 0; i < options.initialBurst; i++) {
+        setTimeout(createHeart, i * 50);
+      }
+      spawnIntervalId = setInterval(createHeart, spawnInterval);
+    };
+
+    const stop = () => {
+      if (spawnIntervalId) {
+        clearInterval(spawnIntervalId);
+        spawnIntervalId = null;
+      }
+    };
+
+    donateBtn.addEventListener("mouseenter", start);
+    donateBtn.addEventListener("mouseleave", stop);
   }
 
   updateMenuItemStates() {

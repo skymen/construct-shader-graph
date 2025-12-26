@@ -244,9 +244,13 @@ body {
 
 /* Donate button style */
 .dropdown-item-donate {
-  position: relative;
-  color: #f48fb1;
-  overflow: visible;
+  color: #fff;
+  font-family: "Nunito", "Quicksand", "Comic Neue", sans-serif;
+  font-weight: 700;
+}
+
+.dropdown-item-donate .dropdown-item-label {
+  color: #fff;
 }
 
 .donate-heart-icon {
@@ -254,105 +258,96 @@ body {
   height: 16px;
   margin-right: 8px;
   flex-shrink: 0;
-  transition: transform 0.3s ease, filter 0.3s ease;
-}
-
-.dropdown-item-donate:hover .donate-heart-icon {
-  transform: scale(1.2);
-  filter: drop-shadow(0 0 6px rgba(244, 143, 177, 0.8));
+  color: #d90429;
 }
 
 .dropdown-item-donate:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(233, 30, 99, 0.15) 0%, rgba(244, 67, 54, 0.15) 100%);
-  color: #f8bbd0;
+  background: rgba(217, 4, 41, 0.25);
+  color: #fff;
 }
 
-/* Heart particles container */
-.donate-particles {
+/* Donate heart particles */
+.donate-tiny-heart {
+  position: fixed;
+  background-color: #d90429;
+  box-shadow: 0px 0px 30px 2px rgba(239, 35, 60, 0.6);
+  animation: donate-heart-float var(--duration) ease-in-out forwards,
+    donate-heart-fade var(--duration) ease-in-out forwards,
+    donate-heart-bounce var(--duration) ease-out forwards,
+    donate-heart-sway 1.3s ease-in-out infinite;
+  animation-delay: 0s, 0s, 0s, var(--sway-delay, 0s);
+  z-index: 999999;
+  pointer-events: none;
+}
+
+.donate-tiny-heart::before,
+.donate-tiny-heart::after {
+  content: "";
   position: absolute;
+  border-radius: 50%;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  pointer-events: none;
-  overflow: visible;
+  background-color: #d90429;
 }
 
-/* Individual heart particles */
-.heart-particle {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  opacity: 0;
-  pointer-events: none;
+.donate-tiny-heart::before {
+  transform: translateX(-50%);
 }
 
-.heart-particle::before {
-  content: '';
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  background: #f48fb1;
-  clip-path: path('M4 1.5C2.5 0 0 0.5 0 2.5C0 4 1.5 5.5 4 7.5C6.5 5.5 8 4 8 2.5C8 0.5 5.5 0 4 1.5Z');
-  transform: scale(1);
+.donate-tiny-heart::after {
+  transform: translateY(-50%);
 }
 
-.dropdown-item-donate:hover .heart-particle {
-  animation: float-heart 1.2s ease-out forwards;
+@keyframes donate-heart-float {
+  0% {
+    translate: 0 0;
+  }
+  100% {
+    translate: 0 var(--float-height, -50px);
+  }
 }
 
-.heart-particle:nth-child(1) {
-  left: 10%;
-  animation-delay: 0s;
-}
-.heart-particle:nth-child(2) {
-  left: 25%;
-  animation-delay: 0.15s;
-}
-.heart-particle:nth-child(3) {
-  left: 45%;
-  animation-delay: 0.3s;
-}
-.heart-particle:nth-child(4) {
-  left: 60%;
-  animation-delay: 0.1s;
-}
-.heart-particle:nth-child(5) {
-  left: 75%;
-  animation-delay: 0.25s;
-}
-.heart-particle:nth-child(6) {
-  left: 88%;
-  animation-delay: 0.05s;
-}
-
-@keyframes float-heart {
+@keyframes donate-heart-fade {
   0% {
     opacity: 0;
-    transform: translateY(0) scale(0.5) rotate(0deg);
-    top: 50%;
   }
-  20% {
+  10%,
+  70% {
     opacity: 1;
   }
   100% {
     opacity: 0;
-    transform: translateY(-40px) scale(1) rotate(-15deg);
-    top: 0%;
   }
 }
 
-/* Pulse animation for the main icon */
-.dropdown-item-donate:hover .donate-heart-icon {
-  animation: heart-pulse 0.8s ease-in-out infinite;
+@keyframes donate-heart-bounce {
+  0% {
+    scale: 0;
+  }
+  12% {
+    scale: 1.3;
+  }
+  20% {
+    scale: 0.9;
+  }
+  50%,
+  60% {
+    scale: 1;
+  }
+  100% {
+    scale: 0;
+  }
 }
 
-@keyframes heart-pulse {
-  0%, 100% {
-    transform: scale(1.2);
+@keyframes donate-heart-sway {
+  0%,
+  100% {
+    transform: translateX(2px) rotate(40deg);
   }
   50% {
-    transform: scale(1.35);
+    transform: translateX(-2px) rotate(50deg);
   }
 }
 
