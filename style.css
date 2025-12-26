@@ -2382,8 +2382,7 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   transition: transform 0.3s ease, opacity 0.3s ease;
   transform-origin: top;
-  max-height: 280px;
-  overflow-y: auto;
+  height: calc(100% - 28px);
 }
 
 #preview-controls.preview-controls-hidden {
@@ -2435,6 +2434,8 @@ body {
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
+  max-height: 100%;
+  overflow-y: auto;
 }
 
 .preview-tab-content.active {
