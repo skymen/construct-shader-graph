@@ -876,6 +876,36 @@ class Comment {
       rerouteNode.y <= this.y + this.height
     );
   }
+
+  containsComment(otherComment) {
+    return (
+      this.x <= otherComment.x &&
+      this.x + this.width >= otherComment.x + otherComment.width &&
+      this.y <= otherComment.y &&
+      this.y + this.height >= otherComment.y + otherComment.height
+    );
+  }
+
+  getEditButtonBounds() {
+    // Edit button at the top right corner of the title bar
+    const size = COMMENT_DRAG_HANDLE_SIZE;
+    return {
+      x: this.x + this.width - size - 4,
+      y: this.y + 4,
+      width: size,
+      height: size,
+    };
+  }
+
+  isPointInEditButton(px, py) {
+    const bounds = this.getEditButtonBounds();
+    return (
+      px >= bounds.x &&
+      px <= bounds.x + bounds.width &&
+      py >= bounds.y &&
+      py <= bounds.y + bounds.height
+    );
+  }
 }
 
 class BlueprintSystem {
@@ -11151,6 +11181,12 @@ class BlueprintSystem {
         return;
       }
 
+      // Check edit button (pencil icon at top right)
+      if (comment.isPointInEditButton(pos.x, pos.y)) {
+        this.showCommentModal(comment);
+        return;
+      }
+
       // Check drag handle (small icon at top left) - drags ONLY the comment (without nodes)
       if (comment.isPointInDragHandle(pos.x, pos.y)) {
         this.draggedComment = comment;
@@ -11209,7 +11245,7 @@ class BlueprintSystem {
           comment.isSelected = true;
         }
 
-        // Find all nodes and reroute nodes contained in this comment
+        // Find all nodes, reroute nodes, and comments contained in this comment
         comment.containedNodes = this.nodes.filter((n) =>
           comment.containsNode(n)
         );
@@ -11221,6 +11257,9 @@ class BlueprintSystem {
             }
           });
         });
+        comment.containedComments = this.comments.filter(
+          (c) => c !== comment && comment.containsComment(c)
+        );
 
         this.render();
         return;
@@ -11479,6 +11518,14 @@ class BlueprintSystem {
         });
       }
 
+      // Move contained comments
+      if (comment.containedComments) {
+        comment.containedComments.forEach((c) => {
+          c.x += deltaX;
+          c.y += deltaY;
+        });
+      }
+
       // Keep grabbing cursor when dragging from drag handle
       if (comment.isDragHandleDrag) {
         this.canvas.style.cursor = "grabbing";
@@ -11589,6 +11636,13 @@ class BlueprintSystem {
           // Check drag handle
           if (comment.isPointInDragHandle(pos.x, pos.y)) {
             this.canvas.style.cursor = "grab";
+            overCommentHandle = true;
+            break;
+          }
+
+          // Check edit button
+          if (comment.isPointInEditButton(pos.x, pos.y)) {
+            this.canvas.style.cursor = "pointer";
             overCommentHandle = true;
             break;
           }
@@ -11830,6 +11884,7 @@ class BlueprintSystem {
       this.draggedComment.isDragHandleDrag = false;
       this.draggedComment.containedNodes = null;
       this.draggedComment.containedRerouteNodes = null;
+      this.draggedComment.containedComments = null;
       this.draggedComment = null;
       this.canvas.style.cursor = "grab";
       this.history.pushState("Move comment");
@@ -11887,18 +11942,6 @@ class BlueprintSystem {
   onContextMenu(e) {
     e.preventDefault(); // Prevent default context menu
     const pos = this.getMousePos(e);
-
-    // Check if right-clicking on a comment
-    for (let i = this.comments.length - 1; i >= 0; i--) {
-      const comment = this.comments[i];
-      if (
-        comment.isPointInside(pos.x, pos.y) &&
-        !comment.isPointInResizeHandle(pos.x, pos.y)
-      ) {
-        this.showCommentModal(comment);
-        return;
-      }
-    }
 
     // Check if right-clicking on a reroute node
     const rerouteNode = this.findRerouteNodeAtPosition(pos.x, pos.y);
@@ -12483,6 +12526,69 @@ class BlueprintSystem {
     ctx.moveTo(gripX2, gripY3);
     ctx.lineTo(gripX2, gripY3);
     ctx.stroke();
+
+    // Draw edit button at top right
+    const editButtonBounds = comment.getEditButtonBounds();
+    ctx.fillStyle = comment.color + COMMENT_HANDLE_OPACITY;
+    ctx.beginPath();
+    ctx.roundRect(
+      editButtonBounds.x,
+      editButtonBounds.y,
+      editButtonBounds.width,
+      editButtonBounds.height,
+      4
+    );
+    ctx.fill();
+
+    // Draw pencil icon
+    ctx.strokeStyle = "#ffffff";
+    ctx.fillStyle = "#ffffff";
+    const pencilWidth = 4;
+    const sqrt2 = 1.41421356;
+    const triangleSideLength = sqrt2 * pencilWidth;
+    ctx.lineWidth = 1;
+    ctx.lineCap = "butt";
+    ctx.lineJoin = "round";
+
+    const iconCenterX = editButtonBounds.x + editButtonBounds.width / 2;
+    const iconCenterY = editButtonBounds.y + editButtonBounds.height / 2;
+    const iconSize = 5;
+
+    // Pencil tip
+    ctx.beginPath();
+    ctx.moveTo(iconCenterX - iconSize - 1, iconCenterY + iconSize + 1);
+    ctx.lineTo(
+      iconCenterX - iconSize + triangleSideLength / 2,
+      iconCenterY + iconSize
+    );
+    ctx.lineTo(
+      iconCenterX - iconSize,
+      iconCenterY + iconSize - triangleSideLength / 2
+    );
+    ctx.closePath();
+    ctx.fill();
+    // ctx.stroke();
+
+    ctx.lineWidth = pencilWidth;
+
+    // Pencil tip
+    // ctx.beginPath();
+    // ctx.moveTo(iconCenterX - iconSize + 1, iconCenterY + iconSize - 1);
+    // ctx.lineTo(iconCenterX - iconSize, iconCenterY + iconSize);
+    // ctx.stroke();
+
+    // Pencil body (diagonal line)
+    ctx.beginPath();
+    ctx.moveTo(iconCenterX - iconSize + 2, iconCenterY + iconSize - 2);
+    ctx.lineTo(iconCenterX + iconSize, iconCenterY - iconSize);
+    ctx.lineTo(iconCenterX + iconSize - 2, iconCenterY - iconSize + 2);
+    ctx.stroke();
+
+    // Pencil eraser (small line at top)
+    // ctx.beginPath();
+    // ctx.moveTo(iconCenterX + iconSize - 2, iconCenterY - iconSize + 2);
+    // ctx.lineTo(iconCenterX + iconSize, iconCenterY - iconSize);
+    // ctx.stroke();
 
     // Title text (offset to make room for drag handle)
     if (shouldDrawText) {
