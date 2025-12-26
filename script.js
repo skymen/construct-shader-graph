@@ -3767,15 +3767,6 @@ class BlueprintSystem {
           "setShowBackgroundCube",
           this.previewSettings.showBackgroundCube
         );
-        this.sendPreviewCommand(
-          "setSpriteScale",
-          this.previewSettings.spriteScale
-        );
-        this.sendPreviewCommand(
-          "setShapeScale",
-          this.previewSettings.shapeScale
-        );
-        this.sendPreviewCommand("setRoomScale", this.previewSettings.roomScale);
         this.sendPreviewCommand("setBgOpacity", this.previewSettings.bgOpacity);
         this.sendPreviewCommand(
           "setBg3dOpacity",
@@ -3799,6 +3790,17 @@ class BlueprintSystem {
         if (this.previewSettings.bgTextureUrl) {
           this.loadPreviewTexture("bg", this.previewSettings.bgTextureUrl);
         }
+
+        // Apply scale values after textures are loaded
+        this.sendPreviewCommand(
+          "setSpriteScale",
+          this.previewSettings.spriteScale
+        );
+        this.sendPreviewCommand(
+          "setShapeScale",
+          this.previewSettings.shapeScale
+        );
+        this.sendPreviewCommand("setRoomScale", this.previewSettings.roomScale);
 
         // Execute startup script if present
         if (this.previewSettings.startupScript) {

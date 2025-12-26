@@ -178,8 +178,9 @@ runOnStartup(async (runtime) => {
     setTimeout(() => {
       if (piggy) {
         // Store new base size (accounting for current scale)
-        baseObjectSize.sprite.w = piggy.width / spriteScale;
-        baseObjectSize.sprite.h = piggy.height / spriteScale;
+        baseObjectSize.sprite.w = piggy.width;
+        baseObjectSize.sprite.h = piggy.height;
+        applySpriteScale();
 
         // Report size change to parent
         if (window !== window.parent) {
@@ -193,7 +194,7 @@ runOnStartup(async (runtime) => {
           );
         }
       }
-    }, 100);
+    }, 10);
   };
   globalThis.loadShapeUrl = (url) => {
     runtime.callFunction("loadShapeUrl", url, false);
