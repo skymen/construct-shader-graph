@@ -7275,8 +7275,9 @@ class BlueprintSystem {
 
     const options = {
       floatHeight: 50,
-      heartsPerSecond: 4,
-      initialBurst: 3,
+      heartsPerSecond: 7,
+      burstCount: 13, // Number of hearts in the initial burst on hover
+      burstDelay: 10, // Delay (ms) between each heart in the burst
       heartSizeMin: 4,
       heartSizeMax: 8,
       durationMin: 1.2,
@@ -7320,8 +7321,8 @@ class BlueprintSystem {
     };
 
     const start = () => {
-      for (let i = 0; i < options.initialBurst; i++) {
-        setTimeout(createHeart, i * 50);
+      for (let i = 0; i < options.burstCount; i++) {
+        setTimeout(createHeart, i * options.burstDelay);
       }
       spawnIntervalId = setInterval(createHeart, spawnInterval);
     };
