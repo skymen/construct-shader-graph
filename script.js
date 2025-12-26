@@ -2649,7 +2649,7 @@ class BlueprintSystem {
     // Clear form
     this.customNodeNameInput.value = "";
     this.customNodeColorInput.value = "#9b59b6";
-    this.customNodeSplitWebGLInput.checked = true;
+    this.customNodeSplitWebGLInput.checked = false;
     this.customNodeInputsContainer.innerHTML = "";
     this.customNodeOutputsContainer.innerHTML = "";
 
@@ -2713,19 +2713,14 @@ class BlueprintSystem {
         customNode.code.webgpu.dependency;
       this.customNodeCodeData.webgpu.execution =
         customNode.code.webgpu.execution;
-
-      // Update WebGL 2 tab disabled state based on splitWebGL
-      const webgl2Tab = document.querySelector(
-        '.shader-tab[data-shader="webgl2"]'
-      );
-      if (!this.customNodeSplitWebGLInput.checked) {
-        webgl2Tab.classList.add("disabled");
-      }
+    }
+    // Update WebGL 2 tab disabled state based on splitWebGL
+    const webgl2Tab = document.querySelector(
+      '.shader-tab[data-shader="webgl2"]'
+    );
+    if (!this.customNodeSplitWebGLInput.checked) {
+      webgl2Tab.classList.add("disabled");
     } else {
-      // For new nodes, set WebGL 2 tab as enabled by default since splitWebGL is checked
-      const webgl2Tab = document.querySelector(
-        '.shader-tab[data-shader="webgl2"]'
-      );
       webgl2Tab.classList.remove("disabled");
     }
 
