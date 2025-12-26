@@ -31,9 +31,8 @@ export const AppendVec3Node = new NodeType(
 
 // Function to determine custom types for inputs
 AppendVec3Node.getCustomType = (node, port) => {
+  const portIndex = port.index;
   if (port.type === "input") {
-    const portIndex = port.index;
-
     // Check if this specific port is connected
     const thisPortType = node.getConnectedInputType(portIndex);
 
