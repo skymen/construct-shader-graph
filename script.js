@@ -231,7 +231,7 @@ class Port {
     if (ctx) {
       ctx.save();
       ctx.font = "12px sans-serif";
-      labelWidth = ctx.measureText(this.name).width + 5; // Add small padding
+      labelWidth = ctx.measureText(this.displayName).width + 5; // Add small padding
       ctx.restore();
     }
 
@@ -12830,6 +12830,8 @@ class BlueprintSystem {
     // Skip text rendering when zoomed out (text becomes unreadable anyway)
     const shouldDrawText = this.camera.zoom >= this.drawTextZoomThreshold;
 
+    const shouldDrawOutline = true;
+
     // Shadow
     if (this.camera.zoom >= this.drawShadowZoomThreshold) {
       ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
@@ -12870,7 +12872,9 @@ class BlueprintSystem {
         ctx.shadowColor = "transparent";
         ctx.shadowBlur = 0;
       }
-      ctx.stroke();
+      if (shouldDrawOutline) {
+        ctx.stroke();
+      }
 
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
@@ -12937,16 +12941,24 @@ class BlueprintSystem {
       ctx.beginPath();
       ctx.roundRect(node.x, node.y, node.width, node.height, 8);
       ctx.fill();
-      ctx.stroke();
+      if (shouldDrawOutline) {
+        ctx.stroke();
+      }
 
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
-
       // Header
       ctx.fillStyle = node.headerColor;
       ctx.beginPath();
       ctx.roundRect(node.x, node.y, node.width, 35, [8, 8, 0, 0]);
       ctx.fill();
+
+      // Outline
+      if (shouldDrawOutline) {
+        ctx.beginPath();
+        ctx.roundRect(node.x, node.y, node.width, node.height, 8);
+        ctx.stroke();
+      }
 
       // Title
       if (shouldDrawText) {
