@@ -7077,6 +7077,16 @@ class BlueprintSystem {
             "_blank"
           ),
       },
+      {
+        label: "Donate",
+        menu: "Help",
+        action: "donate",
+        handler: () =>
+          window.open(
+            "https://opencollective.com/construct-community/projects/shader-graph",
+            "_blank"
+          ),
+      },
     ];
 
     const closeAllMenus = () => {
@@ -11041,6 +11051,7 @@ class BlueprintSystem {
       if (comment.isPointInDragHandle(pos.x, pos.y)) {
         this.draggedComment = comment;
         comment.isDragging = true;
+        comment.isDragHandleDrag = true; // Track that drag started from drag handle
         comment.dragOffsetX = pos.x - comment.x;
         comment.dragOffsetY = pos.y - comment.y;
 
@@ -11053,6 +11064,9 @@ class BlueprintSystem {
         // Don't set containedNodes - we only want to drag the comment box itself
         comment.containedNodes = [];
         comment.containedRerouteNodes = [];
+
+        // Use grabbing cursor for drag handle drag
+        this.canvas.style.cursor = "grabbing";
 
         this.render();
         return;
@@ -11361,6 +11375,11 @@ class BlueprintSystem {
         });
       }
 
+      // Keep grabbing cursor when dragging from drag handle
+      if (comment.isDragHandleDrag) {
+        this.canvas.style.cursor = "grabbing";
+      }
+
       this.render();
       return;
     }
@@ -11465,7 +11484,7 @@ class BlueprintSystem {
 
           // Check drag handle
           if (comment.isPointInDragHandle(pos.x, pos.y)) {
-            this.canvas.style.cursor = "move";
+            this.canvas.style.cursor = "grab";
             overCommentHandle = true;
             break;
           }
@@ -11704,9 +11723,11 @@ class BlueprintSystem {
     // Stop dragging comment
     if (this.draggedComment) {
       this.draggedComment.isDragging = false;
+      this.draggedComment.isDragHandleDrag = false;
       this.draggedComment.containedNodes = null;
       this.draggedComment.containedRerouteNodes = null;
       this.draggedComment = null;
+      this.canvas.style.cursor = "grab";
       this.history.pushState("Move comment");
     }
 

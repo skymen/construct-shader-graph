@@ -242,6 +242,120 @@ body {
   color: #ffc947;
 }
 
+/* Donate button style */
+.dropdown-item-donate {
+  position: relative;
+  color: #f48fb1;
+  overflow: visible;
+}
+
+.donate-heart-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  flex-shrink: 0;
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+
+.dropdown-item-donate:hover .donate-heart-icon {
+  transform: scale(1.2);
+  filter: drop-shadow(0 0 6px rgba(244, 143, 177, 0.8));
+}
+
+.dropdown-item-donate:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(233, 30, 99, 0.15) 0%, rgba(244, 67, 54, 0.15) 100%);
+  color: #f8bbd0;
+}
+
+/* Heart particles container */
+.donate-particles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* Individual heart particles */
+.heart-particle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.heart-particle::before {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: #f48fb1;
+  clip-path: path('M4 1.5C2.5 0 0 0.5 0 2.5C0 4 1.5 5.5 4 7.5C6.5 5.5 8 4 8 2.5C8 0.5 5.5 0 4 1.5Z');
+  transform: scale(1);
+}
+
+.dropdown-item-donate:hover .heart-particle {
+  animation: float-heart 1.2s ease-out forwards;
+}
+
+.heart-particle:nth-child(1) {
+  left: 10%;
+  animation-delay: 0s;
+}
+.heart-particle:nth-child(2) {
+  left: 25%;
+  animation-delay: 0.15s;
+}
+.heart-particle:nth-child(3) {
+  left: 45%;
+  animation-delay: 0.3s;
+}
+.heart-particle:nth-child(4) {
+  left: 60%;
+  animation-delay: 0.1s;
+}
+.heart-particle:nth-child(5) {
+  left: 75%;
+  animation-delay: 0.25s;
+}
+.heart-particle:nth-child(6) {
+  left: 88%;
+  animation-delay: 0.05s;
+}
+
+@keyframes float-heart {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.5) rotate(0deg);
+    top: 50%;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-40px) scale(1) rotate(-15deg);
+    top: 0%;
+  }
+}
+
+/* Pulse animation for the main icon */
+.dropdown-item-donate:hover .donate-heart-icon {
+  animation: heart-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes heart-pulse {
+  0%, 100% {
+    transform: scale(1.2);
+  }
+  50% {
+    transform: scale(1.35);
+  }
+}
+
 /* Help dropdown specific styles */
 .toolbar-dropdown-help {
   min-width: 280px;

@@ -2,6 +2,12 @@
 
 A visual node-based shader graph editor that generates shaders for WebGL 1, WebGL 2, and WebGPU.
 
+## Support the Project
+
+If you find this project useful, consider supporting its development:
+
+[![Donate](https://img.shields.io/badge/Donate-Open%20Collective-blue)](https://opencollective.com/construct-community/projects/shader-graph)
+
 ## Getting Started
 
 ### Installation

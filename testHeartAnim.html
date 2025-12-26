@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>In Love Effect</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        margin: 0;
+        font-family: "Pacifico", cursive;
+        background-color: #2b2d42;
+        overflow: hidden;
+      }
+
+      .effect-text {
+        font-size: 50px;
+        color: #edf2f4;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .tiny-heart {
+        position: absolute;
+        background-color: #d90429;
+        box-shadow: 0px 0px 50px 4px rgba(239, 35, 60, 0.7);
+        animation: heart-float var(--duration) ease-in-out forwards,
+          heart-fade var(--duration) ease-in-out forwards,
+          heart-bounce var(--duration) ease-out forwards,
+          heart-sway 1.3s ease-in-out infinite;
+        animation-delay: 0s, 0s, 0s, var(--sway-delay, 0s);
+      }
+
+      .tiny-heart::before,
+      .tiny-heart::after {
+        content: "";
+        position: absolute;
+        border-radius: 50%;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #d90429;
+      }
+
+      .tiny-heart::before {
+        transform: translateX(-50%);
+      }
+
+      .tiny-heart::after {
+        transform: translateY(-50%);
+      }
+
+      /* Position animation - smooth ease in/out */
+      @keyframes heart-float {
+        0% {
+          translate: 0 0;
+        }
+        100% {
+          translate: 0 var(--float-height, -80px);
+        }
+      }
+
+      /* Opacity animation */
+      @keyframes heart-fade {
+        0% {
+          opacity: 0;
+        }
+        10%,
+        70% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+
+      /* Scale animation - bouncy spring effect (happens in first ~25% of duration) */
+      @keyframes heart-bounce {
+        0% {
+          scale: 0;
+        }
+        12% {
+          scale: 1.3;
+        }
+        20% {
+          scale: 0.9;
+        }
+        50%,
+        60% {
+          scale: 1;
+        }
+        100% {
+          scale: 0;
+        }
+      }
+
+      /* Sway animation - gentle side to side with rotation */
+      @keyframes heart-sway {
+        0%,
+        100% {
+          transform: translateX(3px) rotate(40deg);
+        }
+        50% {
+          transform: translateX(-3px) rotate(50deg);
+        }
+      }
+
+      .effect-text:hover {
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="effect-text">In love</div>
+
+    <script>
+      function randomNum(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+      }
+
+      function createHeartEffect(container, config = {}) {
+        // Default configuration
+        const options = {
+          spawnWidth: config.spawnWidth ?? 200, // Width of spawn area in pixels
+          spawnHeight: config.spawnHeight ?? 40, // Height of spawn area in pixels
+          floatHeight: config.floatHeight ?? 80, // How far hearts float up in pixels
+          spawnInterval: config.spawnInterval ?? 300, // Ms between heart spawns
+          initialBurst: config.initialBurst ?? 4, // Number of hearts on initial hover
+          heartSizeMin: config.heartSizeMin ?? 8, // Min heart size in pixels
+          heartSizeMax: config.heartSizeMax ?? 15, // Max heart size in pixels
+          durationMin: config.durationMin ?? 1.5, // Min animation duration in seconds
+          durationMax: config.durationMax ?? 3, // Max animation duration in seconds
+          offsetX: config.offsetX ?? 0, // Horizontal offset from center
+          offsetY: config.offsetY ?? 0, // Vertical offset from center
+        };
+
+        let spawnIntervalId = null;
+
+        function createHeart() {
+          const heartSize =
+            randomNum(options.heartSizeMin * 10, options.heartSizeMax * 10) /
+            10;
+          const heart = document.createElement("span");
+          const duration =
+            randomNum(options.durationMin * 10, options.durationMax * 10) / 10;
+
+          // Get container dimensions
+          const containerRect = container.getBoundingClientRect();
+          const containerWidth = containerRect.width;
+          const containerHeight = containerRect.height;
+
+          // Calculate spawn area centered on container
+          const spawnLeft =
+            (containerWidth - options.spawnWidth) / 2 + options.offsetX;
+          const spawnTop =
+            (containerHeight - options.spawnHeight) / 2 + options.offsetY;
+
+          heart.className = "tiny-heart";
+          // Position within centered spawn area
+          heart.style.left =
+            spawnLeft + randomNum(0, options.spawnWidth) + "px";
+          heart.style.top = spawnTop + randomNum(0, options.spawnHeight) + "px";
+          heart.style.width = heartSize + "px";
+          heart.style.height = heartSize + "px";
+          heart.style.setProperty("--duration", duration + "s");
+          heart.style.setProperty(
+            "--float-height",
+            -options.floatHeight + "px"
+          );
+          // Random start point in sway cycle
+          heart.style.setProperty(
+            "--sway-delay",
+            "-" + (Math.random() * 1.3).toFixed(2) + "s"
+          );
+
+          container.appendChild(heart);
+
+          // Remove heart after animation completes
+          heart.addEventListener("animationend", () => heart.remove(), {
+            once: true,
+          });
+        }
+
+        function start() {
+          // Spawn initial batch of hearts
+          for (let i = 0; i < options.initialBurst; i++) {
+            setTimeout(createHeart, i * 50);
+          }
+          // Continue spawning hearts
+          spawnIntervalId = setInterval(createHeart, options.spawnInterval);
+        }
+
+        function stop() {
+          if (spawnIntervalId) {
+            clearInterval(spawnIntervalId);
+            spawnIntervalId = null;
+          }
+        }
+
+        // Return control methods
+        return { start, stop, createHeart };
+      }
+
+      // Example usage with hover
+      function init() {
+        const effectText = document.querySelector(".effect-text");
+
+        const heartEffect = createHeartEffect(effectText, {
+          spawnWidth: 200,
+          spawnHeight: 40,
+          floatHeight: 70,
+          spawnInterval: 300,
+          initialBurst: 5,
+          heartSizeMin: 8,
+          heartSizeMax: 15,
+          durationMin: 1.5,
+          durationMax: 3,
+        });
+
+        effectText.addEventListener("mouseenter", heartEffect.start);
+        effectText.addEventListener("mouseleave", heartEffect.stop);
+      }
+
+      init();
+    </script>
+  </body>
+</html>
