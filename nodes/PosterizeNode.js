@@ -5,7 +5,7 @@ export const PosterizeNode = new NodeType(
   "Posterize",
   [
     { name: "Color", type: "vec3" },
-    { name: "Levels", type: "float" },
+    { name: "Levels", type: "float", defaultValue: 10.0 },
   ],
   [{ name: "Result", type: "vec3" }],
   PORT_TYPES.vec3.color,

@@ -4,7 +4,7 @@ export const FBMNode = new NodeType(
   "FBM",
   [
     { name: "UV", type: "vec2" },
-    { name: "Octaves", type: "float" },
+    { name: "Octaves", type: "int", defaultValue: 3 },
   ],
   [{ name: "Result", type: "float" }],
   "#4a3a5a",
@@ -40,7 +40,7 @@ float fbm(vec2 p, int octaves) {
     return value * 0.5 + 0.5;
 }`,
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = fbm(${inputs[0]}, int(${inputs[1]}));`,
+        `    float ${outputs[0]} = fbm(${inputs[0]}, ${inputs[1]});`,
     },
     webgl2: {
       dependency: `vec2 hash2_fbm(vec2 p) {
@@ -73,7 +73,7 @@ float fbm(vec2 p, int octaves) {
     return value * 0.5 + 0.5;
 }`,
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = fbm(${inputs[0]}, int(${inputs[1]}));`,
+        `    float ${outputs[0]} = fbm(${inputs[0]}, ${inputs[1]});`,
     },
     webgpu: {
       dependency: `fn hash2_fbm(p: vec2<f32>) -> vec2<f32> {
@@ -106,7 +106,7 @@ fn fbm(p: vec2<f32>, octaves: i32) -> f32 {
     return value * 0.5 + 0.5;
 }`,
       execution: (inputs, outputs) =>
-        `    var ${outputs[0]}: f32 = fbm(${inputs[0]}, i32(${inputs[1]}));`,
+        `    var ${outputs[0]}: f32 = fbm(${inputs[0]}, ${inputs[1]});`,
     },
   },
   "Noise",

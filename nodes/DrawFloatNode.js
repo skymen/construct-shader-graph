@@ -7,7 +7,7 @@ export const DrawFloatNode = new NodeType(
     { name: "UV", type: "vec2" },
     { name: "Position", type: "vec2" },
     { name: "Value", type: "float" },
-    { name: "Size", type: "float" },
+    { name: "Size", type: "float", defaultValue: 1.0 },
   ],
   [{ name: "Color", type: "vec3" }],
   PORT_TYPES.vec3.color,

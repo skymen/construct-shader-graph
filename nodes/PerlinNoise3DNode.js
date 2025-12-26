@@ -4,7 +4,7 @@ export const PerlinNoise3DNode = new NodeType(
   "Perlin Noise 3D",
   [
     { name: "UVW", type: "vec3" },
-    { name: "Scale", type: "float" },
+    { name: "Scale", type: "float", defaultValue: 1.0 },
     { name: "Offset", type: "vec3" },
   ],
   [{ name: "Result", type: "float" }],

@@ -4,7 +4,7 @@ export const PerlinNoiseNode = new NodeType(
   "Perlin Noise",
   [
     { name: "UV", type: "vec2" },
-    { name: "Scale", type: "float" },
+    { name: "Scale", type: "float", defaultValue: 1.0 },
     { name: "Offset", type: "vec2" },
   ],
   [{ name: "Result", type: "float" }],
@@ -77,7 +77,8 @@ fn perlinNoise(p: vec2<f32>) -> f32 {
 
 // Manual entry for documentation
 PerlinNoiseNode.manual = {
-  description: "Generates smooth, natural-looking procedural noise based on the classic Perlin noise algorithm. The output ranges from 0 to 1 with smooth transitions between values.",
+  description:
+    "Generates smooth, natural-looking procedural noise based on the classic Perlin noise algorithm. The output ranges from 0 to 1 with smooth transitions between values.",
   html: `
     <h4>What is Perlin Noise?</h4>
     <p>Perlin noise is a gradient noise algorithm that produces smooth, continuous random patterns. Unlike pure random noise, Perlin noise has natural-looking transitions that make it ideal for organic effects.</p>
@@ -101,5 +102,5 @@ PerlinNoiseNode.manual = {
     <div class="tip">
       <strong>Tip:</strong> Combine multiple octaves of Perlin noise with the FBM node for more complex, natural-looking patterns!
     </div>
-  `
+  `,
 };

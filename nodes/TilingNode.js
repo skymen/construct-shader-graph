@@ -6,7 +6,7 @@ export const TilingNode = new NodeType(
     { name: "UV", type: "vec2" },
     { name: "Start", type: "vec2" },
     { name: "Size", type: "vec2" },
-    { name: "Scale", type: "vec2" },
+    { name: "Scale", type: "vec2", defaultValue: [1.0, 1.0] },
     { name: "Offset", type: "vec2" },
   ],
   [{ name: "Result", type: "vec2" }],

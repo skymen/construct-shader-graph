@@ -4,7 +4,7 @@ export const ScaleUVNode = new NodeType(
   "Scale UV",
   [
     { name: "UV", type: "vec2" },
-    { name: "Scale", type: "vec2" },
+    { name: "Scale", type: "vec2", defaultValue: [1.0, 1.0] },
     { name: "Center", type: "vec2" },
   ],
   [{ name: "Result", type: "vec2" }],

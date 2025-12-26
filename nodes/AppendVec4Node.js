@@ -66,7 +66,7 @@ AppendVec4Node.getCustomType = (node, port) => {
 
 // Helper function to get component count from type
 function getComponentCount(type) {
-  if (type === "float" || type === "int" || type === "boolean") return 1;
+  if (type === "float" || type === "int" || type === "bool") return 1;
   if (type === "vec2") return 2;
   if (type === "vec3") return 3;
   if (type === "vec4") return 4;

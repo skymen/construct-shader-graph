@@ -4,7 +4,7 @@ export const SimplexNoiseNode = new NodeType(
   "Simplex Noise",
   [
     { name: "UV", type: "vec2" },
-    { name: "Scale", type: "float" },
+    { name: "Scale", type: "float", defaultValue: 1.0 },
     { name: "Offset", type: "vec2" },
   ],
   [{ name: "Result", type: "float" }],

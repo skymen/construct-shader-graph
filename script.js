@@ -114,7 +114,7 @@ class Port {
       portTypeInfo?.editable &&
       this.portType !== "custom"
     ) {
-      this.value = portTypeInfo.defaultValue;
+      this.value = portDef.defaultValue ?? portTypeInfo.defaultValue;
       this.isEditable = true;
     } else {
       this.isEditable = false;
@@ -4708,7 +4708,7 @@ class BlueprintSystem {
     const types = [
       "float",
       "int",
-      "boolean",
+      "bool",
       "vec2",
       "vec3",
       "vec4",
@@ -5539,7 +5539,7 @@ class BlueprintSystem {
     const resolvedType = port.getResolvedType();
 
     // For boolean types, just toggle the value directly
-    if (resolvedType === "boolean") {
+    if (resolvedType === "bool") {
       port.value = !port.value;
       this.render();
       this.onShaderChanged();
