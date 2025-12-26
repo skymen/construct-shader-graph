@@ -2,7 +2,7 @@ import { NodeType } from "./NodeType.js";
 
 export const CartesianToPolarNode = new NodeType(
   "Cartesian to Polar",
-  [{ name: "Position", type: "vec2" }],
+  [{ name: "UV", type: "vec2" }],
   [
     { name: "Radius", type: "float" },
     { name: "Angle", type: "float" },

@@ -12866,6 +12866,10 @@ class BlueprintSystem {
       ctx.beginPath();
       ctx.roundRect(node.x, node.y, node.width, node.height, node.height / 2);
       ctx.fill();
+      if (this.camera.zoom < this.drawShadowZoomThreshold) {
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+      }
       ctx.stroke();
 
       ctx.shadowColor = "transparent";

@@ -3,7 +3,7 @@ import { PORT_TYPES } from "./PortTypes.js";
 
 export const SrcToDestNode = new NodeType(
   "srcToDest",
-  [{ name: "Position", type: "vec2" }],
+  [{ name: "UV", type: "vec2" }],
   [{ name: "Dest", type: "vec2" }],
   PORT_TYPES.vec2.color,
   {

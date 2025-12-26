@@ -6,7 +6,7 @@ export const PolarToCartesianNode = new NodeType(
     { name: "Radius", type: "float" },
     { name: "Angle", type: "float" },
   ],
-  [{ name: "Result", type: "vec2" }],
+  [{ name: "UV", type: "vec2" }],
   "#3a4a5a",
   {
     webgl1: {

@@ -3,8 +3,8 @@ import { PORT_TYPES } from "./PortTypes.js";
 
 export const NormToSrcNode = new NodeType(
   "normToSrc",
-  [{ name: "Normalized", type: "vec2" }],
-  [{ name: "Position", type: "vec2" }],
+  [{ name: "N", type: "vec2" }],
+  [{ name: "UV", type: "vec2" }],
   PORT_TYPES.vec2.color,
   {
     webgl1: {
