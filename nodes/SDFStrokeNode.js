@@ -13,22 +13,25 @@ export const SDFStrokeNode = new NodeType(
     webgl1: {
       dependency: "",
       execution: (inputs, outputs) => {
-        const hw = `(${inputs[1]} * 0.5)`;
-        return `    float ${outputs[0]} = 1.0 - smoothstep(${hw} - ${inputs[2]}, ${hw} + ${inputs[2]}, abs(${inputs[0]}));`;
+        return `    float hw_${outputs[0]} = ${inputs[1]} * 0.5;
+    float feather_${outputs[0]} = max(${inputs[2]}, 0.0001);
+    float ${outputs[0]} = 1.0 - smoothstep(hw_${outputs[0]} - feather_${outputs[0]}, hw_${outputs[0]} + feather_${outputs[0]}, abs(${inputs[0]}));`;
       },
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs) => {
-        const hw = `(${inputs[1]} * 0.5)`;
-        return `    float ${outputs[0]} = 1.0 - smoothstep(${hw} - ${inputs[2]}, ${hw} + ${inputs[2]}, abs(${inputs[0]}));`;
+        return `    float hw_${outputs[0]} = ${inputs[1]} * 0.5;
+    float feather_${outputs[0]} = max(${inputs[2]}, 0.0001);
+    float ${outputs[0]} = 1.0 - smoothstep(hw_${outputs[0]} - feather_${outputs[0]}, hw_${outputs[0]} + feather_${outputs[0]}, abs(${inputs[0]}));`;
       },
     },
     webgpu: {
       dependency: "",
       execution: (inputs, outputs) => {
-        const hw = `(${inputs[1]} * 0.5)`;
-        return `    var ${outputs[0]}: f32 = 1.0 - smoothstep(${hw} - ${inputs[2]}, ${hw} + ${inputs[2]}, abs(${inputs[0]}));`;
+        return `    var hw_${outputs[0]}: f32 = ${inputs[1]} * 0.5;
+    var feather_${outputs[0]}: f32 = max(${inputs[2]}, 0.0001);
+    var ${outputs[0]}: f32 = 1.0 - smoothstep(hw_${outputs[0]} - feather_${outputs[0]}, hw_${outputs[0]} + feather_${outputs[0]}, abs(${inputs[0]}));`;
       },
     },
   },

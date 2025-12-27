@@ -12,17 +12,20 @@ export const SDFFillNode = new NodeType(
     webgl1: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = 1.0 - smoothstep(-${inputs[1]}, ${inputs[1]}, ${inputs[0]});`,
+        `    float feather_${outputs[0]} = max(${inputs[1]}, 0.0001);
+    float ${outputs[0]} = 1.0 - smoothstep(-feather_${outputs[0]}, feather_${outputs[0]}, ${inputs[0]});`,
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    float ${outputs[0]} = 1.0 - smoothstep(-${inputs[1]}, ${inputs[1]}, ${inputs[0]});`,
+        `    float feather_${outputs[0]} = max(${inputs[1]}, 0.0001);
+    float ${outputs[0]} = 1.0 - smoothstep(-feather_${outputs[0]}, feather_${outputs[0]}, ${inputs[0]});`,
     },
     webgpu: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    var ${outputs[0]}: f32 = 1.0 - smoothstep(-${inputs[1]}, ${inputs[1]}, ${inputs[0]});`,
+        `    var feather_${outputs[0]}: f32 = max(${inputs[1]}, 0.0001);
+    var ${outputs[0]}: f32 = 1.0 - smoothstep(-feather_${outputs[0]}, feather_${outputs[0]}, ${inputs[0]});`,
     },
   },
   "SDF",

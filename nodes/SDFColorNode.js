@@ -14,19 +14,22 @@ export const SDFColorNode = new NodeType(
     webgl1: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    float t_${outputs[0]} = smoothstep(-${inputs[3]}, ${inputs[3]}, ${inputs[0]});
+        `    float feather_${outputs[0]} = max(${inputs[3]}, 0.0001);
+    float t_${outputs[0]} = smoothstep(-feather_${outputs[0]}, feather_${outputs[0]}, ${inputs[0]});
     vec4 ${outputs[0]} = mix(${inputs[1]}, ${inputs[2]}, t_${outputs[0]});`,
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    float t_${outputs[0]} = smoothstep(-${inputs[3]}, ${inputs[3]}, ${inputs[0]});
+        `    float feather_${outputs[0]} = max(${inputs[3]}, 0.0001);
+    float t_${outputs[0]} = smoothstep(-feather_${outputs[0]}, feather_${outputs[0]}, ${inputs[0]});
     vec4 ${outputs[0]} = mix(${inputs[1]}, ${inputs[2]}, t_${outputs[0]});`,
     },
     webgpu: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    var t_${outputs[0]}: f32 = smoothstep(-${inputs[3]}, ${inputs[3]}, ${inputs[0]});
+        `    var feather_${outputs[0]}: f32 = max(${inputs[3]}, 0.0001);
+    var t_${outputs[0]}: f32 = smoothstep(-feather_${outputs[0]}, feather_${outputs[0]}, ${inputs[0]});
     var ${outputs[0]}: vec4<f32> = mix(${inputs[1]}, ${inputs[2]}, t_${outputs[0]});`,
     },
   },
