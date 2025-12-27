@@ -222,6 +222,39 @@ import { TranslationMatrixNode } from "./TranslationMatrixNode.js";
 import { ScaleMatrixNode } from "./ScaleMatrixNode.js";
 import { RotationMatrixNode } from "./RotationMatrixNode.js";
 
+// Import SDF shape nodes
+import { CircleSDFNode } from "./CircleSDFNode.js";
+import { RectangleSDFNode } from "./RectangleSDFNode.js";
+import { RoundedRectSDFNode } from "./RoundedRectSDFNode.js";
+import { EllipseSDFNode } from "./EllipseSDFNode.js";
+import { LineSDFNode } from "./LineSDFNode.js";
+import { TriangleSDFNode } from "./TriangleSDFNode.js";
+import { PolygonSDFNode } from "./PolygonSDFNode.js";
+import { StarSDFNode } from "./StarSDFNode.js";
+import { ArcSDFNode } from "./ArcSDFNode.js";
+import { PieSDFNode } from "./PieSDFNode.js";
+import { CapsuleSDFNode } from "./CapsuleSDFNode.js";
+
+// Import SDF operation nodes
+import { SDFUnionNode } from "./SDFUnionNode.js";
+import { SDFIntersectNode } from "./SDFIntersectNode.js";
+import { SDFSubtractNode } from "./SDFSubtractNode.js";
+import { SDFSmoothUnionNode } from "./SDFSmoothUnionNode.js";
+import { SDFSmoothIntersectNode } from "./SDFSmoothIntersectNode.js";
+import { SDFSmoothSubtractNode } from "./SDFSmoothSubtractNode.js";
+import { SDFInvertNode } from "./SDFInvertNode.js";
+import { SDFOffsetNode } from "./SDFOffsetNode.js";
+import { SDFAnnularNode } from "./SDFAnnularNode.js";
+import { SDFRoundNode } from "./SDFRoundNode.js";
+
+// Import SDF output nodes
+import { SDFFillNode } from "./SDFFillNode.js";
+import { SDFStrokeNode } from "./SDFStrokeNode.js";
+import { SDFColorNode } from "./SDFColorNode.js";
+
+// Import radial symmetry node
+import { RadialSymmetryNode } from "./RadialSymmetryNode.js";
+
 // Export NODE_TYPES object
 export const NODE_TYPES = {
   math: MathNode,
@@ -431,4 +464,37 @@ export const NODE_TYPES = {
   translationMatrix: TranslationMatrixNode,
   scaleMatrix: ScaleMatrixNode,
   rotationMatrix: RotationMatrixNode,
+
+  // SDF shape nodes
+  circleSDF: CircleSDFNode,
+  rectangleSDF: RectangleSDFNode,
+  roundedRectSDF: RoundedRectSDFNode,
+  ellipseSDF: EllipseSDFNode,
+  lineSDF: LineSDFNode,
+  triangleSDF: TriangleSDFNode,
+  polygonSDF: PolygonSDFNode,
+  starSDF: StarSDFNode,
+  arcSDF: ArcSDFNode,
+  pieSDF: PieSDFNode,
+  capsuleSDF: CapsuleSDFNode,
+
+  // SDF operation nodes
+  sdfUnion: SDFUnionNode,
+  sdfIntersect: SDFIntersectNode,
+  sdfSubtract: SDFSubtractNode,
+  sdfSmoothUnion: SDFSmoothUnionNode,
+  sdfSmoothIntersect: SDFSmoothIntersectNode,
+  sdfSmoothSubtract: SDFSmoothSubtractNode,
+  sdfInvert: SDFInvertNode,
+  sdfOffset: SDFOffsetNode,
+  sdfAnnular: SDFAnnularNode,
+  sdfRound: SDFRoundNode,
+
+  // SDF output nodes
+  sdfFill: SDFFillNode,
+  sdfStroke: SDFStrokeNode,
+  sdfColor: SDFColorNode,
+
+  // Radial symmetry
+  radialSymmetry: RadialSymmetryNode,
 };
