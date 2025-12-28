@@ -8,7 +8,7 @@ export const EaseInElasticNode = new NodeType(
   "Ease In Elastic",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#6f4aa5",
+  "#ff4000",
   {
     webgl1: {
       dependency: "",

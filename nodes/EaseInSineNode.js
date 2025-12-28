@@ -7,7 +7,7 @@ export const EaseInSineNode = new NodeType(
   "Ease In Sine",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff6b35",
+  "#ff4000",
   {
     webgl1: {
       dependency: "",
@@ -52,4 +52,3 @@ EaseInSineNode.manual = {
     </ul>
   `,
 };
-

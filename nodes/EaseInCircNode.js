@@ -5,7 +5,7 @@ export const EaseInCircNode = new NodeType(
   "Ease In Circ",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#4aa58f",
+  "#ff4000",
   {
     webgl1: {
       dependency: "",

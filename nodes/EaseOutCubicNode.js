@@ -5,7 +5,7 @@ export const EaseOutCubicNode = new NodeType(
   "Ease Out Cubic",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#6a8fc5",
+  "#ff4000",
   {
     webgl1: {
       dependency: "",

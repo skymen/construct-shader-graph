@@ -5,7 +5,7 @@ export const EaseInQuartNode = new NodeType(
   "Ease In Quart",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#7a9fd5",
+  "#ff4000",
   {
     webgl1: {
       dependency: "",

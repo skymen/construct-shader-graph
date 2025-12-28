@@ -8,7 +8,7 @@ export const EaseOutBackNode = new NodeType(
   "Ease Out Back",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#a54a6f",
+  "#ff4000",
   {
     webgl1: {
       dependency: "",

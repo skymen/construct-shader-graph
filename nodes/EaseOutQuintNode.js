@@ -5,7 +5,7 @@ export const EaseOutQuintNode = new NodeType(
   "Ease Out Quint",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#8aafe5",
+  "#ff4000",
   {
     webgl1: {
       dependency: "",

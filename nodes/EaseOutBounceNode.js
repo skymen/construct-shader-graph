@@ -9,7 +9,7 @@ export const EaseOutBounceNode = new NodeType(
   "Ease Out Bounce",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#4a8fa5",
+  "#ff4000",
   {
     webgl1: {
       dependency: `

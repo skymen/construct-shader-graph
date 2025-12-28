@@ -5,7 +5,7 @@ export const EaseOutExpoNode = new NodeType(
   "Ease Out Expo",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#a56f4a",
+  "#ff4000",
   {
     webgl1: {
       dependency: "",

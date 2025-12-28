@@ -5,7 +5,7 @@ export const EaseInOutQuadNode = new NodeType(
   "Ease In Out Quad",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#5a7fb5",
+  "#ff4000",
   {
     webgl1: {
       dependency: "",
