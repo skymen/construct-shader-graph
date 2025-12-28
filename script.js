@@ -3091,6 +3091,13 @@ class BlueprintSystem {
         description: languageManager.getUIText("Kaleidoscope shader"),
       },
       {
+        file: "kaleidoscope2.c3sg",
+        name: languageManager.getUIText("Kaleidoscope 2"),
+        description: languageManager.getUIText(
+          "Kaleidoscope shader with radial symmetry"
+        ),
+      },
+      {
         file: "card glimmer.c3sg",
         name: languageManager.getUIText("Card Glimmer"),
         description: languageManager.getUIText(
