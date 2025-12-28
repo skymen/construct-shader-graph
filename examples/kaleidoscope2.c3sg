@@ -1,0 +1,2317 @@
+{
+  "version": "1.0.0",
+  "previewScreenshot": null,
+  "shaderSettings": {
+    "name": "",
+    "version": "1.0.0.0",
+    "author": "",
+    "website": "",
+    "documentation": "",
+    "description": "",
+    "category": "color",
+    "blendsBackground": false,
+    "crossSampling": false,
+    "preservesOpaqueness": true,
+    "animated": true,
+    "isDeprecated": false,
+    "extendBoxH": 0,
+    "extendBoxV": 0
+  },
+  "uniforms": [
+    {
+      "id": 1,
+      "name": "speed",
+      "variableName": "uniform_speed",
+      "description": "",
+      "type": "float",
+      "value": 2,
+      "isPercent": false
+    },
+    {
+      "id": 2,
+      "name": "minZoom",
+      "variableName": "uniform_minZoom",
+      "description": "",
+      "type": "float",
+      "value": 1,
+      "isPercent": true
+    },
+    {
+      "id": 3,
+      "name": "maxZoom",
+      "variableName": "uniform_maxZoom",
+      "description": "",
+      "type": "float",
+      "value": 1.5,
+      "isPercent": true
+    },
+    {
+      "id": 4,
+      "name": "mirrors",
+      "variableName": "uniform_mirrors",
+      "description": "",
+      "type": "float",
+      "value": 3,
+      "isPercent": false
+    }
+  ],
+  "customNodes": [],
+  "previewSettings": {
+    "effectTarget": "layout",
+    "object": "sprite",
+    "cameraMode": "2d",
+    "autoRotate": true,
+    "samplingMode": "trilinear",
+    "shaderLanguage": "webgpu",
+    "spriteTextureUrl": null,
+    "shapeTextureUrl": null,
+    "bgTextureUrl": null,
+    "showBackgroundCube": true,
+    "spriteScale": 1,
+    "shapeScale": 1,
+    "roomScale": 1,
+    "bgOpacity": 0.15,
+    "bg3dOpacity": 0.15,
+    "zoomLevel": 1,
+    "startupScript": ""
+  },
+  "camera": {
+    "x": 1210.5560419602411,
+    "y": 1113.4308143558965,
+    "zoom": 0.5450654688330061
+  },
+  "nodes": [
+    {
+      "id": 8,
+      "x": -1256,
+      "y": -455,
+      "nodeTypeKey": "frontUV",
+      "title": "Front UV",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "x": -1870,
+      "y": 15,
+      "nodeTypeKey": "atan2",
+      "title": "Atan2",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Y",
+          "portType": "genType",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "X",
+          "portType": "genType",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "x": -2080,
+      "y": 35,
+      "nodeTypeKey": "vec2Decompose",
+      "title": "Vec2 Decompose",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Vec2",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "X",
+          "portType": "float"
+        },
+        {
+          "name": "Y",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "x": 800,
+      "y": 1055,
+      "nodeTypeKey": "setVariable",
+      "title": "Set Variable",
+      "customInput": "scale",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 16,
+      "x": -1810,
+      "y": 200,
+      "nodeTypeKey": "pi",
+      "title": "Pi",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "x": 440,
+      "y": 1132.5,
+      "nodeTypeKey": "pi",
+      "title": "Pi",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "x": 590,
+      "y": 1070,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "/",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 2
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "x": -690,
+      "y": 15,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "+",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType",
+          "value": 0
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0.5
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "x": -410,
+      "y": 15,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "x": -690,
+      "y": 365,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "scale",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "x": -1390,
+      "y": 320,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "scale",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "x": -630,
+      "y": -937.5,
+      "nodeTypeKey": "sin",
+      "title": "Sin",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Angle",
+          "portType": "genType"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "x": -630,
+      "y": -762.5,
+      "nodeTypeKey": "cos",
+      "title": "Cos",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Angle",
+          "portType": "genType"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "x": -410,
+      "y": -937.5,
+      "nodeTypeKey": "vec2",
+      "title": "Vec2",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "X",
+          "portType": "float",
+          "value": 0
+        },
+        {
+          "name": "Y",
+          "portType": "float",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Vec2",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "x": -200,
+      "y": -982.5,
+      "nodeTypeKey": "setVariable",
+      "title": "Set Variable",
+      "customInput": "dir",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 32,
+      "x": 380,
+      "y": -982.5,
+      "nodeTypeKey": "swizzle",
+      "title": "Swizzle",
+      "customInput": "yx",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "genType"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "x": -630,
+      "y": 1100,
+      "nodeTypeKey": "dot",
+      "title": "Dot",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "x": -840,
+      "y": 1100,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "dir",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "x": -840,
+      "y": 1435,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "codir",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "x": -410,
+      "y": 1100,
+      "nodeTypeKey": "vec2",
+      "title": "Vec2",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "X",
+          "portType": "float",
+          "value": 0
+        },
+        {
+          "name": "Y",
+          "portType": "float",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Vec2",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "x": -630,
+      "y": 1435,
+      "nodeTypeKey": "dot",
+      "title": "Dot",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "x": -200,
+      "y": 1055,
+      "nodeTypeKey": "setVariable",
+      "title": "Set Variable",
+      "customInput": "finalUv",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 34,
+      "x": 800,
+      "y": -982.5,
+      "nodeTypeKey": "setVariable",
+      "title": "Set Variable",
+      "customInput": "codir",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 33,
+      "x": 590,
+      "y": -967.5,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            -1,
+            1
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "x": 170,
+      "y": -937.5,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "dir",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "x": -1110,
+      "y": 15,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "/",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType",
+          "value": 0
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 3
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "x": -900,
+      "y": 45,
+      "nodeTypeKey": "floor",
+      "title": "Floor",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "genType"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "x": -1090,
+      "y": -487.5,
+      "nodeTypeKey": "srcOriginToNorm",
+      "title": "srcOriginToNorm",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "N",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "x": -2290,
+      "y": 35,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "normUv",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "x": -830,
+      "y": -1292.5,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "+",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            0.5,
+            0.5
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "x": -1040,
+      "y": -1262.5,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "finalUv",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "x": -840,
+      "y": 1260,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "normUv",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "x": -840,
+      "y": 1595,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "normUv",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "x": -840,
+      "y": -762.5,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "theta",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "x": -1039,
+      "y": -240,
+      "nodeTypeKey": "builtinSeconds",
+      "title": "seconds",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "x": -1030,
+      "y": -200,
+      "nodeTypeKey": "uniform_1",
+      "title": "speed",
+      "uniformName": "uniform_speed",
+      "uniformDisplayName": "speed",
+      "uniformVariableName": "uniform_speed",
+      "uniformId": 1,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 67,
+      "x": -660,
+      "y": -517.5,
+      "nodeTypeKey": "rotateAroundPoint",
+      "title": "Rotate Around Point",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "Center",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "Angle",
+          "portType": "float",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "x": -880,
+      "y": -302.5,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "x": -200,
+      "y": 0,
+      "nodeTypeKey": "setVariable",
+      "title": "Set Variable",
+      "customInput": "theta",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 14,
+      "x": -1650,
+      "y": 15,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "+",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 68,
+      "x": -1390,
+      "y": 15,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "+",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 69,
+      "x": -2019,
+      "y": 322.5,
+      "nodeTypeKey": "builtinSeconds",
+      "title": "seconds",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 71,
+      "x": -2010,
+      "y": 362.5,
+      "nodeTypeKey": "uniform_1",
+      "title": "speed",
+      "uniformName": "uniform_speed",
+      "uniformDisplayName": "speed",
+      "uniformVariableName": "uniform_speed",
+      "uniformId": 1,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "x": -1860,
+      "y": 260,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 72,
+      "x": -1650,
+      "y": 260,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0.3
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 73,
+      "x": -200,
+      "y": 565,
+      "nodeTypeKey": "setVariable",
+      "title": "Set Variable",
+      "customInput": "zoom",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 74,
+      "x": -1450,
+      "y": 682.5,
+      "nodeTypeKey": "uniform_1",
+      "title": "speed",
+      "uniformName": "uniform_speed",
+      "uniformDisplayName": "speed",
+      "uniformVariableName": "uniform_speed",
+      "uniformId": 1,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 75,
+      "x": -1459,
+      "y": 642.5,
+      "nodeTypeKey": "builtinSeconds",
+      "title": "seconds",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 77,
+      "x": -880,
+      "y": 610,
+      "nodeTypeKey": "cos",
+      "title": "Cos",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Angle",
+          "portType": "genType"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 76,
+      "x": -1300,
+      "y": 580,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 78,
+      "x": -1090,
+      "y": 580,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0.5
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 79,
+      "x": -660,
+      "y": 580,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0.5
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 80,
+      "x": -410,
+      "y": 580,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 1.5
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "x": -200,
+      "y": -562.5,
+      "nodeTypeKey": "setVariable",
+      "title": "Set Variable",
+      "customInput": "normUv",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 84,
+      "x": -609,
+      "y": 855,
+      "nodeTypeKey": "uniform_2",
+      "title": "minZoom",
+      "uniformName": "uniform_minZoom",
+      "uniformDisplayName": "minZoom",
+      "uniformVariableName": "uniform_minZoom",
+      "uniformId": 2,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 85,
+      "x": -829,
+      "y": 785,
+      "nodeTypeKey": "uniform_3",
+      "title": "maxZoom",
+      "uniformName": "uniform_maxZoom",
+      "uniformDisplayName": "maxZoom",
+      "uniformVariableName": "uniform_maxZoom",
+      "uniformId": 3,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 86,
+      "x": 386.530165681959,
+      "y": 1200.9404819033007,
+      "nodeTypeKey": "uniform_4",
+      "title": "mirrors",
+      "uniformName": "uniform_mirrors",
+      "uniformDisplayName": "mirrors",
+      "uniformVariableName": "uniform_mirrors",
+      "uniformId": 4,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "x": -410,
+      "y": -1262.5,
+      "nodeTypeKey": "textureFront",
+      "title": "Front Texture",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "RGBA",
+          "portType": "vec4"
+        },
+        {
+          "name": "Color",
+          "portType": "vec3"
+        },
+        {
+          "name": "Alpha",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 89,
+      "x": -1419.9845207760127,
+      "y": -1723.4779945942348,
+      "nodeTypeKey": "toInt",
+      "title": "To Int",
+      "operation": "floor",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "int"
+        }
+      ]
+    },
+    {
+      "id": 90,
+      "x": -1856.8616900350005,
+      "y": -1674.1361512695332,
+      "nodeTypeKey": "uniform_4",
+      "title": "mirrors",
+      "uniformName": "uniform_mirrors",
+      "uniformDisplayName": "mirrors",
+      "uniformVariableName": "uniform_mirrors",
+      "uniformId": 4,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 93,
+      "x": -1656.949823020686,
+      "y": -1746.0268225234738,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 2
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "x": -620,
+      "y": -1262.5,
+      "nodeTypeKey": "normToSrcOrigin",
+      "title": "normToSrcOrigin",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "N",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "x": -880,
+      "y": -517.5,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "-",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            0.5,
+            0.5
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 88,
+      "x": -1187.9338334072368,
+      "y": -1856.004399038316,
+      "nodeTypeKey": "radialSymmetry",
+      "title": "Radial Symmetry",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "Center",
+          "portType": "vec2",
+          "value": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "Folds",
+          "portType": "int",
+          "value": 0
+        },
+        {
+          "name": "Angle",
+          "portType": "float",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 97,
+      "x": -1798.760059615008,
+      "y": -1907.4874394691565,
+      "nodeTypeKey": "builtinSrcOriginCenter",
+      "title": "srcOriginCenter",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 107,
+      "x": -1438.725042703817,
+      "y": -1519.1889078537606,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "x": -1597.725042703817,
+      "y": -1456.6889078537606,
+      "nodeTypeKey": "builtinSeconds",
+      "title": "seconds",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 109,
+      "x": -1588.725042703817,
+      "y": -1416.6889078537606,
+      "nodeTypeKey": "uniform_1",
+      "title": "speed",
+      "uniformName": "uniform_speed",
+      "uniformDisplayName": "speed",
+      "uniformVariableName": "uniform_speed",
+      "uniformId": 1,
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "x": -919.3976847599514,
+      "y": -1703.502046148225,
+      "nodeTypeKey": "rotateAroundPoint",
+      "title": "Rotate Around Point",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "Center",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "Angle",
+          "portType": "float",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 82,
+      "x": -409.11713136212336,
+      "y": -518.3828686378765,
+      "nodeTypeKey": "multiplyVector",
+      "title": "Multiply Vector",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Vector",
+          "portType": "genType"
+        },
+        {
+          "name": "Scalar",
+          "portType": "float",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 83,
+      "x": -660,
+      "y": -247.5,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "zoom",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 111,
+      "x": -916.5633075361807,
+      "y": -1488.3499635524654,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "zoom",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 87,
+      "x": 136.7390472283129,
+      "y": -1717.5286010290297,
+      "nodeTypeKey": "textureFront",
+      "title": "Front Texture",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "RGBA",
+          "portType": "vec4"
+        },
+        {
+          "name": "Color",
+          "portType": "vec3"
+        },
+        {
+          "name": "Alpha",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 99,
+      "x": -1805.1553384090141,
+      "y": -1963.5216026668518,
+      "nodeTypeKey": "frontUV",
+      "title": "Front UV",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "x": 403.87358433876267,
+      "y": -1704.0923110280876,
+      "nodeTypeKey": "output",
+      "title": "Output",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Color",
+          "portType": "vec4",
+          "value": [
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 105,
+      "x": -1232.535750573378,
+      "y": -1563.1888893914415,
+      "nodeTypeKey": "builtinSrcOriginCenter",
+      "title": "srcOriginCenter",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 113,
+      "x": -313.2084279008948,
+      "y": -1708.4458387023742,
+      "nodeTypeKey": "scaleUV",
+      "title": "Scale UV",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "Scale",
+          "portType": "vec2",
+          "value": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "Center",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 114,
+      "x": -581.5689271453093,
+      "y": -1422.5558417746793,
+      "nodeTypeKey": "builtinSrcOriginCenter",
+      "title": "srcOriginCenter",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 115,
+      "x": -644.2349363847499,
+      "y": -1609.4513738785904,
+      "nodeTypeKey": "toVec2",
+      "title": "To Vec2",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "vec2"
+        }
+      ]
+    }
+  ],
+  "wires": [
+    {
+      "startNodeId": 8,
+      "startPortIndex": 0,
+      "endNodeId": 11,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 13,
+      "startPortIndex": 0,
+      "endNodeId": 12,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 13,
+      "startPortIndex": 1,
+      "endNodeId": 12,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 12,
+      "startPortIndex": 0,
+      "endNodeId": 14,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 16,
+      "startPortIndex": 0,
+      "endNodeId": 14,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 20,
+      "startPortIndex": 0,
+      "endNodeId": 19,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 19,
+      "startPortIndex": 0,
+      "endNodeId": 18,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 27,
+      "startPortIndex": 0,
+      "endNodeId": 26,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 27,
+      "startPortIndex": 0,
+      "endNodeId": 29,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 26,
+      "startPortIndex": 0,
+      "endNodeId": 30,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 29,
+      "startPortIndex": 0,
+      "endNodeId": 30,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 30,
+      "startPortIndex": 0,
+      "endNodeId": 31,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 32,
+      "startPortIndex": 0,
+      "endNodeId": 33,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 33,
+      "startPortIndex": 0,
+      "endNodeId": 34,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 36,
+      "startPortIndex": 0,
+      "endNodeId": 35,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 35,
+      "startPortIndex": 0,
+      "endNodeId": 40,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 37,
+      "startPortIndex": 0,
+      "endNodeId": 41,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 41,
+      "startPortIndex": 0,
+      "endNodeId": 40,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 40,
+      "startPortIndex": 0,
+      "endNodeId": 42,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 44,
+      "startPortIndex": 0,
+      "endNodeId": 2,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 45,
+      "startPortIndex": 0,
+      "endNodeId": 32,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 11,
+      "startPortIndex": 0,
+      "endNodeId": 47,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 49,
+      "startPortIndex": 0,
+      "endNodeId": 13,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 50,
+      "startPortIndex": 0,
+      "endNodeId": 35,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 43,
+      "startPortIndex": 0,
+      "endNodeId": 51,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 51,
+      "startPortIndex": 0,
+      "endNodeId": 44,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 52,
+      "startPortIndex": 0,
+      "endNodeId": 41,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 53,
+      "startPortIndex": 0,
+      "endNodeId": 54,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 55,
+      "startPortIndex": 0,
+      "endNodeId": 54,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 54,
+      "startPortIndex": 0,
+      "endNodeId": 67,
+      "endPortIndex": 2,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 47,
+      "startPortIndex": 0,
+      "endNodeId": 67,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 14,
+      "startPortIndex": 0,
+      "endNodeId": 68,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 69,
+      "startPortIndex": 0,
+      "endNodeId": 70,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 71,
+      "startPortIndex": 0,
+      "endNodeId": 70,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 70,
+      "startPortIndex": 0,
+      "endNodeId": 72,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 72,
+      "startPortIndex": 0,
+      "endNodeId": 68,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 68,
+      "startPortIndex": 0,
+      "endNodeId": 21,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 25,
+      "startPortIndex": 0,
+      "endNodeId": 21,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 21,
+      "startPortIndex": 0,
+      "endNodeId": 46,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 46,
+      "startPortIndex": 0,
+      "endNodeId": 23,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 23,
+      "startPortIndex": 0,
+      "endNodeId": 24,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 22,
+      "startPortIndex": 0,
+      "endNodeId": 24,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 24,
+      "startPortIndex": 0,
+      "endNodeId": 17,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 75,
+      "startPortIndex": 0,
+      "endNodeId": 76,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 74,
+      "startPortIndex": 0,
+      "endNodeId": 76,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 76,
+      "startPortIndex": 0,
+      "endNodeId": 78,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 78,
+      "startPortIndex": 0,
+      "endNodeId": 77,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 77,
+      "startPortIndex": 0,
+      "endNodeId": 79,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 79,
+      "startPortIndex": 0,
+      "endNodeId": 80,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 80,
+      "startPortIndex": 0,
+      "endNodeId": 73,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 67,
+      "startPortIndex": 0,
+      "endNodeId": 82,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 83,
+      "startPortIndex": 0,
+      "endNodeId": 82,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 82,
+      "startPortIndex": 0,
+      "endNodeId": 48,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 84,
+      "startPortIndex": 0,
+      "endNodeId": 80,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 85,
+      "startPortIndex": 0,
+      "endNodeId": 79,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 86,
+      "startPortIndex": 0,
+      "endNodeId": 19,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 89,
+      "startPortIndex": 0,
+      "endNodeId": 88,
+      "endPortIndex": 2,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 90,
+      "startPortIndex": 0,
+      "endNodeId": 93,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 93,
+      "startPortIndex": 0,
+      "endNodeId": 89,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 97,
+      "startPortIndex": 0,
+      "endNodeId": 88,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 105,
+      "startPortIndex": 0,
+      "endNodeId": 106,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 108,
+      "startPortIndex": 0,
+      "endNodeId": 107,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 109,
+      "startPortIndex": 0,
+      "endNodeId": 107,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 88,
+      "startPortIndex": 0,
+      "endNodeId": 106,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 99,
+      "startPortIndex": 0,
+      "endNodeId": 88,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 106,
+      "startPortIndex": 0,
+      "endNodeId": 113,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 113,
+      "startPortIndex": 0,
+      "endNodeId": 87,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 114,
+      "startPortIndex": 0,
+      "endNodeId": 113,
+      "endPortIndex": 2,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 111,
+      "startPortIndex": 0,
+      "endNodeId": 115,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 115,
+      "startPortIndex": 0,
+      "endNodeId": 113,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 87,
+      "startPortIndex": 0,
+      "endNodeId": 3,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 107,
+      "startPortIndex": 0,
+      "endNodeId": 88,
+      "endPortIndex": 3,
+      "rerouteNodes": []
+    }
+  ],
+  "comments": [],
+  "nodeIdCounter": 116,
+  "uniformIdCounter": 5,
+  "customNodeIdCounter": 1,
+  "commentIdCounter": 1
+}
