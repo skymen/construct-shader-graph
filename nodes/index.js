@@ -255,6 +255,56 @@ import { SDFColorNode } from "./SDFColorNode.js";
 // Import radial symmetry node
 import { RadialSymmetryNode } from "./RadialSymmetryNode.js";
 
+// Import ease nodes - Sine
+import { EaseInSineNode } from "./EaseInSineNode.js";
+import { EaseOutSineNode } from "./EaseOutSineNode.js";
+import { EaseInOutSineNode } from "./EaseInOutSineNode.js";
+
+// Import ease nodes - Quad
+import { EaseInQuadNode } from "./EaseInQuadNode.js";
+import { EaseOutQuadNode } from "./EaseOutQuadNode.js";
+import { EaseInOutQuadNode } from "./EaseInOutQuadNode.js";
+
+// Import ease nodes - Cubic
+import { EaseInCubicNode } from "./EaseInCubicNode.js";
+import { EaseOutCubicNode } from "./EaseOutCubicNode.js";
+import { EaseInOutCubicNode } from "./EaseInOutCubicNode.js";
+
+// Import ease nodes - Quart
+import { EaseInQuartNode } from "./EaseInQuartNode.js";
+import { EaseOutQuartNode } from "./EaseOutQuartNode.js";
+import { EaseInOutQuartNode } from "./EaseInOutQuartNode.js";
+
+// Import ease nodes - Quint
+import { EaseInQuintNode } from "./EaseInQuintNode.js";
+import { EaseOutQuintNode } from "./EaseOutQuintNode.js";
+import { EaseInOutQuintNode } from "./EaseInOutQuintNode.js";
+
+// Import ease nodes - Expo
+import { EaseInExpoNode } from "./EaseInExpoNode.js";
+import { EaseOutExpoNode } from "./EaseOutExpoNode.js";
+import { EaseInOutExpoNode } from "./EaseInOutExpoNode.js";
+
+// Import ease nodes - Circ
+import { EaseInCircNode } from "./EaseInCircNode.js";
+import { EaseOutCircNode } from "./EaseOutCircNode.js";
+import { EaseInOutCircNode } from "./EaseInOutCircNode.js";
+
+// Import ease nodes - Back
+import { EaseInBackNode } from "./EaseInBackNode.js";
+import { EaseOutBackNode } from "./EaseOutBackNode.js";
+import { EaseInOutBackNode } from "./EaseInOutBackNode.js";
+
+// Import ease nodes - Elastic
+import { EaseInElasticNode } from "./EaseInElasticNode.js";
+import { EaseOutElasticNode } from "./EaseOutElasticNode.js";
+import { EaseInOutElasticNode } from "./EaseInOutElasticNode.js";
+
+// Import ease nodes - Bounce
+import { EaseInBounceNode } from "./EaseInBounceNode.js";
+import { EaseOutBounceNode } from "./EaseOutBounceNode.js";
+import { EaseInOutBounceNode } from "./EaseInOutBounceNode.js";
+
 // Export NODE_TYPES object
 export const NODE_TYPES = {
   math: MathNode,
@@ -497,4 +547,54 @@ export const NODE_TYPES = {
 
   // Radial symmetry
   radialSymmetry: RadialSymmetryNode,
+
+  // Ease nodes - Sine
+  easeInSine: EaseInSineNode,
+  easeOutSine: EaseOutSineNode,
+  easeInOutSine: EaseInOutSineNode,
+
+  // Ease nodes - Quad
+  easeInQuad: EaseInQuadNode,
+  easeOutQuad: EaseOutQuadNode,
+  easeInOutQuad: EaseInOutQuadNode,
+
+  // Ease nodes - Cubic
+  easeInCubic: EaseInCubicNode,
+  easeOutCubic: EaseOutCubicNode,
+  easeInOutCubic: EaseInOutCubicNode,
+
+  // Ease nodes - Quart
+  easeInQuart: EaseInQuartNode,
+  easeOutQuart: EaseOutQuartNode,
+  easeInOutQuart: EaseInOutQuartNode,
+
+  // Ease nodes - Quint
+  easeInQuint: EaseInQuintNode,
+  easeOutQuint: EaseOutQuintNode,
+  easeInOutQuint: EaseInOutQuintNode,
+
+  // Ease nodes - Expo
+  easeInExpo: EaseInExpoNode,
+  easeOutExpo: EaseOutExpoNode,
+  easeInOutExpo: EaseInOutExpoNode,
+
+  // Ease nodes - Circ
+  easeInCirc: EaseInCircNode,
+  easeOutCirc: EaseOutCircNode,
+  easeInOutCirc: EaseInOutCircNode,
+
+  // Ease nodes - Back
+  easeInBack: EaseInBackNode,
+  easeOutBack: EaseOutBackNode,
+  easeInOutBack: EaseInOutBackNode,
+
+  // Ease nodes - Elastic
+  easeInElastic: EaseInElasticNode,
+  easeOutElastic: EaseOutElasticNode,
+  easeInOutElastic: EaseInOutElasticNode,
+
+  // Ease nodes - Bounce
+  easeInBounce: EaseInBounceNode,
+  easeOutBounce: EaseOutBounceNode,
+  easeInOutBounce: EaseInOutBounceNode,
 };
