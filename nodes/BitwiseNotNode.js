@@ -5,7 +5,7 @@ export const BitwiseNotNode = new NodeType(
   "Bitwise NOT",
   [{ name: "Value", type: "int" }],
   [{ name: "Result", type: "int" }],
-  NODE_COLORS.utility,
+  NODE_COLORS.colorInt,
   {
     webgl1: {
       dependency: "",

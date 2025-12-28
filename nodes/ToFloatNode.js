@@ -5,7 +5,7 @@ export const ToFloatNode = new NodeType(
   "To Float",
   [{ name: "Value", type: "T" }],
   [{ name: "Result", type: "float" }],
-  NODE_COLORS.vectorBuild,
+  NODE_COLORS.colorFloat,
   {
     webgl1: {
       dependency: "",

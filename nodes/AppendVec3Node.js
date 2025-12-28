@@ -8,7 +8,7 @@ export const AppendVec3Node = new NodeType(
     { name: "B", type: "custom" },
   ],
   [{ name: "Result", type: "vec3" }],
-  NODE_COLORS.vectorBuild,
+  NODE_COLORS.colorVec3,
   {
     webgl1: {
       dependency: "",

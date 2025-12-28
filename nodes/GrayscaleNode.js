@@ -5,7 +5,7 @@ export const GrayscaleNode = new NodeType(
   "Grayscale",
   [{ name: "RGB", type: "vec3" }],
   [{ name: "Gray", type: "float" }],
-  NODE_COLORS.colorAdjust,
+  NODE_COLORS.colorFloat,
   {
     webgl1: {
       dependency: "",

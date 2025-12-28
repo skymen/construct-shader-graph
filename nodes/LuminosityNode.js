@@ -5,7 +5,7 @@ export const LuminosityNode = new NodeType(
   "Luminosity",
   [{ name: "Value", type: "genType" }],
   [{ name: "Result", type: "float" }],
-  NODE_COLORS.colorAdjust,
+  NODE_COLORS.colorFloat,
   {
     webgl1: {
       dependency: "",

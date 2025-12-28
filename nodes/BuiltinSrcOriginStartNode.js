@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const BuiltinSrcOriginStartNode = new NodeType(
   "srcOriginStart",
   [],
   [{ name: "Value", type: "vec2" }],
-  PORT_TYPES.vec2.color,
+  NODE_COLORS.colorVec2,
   {
     webgl1: {
       dependency: "",

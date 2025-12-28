@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const IntInputNode = new NodeType(
   "Int Input",
   [], // No inputs
   [{ name: "Value", type: "int" }],
-  PORT_TYPES.int.color,
+  NODE_COLORS.colorInt,
   {
     webgl1: {
       dependency: "",

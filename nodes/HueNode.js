@@ -8,7 +8,7 @@ export const HueNode = new NodeType(
     { name: "Shift", type: "float" },
   ],
   [{ name: "Result", type: "vec3" }],
-  NODE_COLORS.colorAdjust,
+  NODE_COLORS.colorVec3,
   {
     webgl1: {
       dependency: `vec3 hue_rgb2hsl(vec3 c) {

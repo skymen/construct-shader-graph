@@ -5,7 +5,7 @@ export const LinearizeDepthNode = new NodeType(
   "Linearize Depth",
   [{ name: "Depth", type: "float" }],
   [{ name: "Linear", type: "float" }],
-  NODE_COLORS.utility,
+  NODE_COLORS.colorFloat,
   {
     webgl1: {
       dependency: "",

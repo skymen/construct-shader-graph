@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const DeterminantNode = new NodeType(
   "Determinant",
   [{ name: "Matrix", type: "genMatType" }],
   [{ name: "Result", type: "float" }],
-  PORT_TYPES.mat3.color,
+  NODE_COLORS.colorMat3,
   {
     webgl1: {
       dependency: "",

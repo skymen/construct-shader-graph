@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const Mat2DecomposeNode = new NodeType(
   "Mat2 Decompose",
@@ -8,7 +8,7 @@ export const Mat2DecomposeNode = new NodeType(
     { name: "V0", type: "vec2" },
     { name: "V1", type: "vec2" },
   ],
-  PORT_TYPES.mat2.color,
+  NODE_COLORS.colorMat2,
   {
     webgl1: {
       dependency: "",

@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, PORT_TYPES, toWGSLType } from "./PortTypes.js";
 
 export const MatrixMultiplyNode = new NodeType(
   "Matrix Multiply",
@@ -8,7 +8,7 @@ export const MatrixMultiplyNode = new NodeType(
     { name: "B", type: "genMatType" },
   ],
   [{ name: "Result", type: "genMatType" }],
-  PORT_TYPES.mat3.color,
+  NODE_COLORS.colorMat3,
   {
     webgl1: {
       dependency: "",

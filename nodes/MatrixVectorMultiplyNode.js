@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 // Mat2 * Vec2
 export const Mat2VectorMultiplyNode = new NodeType(
@@ -9,7 +9,7 @@ export const Mat2VectorMultiplyNode = new NodeType(
     { name: "Vector", type: "vec2" },
   ],
   [{ name: "Result", type: "vec2" }],
-  PORT_TYPES.mat2.color,
+  NODE_COLORS.colorMat2,
   {
     webgl1: {
       dependency: "",
@@ -39,7 +39,7 @@ export const Mat3VectorMultiplyNode = new NodeType(
     { name: "Vector", type: "vec3" },
   ],
   [{ name: "Result", type: "vec3" }],
-  PORT_TYPES.mat3.color,
+  NODE_COLORS.colorMat3,
   {
     webgl1: {
       dependency: "",
@@ -78,7 +78,7 @@ export const Mat4VectorMultiplyNode = new NodeType(
     { name: "Vector", type: "vec4" },
   ],
   [{ name: "Result", type: "vec4" }],
-  PORT_TYPES.mat4.color,
+  NODE_COLORS.colorMat4,
   {
     webgl1: {
       dependency: "",

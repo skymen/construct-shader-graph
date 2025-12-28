@@ -965,7 +965,7 @@ class BlueprintSystem {
     this.autoPanSpeed = 10; // Pixels per frame to pan
     this.autoPanInterval = null;
 
-    this.drawTextZoomThreshold = 0;
+    this.drawTextZoomThreshold = 0.2;
     this.drawShadowZoomThreshold = 0.7;
 
     // Wire insertion state - for dragging unconnected nodes onto wires

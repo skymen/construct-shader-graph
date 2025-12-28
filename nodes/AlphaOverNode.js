@@ -8,7 +8,7 @@ export const AlphaOverNode = new NodeType(
     { name: "Foreground", type: "vec4" },
   ],
   [{ name: "Result", type: "vec4" }],
-  NODE_COLORS.colorBlend,
+  NODE_COLORS.colorVec4,
   {
     webgl1: {
       dependency: "",

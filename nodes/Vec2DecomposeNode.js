@@ -8,7 +8,7 @@ export const Vec2DecomposeNode = new NodeType(
     { name: "X", type: "float" },
     { name: "Y", type: "float" },
   ],
-  NODE_COLORS.vectorBuild,
+  NODE_COLORS.colorVec2,
   {
     webgl1: {
       dependency: "",

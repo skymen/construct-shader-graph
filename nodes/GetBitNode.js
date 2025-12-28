@@ -8,7 +8,7 @@ export const GetBitNode = new NodeType(
     { name: "Index", type: "int" },
   ],
   [{ name: "Bit", type: "bool" }],
-  NODE_COLORS.utility,
+  NODE_COLORS.colorInt,
   {
     webgl1: {
       dependency: "",

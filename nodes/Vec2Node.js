@@ -8,7 +8,7 @@ export const Vec2Node = new NodeType(
     { name: "Y", type: "float" },
   ],
   [{ name: "Vec2", type: "vec2" }],
-  NODE_COLORS.vectorBuild,
+  NODE_COLORS.colorVec2,
   {
     webgl1: {
       dependency: "",

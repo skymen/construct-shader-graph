@@ -8,7 +8,7 @@ export const SetVec4AlphaNode = new NodeType(
     { name: "Alpha", type: "float" },
   ],
   [{ name: "Result", type: "vec4" }],
-  NODE_COLORS.colorAdjust,
+  NODE_COLORS.colorVec4,
   {
     webgl1: {
       dependency: `vec4 setVec4Alpha(vec4 color, float alpha, bool isPremultiplied) {

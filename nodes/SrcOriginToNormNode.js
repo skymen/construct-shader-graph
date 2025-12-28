@@ -23,6 +23,6 @@ export const SrcOriginToNormNode = new NodeType(
         `    var ${outputs[0]}: vec2<f32> = c3_srcOriginToNorm(${inputs[0]});`,
     },
   },
-  "Builtin",
+  "Utility",
   ["source", "origin", "normalized", "coordinates", "uv"]
 );

@@ -8,7 +8,7 @@ export const StepNode = new NodeType(
     { name: "Value", type: "genType" },
   ],
   [{ name: "Result", type: "genType" }],
-  NODE_COLORS.comparison,
+  NODE_COLORS.math,
   {
     webgl1: {
       dependency: "",

@@ -8,7 +8,7 @@ export const SaturationNode = new NodeType(
     { name: "Amount", type: "float" },
   ],
   [{ name: "Result", type: "vec3" }],
-  NODE_COLORS.colorAdjust,
+  NODE_COLORS.colorVec3,
   {
     webgl1: {
       dependency: `vec3 saturation_rgb2hsl(vec3 c) {

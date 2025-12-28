@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const PremultiplyNode = new NodeType(
   "Premultiply",
   [{ name: "Color", type: "vec4" }],
   [{ name: "Result", type: "vec4" }],
-  PORT_TYPES.vec4.color,
+  NODE_COLORS.colorVec4,
   {
     webgl1: {
       dependency: "",

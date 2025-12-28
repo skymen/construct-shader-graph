@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const PosterizeNode = new NodeType(
   "Posterize",
@@ -8,7 +8,7 @@ export const PosterizeNode = new NodeType(
     { name: "Levels", type: "float", defaultValue: 10.0 },
   ],
   [{ name: "Result", type: "vec3" }],
-  PORT_TYPES.vec3.color,
+  NODE_COLORS.colorVec3,
   {
     webgl1: {
       dependency: "",

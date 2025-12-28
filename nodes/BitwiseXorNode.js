@@ -8,7 +8,7 @@ export const BitwiseXorNode = new NodeType(
     { name: "B", type: "int" },
   ],
   [{ name: "Result", type: "int" }],
-  NODE_COLORS.utility,
+  NODE_COLORS.colorInt,
   {
     webgl1: {
       dependency: "",

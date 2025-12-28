@@ -5,7 +5,7 @@ export const RGBtoHSLNode = new NodeType(
   "RGB to HSL",
   [{ name: "RGB", type: "vec3" }],
   [{ name: "HSL", type: "vec3" }],
-  NODE_COLORS.colorConvert,
+  NODE_COLORS.colorVec3,
   {
     webgl1: {
       dependency: `vec3 rgb2hsl(vec3 c) {

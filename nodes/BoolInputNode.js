@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const BoolInputNode = new NodeType(
   "Bool Input",
   [], // No inputs
   [{ name: "Value", type: "bool" }],
-  PORT_TYPES.bool.color,
+  NODE_COLORS.colorBool,
   {
     webgl1: {
       dependency: "",

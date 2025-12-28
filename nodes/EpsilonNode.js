@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const EpsilonNode = new NodeType(
   "Epsilon",
   [],
   [{ name: "Value", type: "float" }],
-  PORT_TYPES.float.color,
+  NODE_COLORS.constants,
   {
     webgl1: {
       dependency: "",

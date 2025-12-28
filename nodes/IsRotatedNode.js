@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const IsRotatedNode = new NodeType(
   "Is Rotated",
   [], // No inputs
   [{ name: "Rotated", type: "bool" }],
-  PORT_TYPES.bool.color,
+  NODE_COLORS.colorBool,
   {
     webgl1: {
       dependency: "",

@@ -9,7 +9,7 @@ export const TextureFrontNode = new NodeType(
     { name: "Color", type: "vec3" },
     { name: "Alpha", type: "float" },
   ],
-  NODE_COLORS.textureSample,
+  NODE_COLORS.textureSamplePreset,
   {
     webgl1: {
       dependency: "",

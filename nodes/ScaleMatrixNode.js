@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const ScaleMatrixNode = new NodeType(
   "Scale Matrix",
   [{ name: "Scale", type: "vec3" }],
   [{ name: "Matrix", type: "mat4" }],
-  PORT_TYPES.mat4.color,
+  NODE_COLORS.colorMat4,
   {
     webgl1: {
       dependency: "",

@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const InverseMatrixNode = new NodeType(
   "Inverse Matrix",
   [{ name: "Matrix", type: "genMatType" }],
   [{ name: "Result", type: "genMatType" }],
-  PORT_TYPES.mat3.color,
+  NODE_COLORS.colorMat3,
   {
     webgl1: {
       dependency: `

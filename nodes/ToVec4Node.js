@@ -5,7 +5,7 @@ export const ToVec4Node = new NodeType(
   "To Vec4",
   [{ name: "Value", type: "T" }],
   [{ name: "Result", type: "vec4" }],
-  NODE_COLORS.vectorBuild,
+  NODE_COLORS.colorVec4,
   {
     webgl1: {
       dependency: "",

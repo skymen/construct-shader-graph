@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const RotationMatrixNode = new NodeType(
   "Rotation Matrix",
@@ -8,7 +8,7 @@ export const RotationMatrixNode = new NodeType(
     { name: "Angle", type: "float" },
   ],
   [{ name: "Matrix", type: "mat4" }],
-  PORT_TYPES.mat4.color,
+  NODE_COLORS.colorMat4,
   {
     webgl1: {
       dependency: `

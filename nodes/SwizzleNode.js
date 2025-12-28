@@ -6,7 +6,7 @@ export const SwizzleNode = new NodeType(
   "Swizzle",
   [{ name: "Value", type: "genType" }],
   [{ name: "Result", type: "custom" }],
-  NODE_COLORS.vectorBuild,
+  NODE_COLORS.vectorOp,
   {
     webgl1: {
       dependency: "",

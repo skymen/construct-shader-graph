@@ -10,7 +10,7 @@ export const Vec4DecomposeNode = new NodeType(
     { name: "Z", type: "float" },
     { name: "W", type: "float" },
   ],
-  NODE_COLORS.vectorBuild,
+  NODE_COLORS.colorVec4,
   {
     webgl1: {
       dependency: "",

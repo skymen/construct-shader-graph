@@ -5,7 +5,7 @@ export const TextureDepthNode = new NodeType(
   "Depth Texture",
   [{ name: "UV", type: "vec2" }],
   [{ name: "Depth", type: "float" }],
-  NODE_COLORS.textureSample,
+  NODE_COLORS.textureSamplePreset,
   {
     webgl1: {
       dependency: "",

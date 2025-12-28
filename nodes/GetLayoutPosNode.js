@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const GetLayoutPosNode = new NodeType(
   "getLayoutPos",
   [{ name: "UV", type: "vec2" }],
   [{ name: "Value", type: "vec2" }],
-  PORT_TYPES.vec2.color,
+  NODE_COLORS.coordConvert,
   {
     webgl1: {
       dependency: "",
@@ -25,6 +25,6 @@ export const GetLayoutPosNode = new NodeType(
         `    var ${outputs[0]}: vec2<f32> = c3_getLayoutPos(${inputs[0]});`,
     },
   },
-  "Builtin",
+  "Utility",
   ["layout", "position", "coordinates"]
 );

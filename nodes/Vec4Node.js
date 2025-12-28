@@ -10,7 +10,7 @@ export const Vec4Node = new NodeType(
     { name: "W", type: "float" },
   ],
   [{ name: "Vec4", type: "vec4" }],
-  NODE_COLORS.vectorBuild,
+  NODE_COLORS.colorVec4,
   {
     webgl1: {
       dependency: "",

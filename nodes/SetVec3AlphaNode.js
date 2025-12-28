@@ -9,7 +9,7 @@ export const SetVec3AlphaNode = new NodeType(
     { name: "New Alpha", type: "float" },
   ],
   [{ name: "Result", type: "vec3" }],
-  NODE_COLORS.colorAdjust,
+  NODE_COLORS.colorVec3,
   {
     webgl1: {
       dependency: `vec3 setVec3Alpha(vec3 color, float oldAlpha, float newAlpha) {

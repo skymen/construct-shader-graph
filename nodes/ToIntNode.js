@@ -5,7 +5,7 @@ export const ToIntNode = new NodeType(
   "To Int",
   [{ name: "Value", type: "T" }],
   [{ name: "Result", type: "int" }],
-  NODE_COLORS.vectorBuild,
+  NODE_COLORS.colorInt,
   {
     webgl1: {
       dependency: "",
