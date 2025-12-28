@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 const N1 = "7.5625";
 const D1 = "2.75";
@@ -8,7 +8,7 @@ export const EaseInOutBounceNode = new NodeType(
   "Ease In Out Bounce",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: `
@@ -126,4 +126,3 @@ EaseInOutBounceNode.manual = {
     </ul>
   `,
 };
-

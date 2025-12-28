@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const PixellateNode = new NodeType(
   "Pixellate",
@@ -8,7 +8,7 @@ export const PixellateNode = new NodeType(
     { name: "PixelSize", type: "vec2" },
   ],
   [{ name: "UV", type: "vec2" }],
-  PORT_TYPES.vec2.color,
+  NODE_COLORS.uvTransform,
   {
     webgl1: {
       dependency: "",

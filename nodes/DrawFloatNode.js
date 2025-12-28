@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const DrawFloatNode = new NodeType(
   "Draw Float",
@@ -10,7 +10,7 @@ export const DrawFloatNode = new NodeType(
     { name: "Size", type: "float", defaultValue: 1.0 },
   ],
   [{ name: "Color", type: "vec3" }],
-  PORT_TYPES.vec3.color,
+  NODE_COLORS.debug,
   {
     webgl1: {
       dependency: `

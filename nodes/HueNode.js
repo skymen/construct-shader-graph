@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const HueNode = new NodeType(
   "Hue",
@@ -8,7 +8,7 @@ export const HueNode = new NodeType(
     { name: "Shift", type: "float" },
   ],
   [{ name: "Result", type: "vec3" }],
-  PORT_TYPES.vec3.color,
+  NODE_COLORS.colorAdjust,
   {
     webgl1: {
       dependency: `vec3 hue_rgb2hsl(vec3 c) {

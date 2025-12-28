@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SaturationNode = new NodeType(
   "Saturation",
@@ -8,7 +8,7 @@ export const SaturationNode = new NodeType(
     { name: "Amount", type: "float" },
   ],
   [{ name: "Result", type: "vec3" }],
-  PORT_TYPES.vec3.color,
+  NODE_COLORS.colorAdjust,
   {
     webgl1: {
       dependency: `vec3 saturation_rgb2hsl(vec3 c) {

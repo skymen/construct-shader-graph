@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SamplerFrontNode = new NodeType(
   "samplerFront",
   [],
   [{ name: "Sampler", type: "texture" }],
-  PORT_TYPES.texture.color,
+  NODE_COLORS.textureSample,
   {
     webgl1: {
       dependency: "",

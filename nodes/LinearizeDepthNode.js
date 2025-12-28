@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const LinearizeDepthNode = new NodeType(
   "Linearize Depth",
   [{ name: "Depth", type: "float" }],
   [{ name: "Linear", type: "float" }],
-  PORT_TYPES.float.color,
+  NODE_COLORS.utility,
   {
     webgl1: {
       dependency: "",

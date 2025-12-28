@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const TilingNode = new NodeType(
   "Tiling",
@@ -10,7 +11,7 @@ export const TilingNode = new NodeType(
     { name: "Offset", type: "vec2" },
   ],
   [{ name: "Result", type: "vec2" }],
-  "#4a3a5a",
+  NODE_COLORS.uvTransform,
   {
     webgl1: {
       dependency: "",

@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const TwirlNode = new NodeType(
   "Twirl",
@@ -9,7 +10,7 @@ export const TwirlNode = new NodeType(
     { name: "Radius", type: "float" },
   ],
   [{ name: "Result", type: "vec2" }],
-  "#4a3a5a",
+  NODE_COLORS.uvDistort,
   {
     webgl1: {
       dependency: `vec2 twirl(vec2 uv, vec2 center, float strength, float radius) {

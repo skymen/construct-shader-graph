@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const TextureFrontNode = new NodeType(
   "Front Texture",
@@ -8,7 +9,7 @@ export const TextureFrontNode = new NodeType(
     { name: "Color", type: "vec3" },
     { name: "Alpha", type: "float" },
   ],
-  "#3a4a4a",
+  NODE_COLORS.textureSample,
   {
     webgl1: {
       dependency: "",

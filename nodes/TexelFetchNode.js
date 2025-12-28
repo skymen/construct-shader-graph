@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 import { toWGSLType } from "./PortTypes.js";
 
 export const TexelFetchNode = new NodeType(
@@ -10,7 +11,7 @@ export const TexelFetchNode = new NodeType(
     { name: "LOD", type: "int" },
   ],
   [{ name: "Color", type: "custom" }],
-  "#90e24a",
+  NODE_COLORS.textureSample,
   {
     webgl1: {
       dependency: "",

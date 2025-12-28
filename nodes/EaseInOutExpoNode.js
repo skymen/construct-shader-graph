@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const EaseInOutExpoNode = new NodeType(
   "Ease In Out Expo",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",
@@ -26,7 +26,15 @@ export const EaseInOutExpoNode = new NodeType(
     },
   },
   "Easing",
-  ["ease", "easing", "expo", "exponential", "inout", "animation", "interpolation"]
+  [
+    "ease",
+    "easing",
+    "expo",
+    "exponential",
+    "inout",
+    "animation",
+    "interpolation",
+  ]
 );
 
 EaseInOutExpoNode.manual = {
@@ -54,4 +62,3 @@ T ≥ 0.5: (2 - 2^(-20T + 10)) / 2</code></pre>
     </ul>
   `,
 };
-

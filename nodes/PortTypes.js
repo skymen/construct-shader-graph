@@ -1,4 +1,49 @@
 // Port type definitions with colors
+
+// Node header colors - organized by what the node DOES
+export const NODE_COLORS = {
+  // === PROCESSING: Math & Logic ===
+  math: "#5b8a5b", // Sage green - arithmetic, functions
+  comparison: "#5b7a8a", // Steel blue - compare, select, step
+  trigonometry: "#4a8a7a", // Teal - sin, cos, tan, etc.
+
+  // === PROCESSING: Vectors ===
+  vectorOp: "#8a6a4a", // Warm brown - dot, cross, normalize
+  vectorBuild: "#6a5a4a", // Dark brown - compose, decompose, swizzle
+
+  // === PROCESSING: Coordinates ===
+  uvDistort: "#7a5a8a", // Purple - twirl, bulge, warp
+  uvTransform: "#6a6a8a", // Slate - scale, tile, wrap
+  coordConvert: "#5a6a7a", // Blue-gray - polar, spherical
+
+  // === PROCESSING: Procedural ===
+  noise: "#8a5a9a", // Vibrant purple - noise generation
+  hash: "#7a4a8a", // Darker purple - hash functions
+
+  // === PROCESSING: Color ===
+  colorAdjust: "#a05a7a", // Rose - hue, saturation, grayscale
+  colorBlend: "#8a4a6a", // Deep rose - blend modes, alpha over
+  colorConvert: "#7a5a6a", // Muted rose - RGB↔HSL
+
+  // === PROCESSING: Texture ===
+  textureSample: "#6a9a4a", // Green - sampling operations
+  textureInfo: "#5a8a5a", // Muted green - dimensions, texel size
+
+  // === PROCESSING: SDF ===
+  sdfShape: "#2d6e4f", // Forest green - primitives
+  sdfOperation: "#4a6e2d", // Olive - boolean ops
+  sdfOutput: "#6e4a2d", // Brown - fill, stroke, color
+
+  // === PROCESSING: Animation ===
+  easing: "#d95a30", // Vibrant orange - easing curves ff4000
+
+  // === SPECIAL NODES ===
+  output: "#3a3a4a", // Dark neutral - terminal node
+  variable: "#9b59b6", // Purple - storage/memory
+  debug: "#b85a4a", // Terracotta - debug visualization
+  utility: "#5a5a6a", // Neutral - misc utilities
+};
+
 // Basic port types
 const genType = {
   color: "#c084fc",

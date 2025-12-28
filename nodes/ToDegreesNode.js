@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const ToDegreesNode = new NodeType(
   "To Degrees",
   [{ name: "Radians", type: "genType" }],
   [{ name: "Degrees", type: "genType" }],
-  PORT_TYPES.T.color,
+  NODE_COLORS.trigonometry,
   {
     webgl1: {
       dependency: "",

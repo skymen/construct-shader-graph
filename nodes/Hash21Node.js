@@ -1,10 +1,11 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const Hash21Node = new NodeType(
   "Hash 2→1",
   [{ name: "Seed", type: "vec2" }],
   [{ name: "Result", type: "float" }],
-  "#4a3a5a",
+  NODE_COLORS.hash,
   {
     webgl1: {
       dependency: `float hash21(vec2 p) {

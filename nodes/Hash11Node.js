@@ -1,10 +1,11 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const Hash11Node = new NodeType(
   "Hash 1→1",
   [{ name: "Seed", type: "float" }],
   [{ name: "Result", type: "float" }],
-  "#4a3a5a",
+  NODE_COLORS.hash,
   {
     webgl1: {
       dependency: `float hash11(float p) {

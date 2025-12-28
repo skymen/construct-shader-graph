@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const VoronoiNoiseNode = new NodeType(
   "Voronoi Noise",
@@ -8,7 +9,7 @@ export const VoronoiNoiseNode = new NodeType(
     { name: "Offset", type: "vec2" },
   ],
   [{ name: "Result", type: "float" }],
-  "#4a3a5a",
+  NODE_COLORS.noise,
   {
     webgl1: {
       dependency: `vec2 hash2_vor(vec2 p) {

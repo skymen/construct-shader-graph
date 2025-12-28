@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const GetBitNode = new NodeType(
   "Get Bit",
@@ -8,7 +8,7 @@ export const GetBitNode = new NodeType(
     { name: "Index", type: "int" },
   ],
   [{ name: "Bit", type: "bool" }],
-  PORT_TYPES.bool.color,
+  NODE_COLORS.utility,
   {
     webgl1: {
       dependency: "",

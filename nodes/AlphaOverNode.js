@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const AlphaOverNode = new NodeType(
   "Alpha Over",
@@ -8,7 +8,7 @@ export const AlphaOverNode = new NodeType(
     { name: "Foreground", type: "vec4" },
   ],
   [{ name: "Result", type: "vec4" }],
-  PORT_TYPES.vec4.color,
+  NODE_COLORS.colorBlend,
   {
     webgl1: {
       dependency: "",

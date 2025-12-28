@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 import { toWGSLType } from "./PortTypes.js";
 
 export const TextureSampleLODNode = new NodeType(
@@ -9,7 +10,7 @@ export const TextureSampleLODNode = new NodeType(
     { name: "LOD", type: "float" },
   ],
   [{ name: "Color", type: "custom" }],
-  "#90e24a",
+  NODE_COLORS.textureSample,
   {
     webgl1: {
       dependency: `#extension GL_EXT_shader_texture_lod : enable`,

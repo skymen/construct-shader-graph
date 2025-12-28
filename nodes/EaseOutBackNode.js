@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 const C1 = "1.70158";
 const C3 = "2.70158"; // c1 + 1
@@ -8,7 +8,7 @@ export const EaseOutBackNode = new NodeType(
   "Ease Out Back",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",
@@ -29,7 +29,16 @@ export const EaseOutBackNode = new NodeType(
     },
   },
   "Easing",
-  ["ease", "easing", "back", "overshoot", "out", "animation", "interpolation", "bounce"]
+  [
+    "ease",
+    "easing",
+    "back",
+    "overshoot",
+    "out",
+    "animation",
+    "interpolation",
+    "bounce",
+  ]
 );
 
 EaseOutBackNode.manual = {
@@ -59,4 +68,3 @@ Result = 1 + c3 * (T - 1)³ + c1 * (T - 1)²</code></pre>
     </div>
   `,
 };
-

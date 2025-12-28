@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const RotateAroundPointNode = new NodeType(
   "Rotate Around Point",
@@ -8,7 +9,7 @@ export const RotateAroundPointNode = new NodeType(
     { name: "Angle", type: "float" },
   ],
   [{ name: "Result", type: "vec2" }],
-  "#4a3a5a",
+  NODE_COLORS.vectorOp,
   {
     webgl1: {
       dependency: `vec2 rotateAroundPoint(vec2 uv, vec2 center, float angle) {

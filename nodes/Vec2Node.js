@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const Vec2Node = new NodeType(
   "Vec2",
@@ -7,7 +8,7 @@ export const Vec2Node = new NodeType(
     { name: "Y", type: "float" },
   ],
   [{ name: "Vec2", type: "vec2" }],
-  "#4a3a3a",
+  NODE_COLORS.vectorBuild,
   {
     webgl1: {
       dependency: "",

@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const RadialSymmetryNode = new NodeType(
   "Radial Symmetry",
@@ -11,7 +12,7 @@ export const RadialSymmetryNode = new NodeType(
     { name: "Mirror", type: "bool" },
   ],
   [{ name: "Result", type: "vec2" }],
-  "#4a3a5a",
+  NODE_COLORS.uvDistort,
   {
     webgl1: {
       dependency: `vec2 radialSymmetry(vec2 uv, vec2 center, int folds, float foldAngle, float sampleAngle, bool mirror) {

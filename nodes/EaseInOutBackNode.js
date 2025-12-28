@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 const C1 = "1.70158";
 const C2 = "2.5949095"; // c1 * 1.525
@@ -8,7 +8,7 @@ export const EaseInOutBackNode = new NodeType(
   "Ease In Out Back",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",
@@ -56,4 +56,3 @@ T ≥ 0.5: ((2T-2)² * ((c2+1) * (2T-2) + c2) + 2) / 2</code></pre>
     </ul>
   `,
 };
-

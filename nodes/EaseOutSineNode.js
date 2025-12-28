@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 const PI = "3.14159265359";
 
@@ -7,7 +7,7 @@ export const EaseOutSineNode = new NodeType(
   "Ease Out Sine",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",
@@ -52,4 +52,3 @@ EaseOutSineNode.manual = {
     </ul>
   `,
 };
-

@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const MixNode = new NodeType(
   "Mix",
@@ -9,7 +9,7 @@ export const MixNode = new NodeType(
     { name: "T", type: "genType2" },
   ],
   [{ name: "Result", type: "genType" }],
-  PORT_TYPES.T.color,
+  NODE_COLORS.math,
   {
     webgl1: {
       dependency: "",
@@ -35,7 +35,8 @@ export const MixNode = new NodeType(
 
 // Manual entry for documentation
 MixNode.manual = {
-  description: "Linearly interpolates between two values based on a blend factor. When T is 0, the result is A. When T is 1, the result is B. Values in between produce a smooth transition.",
+  description:
+    "Linearly interpolates between two values based on a blend factor. When T is 0, the result is A. When T is 1, the result is B. Values in between produce a smooth transition.",
   html: `
     <h4>Formula</h4>
     <pre><code>Result = A * (1 - T) + B * T</code></pre>
@@ -59,5 +60,5 @@ MixNode.manual = {
     <div class="tip">
       <strong>Tip:</strong> Use a noise texture or gradient as T to create organic blending between two textures!
     </div>
-  `
+  `,
 };

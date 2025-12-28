@@ -1,10 +1,11 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const UniformFloatNode = new NodeType(
   "Uniform Float",
   [],
   [{ name: "Value", type: "float" }],
-  "#4a90e2",
+  NODE_COLORS.variable,
   {
     webgl1: {
       dependency: "",

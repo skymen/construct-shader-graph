@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const EaseOutExpoNode = new NodeType(
   "Ease Out Expo",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",
@@ -50,4 +50,3 @@ EaseOutExpoNode.manual = {
     </ul>
   `,
 };
-

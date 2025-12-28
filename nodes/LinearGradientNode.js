@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const LinearGradientNode = new NodeType(
   "Linear Gradient",
@@ -10,7 +11,7 @@ export const LinearGradientNode = new NodeType(
     { name: "Color B", type: "vec4" },
   ],
   [{ name: "Color", type: "vec4" }],
-  "#e2844a",
+  NODE_COLORS.colorBlend,
   {
     webgl1: {
       dependency: "",

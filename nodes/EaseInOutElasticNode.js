@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 const PI = "3.14159265359";
 const C5 = "1.3962634"; // (2 * PI) / 4.5
@@ -8,7 +8,7 @@ export const EaseInOutElasticNode = new NodeType(
   "Ease In Out Elastic",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",
@@ -29,7 +29,16 @@ export const EaseInOutElasticNode = new NodeType(
     },
   },
   "Easing",
-  ["ease", "easing", "elastic", "spring", "inout", "animation", "interpolation", "bounce"]
+  [
+    "ease",
+    "easing",
+    "elastic",
+    "spring",
+    "inout",
+    "animation",
+    "interpolation",
+    "bounce",
+  ]
 );
 
 EaseInOutElasticNode.manual = {
@@ -58,4 +67,3 @@ T ≥ 0.5: (2^(-20T+10) * sin((20T - 11.125) * c5)) / 2 + 1</code></pre>
     </ul>
   `,
 };
-

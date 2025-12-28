@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const SmoothstepNode = new NodeType(
   "Smoothstep",
@@ -9,7 +9,7 @@ export const SmoothstepNode = new NodeType(
     { name: "Value", type: "genType" },
   ],
   [{ name: "Result", type: "genType" }],
-  PORT_TYPES.T.color,
+  NODE_COLORS.comparison,
   {
     webgl1: {
       dependency: "",
@@ -35,7 +35,8 @@ export const SmoothstepNode = new NodeType(
 
 // Manual entry for documentation
 SmoothstepNode.manual = {
-  description: "Performs smooth Hermite interpolation between 0 and 1 when the input is between Edge0 and Edge1. Returns 0 if less than Edge0, 1 if greater than Edge1, with a smooth S-curve transition between.",
+  description:
+    "Performs smooth Hermite interpolation between 0 and 1 when the input is between Edge0 and Edge1. Returns 0 if less than Edge0, 1 if greater than Edge1, with a smooth S-curve transition between.",
   html: `
     <h4>How it Works</h4>
     <pre><code>t = clamp((x - edge0) / (edge1 - edge0), 0, 1)
@@ -60,5 +61,5 @@ result = t * t * (3 - 2 * t)</code></pre>
     <div class="tip">
       <strong>Tip:</strong> Use smoothstep instead of step when you want soft edges. For example, use it to create glowing outlines or soft masks!
     </div>
-  `
+  `,
 };

@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const EaseInOutCubicNode = new NodeType(
   "Ease In Out Cubic",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",
@@ -52,4 +52,3 @@ T ≥ 0.5: Result = 1 - (-2T + 2)³ / 2</code></pre>
     </ul>
   `,
 };
-

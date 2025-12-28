@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shader Graph Node Color Reference</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap');
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-card: #1a1a24;
+      --text-primary: #f0f0f5;
+      --text-secondary: #8888a0;
+      --border-color: #2a2a3a;
+      --accent: #6366f1;
+    }
+    
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: 2rem;
+      background-image: 
+        radial-gradient(ellipse at 10% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 90% 80%, rgba(236, 72, 153, 0.06) 0%, transparent 50%);
+    }
+    
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #f0f0f5 0%, #8888a0 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      margin-bottom: 3rem;
+      font-weight: 300;
+    }
+    
+    h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin: 2.5rem 0 1.5rem 0;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    
+    h2::before {
+      content: '';
+      display: inline-block;
+      width: 4px;
+      height: 1.25rem;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+    
+    h3.section-subtitle {
+      font-size: 1.1rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin: -1rem 0 1.5rem 0;
+    }
+    
+    .section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    
+    .section.proposed {
+      border-color: rgba(99, 102, 241, 0.3);
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, var(--bg-secondary) 100%);
+    }
+    
+    .section.current {
+      border-color: rgba(239, 68, 68, 0.2);
+      opacity: 0.7;
+    }
+    
+    .badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.6rem;
+      border-radius: 4px;
+      margin-left: 0.75rem;
+      vertical-align: middle;
+    }
+    
+    .badge.proposed {
+      background: rgba(99, 102, 241, 0.2);
+      color: #818cf8;
+    }
+    
+    .badge.current {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+    }
+    
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 1.25rem;
+    }
+    
+    .color-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.25rem;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .color-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+    
+    .color-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    
+    .color-swatch {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+    
+    .color-swatch.comparison {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+    }
+    
+    .color-info h3 {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.25rem;
+    }
+    
+    .color-info .usage {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+    
+    .color-info .key {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: #818cf8;
+      margin-top: 0.25rem;
+    }
+    
+    .nodes-list {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .nodes-list .label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    }
+    
+    .node-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    
+    .node-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 4px;
+      color: var(--text-secondary);
+    }
+    
+    .principle-box {
+      background: rgba(99, 102, 241, 0.08);
+      border-left: 3px solid var(--accent);
+      padding: 1rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin: 1rem 0;
+      font-size: 0.95rem;
+    }
+    
+    .principle-box strong {
+      color: var(--text-primary);
+    }
+    
+    .principle-box code {
+      font-family: 'JetBrains Mono', monospace;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.85rem;
+    }
+    
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    
+    .summary-table th,
+    .summary-table td {
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .summary-table th {
+      font-weight: 600;
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .summary-table td {
+      font-size: 0.85rem;
+    }
+    
+    .summary-table tr:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    
+    .inline-swatch {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      vertical-align: middle;
+      margin-right: 0.5rem;
+    }
+    
+    .arrow {
+      color: var(--text-secondary);
+      margin: 0 0.5rem;
+    }
+    
+    .code-block {
+      background: #0d0d14;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    
+    .code-block pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      color: #e0e0e8;
+      margin: 0;
+    }
+    
+    .code-block .comment {
+      color: #6a6a8a;
+    }
+    
+    .code-block .key {
+      color: #818cf8;
+    }
+    
+    .code-block .string {
+      color: #a5d6ff;
+    }
+    
+    .comparison-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .comparison-row:last-child {
+      border-bottom: none;
+    }
+    
+    .comparison-label {
+      flex: 1;
+      font-size: 0.85rem;
+    }
+    
+    .tab-container {
+      margin-bottom: 1.5rem;
+    }
+    
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    
+    .tab {
+      padding: 0.5rem 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      transition: all 0.2s;
+    }
+    
+    .tab:hover {
+      background: rgba(99, 102, 241, 0.1);
+      color: var(--text-primary);
+    }
+    
+    .tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>Node Color System</h1>
+  <p class="subtitle">Proposed reorganization: colors reflect what nodes <em>do</em>, not just their category</p>
+
+  <!-- Design Principles -->
+  <section class="section proposed">
+    <h2>Design Principles <span class="badge proposed">Proposed</span></h2>
+    
+    <div class="principle-box">
+      <strong>Principle 1: Value Sources Match Output Type</strong><br>
+      Nodes with no inputs that just provide a value should use the color of their output port type.
+      <br><code>Pi</code> outputs float → uses <code>PORT_TYPES.float.color</code>
+    </div>
+    
+    <div class="principle-box">
+      <strong>Principle 2: Processing Nodes Reflect Their Domain</strong><br>
+      Nodes that transform data should have colors that indicate <em>what kind of operation</em> they perform.
+      <br>Noise generation, UV distortion, color grading, etc. each get distinct visual identities.
+    </div>
+    
+    <div class="principle-box">
+      <strong>Principle 3: Special Nodes Stand Out</strong><br>
+      Terminal nodes (Output), storage (Variables), and debug tools should be immediately recognizable.
+    </div>
+  </section>
+
+  <!-- Proposed Color Constants -->
+  <section class="section proposed">
+    <h2>Proposed NODE_COLORS Constants <span class="badge proposed">Proposed</span></h2>
+    <h3 class="section-subtitle">Add to PortTypes.js or create NodeColors.js</h3>
+    
+    <div class="code-block">
+      <pre><span class="comment">// Node header colors - organized by what the node DOES</span>
+<span class="key">export const</span> NODE_COLORS = {
+  <span class="comment">// === VALUE SOURCES (use PORT_TYPES.*.color instead) ===</span>
+  <span class="comment">// Nodes with no inputs inherit their output port color</span>
+  
+  <span class="comment">// === PROCESSING: Math & Logic ===</span>
+  <span class="key">math</span>: <span class="string">"#5b8a5b"</span>,        <span class="comment">// Sage green - arithmetic, functions</span>
+  <span class="key">comparison</span>: <span class="string">"#5b7a8a"</span>,  <span class="comment">// Steel blue - compare, select, step</span>
+  <span class="key">trigonometry</span>: <span class="string">"#4a8a7a"</span>, <span class="comment">// Teal - sin, cos, tan, etc.</span>
+  
+  <span class="comment">// === PROCESSING: Vectors ===</span>
+  <span class="key">vectorOp</span>: <span class="string">"#8a6a4a"</span>,    <span class="comment">// Warm brown - dot, cross, normalize</span>
+  <span class="key">vectorBuild</span>: <span class="string">"#6a5a4a"</span>, <span class="comment">// Dark brown - compose, decompose, swizzle</span>
+  
+  <span class="comment">// === PROCESSING: Coordinates ===</span>
+  <span class="key">uvDistort</span>: <span class="string">"#7a5a8a"</span>,   <span class="comment">// Purple - twirl, bulge, warp</span>
+  <span class="key">uvTransform</span>: <span class="string">"#6a6a8a"</span>, <span class="comment">// Slate - scale, tile, wrap</span>
+  <span class="key">coordConvert</span>: <span class="string">"#5a6a7a"</span>, <span class="comment">// Blue-gray - polar, spherical</span>
+  
+  <span class="comment">// === PROCESSING: Procedural ===</span>
+  <span class="key">noise</span>: <span class="string">"#8a5a9a"</span>,       <span class="comment">// Vibrant purple - noise generation</span>
+  <span class="key">hash</span>: <span class="string">"#7a4a8a"</span>,        <span class="comment">// Darker purple - hash functions</span>
+  
+  <span class="comment">// === PROCESSING: Color ===</span>
+  <span class="key">colorAdjust</span>: <span class="string">"#a05a7a"</span>, <span class="comment">// Rose - hue, saturation, grayscale</span>
+  <span class="key">colorBlend</span>: <span class="string">"#8a4a6a"</span>,  <span class="comment">// Deep rose - blend modes, alpha over</span>
+  <span class="key">colorConvert</span>: <span class="string">"#7a5a6a"</span>, <span class="comment">// Muted rose - RGB↔HSL</span>
+  
+  <span class="comment">// === PROCESSING: Texture ===</span>
+  <span class="key">textureSample</span>: <span class="string">"#6a9a4a"</span>, <span class="comment">// Green - sampling operations</span>
+  <span class="key">textureInfo</span>: <span class="string">"#5a8a5a"</span>,   <span class="comment">// Muted green - dimensions, texel size</span>
+  
+  <span class="comment">// === PROCESSING: SDF (keep existing - already good!) ===</span>
+  <span class="key">sdfShape</span>: <span class="string">"#2d6e4f"</span>,    <span class="comment">// Forest green - primitives</span>
+  <span class="key">sdfOperation</span>: <span class="string">"#4a6e2d"</span>, <span class="comment">// Olive - boolean ops</span>
+  <span class="key">sdfOutput</span>: <span class="string">"#6e4a2d"</span>,   <span class="comment">// Brown - fill, stroke, color</span>
+  
+  <span class="comment">// === PROCESSING: Animation ===</span>
+  <span class="key">easing</span>: <span class="string">"#d95a30"</span>,      <span class="comment">// Vibrant orange - easing curves</span>
+  
+  <span class="comment">// === SPECIAL NODES ===</span>
+  <span class="key">output</span>: <span class="string">"#3a3a4a"</span>,      <span class="comment">// Dark neutral - terminal node</span>
+  <span class="key">variable</span>: <span class="string">"#9b59b6"</span>,    <span class="comment">// Purple - storage/memory</span>
+  <span class="key">debug</span>: <span class="string">"#b85a4a"</span>,       <span class="comment">// Terracotta - debug visualization</span>
+  <span class="key">utility</span>: <span class="string">"#5a5a6a"</span>,     <span class="comment">// Neutral - misc utilities</span>
+};</pre>
+    </div>
+  </section>
+
+  <!-- Port Type Colors (keep as is) -->
+  <section class="section">
+    <h2>Port Type Colors <span style="opacity: 0.6; font-size: 0.8rem; font-weight: 400;">(Keep As-Is)</span></h2>
+    <h3 class="section-subtitle">These are well-organized and should remain unchanged</h3>
+    
+    <div class="color-grid">
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #4a90e2;"></div>
+          <div class="color-info">
+            <h3>#4a90e2</h3>
+            <div class="usage">Float</div>
+            <div class="key">PORT_TYPES.float.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Use for node headers when</div>
+          <div class="node-tags">
+            <span class="node-tag">No inputs + float output</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #fa0f0f;"></div>
+          <div class="color-info">
+            <h3>#fa0f0f</h3>
+            <div class="usage">Integer</div>
+            <div class="key">PORT_TYPES.int.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Use for node headers when</div>
+          <div class="node-tags">
+            <span class="node-tag">No inputs + int output</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #9f4ae2;"></div>
+          <div class="color-info">
+            <h3>#9f4ae2</h3>
+            <div class="usage">Boolean</div>
+            <div class="key">PORT_TYPES.bool.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Use for node headers when</div>
+          <div class="node-tags">
+            <span class="node-tag">No inputs + bool output</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #e2a44a;"></div>
+          <div class="color-info">
+            <h3>#e2a44a</h3>
+            <div class="usage">Vec2</div>
+            <div class="key">PORT_TYPES.vec2.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Use for node headers when</div>
+          <div class="node-tags">
+            <span class="node-tag">No inputs + vec2 output</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #e2844a;"></div>
+          <div class="color-info">
+            <h3>#e2844a</h3>
+            <div class="usage">Vec3</div>
+            <div class="key">PORT_TYPES.vec3.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Use for node headers when</div>
+          <div class="node-tags">
+            <span class="node-tag">No inputs + vec3 output</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #e24a6a;"></div>
+          <div class="color-info">
+            <h3>#e24a6a</h3>
+            <div class="usage">Vec4</div>
+            <div class="key">PORT_TYPES.vec4.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Use for node headers when</div>
+          <div class="node-tags">
+            <span class="node-tag">No inputs + vec4 output</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #2a9d8f;"></div>
+          <div class="color-info">
+            <h3>#2a9d8f</h3>
+            <div class="usage">Mat2</div>
+            <div class="key">PORT_TYPES.mat2.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Use for node headers when</div>
+          <div class="node-tags">
+            <span class="node-tag">No inputs + mat2 output</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #90e24a;"></div>
+          <div class="color-info">
+            <h3>#90e24a</h3>
+            <div class="usage">Texture</div>
+            <div class="key">PORT_TYPES.texture.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Use for node headers when</div>
+          <div class="node-tags">
+            <span class="node-tag">No inputs + texture output</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #c084fc;"></div>
+          <div class="color-info">
+            <h3>#c084fc</h3>
+            <div class="usage">Generic (T, genType)</div>
+            <div class="key">PORT_TYPES.T.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Use for node headers when</div>
+          <div class="node-tags">
+            <span class="node-tag">No inputs + generic output</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Proposed Processing Node Colors -->
+  <section class="section proposed">
+    <h2>Processing Node Colors <span class="badge proposed">Proposed</span></h2>
+    <h3 class="section-subtitle">For nodes that transform inputs → outputs</h3>
+    
+    <div class="color-grid">
+      <!-- Math -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #5b8a5b;"></div>
+          <div class="color-info">
+            <h3>#5b8a5b</h3>
+            <div class="usage">Math Operations</div>
+            <div class="key">NODE_COLORS.math</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Math (+−×÷)</span>
+            <span class="node-tag">Power</span>
+            <span class="node-tag">Sqrt</span>
+            <span class="node-tag">Abs</span>
+            <span class="node-tag">Floor</span>
+            <span class="node-tag">Ceil</span>
+            <span class="node-tag">Round</span>
+            <span class="node-tag">Fract</span>
+            <span class="node-tag">Mod</span>
+            <span class="node-tag">Sign</span>
+            <span class="node-tag">Exp</span>
+            <span class="node-tag">Log</span>
+            <span class="node-tag">Min</span>
+            <span class="node-tag">Max</span>
+            <span class="node-tag">Clamp</span>
+            <span class="node-tag">Mix</span>
+            <span class="node-tag">Remap</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comparison -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #5b7a8a;"></div>
+          <div class="color-info">
+            <h3>#5b7a8a</h3>
+            <div class="usage">Comparison & Selection</div>
+            <div class="key">NODE_COLORS.comparison</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Compare</span>
+            <span class="node-tag">Select</span>
+            <span class="node-tag">Step</span>
+            <span class="node-tag">Smoothstep</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trigonometry -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #4a8a7a;"></div>
+          <div class="color-info">
+            <h3>#4a8a7a</h3>
+            <div class="usage">Trigonometry</div>
+            <div class="key">NODE_COLORS.trigonometry</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Sin</span>
+            <span class="node-tag">Cos</span>
+            <span class="node-tag">Tan</span>
+            <span class="node-tag">Asin</span>
+            <span class="node-tag">Acos</span>
+            <span class="node-tag">Atan</span>
+            <span class="node-tag">Atan2</span>
+            <span class="node-tag">ToDegrees</span>
+            <span class="node-tag">ToRadians</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vector Operations -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #8a6a4a;"></div>
+          <div class="color-info">
+            <h3>#8a6a4a</h3>
+            <div class="usage">Vector Operations</div>
+            <div class="key">NODE_COLORS.vectorOp</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Dot</span>
+            <span class="node-tag">Cross</span>
+            <span class="node-tag">Normalize</span>
+            <span class="node-tag">Length</span>
+            <span class="node-tag">Distance</span>
+            <span class="node-tag">Multiply Vector</span>
+            <span class="node-tag">Rotate Around Point</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vector Build -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #6a5a4a;"></div>
+          <div class="color-info">
+            <h3>#6a5a4a</h3>
+            <div class="usage">Vector Build/Decompose</div>
+            <div class="key">NODE_COLORS.vectorBuild</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Vec2</span>
+            <span class="node-tag">Vec3</span>
+            <span class="node-tag">Vec4</span>
+            <span class="node-tag">Vec2 Decompose</span>
+            <span class="node-tag">Vec3 Decompose</span>
+            <span class="node-tag">Vec4 Decompose</span>
+            <span class="node-tag">Append Vec3</span>
+            <span class="node-tag">Append Vec4</span>
+            <span class="node-tag">Swizzle</span>
+            <span class="node-tag">Set Alpha</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- UV Distortion -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #7a5a8a;"></div>
+          <div class="color-info">
+            <h3>#7a5a8a</h3>
+            <div class="usage">UV Distortion</div>
+            <div class="key">NODE_COLORS.uvDistort</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Twirl</span>
+            <span class="node-tag">Bulge</span>
+            <span class="node-tag">Radial Symmetry</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- UV Transform -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #6a6a8a;"></div>
+          <div class="color-info">
+            <h3>#6a6a8a</h3>
+            <div class="usage">UV Transform</div>
+            <div class="key">NODE_COLORS.uvTransform</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Scale UV</span>
+            <span class="node-tag">Tiling</span>
+            <span class="node-tag">Wrap UV</span>
+            <span class="node-tag">Flip</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Coordinate Conversion -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #5a6a7a;"></div>
+          <div class="color-info">
+            <h3>#5a6a7a</h3>
+            <div class="usage">Coordinate Conversion</div>
+            <div class="key">NODE_COLORS.coordConvert</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Polar → Cartesian</span>
+            <span class="node-tag">Cartesian → Polar</span>
+            <span class="node-tag">Spherical → Cartesian</span>
+            <span class="node-tag">Cartesian → Spherical</span>
+            <span class="node-tag">Src → Norm</span>
+            <span class="node-tag">Norm → Src</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Noise -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #8a5a9a;"></div>
+          <div class="color-info">
+            <h3>#8a5a9a</h3>
+            <div class="usage">Noise Generation</div>
+            <div class="key">NODE_COLORS.noise</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Value Noise</span>
+            <span class="node-tag">Perlin Noise</span>
+            <span class="node-tag">Simplex Noise</span>
+            <span class="node-tag">Voronoi</span>
+            <span class="node-tag">FBM</span>
+            <span class="node-tag">Value Noise 3D</span>
+            <span class="node-tag">Perlin 3D</span>
+            <span class="node-tag">Simplex 3D</span>
+            <span class="node-tag">Voronoi 3D</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hash -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #7a4a8a;"></div>
+          <div class="color-info">
+            <h3>#7a4a8a</h3>
+            <div class="usage">Hash Functions</div>
+            <div class="key">NODE_COLORS.hash</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Hash11</span>
+            <span class="node-tag">Hash21</span>
+            <span class="node-tag">Hash22</span>
+            <span class="node-tag">Hash33</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Color Adjust -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #a05a7a;"></div>
+          <div class="color-info">
+            <h3>#a05a7a</h3>
+            <div class="usage">Color Adjustment</div>
+            <div class="key">NODE_COLORS.colorAdjust</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Grayscale</span>
+            <span class="node-tag">Hue</span>
+            <span class="node-tag">Saturation</span>
+            <span class="node-tag">Luminosity</span>
+            <span class="node-tag">Invert</span>
+            <span class="node-tag">Posterize</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Color Blend -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #8a4a6a;"></div>
+          <div class="color-info">
+            <h3>#8a4a6a</h3>
+            <div class="usage">Color Blending</div>
+            <div class="key">NODE_COLORS.colorBlend</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Blend Mode</span>
+            <span class="node-tag">Alpha Over</span>
+            <span class="node-tag">Premultiply</span>
+            <span class="node-tag">Unpremultiply</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Color Convert -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #7a5a6a;"></div>
+          <div class="color-info">
+            <h3>#7a5a6a</h3>
+            <div class="usage">Color Space Conversion</div>
+            <div class="key">NODE_COLORS.colorConvert</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">RGB → HSL</span>
+            <span class="node-tag">HSL → RGB</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Texture Sample -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #6a9a4a;"></div>
+          <div class="color-info">
+            <h3>#6a9a4a</h3>
+            <div class="usage">Texture Sampling</div>
+            <div class="key">NODE_COLORS.textureSample</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Texture Sample</span>
+            <span class="node-tag">Texture Sample LOD</span>
+            <span class="node-tag">Texture Sample Grad</span>
+            <span class="node-tag">Texel Fetch</span>
+            <span class="node-tag">Pixellate</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Texture Info -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #5a8a5a;"></div>
+          <div class="color-info">
+            <h3>#5a8a5a</h3>
+            <div class="usage">Texture Info</div>
+            <div class="key">NODE_COLORS.textureInfo</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Texture Dimensions</span>
+            <span class="node-tag">DDX</span>
+            <span class="node-tag">DDY</span>
+            <span class="node-tag">FWidth</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SDF Shapes (keep existing) -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #2d6e4f;"></div>
+          <div class="color-info">
+            <h3>#2d6e4f</h3>
+            <div class="usage">SDF Shapes</div>
+            <div class="key">NODE_COLORS.sdfShape</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes (keep existing)</div>
+          <div class="node-tags">
+            <span class="node-tag">Circle SDF</span>
+            <span class="node-tag">Rectangle SDF</span>
+            <span class="node-tag">Polygon SDF</span>
+            <span class="node-tag">Star SDF</span>
+            <span class="node-tag">etc.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SDF Operations (keep existing) -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #4a6e2d;"></div>
+          <div class="color-info">
+            <h3>#4a6e2d</h3>
+            <div class="usage">SDF Operations</div>
+            <div class="key">NODE_COLORS.sdfOperation</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes (keep existing)</div>
+          <div class="node-tags">
+            <span class="node-tag">SDF Union</span>
+            <span class="node-tag">SDF Intersect</span>
+            <span class="node-tag">SDF Subtract</span>
+            <span class="node-tag">etc.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SDF Output (keep existing) -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #6e4a2d;"></div>
+          <div class="color-info">
+            <h3>#6e4a2d</h3>
+            <div class="usage">SDF Output</div>
+            <div class="key">NODE_COLORS.sdfOutput</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes (keep existing)</div>
+          <div class="node-tags">
+            <span class="node-tag">SDF Fill</span>
+            <span class="node-tag">SDF Stroke</span>
+            <span class="node-tag">SDF Color</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Easing -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #d95a30;"></div>
+          <div class="color-info">
+            <h3>#d95a30</h3>
+            <div class="usage">Easing Functions</div>
+            <div class="key">NODE_COLORS.easing</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes (30 total)</div>
+          <div class="node-tags">
+            <span class="node-tag">Ease In Quad</span>
+            <span class="node-tag">Ease Out Cubic</span>
+            <span class="node-tag">Ease In Out Bounce</span>
+            <span class="node-tag">etc.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Matrix -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #2a9d8f;"></div>
+          <div class="color-info">
+            <h3>#2a9d8f</h3>
+            <div class="usage">Matrix Operations</div>
+            <div class="key">PORT_TYPES.mat2.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Mat2/3/4</span>
+            <span class="node-tag">Decompose</span>
+            <span class="node-tag">Multiply</span>
+            <span class="node-tag">Transpose</span>
+            <span class="node-tag">Inverse</span>
+            <span class="node-tag">Identity</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logic -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #9f4ae2;"></div>
+          <div class="color-info">
+            <h3>#9f4ae2</h3>
+            <div class="usage">Boolean Logic</div>
+            <div class="key">PORT_TYPES.bool.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Boolean AND</span>
+            <span class="node-tag">Boolean OR</span>
+            <span class="node-tag">Boolean XOR</span>
+            <span class="node-tag">Boolean NOT</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bitwise -->
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #fa0f0f;"></div>
+          <div class="color-info">
+            <h3>#fa0f0f</h3>
+            <div class="usage">Bitwise Operations</div>
+            <div class="key">PORT_TYPES.int.color</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Bitwise AND</span>
+            <span class="node-tag">Bitwise OR</span>
+            <span class="node-tag">Shift Left</span>
+            <span class="node-tag">Shift Right</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Special Nodes -->
+  <section class="section proposed">
+    <h2>Special Nodes <span class="badge proposed">Proposed</span></h2>
+    <h3 class="section-subtitle">Nodes that should be instantly recognizable</h3>
+    
+    <div class="color-grid">
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #3a3a4a;"></div>
+          <div class="color-info">
+            <h3>#3a3a4a</h3>
+            <div class="usage">Output (Terminal)</div>
+            <div class="key">NODE_COLORS.output</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Purpose</div>
+          <div class="node-tags">
+            <span class="node-tag">Dark, neutral endpoint</span>
+            <span class="node-tag">Final shader output</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #9b59b6;"></div>
+          <div class="color-info">
+            <h3>#9b59b6</h3>
+            <div class="usage">Variables</div>
+            <div class="key">NODE_COLORS.variable</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Set Variable</span>
+            <span class="node-tag">Get Variable</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #b85a4a;"></div>
+          <div class="color-info">
+            <h3>#b85a4a</h3>
+            <div class="usage">Debug</div>
+            <div class="key">NODE_COLORS.debug</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">Draw Float</span>
+            <span class="node-tag">Shader Language Test</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-card">
+        <div class="color-header">
+          <div class="color-swatch" style="background: #5a5a6a;"></div>
+          <div class="color-info">
+            <h3>#5a5a6a</h3>
+            <div class="usage">Utility / Type Conversion</div>
+            <div class="key">NODE_COLORS.utility</div>
+          </div>
+        </div>
+        <div class="nodes-list">
+          <div class="label">Nodes</div>
+          <div class="node-tags">
+            <span class="node-tag">ToFloat</span>
+            <span class="node-tag">ToInt</span>
+            <span class="node-tag">ToVec2</span>
+            <span class="node-tag">ToVec3</span>
+            <span class="node-tag">ToVec4</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Value Source Nodes -->
+  <section class="section proposed">
+    <h2>Value Source Nodes <span class="badge proposed">Proposed</span></h2>
+    <h3 class="section-subtitle">Nodes with no inputs use their output port type color</h3>
+    
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th>Node</th>
+          <th>Output Type</th>
+          <th>Color Source</th>
+          <th>Color</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Pi, Tau, E, Golden Ratio, Epsilon, seconds</td>
+          <td>float</td>
+          <td><code>PORT_TYPES.float.color</code></td>
+          <td><span class="inline-swatch" style="background: #4a90e2;"></span>#4a90e2</td>
+        </tr>
+        <tr>
+          <td>Front UV, Back UV, Depth UV, Texel Size, Pixel Size, Builtin Src/Dest/Layout positions</td>
+          <td>vec2</td>
+          <td><code>PORT_TYPES.vec2.color</code></td>
+          <td><span class="inline-swatch" style="background: #e2a44a;"></span>#e2a44a</td>
+        </tr>
+        <tr>
+          <td>samplerFront, samplerBack, samplerDepth</td>
+          <td>texture</td>
+          <td><code>PORT_TYPES.texture.color</code></td>
+          <td><span class="inline-swatch" style="background: #90e24a;"></span>#90e24a</td>
+        </tr>
+        <tr>
+          <td>isRotated</td>
+          <td>bool</td>
+          <td><code>PORT_TYPES.bool.color</code></td>
+          <td><span class="inline-swatch" style="background: #9f4ae2;"></span>#9f4ae2</td>
+        </tr>
+        <tr>
+          <td>Device Pixel Ratio, Layer Scale, Layer Angle, zNear, zFar</td>
+          <td>float</td>
+          <td><code>PORT_TYPES.float.color</code></td>
+          <td><span class="inline-swatch" style="background: #4a90e2;"></span>#4a90e2</td>
+        </tr>
+        <tr>
+          <td>Identity Matrix</td>
+          <td>mat*</td>
+          <td><code>PORT_TYPES.mat2.color</code></td>
+          <td><span class="inline-swatch" style="background: #2a9d8f;"></span>#2a9d8f</td>
+        </tr>
+        <tr>
+          <td>Uniform Float</td>
+          <td>float</td>
+          <td><code>PORT_TYPES.float.color</code></td>
+          <td><span class="inline-swatch" style="background: #4a90e2;"></span>#4a90e2</td>
+        </tr>
+        <tr>
+          <td>Uniform Color</td>
+          <td>vec3</td>
+          <td><code>PORT_TYPES.vec3.color</code></td>
+          <td><span class="inline-swatch" style="background: #e2844a;"></span>#e2844a</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Color Visual Comparison -->
+  <section class="section proposed">
+    <h2>Visual Comparison: Current vs Proposed</h2>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem;">
+      <div>
+        <h4 style="margin-bottom: 1rem; color: var(--text-secondary);">Current (confusing)</h4>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #3a3a3a;" title="#3a3a3a"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #3a4a3a;" title="#3a4a3a"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #3a4a4a;" title="#3a4a4a"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #3a4a5a;" title="#3a4a5a"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #4a3a3a;" title="#4a3a3a"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #4a3a5a;" title="#4a3a5a"></div>
+        </div>
+        <p style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">
+          These 6 colors are nearly indistinguishable but used for different node types
+        </p>
+      </div>
+      
+      <div>
+        <h4 style="margin-bottom: 1rem; color: var(--text-secondary);">Proposed (distinct)</h4>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #5b8a5b;" title="math"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #4a8a7a;" title="trig"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #8a6a4a;" title="vectorOp"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #7a5a8a;" title="uvDistort"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #8a5a9a;" title="noise"></div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #a05a7a;" title="colorAdjust"></div>
+        </div>
+        <p style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">
+          Each color is distinct and reflects what the node does
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- All Proposed Colors Grid -->
+  <section class="section proposed">
+    <h2>All Proposed NODE_COLORS</h2>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 1rem;">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #5b8a5b;"></div>
+        <code style="font-size: 0.7rem;">math</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #5b7a8a;"></div>
+        <code style="font-size: 0.7rem;">comparison</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #4a8a7a;"></div>
+        <code style="font-size: 0.7rem;">trigonometry</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #8a6a4a;"></div>
+        <code style="font-size: 0.7rem;">vectorOp</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #6a5a4a;"></div>
+        <code style="font-size: 0.7rem;">vectorBuild</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #7a5a8a;"></div>
+        <code style="font-size: 0.7rem;">uvDistort</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #6a6a8a;"></div>
+        <code style="font-size: 0.7rem;">uvTransform</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #5a6a7a;"></div>
+        <code style="font-size: 0.7rem;">coordConvert</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #8a5a9a;"></div>
+        <code style="font-size: 0.7rem;">noise</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #7a4a8a;"></div>
+        <code style="font-size: 0.7rem;">hash</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #a05a7a;"></div>
+        <code style="font-size: 0.7rem;">colorAdjust</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #8a4a6a;"></div>
+        <code style="font-size: 0.7rem;">colorBlend</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #7a5a6a;"></div>
+        <code style="font-size: 0.7rem;">colorConvert</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #6a9a4a;"></div>
+        <code style="font-size: 0.7rem;">textureSample</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #5a8a5a;"></div>
+        <code style="font-size: 0.7rem;">textureInfo</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #2d6e4f;"></div>
+        <code style="font-size: 0.7rem;">sdfShape</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #4a6e2d;"></div>
+        <code style="font-size: 0.7rem;">sdfOperation</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #6e4a2d;"></div>
+        <code style="font-size: 0.7rem;">sdfOutput</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #d95a30;"></div>
+        <code style="font-size: 0.7rem;">easing</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #3a3a4a;"></div>
+        <code style="font-size: 0.7rem;">output</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #9b59b6;"></div>
+        <code style="font-size: 0.7rem;">variable</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #b85a4a;"></div>
+        <code style="font-size: 0.7rem;">debug</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-card); border-radius: 8px;">
+        <div style="width: 24px; height: 24px; border-radius: 4px; background: #5a5a6a;"></div>
+        <code style="font-size: 0.7rem;">utility</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- Implementation Guide -->
+  <section class="section">
+    <h2>Implementation Guide</h2>
+    
+    <div class="principle-box">
+      <strong>Step 1:</strong> Add <code>NODE_COLORS</code> to <code>PortTypes.js</code> (or create <code>NodeColors.js</code>)
+    </div>
+    
+    <div class="principle-box">
+      <strong>Step 2:</strong> Update each node file to import and use the appropriate color:
+      <div class="code-block" style="margin-top: 0.75rem;">
+        <pre><span class="comment">// Before</span>
+"#4a3a5a",
+
+<span class="comment">// After</span>
+<span class="key">import</span> { NODE_COLORS } <span class="key">from</span> <span class="string">"./PortTypes.js"</span>;
+<span class="comment">// ...</span>
+NODE_COLORS.noise,</pre>
+      </div>
+    </div>
+    
+    <div class="principle-box">
+      <strong>Step 3:</strong> For value source nodes (no inputs), continue using <code>PORT_TYPES.*.color</code>:
+      <div class="code-block" style="margin-top: 0.75rem;">
+        <pre><span class="comment">// Nodes with no inputs match their output type</span>
+PORT_TYPES.float.color,  <span class="comment">// Pi, seconds, etc.</span>
+PORT_TYPES.vec2.color,   <span class="comment">// Front UV, etc.</span></pre>
+      </div>
+    </div>
+  </section>
+
+</body>
+</html>

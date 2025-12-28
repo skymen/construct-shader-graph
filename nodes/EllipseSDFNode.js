@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const EllipseSDFNode = new NodeType(
   "Ellipse SDF",
@@ -8,7 +9,7 @@ export const EllipseSDFNode = new NodeType(
     { name: "Size", type: "vec2" },
   ],
   [{ name: "Distance", type: "float" }],
-  "#2d6e4f",
+  NODE_COLORS.sdfShape,
   {
     webgl1: {
       dependency: `float sdEllipse(vec2 p, vec2 center, vec2 ab) {

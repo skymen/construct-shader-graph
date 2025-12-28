@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const BlendModeNode = new NodeType(
   "Blend Mode",
@@ -8,7 +8,7 @@ export const BlendModeNode = new NodeType(
     { name: "Blend", type: "genType3Plus" },
   ],
   [{ name: "Result", type: "genType3Plus" }],
-  PORT_TYPES.genType3Plus.color,
+  NODE_COLORS.colorBlend,
   {
     webgl1: {
       dependency: "",

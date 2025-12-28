@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const GrayscaleNode = new NodeType(
   "Grayscale",
   [{ name: "RGB", type: "vec3" }],
   [{ name: "Gray", type: "float" }],
-  PORT_TYPES.float.color,
+  NODE_COLORS.colorAdjust,
   {
     webgl1: {
       dependency: "",

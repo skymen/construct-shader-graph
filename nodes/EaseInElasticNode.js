@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 import { toWGSLType } from "./PortTypes.js";
 
 const PI = "3.14159265359";
@@ -8,7 +9,7 @@ export const EaseInElasticNode = new NodeType(
   "Ease In Elastic",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",

@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const CapsuleSDFNode = new NodeType(
   "Capsule SDF",
@@ -9,7 +10,7 @@ export const CapsuleSDFNode = new NodeType(
     { name: "Radius", type: "float" },
   ],
   [{ name: "Distance", type: "float" }],
-  "#2d6e4f",
+  NODE_COLORS.sdfShape,
   {
     webgl1: {
       dependency: `float sdCapsule(vec2 p, vec2 a, vec2 b, float r) {

@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SimplexNoise3DNode = new NodeType(
   "Simplex Noise 3D",
@@ -8,7 +9,7 @@ export const SimplexNoise3DNode = new NodeType(
     { name: "Offset", type: "vec3" },
   ],
   [{ name: "Result", type: "float" }],
-  "#4a3a5a",
+  NODE_COLORS.noise,
   {
     webgl1: {
       dependency: `vec3 mod289_sn3(vec3 x) {

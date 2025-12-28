@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const TriangleSDFNode = new NodeType(
   "Triangle SDF",
@@ -9,7 +10,7 @@ export const TriangleSDFNode = new NodeType(
     { name: "C", type: "vec2" },
   ],
   [{ name: "Distance", type: "float" }],
-  "#2d6e4f",
+  NODE_COLORS.sdfShape,
   {
     webgl1: {
       dependency: `float sdTriangle(vec2 p, vec2 a, vec2 b, vec2 c) {

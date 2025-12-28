@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SDFSmoothUnionNode = new NodeType(
   "SDF Smooth Union",
@@ -8,7 +9,7 @@ export const SDFSmoothUnionNode = new NodeType(
     { name: "Smoothness", type: "float" },
   ],
   [{ name: "Distance", type: "float" }],
-  "#4a6e2d",
+  NODE_COLORS.sdfOperation,
   {
     webgl1: {
       dependency: `float sdSmoothUnion(float d1, float d2, float k) {

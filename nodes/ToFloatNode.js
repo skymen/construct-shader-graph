@@ -1,10 +1,11 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const ToFloatNode = new NodeType(
   "To Float",
   [{ name: "Value", type: "T" }],
   [{ name: "Result", type: "float" }],
-  "#3a4a3a",
+  NODE_COLORS.vectorBuild,
   {
     webgl1: {
       dependency: "",

@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { toWGSLType, NODE_COLORS } from "./PortTypes.js";
 
 export const FloorNode = new NodeType(
   "Floor",
   [{ name: "Value", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#3a4a3a",
+  NODE_COLORS.math,
   {
     webgl1: {
       dependency: "",

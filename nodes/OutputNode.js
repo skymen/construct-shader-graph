@@ -1,10 +1,11 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const OutputNode = new NodeType(
   "Output",
   [{ name: "Color", type: "vec4" }],
   [],
-  "#4a3a3a",
+  NODE_COLORS.output,
   {
     webgl1: {
       dependency: "",
@@ -26,7 +27,8 @@ export const OutputNode = new NodeType(
 
 // Manual entry for documentation
 OutputNode.manual = {
-  description: "The final output node that determines the color of each pixel. Every shader graph must have exactly one Output node connected to produce visible results.",
+  description:
+    "The final output node that determines the color of each pixel. Every shader graph must have exactly one Output node connected to produce visible results.",
   html: `
     <h4>Required Node</h4>
     <p>This node is <strong>required</strong> for your shader to work. Without it connected, no visual output will be produced.</p>
@@ -50,5 +52,5 @@ OutputNode.manual = {
     <div class="warning">
       <strong>Warning:</strong> Only one Output node should exist in your graph. Multiple outputs will cause errors.
     </div>
-  `
+  `,
 };

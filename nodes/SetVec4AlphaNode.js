@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SetVec4AlphaNode = new NodeType(
   "Set Vec4 Alpha",
@@ -7,7 +8,7 @@ export const SetVec4AlphaNode = new NodeType(
     { name: "Alpha", type: "float" },
   ],
   [{ name: "Result", type: "vec4" }],
-  "#e2844a",
+  NODE_COLORS.colorAdjust,
   {
     webgl1: {
       dependency: `vec4 setVec4Alpha(vec4 color, float alpha, bool isPremultiplied) {

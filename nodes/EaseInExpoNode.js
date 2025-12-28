@@ -1,11 +1,12 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 import { toWGSLType } from "./PortTypes.js";
 
 export const EaseInExpoNode = new NodeType(
   "Ease In Expo",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",

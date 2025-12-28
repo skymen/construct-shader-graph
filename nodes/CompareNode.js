@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { toWGSLType, NODE_COLORS } from "./PortTypes.js";
 
 export const CompareNode = new NodeType(
   "Compare",
@@ -8,7 +8,7 @@ export const CompareNode = new NodeType(
     { name: "B", type: "genType" },
   ],
   [{ name: "Result", type: "bool" }],
-  "#3a4a3a",
+  NODE_COLORS.comparison,
   {
     webgl1: {
       dependency: "",

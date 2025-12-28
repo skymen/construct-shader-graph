@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const BulgeNode = new NodeType(
   "Bulge",
@@ -8,7 +9,7 @@ export const BulgeNode = new NodeType(
     { name: "Amount", type: "float" },
   ],
   [{ name: "Result", type: "vec2" }],
-  "#4a3a5a",
+  NODE_COLORS.uvDistort,
   {
     webgl1: {
       dependency: `vec2 bulge(vec2 uv, vec2 center, float amount) {

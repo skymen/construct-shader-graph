@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const CrossNode = new NodeType(
   "Cross",
@@ -7,7 +8,7 @@ export const CrossNode = new NodeType(
     { name: "B", type: "vec3" },
   ],
   [{ name: "Result", type: "vec3" }],
-  "#3a4a5a",
+  NODE_COLORS.vectorOp,
   {
     webgl1: {
       dependency: "",

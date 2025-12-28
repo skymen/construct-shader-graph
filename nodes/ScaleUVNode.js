@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const ScaleUVNode = new NodeType(
   "Scale UV",
@@ -8,7 +9,7 @@ export const ScaleUVNode = new NodeType(
     { name: "Center", type: "vec2" },
   ],
   [{ name: "Result", type: "vec2" }],
-  "#4a3a5a",
+  NODE_COLORS.uvTransform,
   {
     webgl1: {
       dependency: "",

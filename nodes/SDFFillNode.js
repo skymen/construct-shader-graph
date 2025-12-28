@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SDFFillNode = new NodeType(
   "SDF Fill",
@@ -7,7 +8,7 @@ export const SDFFillNode = new NodeType(
     { name: "Feather", type: "float" },
   ],
   [{ name: "Mask", type: "float" }],
-  "#6e4a2d",
+  NODE_COLORS.sdfOutput,
   {
     webgl1: {
       dependency: "",

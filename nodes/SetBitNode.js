@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SetBitNode = new NodeType(
   "Set Bit",
@@ -9,7 +9,7 @@ export const SetBitNode = new NodeType(
     { name: "Bit", type: "bool" },
   ],
   [{ name: "Result", type: "int" }],
-  PORT_TYPES.int.color,
+  NODE_COLORS.utility,
   {
     webgl1: {
       dependency: "",

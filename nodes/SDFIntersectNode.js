@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SDFIntersectNode = new NodeType(
   "SDF Intersect",
@@ -7,7 +8,7 @@ export const SDFIntersectNode = new NodeType(
     { name: "B", type: "float" },
   ],
   [{ name: "Distance", type: "float" }],
-  "#4a6e2d",
+  NODE_COLORS.sdfOperation,
   {
     webgl1: {
       dependency: "",

@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const FlipNode = new NodeType(
   "Flip",
@@ -7,7 +8,7 @@ export const FlipNode = new NodeType(
     { name: "Center", type: "vec2" },
   ],
   [{ name: "Result", type: "vec2" }],
-  "#4a3a5a",
+  NODE_COLORS.uvTransform,
   {
     webgl1: {
       dependency: "",

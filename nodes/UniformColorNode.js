@@ -1,10 +1,11 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const UniformColorNode = new NodeType(
   "Uniform Color",
   [],
   [{ name: "Color", type: "vec3" }],
-  "#e24a90",
+  NODE_COLORS.variable,
   {
     webgl1: {
       dependency: "",

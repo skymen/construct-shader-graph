@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SrcToNormNode = new NodeType(
   "srcToNorm",
   [{ name: "UV", type: "vec2" }],
   [{ name: "N", type: "vec2" }],
-  PORT_TYPES.vec2.color,
+  NODE_COLORS.coordConvert,
   {
     webgl1: {
       dependency: "",

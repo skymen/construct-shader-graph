@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const RoundedRectSDFNode = new NodeType(
   "Rounded Rect SDF",
@@ -9,7 +10,7 @@ export const RoundedRectSDFNode = new NodeType(
     { name: "Radius", type: "float" },
   ],
   [{ name: "Distance", type: "float" }],
-  "#2d6e4f",
+  NODE_COLORS.sdfShape,
   {
     webgl1: {
       dependency: `float sdRoundedRect(vec2 p, vec2 center, vec2 size, float r) {

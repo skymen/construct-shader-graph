@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 import { toWGSLType } from "./PortTypes.js";
 
 export const TextureSampleNode = new NodeType(
@@ -8,7 +9,7 @@ export const TextureSampleNode = new NodeType(
     { name: "UV", type: "vec2" },
   ],
   [{ name: "Color", type: "custom" }],
-  "#90e24a",
+  NODE_COLORS.textureSample,
   {
     webgl1: {
       dependency: "",

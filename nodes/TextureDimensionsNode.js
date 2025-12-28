@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const TextureDimensionsNode = new NodeType(
   "Texture Dimensions",
@@ -8,7 +9,7 @@ export const TextureDimensionsNode = new NodeType(
     { name: "Width", type: "int" },
     { name: "Height", type: "int" },
   ],
-  "#90e24a",
+  NODE_COLORS.textureSample,
   {
     webgl1: {
       dependency: "",

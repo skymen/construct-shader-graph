@@ -1,11 +1,12 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 import { toWGSLType } from "./PortTypes.js";
 
 export const SwizzleNode = new NodeType(
   "Swizzle",
   [{ name: "Value", type: "genType" }],
   [{ name: "Result", type: "custom" }],
-  "#3a4a5a",
+  NODE_COLORS.vectorBuild,
   {
     webgl1: {
       dependency: "",

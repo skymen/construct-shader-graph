@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { toWGSLType, NODE_COLORS } from "./PortTypes.js";
 
 export const DotNode = new NodeType(
   "Dot",
@@ -8,7 +8,7 @@ export const DotNode = new NodeType(
     { name: "B", type: "genType" },
   ],
   [{ name: "Result", type: "float" }],
-  "#3a4a5a",
+  NODE_COLORS.vectorOp,
   {
     webgl1: {
       dependency: "",

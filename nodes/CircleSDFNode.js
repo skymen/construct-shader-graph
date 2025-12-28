@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const CircleSDFNode = new NodeType(
   "Circle SDF",
@@ -8,7 +9,7 @@ export const CircleSDFNode = new NodeType(
     { name: "Radius", type: "float" },
   ],
   [{ name: "Distance", type: "float" }],
-  "#2d6e4f",
+  NODE_COLORS.sdfShape,
   {
     webgl1: {
       dependency: "",

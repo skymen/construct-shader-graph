@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { toWGSLType, NODE_COLORS } from "./PortTypes.js";
 
 export const Log10Node = new NodeType(
   "Log10",
   [{ name: "Value", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#3a4a3a",
+  NODE_COLORS.math,
   {
     webgl1: {
       dependency: "",

@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const BitwiseNotNode = new NodeType(
   "Bitwise NOT",
   [{ name: "Value", type: "int" }],
   [{ name: "Result", type: "int" }],
-  PORT_TYPES.int.color,
+  NODE_COLORS.utility,
   {
     webgl1: {
       dependency: "",

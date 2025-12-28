@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const ShaderLanguageTestNode = new NodeType(
   "Shader Test",
@@ -9,7 +9,7 @@ export const ShaderLanguageTestNode = new NodeType(
     { name: "WebGPU", type: "T" },
   ],
   [{ name: "Out", type: "T" }],
-  "#8a4fff",
+  NODE_COLORS.debug,
   {
     webgl1: {
       dependency: "",

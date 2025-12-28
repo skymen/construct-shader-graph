@@ -1,5 +1,5 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const Atan2Node = new NodeType(
   "Atan2",
@@ -8,7 +8,7 @@ export const Atan2Node = new NodeType(
     { name: "X", type: "genType" },
   ],
   [{ name: "Result", type: "genType" }],
-  PORT_TYPES.T.color,
+  NODE_COLORS.trigonometry,
   {
     webgl1: {
       dependency: "",

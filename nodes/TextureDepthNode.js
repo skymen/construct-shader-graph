@@ -1,10 +1,11 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const TextureDepthNode = new NodeType(
   "Depth Texture",
   [{ name: "UV", type: "vec2" }],
   [{ name: "Depth", type: "float" }],
-  "#3a4a4a",
+  NODE_COLORS.textureSample,
   {
     webgl1: {
       dependency: "",

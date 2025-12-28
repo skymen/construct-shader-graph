@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SetVec3AlphaNode = new NodeType(
   "Set Vec3 Alpha",
@@ -8,7 +9,7 @@ export const SetVec3AlphaNode = new NodeType(
     { name: "New Alpha", type: "float" },
   ],
   [{ name: "Result", type: "vec3" }],
-  "#e2844a",
+  NODE_COLORS.colorAdjust,
   {
     webgl1: {
       dependency: `vec3 setVec3Alpha(vec3 color, float oldAlpha, float newAlpha) {

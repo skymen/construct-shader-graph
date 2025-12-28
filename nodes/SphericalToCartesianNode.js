@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const SphericalToCartesianNode = new NodeType(
   "Spherical to Cartesian",
@@ -8,7 +9,7 @@ export const SphericalToCartesianNode = new NodeType(
     { name: "Phi", type: "float" },
   ],
   [{ name: "Result", type: "vec3" }],
-  "#3a4a5a",
+  NODE_COLORS.coordConvert,
   {
     webgl1: {
       dependency: "",

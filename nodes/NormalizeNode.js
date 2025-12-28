@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { toWGSLType, NODE_COLORS } from "./PortTypes.js";
 
 export const NormalizeNode = new NodeType(
   "Normalize",
   [{ name: "Value", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#3a4a3a",
+  NODE_COLORS.vectorOp,
   {
     webgl1: {
       dependency: "",

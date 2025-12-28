@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { toWGSLType } from "./PortTypes.js";
+import { NODE_COLORS, toWGSLType } from "./PortTypes.js";
 
 export const EaseInOutQuintNode = new NodeType(
   "Ease In Out Quint",
   [{ name: "T", type: "genType" }],
   [{ name: "Result", type: "genType" }],
-  "#ff4000",
+  NODE_COLORS.easing,
   {
     webgl1: {
       dependency: "",
@@ -26,7 +26,16 @@ export const EaseInOutQuintNode = new NodeType(
     },
   },
   "Easing",
-  ["ease", "easing", "quint", "quintic", "inout", "animation", "interpolation", "power"]
+  [
+    "ease",
+    "easing",
+    "quint",
+    "quintic",
+    "inout",
+    "animation",
+    "interpolation",
+    "power",
+  ]
 );
 
 EaseInOutQuintNode.manual = {
@@ -52,4 +61,3 @@ T ≥ 0.5: Result = 1 - (-2T + 2)⁵ / 2</code></pre>
     </ul>
   `,
 };
-

@@ -1,10 +1,11 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const ToVec4Node = new NodeType(
   "To Vec4",
   [{ name: "Value", type: "T" }],
   [{ name: "Result", type: "vec4" }],
-  "#3a4a3a",
+  NODE_COLORS.vectorBuild,
   {
     webgl1: {
       dependency: "",

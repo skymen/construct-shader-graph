@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const PerlinNoise3DNode = new NodeType(
   "Perlin Noise 3D",
@@ -8,7 +9,7 @@ export const PerlinNoise3DNode = new NodeType(
     { name: "Offset", type: "vec3" },
   ],
   [{ name: "Result", type: "float" }],
-  "#4a3a5a",
+  NODE_COLORS.noise,
   {
     webgl1: {
       dependency: `vec3 hash3_pn(vec3 p) {

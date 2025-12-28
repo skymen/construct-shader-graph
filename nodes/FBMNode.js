@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const FBMNode = new NodeType(
   "FBM",
@@ -7,7 +8,7 @@ export const FBMNode = new NodeType(
     { name: "Octaves", type: "int", defaultValue: 3 },
   ],
   [{ name: "Result", type: "float" }],
-  "#4a3a5a",
+  NODE_COLORS.noise,
   {
     webgl1: {
       dependency: `vec2 hash2_fbm(vec2 p) {

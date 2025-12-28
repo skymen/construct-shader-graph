@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const BooleanNotNode = new NodeType(
   "Boolean NOT",
   [{ name: "Value", type: "bool" }],
   [{ name: "Result", type: "bool" }],
-  PORT_TYPES.bool.color,
+  NODE_COLORS.comparison,
   {
     webgl1: {
       dependency: "",

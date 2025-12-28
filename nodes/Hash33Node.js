@@ -1,10 +1,11 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const Hash33Node = new NodeType(
   "Hash 3→3",
   [{ name: "Seed", type: "vec3" }],
   [{ name: "Result", type: "vec3" }],
-  "#4a3a5a",
+  NODE_COLORS.hash,
   {
     webgl1: {
       dependency: `vec3 hash33(vec3 p3) {

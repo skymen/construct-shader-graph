@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES, toWGSLType } from "./PortTypes.js";
+import { PORT_TYPES, toWGSLType, NODE_COLORS } from "./PortTypes.js";
 
 export const SetVariableNode = new NodeType(
   "Set Variable",
   [{ name: "Value", type: "T" }],
   [],
-  "#9b59b6", // Purple color for variable nodes
+  NODE_COLORS.variable, // Purple color for variable nodes
   {
     webgl1: {
       dependency: "",

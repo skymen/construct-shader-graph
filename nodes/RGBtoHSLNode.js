@@ -1,11 +1,11 @@
 import { NodeType } from "./NodeType.js";
-import { PORT_TYPES } from "./PortTypes.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const RGBtoHSLNode = new NodeType(
   "RGB to HSL",
   [{ name: "RGB", type: "vec3" }],
   [{ name: "HSL", type: "vec3" }],
-  PORT_TYPES.vec3.color,
+  NODE_COLORS.colorConvert,
   {
     webgl1: {
       dependency: `vec3 rgb2hsl(vec3 c) {

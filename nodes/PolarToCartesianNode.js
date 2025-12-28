@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const PolarToCartesianNode = new NodeType(
   "Polar to Cartesian",
@@ -7,7 +8,7 @@ export const PolarToCartesianNode = new NodeType(
     { name: "Angle", type: "float" },
   ],
   [{ name: "UV", type: "vec2" }],
-  "#3a4a5a",
+  NODE_COLORS.coordConvert,
   {
     webgl1: {
       dependency: "",

@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const StarSDFNode = new NodeType(
   "Star SDF",
@@ -10,7 +11,7 @@ export const StarSDFNode = new NodeType(
     { name: "Points", type: "int" },
   ],
   [{ name: "Distance", type: "float" }],
-  "#2d6e4f",
+  NODE_COLORS.sdfShape,
   {
     webgl1: {
       dependency: `float sdStar(vec2 p, vec2 center, float ro, float ri, int n) {

@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const LineSDFNode = new NodeType(
   "Line SDF",
@@ -9,7 +10,7 @@ export const LineSDFNode = new NodeType(
     { name: "Thickness", type: "float" },
   ],
   [{ name: "Distance", type: "float" }],
-  "#2d6e4f",
+  NODE_COLORS.sdfShape,
   {
     webgl1: {
       dependency: `float sdLine(vec2 p, vec2 a, vec2 b, float th) {

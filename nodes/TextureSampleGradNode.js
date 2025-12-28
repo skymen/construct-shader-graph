@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 import { toWGSLType } from "./PortTypes.js";
 
 export const TextureSampleGradNode = new NodeType(
@@ -10,7 +11,7 @@ export const TextureSampleGradNode = new NodeType(
     { name: "dUVdy", type: "vec2" },
   ],
   [{ name: "Color", type: "custom" }],
-  "#90e24a",
+  NODE_COLORS.textureSample,
   {
     webgl1: {
       dependency: `#extension GL_EXT_shader_texture_lod : enable`,

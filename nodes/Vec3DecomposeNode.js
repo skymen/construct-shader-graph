@@ -1,4 +1,5 @@
 import { NodeType } from "./NodeType.js";
+import { NODE_COLORS } from "./PortTypes.js";
 
 export const Vec3DecomposeNode = new NodeType(
   "Vec3 Decompose",
@@ -8,7 +9,7 @@ export const Vec3DecomposeNode = new NodeType(
     { name: "Y", type: "float" },
     { name: "Z", type: "float" },
   ],
-  "#4a3a3a",
+  NODE_COLORS.vectorBuild,
   {
     webgl1: {
       dependency: "",
