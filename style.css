@@ -3862,6 +3862,10 @@ body {
 }
 
 .manual-node-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   padding: 8px 14px 8px 36px;
   color: #aaa;
   font-size: 13px;
@@ -3869,6 +3873,29 @@ body {
   transition: all 0.15s;
   border-left: 3px solid transparent;
   margin-left: 12px;
+}
+
+.manual-node-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manual-icon {
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.manual-node-item:hover .manual-icon {
+  opacity: 0.8;
+}
+
+.manual-node-item.active .manual-icon {
+  opacity: 1;
+  color: #4a90e2;
 }
 
 .manual-node-item:hover {
