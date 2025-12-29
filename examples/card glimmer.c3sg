@@ -7,7 +7,7 @@
     "author": "skymen",
     "website": "",
     "documentation": "",
-    "description": "",
+    "description": "Card glimmer reflection shader, made for a 3D card effect",
     "category": "color",
     "blendsBackground": false,
     "crossSampling": false,

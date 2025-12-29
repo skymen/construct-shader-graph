@@ -29,6 +29,9 @@ import boilerplateWebGL1 from "./shaders/boilerplate-webgl1.glsl?raw";
 import boilerplateWebGL2 from "./shaders/boilerplate-webgl2.glsl?raw";
 import boilerplateWebGPU from "./shaders/boilerplate-webgpu.wgsl?raw";
 
+// Import all example files via virtual module (generated at build time)
+import exampleFiles from "virtual:examples";
+
 import { EditorState } from "@codemirror/state";
 import {
   EditorView,
@@ -3055,151 +3058,64 @@ class BlueprintSystem {
     const modal = document.getElementById("openFilesModal");
     const grid = document.getElementById("examplesGrid");
 
-    // Define examples with metadata
-    const examples = [
-      {
-        file: "bulge.c3sg",
-        name: languageManager.getUIText("Bulge"),
-        description: languageManager.getUIText(
-          "Simple background blending bulge shader"
-        ),
-      },
-      {
-        file: "depth sample with vars.c3sg",
-        name: languageManager.getUIText("Gradient Fog with Variables"),
-        description: languageManager.getUIText(
-          "Advanced depth sampling using shader variables. Original shader by Federico Calchera"
-        ),
-      },
-      {
-        file: "background twirl.c3sg",
-        name: languageManager.getUIText("Background Twirl"),
-        description: languageManager.getUIText(
-          "Basic background cross sampling distortion shader."
-        ),
-      },
-      {
-        file: "sampling depth.c3sg",
-        name: languageManager.getUIText("Sampling Depth"),
-        description: languageManager.getUIText(
-          "Depth buffer sampling techniques"
-        ),
-      },
-      {
-        file: "kaleidoscope.c3sg",
-        name: languageManager.getUIText("Kaleidoscope"),
-        description: languageManager.getUIText("Kaleidoscope shader"),
-      },
-      {
-        file: "kaleidoscope2.c3sg",
-        name: languageManager.getUIText("Kaleidoscope 2"),
-        description: languageManager.getUIText(
-          "Kaleidoscope shader with radial symmetry"
-        ),
-      },
-      {
-        file: "card glimmer.c3sg",
-        name: languageManager.getUIText("Card Glimmer"),
-        description: languageManager.getUIText(
-          "Card glimmer reflection shader, made for a 3D card effect"
-        ),
-      },
-      {
-        file: "colored noise highlight.c3sg",
-        name: languageManager.getUIText("Colored Noise Highlight"),
-        description: languageManager.getUIText(
-          "Colored highlight using a 3D perlin noise"
-        ),
-      },
-      {
-        file: "blend background.c3sg",
-        name: languageManager.getUIText("Blend Background"),
-        description: languageManager.getUIText(
-          "Demonstrates how to sample the background texture"
-        ),
-      },
-      {
-        file: "nearest.c3sg",
-        name: languageManager.getUIText("Nearest Neighbor Sampling"),
-        description: languageManager.getUIText(
-          "Shows how to sample textures in nearest mode using integer coordinates, regardless of sampler settings"
-        ),
-      },
-      {
-        file: "wave custom texture.c3sg",
-        name: languageManager.getUIText("Wave With Custom Texture"),
-        description: languageManager.getUIText(
-          "Simple waving shader with a custom texture in the preview"
-        ),
-      },
-      {
-        file: "custom node.c3sg",
-        name: languageManager.getUIText("Custom Node"),
-        description: languageManager.getUIText(
-          "Simple example showing how to use custom nodes"
-        ),
-      },
-      {
-        file: "fast blur.c3sg",
-        name: languageManager.getUIText("Fast Blur"),
-        description: languageManager.getUIText("Optimized blur effect shader"),
-      },
-    ];
-
     // Clear grid
     grid.innerHTML = "";
 
-    // Create cards for each example
-    for (const example of examples) {
+    // Get all example files from virtual module
+    const fileNames = Object.keys(exampleFiles).sort();
+
+    // Create cards for each example file
+    for (const fileName of fileNames) {
+      // Parse the example file content (already loaded as raw string by plugin)
+      let data = null;
+      try {
+        const rawContent = exampleFiles[fileName];
+        data = JSON.parse(rawContent);
+      } catch (error) {
+        console.error(`Error loading example ${fileName}:`, error);
+        continue; // Skip this example if it can't be loaded
+      }
+
+      if (!data) continue;
+
+      // Extract name and description from the file's shaderSettings
+      const shaderSettings = data.shaderSettings || {};
+      // Use the name from shaderSettings, or derive from filename
+      const displayName =
+        shaderSettings.name ||
+        fileName
+          .replace(".c3sg", "")
+          .split(/[-_\s]/)
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ");
+      const description = shaderSettings.description || "";
+
       const card = document.createElement("div");
       card.className = "example-card";
 
       const preview = document.createElement("div");
       preview.className = "example-preview";
 
-      // Try to load the file and extract screenshot
-      try {
-        const response = await fetch(`./examples/${example.file}`);
-        if (response.ok) {
-          const text = await response.text();
-          const data = JSON.parse(text);
-
-          if (data.previewScreenshot) {
-            // Use screenshot from file data
-            const img = document.createElement("img");
-            img.src = data.previewScreenshot;
-            preview.appendChild(img);
-          } else {
-            // Fallback to separate PNG file if no screenshot in data
-            const imageName = example.file.replace(".c3sg", ".png");
-            const imagePath = `./examples/${imageName}`;
-            const img = document.createElement("img");
-            img.src = imagePath;
-            img.onerror = () => {
-              // Replace with placeholder SVG
-              preview.innerHTML = `
-                <svg class="example-preview-placeholder" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                  <path fill="currentColor" d="M19,2L14,6.5V17.5L19,13V2M6.5,5C4.55,5 2.45,5.4 1,6.5V21.16C1,21.41 1.25,21.66 1.5,21.66C1.6,21.66 1.65,21.59 1.75,21.59C3.1,20.94 5.05,20.5 6.5,20.5C8.45,20.5 10.55,20.9 12,22C13.35,21.15 15.8,20.5 17.5,20.5C19.15,20.5 20.85,20.81 22.25,21.56C22.35,21.61 22.4,21.59 22.5,21.59C22.75,21.59 23,21.34 23,21.09V6.5C22.4,6.05 21.75,5.75 21,5.5V19C19.9,18.65 18.7,18.5 17.5,18.5C15.8,18.5 13.35,19.15 12,20V6.5C10.55,5.4 8.45,5 6.5,5Z" />
-                </svg>
-              `;
-            };
-            preview.appendChild(img);
-          }
-        } else {
-          // Show placeholder if file can't be loaded
+      if (data.previewScreenshot) {
+        // Use screenshot from file data
+        const img = document.createElement("img");
+        img.src = data.previewScreenshot;
+        preview.appendChild(img);
+      } else {
+        // Fallback to separate PNG file if no screenshot in data
+        const imageName = fileName.replace(".c3sg", ".png");
+        const imagePath = `./examples/${imageName}`;
+        const img = document.createElement("img");
+        img.src = imagePath;
+        img.onerror = () => {
+          // Replace with placeholder SVG
           preview.innerHTML = `
             <svg class="example-preview-placeholder" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
               <path fill="currentColor" d="M19,2L14,6.5V17.5L19,13V2M6.5,5C4.55,5 2.45,5.4 1,6.5V21.16C1,21.41 1.25,21.66 1.5,21.66C1.6,21.66 1.65,21.59 1.75,21.59C3.1,20.94 5.05,20.5 6.5,20.5C8.45,20.5 10.55,20.9 12,22C13.35,21.15 15.8,20.5 17.5,20.5C19.15,20.5 20.85,20.81 22.25,21.56C22.35,21.61 22.4,21.59 22.5,21.59C22.75,21.59 23,21.34 23,21.09V6.5C22.4,6.05 21.75,5.75 21,5.5V19C19.9,18.65 18.7,18.5 17.5,18.5C15.8,18.5 13.35,19.15 12,20V6.5C10.55,5.4 8.45,5 6.5,5Z" />
             </svg>
           `;
-        }
-      } catch (error) {
-        // Show placeholder on error
-        preview.innerHTML = `
-          <svg class="example-preview-placeholder" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path fill="currentColor" d="M19,2L14,6.5V17.5L19,13V2M6.5,5C4.55,5 2.45,5.4 1,6.5V21.16C1,21.41 1.25,21.66 1.5,21.66C1.6,21.66 1.65,21.59 1.75,21.59C3.1,20.94 5.05,20.5 6.5,20.5C8.45,20.5 10.55,20.9 12,22C13.35,21.15 15.8,20.5 17.5,20.5C19.15,20.5 20.85,20.81 22.25,21.56C22.35,21.61 22.4,21.59 22.5,21.59C22.75,21.59 23,21.34 23,21.09V6.5C22.4,6.05 21.75,5.75 21,5.5V19C19.9,18.65 18.7,18.5 17.5,18.5C15.8,18.5 13.35,19.15 12,20V6.5C10.55,5.4 8.45,5 6.5,5Z" />
-          </svg>
-        `;
+        };
+        preview.appendChild(img);
       }
 
       const info = document.createElement("div");
@@ -3207,14 +3123,14 @@ class BlueprintSystem {
 
       const name = document.createElement("h3");
       name.className = "example-name";
-      name.textContent = example.name;
+      name.textContent = displayName;
 
-      const description = document.createElement("p");
-      description.className = "example-description";
-      description.textContent = example.description;
+      const descriptionEl = document.createElement("p");
+      descriptionEl.className = "example-description";
+      descriptionEl.textContent = description;
 
       info.appendChild(name);
-      info.appendChild(description);
+      info.appendChild(descriptionEl);
 
       card.appendChild(preview);
       card.appendChild(info);
@@ -3222,20 +3138,16 @@ class BlueprintSystem {
       // Click handler to load example
       card.addEventListener("click", async () => {
         try {
-          const response = await fetch(`./examples/${example.file}`);
-          if (!response.ok) throw new Error("Failed to load example");
-
-          const text = await response.text();
-
-          // Create a File object from the fetched text
+          // Create a File object from the already fetched data
+          const text = JSON.stringify(data);
           const blob = new Blob([text], { type: "application/json" });
-          const file = new File([blob], example.file, {
+          const file = new File([blob], fileName, {
             type: "application/json",
           });
 
           // Load the example
           await this.loadFromJSON(file);
-          this.currentFileName = example.name;
+          this.currentFileName = displayName;
           this.fileHandle = null; // Clear file handle so it doesn't overwrite the example
 
           modal.style.display = "none";

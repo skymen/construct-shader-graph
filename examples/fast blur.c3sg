@@ -7,7 +7,7 @@
     "author": "skymen",
     "website": "",
     "documentation": "",
-    "description": "",
+    "description": "Optimized blur effect shader",
     "category": "color",
     "blendsBackground": false,
     "crossSampling": false,

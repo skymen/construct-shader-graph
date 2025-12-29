@@ -7,7 +7,7 @@
     "author": "skymen",
     "website": "",
     "documentation": "",
-    "description": "Adds a colored noise overlay on the texture",
+    "description": "Colored highlight using a 3D perlin noise",
     "category": "color",
     "blendsBackground": false,
     "crossSampling": false,
