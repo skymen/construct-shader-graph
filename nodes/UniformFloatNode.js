@@ -5,7 +5,7 @@ export const UniformFloatNode = new NodeType(
   "Uniform Float",
   [],
   [{ name: "Value", type: "float" }],
-  NODE_COLORS.variable,
+  NODE_COLORS.colorFloat,
   {
     webgl1: {
       dependency: "",

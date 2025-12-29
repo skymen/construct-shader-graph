@@ -5,7 +5,7 @@ export const UniformColorNode = new NodeType(
   "Uniform Color",
   [],
   [{ name: "Color", type: "vec3" }],
-  NODE_COLORS.variable,
+  NODE_COLORS.colorVec3,
   {
     webgl1: {
       dependency: "",
