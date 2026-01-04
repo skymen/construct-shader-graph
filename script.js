@@ -7076,6 +7076,12 @@ class BlueprintSystem {
           ),
       },
       {
+        label: "Discord",
+        menu: "Help",
+        action: "discord",
+        handler: () => window.open("https://discord.gg/jfR3nMFjxJ", "_blank"),
+      },
+      {
         label: "Donate",
         menu: "Help",
         action: "donate",

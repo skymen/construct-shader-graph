@@ -255,6 +255,23 @@ body {
   color: #ffc947;
 }
 
+/* Discord button style */
+.dropdown-item-discord {
+  color: #7289DA;
+}
+
+.discord-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.dropdown-item-discord:hover:not(:disabled) {
+  background: rgba(114, 137, 218, 0.2);
+  color: #7792f3;
+}
+
 /* Donate button style */
 .dropdown-item-donate {
   color: #fff;
