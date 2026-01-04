@@ -1,0 +1,842 @@
+{
+  "version": "1.0.0",
+  "previewScreenshot": null,
+  "shaderSettings": {
+    "name": "",
+    "version": "0.0.0.0",
+    "author": "",
+    "website": "",
+    "documentation": "",
+    "description": "",
+    "category": "color",
+    "blendsBackground": false,
+    "crossSampling": false,
+    "preservesOpaqueness": true,
+    "animated": true,
+    "isDeprecated": false,
+    "extendBoxH": 0,
+    "extendBoxV": 0
+  },
+  "uniforms": [],
+  "customNodes": [],
+  "previewSettings": {
+    "effectTarget": "sprite",
+    "object": "sprite",
+    "cameraMode": "2d",
+    "autoRotate": true,
+    "samplingMode": "trilinear",
+    "shaderLanguage": "webgpu",
+    "spriteTextureUrl": null,
+    "shapeTextureUrl": null,
+    "bgTextureUrl": null,
+    "showBackgroundCube": true,
+    "spriteScale": 1,
+    "shapeScale": 1,
+    "roomScale": 1,
+    "bgOpacity": 0.15,
+    "bg3dOpacity": 0.15,
+    "zoomLevel": 1.2705059249859934,
+    "startupScript": ""
+  },
+  "camera": {
+    "x": 1198.5281214615088,
+    "y": 312.73923487601974,
+    "zoom": 0.5944762798998403
+  },
+  "nodes": [
+    {
+      "id": 3,
+      "x": 370.249834118051,
+      "y": -15.139376127027901,
+      "nodeTypeKey": "output",
+      "title": "Output",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Color",
+          "portType": "vec4",
+          "value": [
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 6,
+      "x": -2543.1743876801847,
+      "y": -462.24804601218705,
+      "nodeTypeKey": "texelSize",
+      "title": "texelSize",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "x": -2323.506283589005,
+      "y": -498.75626612874936,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            10,
+            1
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "x": -2059.029150465386,
+      "y": -535.6636927459118,
+      "nodeTypeKey": "pixellate",
+      "title": "Pixellate",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "PixelSize",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "x": -1815.3529517820662,
+      "y": -587.0933701068382,
+      "nodeTypeKey": "setVariable",
+      "title": "Set Variable",
+      "customInput": "pixellatedUV",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 16,
+      "x": -2316.934712159753,
+      "y": -221.54222868473417,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "-",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "x": -2610.4361250640623,
+      "y": -121.99365990984046,
+      "nodeTypeKey": "frontUV",
+      "title": "Front UV",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "x": -2094.778629354606,
+      "y": -262.025420212592,
+      "nodeTypeKey": "setVariable",
+      "title": "Set Variable",
+      "customInput": "localUV",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "Value",
+          "portType": "T"
+        }
+      ],
+      "outputPorts": []
+    },
+    {
+      "id": 15,
+      "x": -2627.775900140705,
+      "y": -291.0724944173155,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "pixellatedUV",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "x": -2486.2477876022404,
+      "y": 795.6632196639723,
+      "nodeTypeKey": "builtinSeconds",
+      "title": "seconds",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "x": -2209.791130605001,
+      "y": 610.4047272592029,
+      "nodeTypeKey": "appendVec3",
+      "title": "Append Vec3",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "custom"
+        },
+        {
+          "name": "B",
+          "portType": "custom"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "vec3"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "x": -2170.7230887437004,
+      "y": 339.4026837319447,
+      "nodeTypeKey": "appendVec3",
+      "title": "Append Vec3",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "custom"
+        },
+        {
+          "name": "B",
+          "portType": "custom"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "vec3"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "x": -2460.641545873178,
+      "y": 418.1920627536482,
+      "nodeTypeKey": "floatInput",
+      "title": "Float Input",
+      "customInput": "0.0",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "x": -2495.764909672507,
+      "y": 641.2407026441654,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "pixellatedUV",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "x": -2373.029150465386,
+      "y": -541.6636927459118,
+      "nodeTypeKey": "frontUV",
+      "title": "Front UV",
+      "isVariable": true,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "x": -1648.417283434163,
+      "y": 384.6114780744239,
+      "nodeTypeKey": "vec2",
+      "title": "Vec2",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "X",
+          "portType": "float",
+          "value": 0
+        },
+        {
+          "name": "Y",
+          "portType": "float",
+          "value": 0
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Vec2",
+          "portType": "vec2"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "x": -1915.0808341524332,
+      "y": 369.170837037481,
+      "nodeTypeKey": "perlinNoise3D",
+      "title": "Perlin Noise 3D",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UVW",
+          "portType": "vec3",
+          "value": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "Scale",
+          "portType": "float",
+          "value": 10
+        },
+        {
+          "name": "Offset",
+          "portType": "vec3",
+          "value": [
+            1,
+            1,
+            1
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "x": -1910.7694693866083,
+      "y": 592.8165595114446,
+      "nodeTypeKey": "perlinNoise3D",
+      "title": "Perlin Noise 3D",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UVW",
+          "portType": "vec3",
+          "value": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "Scale",
+          "portType": "float",
+          "value": 10
+        },
+        {
+          "name": "Offset",
+          "portType": "vec3",
+          "value": [
+            1,
+            1,
+            1
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "x": -2456.9781301646935,
+      "y": 231.2978548194867,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "pixellatedUV",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "x": -1404.5791999993996,
+      "y": 259.90739247323836,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "*",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "x": -1568.8771984335267,
+      "y": -219.6543150008501,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "pixellatedUV",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "x": -1020.0619678178336,
+      "y": 200.4302085594944,
+      "nodeTypeKey": "getVariable",
+      "title": "Get Variable",
+      "selectedVariable": "localUV",
+      "isVariable": false,
+      "inputPorts": [],
+      "outputPorts": [
+        {
+          "name": "Value",
+          "portType": "custom"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "x": -694.594595315464,
+      "y": -5.068657111054762,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "+",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            0.1,
+            0.1
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "x": -1127.3724784773535,
+      "y": -81.23012483628727,
+      "nodeTypeKey": "math",
+      "title": "Math",
+      "operation": "+",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "A",
+          "portType": "genType"
+        },
+        {
+          "name": "B",
+          "portType": "genType",
+          "value": [
+            0.1,
+            0.1
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "genType"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "x": 160.249834118051,
+      "y": -15.139376127027901,
+      "nodeTypeKey": "textureFront",
+      "title": "Front Texture",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "RGBA",
+          "portType": "vec4"
+        },
+        {
+          "name": "Color",
+          "portType": "vec3"
+        },
+        {
+          "name": "Alpha",
+          "portType": "float"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "x": -303.6759035901734,
+      "y": -6.28996480170704,
+      "nodeTypeKey": "wrapUV",
+      "title": "Wrap UV",
+      "isVariable": false,
+      "inputPorts": [
+        {
+          "name": "UV",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "Start",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "Size",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        },
+        {
+          "name": "Offset",
+          "portType": "vec2",
+          "value": [
+            0,
+            0
+          ]
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "Result",
+          "portType": "vec2"
+        }
+      ]
+    }
+  ],
+  "wires": [
+    {
+      "startNodeId": 2,
+      "startPortIndex": 0,
+      "endNodeId": 3,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 5,
+      "startPortIndex": 0,
+      "endNodeId": 4,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 6,
+      "startPortIndex": 0,
+      "endNodeId": 7,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 7,
+      "startPortIndex": 0,
+      "endNodeId": 4,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 4,
+      "startPortIndex": 0,
+      "endNodeId": 14,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 16,
+      "startPortIndex": 0,
+      "endNodeId": 18,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 19,
+      "startPortIndex": 0,
+      "endNodeId": 21,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 22,
+      "startPortIndex": 0,
+      "endNodeId": 21,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 21,
+      "startPortIndex": 0,
+      "endNodeId": 20,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 25,
+      "startPortIndex": 0,
+      "endNodeId": 24,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 26,
+      "startPortIndex": 0,
+      "endNodeId": 24,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 24,
+      "startPortIndex": 0,
+      "endNodeId": 27,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 27,
+      "startPortIndex": 0,
+      "endNodeId": 28,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 20,
+      "startPortIndex": 0,
+      "endNodeId": 28,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 28,
+      "startPortIndex": 0,
+      "endNodeId": 31,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 33,
+      "startPortIndex": 0,
+      "endNodeId": 37,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 34,
+      "startPortIndex": 0,
+      "endNodeId": 33,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 17,
+      "startPortIndex": 0,
+      "endNodeId": 16,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 15,
+      "startPortIndex": 0,
+      "endNodeId": 16,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 32,
+      "startPortIndex": 0,
+      "endNodeId": 36,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 31,
+      "startPortIndex": 0,
+      "endNodeId": 36,
+      "endPortIndex": 1,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 36,
+      "startPortIndex": 0,
+      "endNodeId": 33,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    },
+    {
+      "startNodeId": 37,
+      "startPortIndex": 0,
+      "endNodeId": 2,
+      "endPortIndex": 0,
+      "rerouteNodes": []
+    }
+  ],
+  "comments": [],
+  "nodeIdCounter": 38,
+  "uniformIdCounter": 1,
+  "customNodeIdCounter": 1,
+  "commentIdCounter": 1
+}
