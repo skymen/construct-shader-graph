@@ -5740,6 +5740,10 @@ class BlueprintSystem {
         this.customInputField.select();
         return;
       }
+      // Use the normalized value if provided by validation
+      if (validation.newValue !== undefined) {
+        newValue = validation.newValue;
+      }
     }
 
     // Update the value and handle type changes

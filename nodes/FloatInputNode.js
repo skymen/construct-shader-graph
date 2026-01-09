@@ -70,6 +70,17 @@ FloatInputNode.customInputConfig = {
       };
     }
 
-    return { valid: true };
+    // Normalize the value to ensure it has a decimal point
+    let normalizedValue = trimmedValue;
+    // If the value doesn't contain a decimal point and isn't in scientific notation
+    if (
+      !normalizedValue.includes(".") &&
+      !normalizedValue.includes("e") &&
+      !normalizedValue.includes("E")
+    ) {
+      normalizedValue = normalizedValue + ".0";
+    }
+
+    return { valid: true, newValue: normalizedValue };
   },
 };
