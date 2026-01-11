@@ -5725,7 +5725,7 @@ class BlueprintSystem {
     if (!this.editingCustomInput) return;
 
     const node = this.editingCustomInput;
-    const newValue = this.customInputField.value;
+    let newValue = this.customInputField.value;
     const config = node.nodeType.customInputConfig;
 
     // Validate the input
