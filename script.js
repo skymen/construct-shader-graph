@@ -1009,6 +1009,12 @@ class BlueprintSystem {
     this.customNodeIdCounter = 1;
     this.editingCustomNode = null;
 
+    // Subroutines
+    this.subroutines = [];
+    this.subroutineIdCounter = 1;
+    this.editingSubroutine = null;
+    this.subroutineEditorOpen = false;
+
     // Preview
     this.previewIframe = null;
     this.previewReady = false;
@@ -1310,6 +1316,11 @@ class BlueprintSystem {
     );
     if (customNodesHeader) customNodesHeader.textContent = t("Custom Nodes");
 
+    const subroutinesHeader = document.querySelector(
+      "#subroutines-section .sidebar-section-header h2"
+    );
+    if (subroutinesHeader) subroutinesHeader.textContent = t("Subroutines");
+
     // Sidebar labels
     const updateSidebarLabel = (selector, textKey) => {
       const labels = document.querySelectorAll(selector);
@@ -1407,6 +1418,10 @@ class BlueprintSystem {
     if (addCustomNodeBtn)
       addCustomNodeBtn.textContent = t("+ Create Custom Node");
 
+    const addSubroutineBtn = document.getElementById("addSubroutineBtn");
+    if (addSubroutineBtn)
+      addSubroutineBtn.textContent = t("+ Create Subroutine");
+
     // Minimap controls
     const zoomInBtn = document.getElementById("zoomInBtn");
     if (zoomInBtn) zoomInBtn.title = t("Zoom In");
@@ -1452,6 +1467,25 @@ class BlueprintSystem {
     if (customNodeSplitLabel)
       customNodeSplitLabel.textContent = t("split webgl");
 
+    // Subroutine Modal
+    const subroutineModalH3 = document.querySelector("#subroutineModal h3");
+    if (subroutineModalH3) subroutineModalH3.textContent = t("Subroutine Editor");
+
+    const subroutineNameLabel = document.querySelector(
+      "label:has(#subroutineName) > span"
+    );
+    if (subroutineNameLabel)
+      subroutineNameLabel.textContent = t("Subroutine Name");
+
+    const subroutineName = document.getElementById("subroutineName");
+    if (subroutineName) subroutineName.placeholder = t("My Subroutine");
+
+    const subroutineGraphHeader = document.querySelector(
+      ".subroutine-graph-header > span"
+    );
+    if (subroutineGraphHeader)
+      subroutineGraphHeader.textContent = t("Subroutine Graph");
+
     const inputsHeader = document.querySelector(
       ".custom-node-ports-column:first-child h4"
     );
@@ -1477,6 +1511,12 @@ class BlueprintSystem {
 
     const cancelCustomNode = document.getElementById("cancelCustomNode");
     if (cancelCustomNode) cancelCustomNode.textContent = t("Cancel");
+
+    const saveSubroutine = document.getElementById("saveSubroutine");
+    if (saveSubroutine) saveSubroutine.textContent = t("Save");
+
+    const cancelSubroutine = document.getElementById("cancelSubroutine");
+    if (cancelSubroutine) cancelSubroutine.textContent = t("Cancel");
 
     // Uniform Modal
     const uniformModalH3 = document.querySelector("#uniformModal h3");
@@ -2685,6 +2725,9 @@ class BlueprintSystem {
       .addEventListener("click", () => {
         this.showCustomNodeModal();
       });
+
+    // Initialize subroutine UI
+    this.initSubroutineUI();
   }
 
   showCustomNodeModal(customNode = null) {
@@ -5098,6 +5141,550 @@ class BlueprintSystem {
     this.renderCustomNodesList();
   }
 
+  // ========== SUBROUTINE METHODS ==========
+
+  initSubroutineUI() {
+    // Get UI elements
+    this.subroutineModal = document.getElementById("subroutineModal");
+    this.subroutineNameInput = document.getElementById("subroutineName");
+    this.subroutineColorInput = document.getElementById("subroutineColor");
+    this.subroutineInputsContainer = document.getElementById("subroutineInputs");
+    this.subroutineOutputsContainer = document.getElementById("subroutineOutputs");
+    this.subroutineCanvas = document.getElementById("subroutineCanvas");
+    this.subroutinesList = document.getElementById("subroutines-list");
+
+    // Initialize subroutine canvas context
+    if (this.subroutineCanvas) {
+      this.subroutineCtx = this.subroutineCanvas.getContext("2d");
+      this.subroutineCamera = { x: 0, y: 0, zoom: 1 };
+      this.subroutineNodes = [];
+      this.subroutineWires = [];
+    }
+
+    // Add event listeners
+    document.getElementById("addSubroutineInput").addEventListener("click", () => {
+      this.addCustomPortItem(this.subroutineInputsContainer, "input");
+    });
+
+    document.getElementById("addSubroutineOutput").addEventListener("click", () => {
+      this.addCustomPortItem(this.subroutineOutputsContainer, "output");
+    });
+
+    document.getElementById("saveSubroutine").addEventListener("click", () => {
+      this.saveSubroutine();
+    });
+
+    document.getElementById("cancelSubroutine").addEventListener("click", () => {
+      this.hideSubroutineModal();
+    });
+
+    document.getElementById("addSubroutineBtn").addEventListener("click", () => {
+      this.showSubroutineModal();
+    });
+
+    // Zoom controls
+    document.getElementById("subroutineZoomIn").addEventListener("click", () => {
+      this.subroutineCamera.zoom = Math.min(this.subroutineCamera.zoom * 1.2, 3);
+      this.renderSubroutineCanvas();
+    });
+
+    document.getElementById("subroutineZoomOut").addEventListener("click", () => {
+      this.subroutineCamera.zoom = Math.max(this.subroutineCamera.zoom / 1.2, 0.3);
+      this.renderSubroutineCanvas();
+    });
+
+    document.getElementById("subroutineResetView").addEventListener("click", () => {
+      this.subroutineCamera = { x: 0, y: 0, zoom: 1 };
+      this.renderSubroutineCanvas();
+    });
+
+    // Close on background click
+    this.subroutineModal.addEventListener("mousedown", (e) => {
+      if (e.target === this.subroutineModal) {
+        this.hideSubroutineModal();
+      }
+    });
+
+    // Setup canvas interactions
+    this.setupSubroutineCanvas();
+  }
+
+  setupSubroutineCanvas() {
+    if (!this.subroutineCanvas) return;
+
+    let isPanning = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    this.subroutineCanvas.addEventListener("mousedown", (e) => {
+      if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+        isPanning = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        this.subroutineCanvas.style.cursor = "grabbing";
+        e.preventDefault();
+      }
+    });
+
+    this.subroutineCanvas.addEventListener("mousemove", (e) => {
+      if (isPanning) {
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        this.subroutineCamera.x += dx;
+        this.subroutineCamera.y += dy;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        this.renderSubroutineCanvas();
+      }
+    });
+
+    this.subroutineCanvas.addEventListener("mouseup", () => {
+      if (isPanning) {
+        isPanning = false;
+        this.subroutineCanvas.style.cursor = "default";
+      }
+    });
+
+    this.subroutineCanvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      this.subroutineCamera.zoom = Math.max(0.3, Math.min(3, this.subroutineCamera.zoom * delta));
+      this.renderSubroutineCanvas();
+    });
+  }
+
+  showSubroutineModal(subroutine = null) {
+    this.editingSubroutine = subroutine;
+    this.subroutineEditorOpen = true;
+
+    // Clear form
+    this.subroutineNameInput.value = "";
+    this.subroutineColorInput.value = "#8e44ad";
+    this.subroutineInputsContainer.innerHTML = "";
+    this.subroutineOutputsContainer.innerHTML = "";
+
+    // Reset canvas
+    this.subroutineNodes = [];
+    this.subroutineWires = [];
+    this.subroutineCamera = { x: 250, y: 250, zoom: 1 };
+
+    // If editing, populate form
+    if (subroutine) {
+      this.subroutineNameInput.value = subroutine.name;
+      this.subroutineColorInput.value = subroutine.color || "#8e44ad";
+
+      subroutine.inputs.forEach((input) => {
+        this.addCustomPortItem(
+          this.subroutineInputsContainer,
+          "input",
+          input.name,
+          input.type
+        );
+      });
+
+      subroutine.outputs.forEach((output) => {
+        this.addCustomPortItem(
+          this.subroutineOutputsContainer,
+          "output",
+          output.name,
+          output.type
+        );
+      });
+
+      // Load subroutine graph
+      if (subroutine.subGraph) {
+        this.loadSubroutineGraph(subroutine.subGraph);
+      }
+    } else {
+      // Add default input/output interface nodes
+      this.createSubroutineInterfaceNodes();
+    }
+
+    // Resize canvas
+    this.resizeSubroutineCanvas();
+    this.renderSubroutineCanvas();
+
+    // Show modal
+    this.subroutineModal.classList.add("visible");
+    this.subroutineModal.style.display = "flex";
+  }
+
+  hideSubroutineModal() {
+    this.subroutineModal.classList.remove("visible");
+    this.subroutineModal.style.display = "none";
+    this.editingSubroutine = null;
+    this.subroutineEditorOpen = false;
+    this.subroutineNodes = [];
+    this.subroutineWires = [];
+  }
+
+  resizeSubroutineCanvas() {
+    if (!this.subroutineCanvas) return;
+    const container = this.subroutineCanvas.parentElement;
+    this.subroutineCanvas.width = container.clientWidth;
+    this.subroutineCanvas.height = container.clientHeight;
+  }
+
+  createSubroutineInterfaceNodes() {
+    // Create Input node
+    const inputNodeType = {
+      name: "Subroutine Input",
+      inputs: [],
+      outputs: [{ name: "Value", type: "T" }],
+      color: "#4a90e2",
+      isSubroutineInput: true,
+      isCustom: false,
+      isSubroutine: false,
+      isUniform: false,
+      getDependency: () => "",
+      getExecution: () => () => "",
+    };
+    const inputNode = this.addSubroutineNode(100, 200, inputNodeType);
+
+    // Create Output node
+    const outputNodeType = {
+      name: "Subroutine Output",
+      inputs: [{ name: "Value", type: "T" }],
+      outputs: [],
+      color: "#e74c3c",
+      isSubroutineOutput: true,
+      isCustom: false,
+      isSubroutine: false,
+      isUniform: false,
+      getDependency: () => "",
+      getExecution: () => () => "",
+    };
+    const outputNode = this.addSubroutineNode(500, 200, outputNodeType);
+  }
+
+  addSubroutineNode(x, y, nodeType) {
+    const node = new Node(x, y, this.subroutineNodes.length, nodeType);
+    this.subroutineNodes.push(node);
+    return node;
+  }
+
+  renderSubroutineCanvas() {
+    if (!this.subroutineCtx) return;
+
+    const ctx = this.subroutineCtx;
+    const canvas = this.subroutineCanvas;
+
+    // Clear canvas
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw grid
+    this.drawGrid(ctx, this.subroutineCamera);
+
+    // Save context state
+    ctx.save();
+    ctx.translate(this.subroutineCamera.x, this.subroutineCamera.y);
+    ctx.scale(this.subroutineCamera.zoom, this.subroutineCamera.zoom);
+
+    // Draw wires
+    this.subroutineWires.forEach((wire) => {
+      this.drawWire(ctx, wire);
+    });
+
+    // Draw nodes
+    this.subroutineNodes.forEach((node) => {
+      this.drawNode(ctx, node);
+    });
+
+    ctx.restore();
+
+    // Draw info text
+    ctx.fillStyle = "#666";
+    ctx.font = "12px sans-serif";
+    ctx.fillText("Right-click or Shift+Click to add nodes", 10, canvas.height - 10);
+  }
+
+  loadSubroutineGraph(subGraph) {
+    // TODO: Implement loading saved subroutine graph
+    // This will restore nodes and wires from the saved state
+  }
+
+  saveSubroutine() {
+    const name = this.subroutineNameInput.value.trim();
+    if (!name) {
+      alert("Please enter a subroutine name");
+      return;
+    }
+
+    // Check for duplicate names
+    const isDuplicateName = this.subroutines.some((sub) => {
+      if (this.editingSubroutine && sub.id === this.editingSubroutine.id) {
+        return false;
+      }
+      return sub.name.toLowerCase() === name.toLowerCase();
+    });
+
+    if (isDuplicateName) {
+      alert(`A subroutine with the name "${name}" already exists. Please choose a different name.`);
+      return;
+    }
+
+    // Collect inputs
+    const inputs = [];
+    this.subroutineInputsContainer
+      .querySelectorAll(".custom-port-item")
+      .forEach((item) => {
+        const nameInput = item.querySelector("input");
+        const typeSelect = item.querySelector("select");
+        if (nameInput.value.trim()) {
+          inputs.push({
+            name: nameInput.value.trim(),
+            type: typeSelect.value,
+          });
+        }
+      });
+
+    // Collect outputs
+    const outputs = [];
+    this.subroutineOutputsContainer
+      .querySelectorAll(".custom-port-item")
+      .forEach((item) => {
+        const nameInput = item.querySelector("input");
+        const typeSelect = item.querySelector("select");
+        if (nameInput.value.trim()) {
+          outputs.push({
+            name: nameInput.value.trim(),
+            type: typeSelect.value,
+          });
+        }
+      });
+
+    if (outputs.length === 0) {
+      alert("Please add at least one output");
+      return;
+    }
+
+    // Save subroutine graph state
+    const subGraph = this.exportSubroutineGraph();
+
+    // Create subroutine definition
+    const subroutine = {
+      id: this.editingSubroutine
+        ? this.editingSubroutine.id
+        : this.subroutineIdCounter++,
+      name: name,
+      color: this.subroutineColorInput.value,
+      inputs: inputs,
+      outputs: outputs,
+      subGraph: subGraph,
+    };
+
+    if (this.editingSubroutine) {
+      // Update existing
+      const index = this.subroutines.findIndex(
+        (s) => s.id === this.editingSubroutine.id
+      );
+      if (index !== -1) {
+        this.subroutines[index] = subroutine;
+        this.updateSubroutineInstances(subroutine);
+      }
+      this.history.pushState("Edit subroutine");
+    } else {
+      // Add new
+      this.subroutines.push(subroutine);
+      this.history.pushState("Create subroutine");
+    }
+
+    this.renderSubroutinesList();
+    this.hideSubroutineModal();
+    console.log("Subroutine saved:", subroutine);
+
+    // Reload preview
+    this.updatePreview();
+  }
+
+  exportSubroutineGraph() {
+    return {
+      nodes: this.subroutineNodes.map((node) => ({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        nodeTypeKey: this.getNodeTypeKey(node.nodeType),
+        inputPorts: node.inputPorts.map((port) => ({
+          name: port.name,
+          portType: port.portType,
+          value: this.cloneValue(port.value),
+        })),
+        outputPorts: node.outputPorts.map((port) => ({
+          name: port.name,
+          portType: port.portType,
+        })),
+      })),
+      wires: this.subroutineWires.map((wire) => ({
+        startNodeId: wire.startPort.node.id,
+        startPortIndex: wire.startPort.node.outputPorts.indexOf(wire.startPort),
+        endNodeId: wire.endPort.node.id,
+        endPortIndex: wire.endPort.node.inputPorts.indexOf(wire.endPort),
+      })),
+    };
+  }
+
+  updateSubroutineInstances(subroutine) {
+    // Similar to updateCustomNodeInstances
+    const subroutineKey = `subroutine_${subroutine.id}`;
+    const affectedNodes = this.nodes.filter((node) => {
+      const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
+      return nodeTypeKey === subroutineKey;
+    });
+
+    affectedNodes.forEach((node) => {
+      node.nodeType = this.createNodeTypeFromSubroutine(subroutine);
+      node.title = subroutine.name;
+      node.headerColor = subroutine.color;
+      // TODO: Update ports and reconnect compatible wires
+    });
+
+    if (affectedNodes.length > 0) {
+      this.render();
+      this.onShaderChanged();
+    }
+  }
+
+  renderSubroutinesList() {
+    this.subroutinesList.innerHTML = "";
+
+    this.subroutines.forEach((subroutine) => {
+      const item = document.createElement("div");
+      item.className = "uniform-item";
+      item.style.borderLeft = `3px solid ${subroutine.color}`;
+
+      const info = document.createElement("div");
+      info.className = "uniform-info";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "uniform-name";
+      nameSpan.textContent = subroutine.name;
+
+      const typeSpan = document.createElement("span");
+      typeSpan.className = "uniform-type";
+      typeSpan.textContent = `${subroutine.inputs.length} in, ${subroutine.outputs.length} out`;
+
+      info.appendChild(nameSpan);
+      info.appendChild(typeSpan);
+
+      const actions = document.createElement("div");
+      actions.className = "uniform-actions";
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "uniform-action-btn";
+      editBtn.innerHTML = "✎";
+      editBtn.title = "Edit";
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showSubroutineModal(subroutine);
+      });
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "uniform-action-btn";
+      deleteBtn.innerHTML = "×";
+      deleteBtn.title = "Delete";
+      deleteBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.deleteSubroutine(subroutine.id);
+      });
+
+      actions.appendChild(editBtn);
+      actions.appendChild(deleteBtn);
+
+      item.appendChild(info);
+      item.appendChild(actions);
+
+      this.subroutinesList.appendChild(item);
+    });
+  }
+
+  deleteSubroutine(id) {
+    if (!confirm("Are you sure you want to delete this subroutine?")) {
+      return;
+    }
+
+    // Remove all nodes in the graph that use this subroutine
+    const subroutineKey = `subroutine_${id}`;
+    const nodesToRemove = this.nodes.filter((node) => {
+      const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
+      return nodeTypeKey === subroutineKey;
+    });
+
+    if (nodesToRemove.length > 0) {
+      nodesToRemove.forEach((node) => {
+        this.disconnectAllWiresFromNode(node);
+      });
+
+      this.nodes = this.nodes.filter((node) => {
+        const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
+        return nodeTypeKey !== subroutineKey;
+      });
+
+      this.selectedNodes = new Set(
+        [...this.selectedNodes].filter((node) => {
+          const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
+          return nodeTypeKey !== subroutineKey;
+        })
+      );
+
+      this.history.pushState("Delete subroutine");
+      this.render();
+      this.updateDependencyList();
+    }
+
+    this.subroutines = this.subroutines.filter((s) => s.id !== id);
+    this.renderSubroutinesList();
+  }
+
+  createNodeTypeFromSubroutine(subroutine) {
+    return {
+      name: subroutine.name,
+      inputs: subroutine.inputs,
+      outputs: subroutine.outputs,
+      color: subroutine.color || "#8e44ad",
+      isSubroutine: true,
+      subroutineId: subroutine.id,
+      getDependency: (target) => {
+        // Generate dependency code by inlining subroutine nodes
+        return this.generateSubroutineDependency(subroutine, target);
+      },
+      getExecution: (target) => {
+        return (inputs, outputs) => {
+          // Generate execution code by inlining subroutine nodes
+          return this.generateSubroutineExecution(subroutine, target, inputs, outputs);
+        };
+      },
+    };
+  }
+
+  generateSubroutineDependency(subroutine, target) {
+    // For now, return a comment indicating this is a subroutine
+    // Full implementation would inline all dependency code from the subroutine's nodes
+    return `// Subroutine: ${subroutine.name}\n`;
+  }
+
+  generateSubroutineExecution(subroutine, target, inputs, outputs) {
+    // For now, create a simple pass-through
+    // Full implementation would:
+    // 1. Create a temporary execution context
+    // 2. Map external inputs to subroutine input nodes
+    // 3. Execute all nodes in the subroutine graph in topological order
+    // 4. Map subroutine output nodes to external outputs
+    
+    let code = `  // Subroutine: ${subroutine.name}\n`;
+    
+    // Simple pass-through for demonstration
+    // In a full implementation, this would process the entire subroutine graph
+    if (inputs.length > 0 && outputs.length > 0) {
+      outputs.forEach((output, i) => {
+        const input = inputs[Math.min(i, inputs.length - 1)];
+        code += `  ${output} = ${input};\n`;
+      });
+    }
+    
+    return code;
+  }
+
   renderUniformList() {
     this.uniformList.innerHTML = "";
 
@@ -6077,6 +6664,10 @@ class BlueprintSystem {
     const customNodeTypes = this.getCustomNodeTypes();
     nodeTypes = [...nodeTypes, ...Object.entries(customNodeTypes)];
 
+    // Add subroutines
+    const subroutineNodeTypes = this.getSubroutineNodeTypes();
+    nodeTypes = [...nodeTypes, ...Object.entries(subroutineNodeTypes)];
+
     // Filter out output node if one already exists
     const hasOutputNode = this.nodes.some(
       (node) => node.nodeType === NODE_TYPES.output
@@ -6117,6 +6708,15 @@ class BlueprintSystem {
       customNodeTypes[key] = this.createNodeTypeFromCustomNode(customNode);
     });
     return customNodeTypes;
+  }
+
+  getSubroutineNodeTypes() {
+    const subroutineNodeTypes = {};
+    this.subroutines.forEach((subroutine) => {
+      const key = `subroutine_${subroutine.id}`;
+      subroutineNodeTypes[key] = this.createNodeTypeFromSubroutine(subroutine);
+    });
+    return subroutineNodeTypes;
   }
 
   createNodeTypeFromCustomNode(customNode) {
@@ -9985,6 +10585,14 @@ class BlueprintSystem {
         this.renderCustomNodesList();
       }
 
+      // Restore subroutines
+      if (data.subroutines) {
+        this.subroutines = data.subroutines;
+        this.subroutineIdCounter =
+          data.subroutineIdCounter || this.subroutines.length + 1;
+        this.renderSubroutinesList();
+      }
+
       // Restore preview settings
       if (data.previewSettings) {
         this.previewSettings = {
@@ -10183,6 +10791,11 @@ class BlueprintSystem {
       return `custom_${nodeType.customNodeId}`;
     }
 
+    // Check if it's a subroutine
+    if (nodeType.isSubroutine && nodeType.subroutineId) {
+      return `subroutine_${nodeType.subroutineId}`;
+    }
+
     // Check if it's a uniform node
     if (nodeType.isUniform && nodeType.uniformId) {
       return `uniform_${nodeType.uniformId}`;
@@ -10210,6 +10823,15 @@ class BlueprintSystem {
       const customNode = this.customNodes.find((n) => n.id === customNodeId);
       if (customNode) {
         return this.createNodeTypeFromCustomNode(customNode);
+      }
+    }
+
+    // Check if it's a subroutine
+    if (key.startsWith("subroutine_")) {
+      const subroutineId = parseInt(key.replace("subroutine_", ""));
+      const subroutine = this.subroutines.find((s) => s.id === subroutineId);
+      if (subroutine) {
+        return this.createNodeTypeFromSubroutine(subroutine);
       }
     }
 
@@ -10270,11 +10892,13 @@ class BlueprintSystem {
       })),
       uniforms: JSON.parse(JSON.stringify(this.uniforms)),
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
+      subroutines: JSON.parse(JSON.stringify(this.subroutines)),
       shaderSettings: { ...this.shaderSettings },
       counters: {
         nodeIdCounter: this.nodeIdCounter,
         uniformIdCounter: this.uniformIdCounter,
         customNodeIdCounter: this.customNodeIdCounter,
+        subroutineIdCounter: this.subroutineIdCounter,
         commentIdCounter: this.commentIdCounter,
       },
     };
@@ -10304,11 +10928,13 @@ class BlueprintSystem {
     this.nodeIdCounter = stateData.counters.nodeIdCounter;
     this.uniformIdCounter = stateData.counters.uniformIdCounter;
     this.customNodeIdCounter = stateData.counters.customNodeIdCounter;
+    this.subroutineIdCounter = stateData.counters.subroutineIdCounter || 1;
     this.commentIdCounter = stateData.counters.commentIdCounter || 1;
 
-    // Restore uniforms and custom nodes
+    // Restore uniforms, custom nodes, and subroutines
     this.uniforms = JSON.parse(JSON.stringify(stateData.uniforms));
     this.customNodes = JSON.parse(JSON.stringify(stateData.customNodes));
+    this.subroutines = JSON.parse(JSON.stringify(stateData.subroutines || []));
     this.shaderSettings = { ...stateData.shaderSettings };
 
     // Restore nodes
@@ -11204,7 +11830,7 @@ class BlueprintSystem {
 
     // Check if clicking on edit button for custom nodes
     for (const node of this.nodes) {
-      if (node.nodeType.isCustom && node.editButtonBounds) {
+      if (node.nodeType && node.nodeType.isCustom && node.editButtonBounds) {
         const btn = node.editButtonBounds;
         if (
           pos.x >= btn.x &&
@@ -12968,7 +13594,7 @@ class BlueprintSystem {
       }
 
       // Edit button for custom nodes
-      if (node.nodeType.isCustom) {
+      if (node.nodeType && node.nodeType.isCustom) {
         const buttonSize = 20;
         const buttonX = node.x + node.width - buttonSize - 5;
         const buttonY = node.y + 7;

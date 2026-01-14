@@ -988,6 +988,18 @@
               <div id="custom-nodes-list" class="custom-nodes-list"></div>
             </div>
           </div>
+          <div id="subroutines-section" class="collapsible-section">
+            <div class="sidebar-section-header">
+              <h2>Subroutines</h2>
+              <button class="collapse-btn">▼</button>
+            </div>
+            <div class="sidebar-section-content">
+              <button id="addSubroutineBtn" class="add-uniform-btn">
+                + Create Subroutine
+              </button>
+              <div id="subroutines-list" class="custom-nodes-list"></div>
+            </div>
+          </div>
         </div>
         <div id="canvas-container">
           <canvas id="canvas"></canvas>
@@ -1390,6 +1402,81 @@
         <div class="uniform-modal-buttons">
           <button id="commentModalCancel">Cancel</button>
           <button id="commentModalSave">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Subroutine Editor Modal -->
+    <div id="subroutineModal" class="custom-node-modal">
+      <div class="custom-node-modal-content subroutine-modal-content">
+        <h3>Subroutine Editor</h3>
+        <div class="subroutine-form">
+          <!-- Header Section -->
+          <div class="custom-node-header">
+            <div class="custom-node-header-row">
+              <label class="name-label">
+                <span>Subroutine Name</span>
+                <input
+                  type="text"
+                  id="subroutineName"
+                  placeholder="My Subroutine"
+                />
+              </label>
+              <label class="color-label">
+                <span></span>
+                <input type="color" id="subroutineColor" value="#8e44ad" />
+              </label>
+            </div>
+
+            <div class="custom-node-header-row">
+              <div class="custom-node-ports-section">
+                <div class="custom-node-ports-column">
+                  <div class="custom-node-ports-header">
+                    <h4>Inputs</h4>
+                    <button id="addSubroutineInput" class="add-port-btn-small">
+                      +
+                    </button>
+                  </div>
+                  <div
+                    id="subroutineInputs"
+                    class="custom-node-ports-list"
+                  ></div>
+                </div>
+                <div class="custom-node-ports-column">
+                  <div class="custom-node-ports-header">
+                    <h4>Outputs</h4>
+                    <button id="addSubroutineOutput" class="add-port-btn-small">
+                      +
+                    </button>
+                  </div>
+                  <div
+                    id="subroutineOutputs"
+                    class="custom-node-ports-list"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Graph Editor Section -->
+          <div class="subroutine-graph-section">
+            <div class="subroutine-graph-header">
+              <span>Subroutine Graph</span>
+              <div class="subroutine-graph-actions">
+                <button id="subroutineZoomIn" class="subroutine-btn" title="Zoom In">+</button>
+                <button id="subroutineZoomOut" class="subroutine-btn" title="Zoom Out">-</button>
+                <button id="subroutineResetView" class="subroutine-btn" title="Reset View">⊙</button>
+              </div>
+            </div>
+            <div class="subroutine-graph-container">
+              <canvas id="subroutineCanvas"></canvas>
+            </div>
+          </div>
+
+          <div class="custom-node-modal-buttons">
+            <button id="saveSubroutine" class="primary-btn">Save</button>
+            <button id="cancelSubroutine" class="secondary-btn">Cancel</button>
+          </div>
         </div>
       </div>
     </div>
