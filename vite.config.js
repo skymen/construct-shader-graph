@@ -70,10 +70,6 @@ export default defineConfig({
           src: "examples/**/*",
           dest: "examples",
         },
-        {
-          src: "EXPERIMENTAL_INFO.md",
-          dest: ".",
-        },
       ],
     }),
   ],

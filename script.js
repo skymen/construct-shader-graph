@@ -15376,7 +15376,9 @@ async function showExperimentalDialog() {
 
   try {
     // Fetch the experimental info markdown file
-    const response = await fetch("/EXPERIMENTAL_INFO.md");
+    const response = await fetch(
+      `${import.meta.env.BASE_URL}EXPERIMENTAL_INFO.md`
+    );
     if (!response.ok) {
       console.warn("Could not load experimental info file");
       return;

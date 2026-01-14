@@ -20,49 +20,53 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
 
-      - name: Install dependencies
+      # Build Main Branch
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install dependencies (main)
         run: npm ci
 
-      - name: Determine build configuration
-        id: config
-        run: |
-          if [ "${{ github.ref_name }}" = "experimental" ]; then
-            echo "IS_EXPERIMENTAL=true" >> $GITHUB_ENV
-            echo "BASE_PATH=/construct-shader-graph/experimental/" >> $GITHUB_ENV
-            echo "is_experimental=true" >> $GITHUB_OUTPUT
-          else
-            echo "IS_EXPERIMENTAL=false" >> $GITHUB_ENV
-            echo "BASE_PATH=/construct-shader-graph/" >> $GITHUB_ENV
-            echo "is_experimental=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build
+      - name: Build main branch
         run: npm run build
         env:
           NODE_ENV: production
-          VITE_BASE_PATH: ${{ env.BASE_PATH }}
-          VITE_IS_EXPERIMENTAL: ${{ env.IS_EXPERIMENTAL }}
+          VITE_BASE_PATH: /construct-shader-graph/
+          VITE_IS_EXPERIMENTAL: false
 
-      - name: Prepare deployment directory
+      - name: Prepare main build
         run: |
-          if [ "${{ steps.config.outputs.is_experimental }}" = "true" ]; then
-            # For experimental, create a subdirectory structure
-            mkdir -p deploy/experimental
-            cp -r dist/* deploy/experimental/
-          else
-            # For main, deploy to root
-            mkdir -p deploy
-            cp -r dist/* deploy/
-          fi
+          mkdir -p deploy
+          cp -r dist/* deploy/
+
+      # Build Experimental Branch
+      - name: Checkout experimental branch
+        uses: actions/checkout@v4
+        with:
+          ref: experimental
+          clean: false
+
+      - name: Install dependencies (experimental)
+        run: npm ci
+
+      - name: Build experimental branch
+        run: npm run build
+        env:
+          NODE_ENV: production
+          VITE_BASE_PATH: /construct-shader-graph/experimental/
+          VITE_IS_EXPERIMENTAL: true
+
+      - name: Prepare experimental build
+        run: |
+          mkdir -p deploy/experimental
+          cp -r dist/* deploy/experimental/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
