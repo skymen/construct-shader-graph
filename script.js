@@ -5994,11 +5994,15 @@ class BlueprintSystem {
   createNodeTypeFromSubroutine(subroutine) {
     return {
       name: subroutine.name,
-      inputs: subroutine.inputs,
-      outputs: subroutine.outputs,
+      inputs: subroutine.inputs.map((input) => ({ ...input, type: "custom" })),
+      outputs: subroutine.outputs.map((output) => ({
+        ...output,
+        type: "custom",
+      })),
       color: subroutine.color || "#8e44ad",
       isSubroutine: true,
       subroutineId: subroutine.id,
+      subroutineGraph: subroutine.subGraph, // Store reference to the graph
       getDependency: (target) => {
         // Generate dependency code by inlining subroutine nodes
         return this.generateSubroutineDependency(subroutine, target);
@@ -6013,6 +6017,31 @@ class BlueprintSystem {
             outputs
           );
         };
+      },
+      // Initialize the internal graph when a node is created
+      onNodeCreated: (node, blueprintSystem) => {
+        blueprintSystem.instantiateSubroutineInternalGraph(node, subroutine);
+      },
+      // Custom type resolution - read from internal interface nodes
+      getCustomType: (node, port) => {
+        debugger;
+        if (port.type === "input") {
+          // Input port: get type from internal input interface output port
+          const internalOutputPort =
+            node._inputInterfaceNode?.outputPorts[port.index];
+          if (internalOutputPort) {
+            return internalOutputPort.getResolvedType();
+          }
+          return subroutine.inputs[port.index]?.type || "float";
+        } else {
+          // Output port: get type from internal output interface input port
+          const internalInputPort =
+            node._outputInterfaceNode?.inputPorts[port.index];
+          if (internalInputPort) {
+            return internalInputPort.getResolvedType();
+          }
+          return subroutine.outputs[port.index]?.type || "float";
+        }
       },
     };
   }
@@ -11035,6 +11064,11 @@ class BlueprintSystem {
           const node = new Node(nodeData.x, nodeData.y, nodeData.id, nodeType);
           node._blueprintSystem = this;
 
+          // Call onNodeCreated if the node type has it (e.g., for subroutines)
+          if (nodeType.onNodeCreated) {
+            nodeType.onNodeCreated(node, this);
+          }
+
           // Restore node properties
           if (nodeData.title) node.title = nodeData.title;
           if (nodeData.operation) node.operation = nodeData.operation;
@@ -11617,6 +11651,11 @@ class BlueprintSystem {
       this.nodes.push(node);
     }
 
+    // Call onNodeCreated if the node type has it (e.g., for subroutines)
+    if (nodeType.onNodeCreated) {
+      nodeType.onNodeCreated(node, this);
+    }
+
     this.render();
     return node;
   }
@@ -11959,10 +11998,193 @@ class BlueprintSystem {
           );
         }
       );
+
+      // If this node is a subroutine, also propagate types through its internal graph
+      if (node.nodeType?.isSubroutine && node.nodeType.propagateTypes) {
+        const subroutine = this.subroutines.find(
+          (s) => s.id === node.nodeType.subroutineId
+        );
+        if (subroutine) {
+          node.nodeType.propagateTypes(node, this);
+        }
+      }
+    }
+  }
+
+  instantiateSubroutineInternalGraph(subroutineNode, subroutine) {
+    if (!subroutine.subGraph || !subroutine.subGraph.nodes) {
+      return;
+    }
+
+    // Create actual Node instances for the internal graph
+    const internalNodesMap = new Map();
+    const internalNodes = [];
+
+    // Create internal nodes
+    subroutine.subGraph.nodes.forEach((nodeData) => {
+      let nodeType;
+
+      if (nodeData.nodeTypeKey === "subroutineInput") {
+        const ports = nodeData.subroutinePorts || subroutine.inputs;
+        nodeType = {
+          name: "Subroutine Input",
+          inputs: [],
+          outputs: ports.map((p) => ({ name: p.name, type: p.type })),
+          isSubroutineInput: true,
+          hasOperation: false,
+          hasCustomInput: false,
+          hasVariableDropdown: false,
+          getDependency: () => "",
+          getExecution: () => () => "",
+        };
+      } else if (nodeData.nodeTypeKey === "subroutineOutput") {
+        const ports = nodeData.subroutinePorts || subroutine.outputs;
+        nodeType = {
+          name: "Subroutine Output",
+          inputs: ports.map((p) => ({ name: p.name, type: p.type })),
+          outputs: [],
+          isSubroutineOutput: true,
+          hasOperation: false,
+          hasCustomInput: false,
+          hasVariableDropdown: false,
+          getDependency: () => "",
+          getExecution: () => () => "",
+        };
+      } else {
+        nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
+      }
+
+      if (!nodeType) return;
+
+      // Create actual Node instance
+      const internalNode = new Node(0, 0, nodeData.id, nodeType);
+      internalNode._blueprintSystem = this;
+
+      // Restore port values if they exist
+      if (nodeData.inputPorts) {
+        nodeData.inputPorts.forEach((portData, i) => {
+          if (internalNode.inputPorts[i] && portData.value !== undefined) {
+            internalNode.inputPorts[i].value = this.cloneValue(portData.value);
+          }
+        });
+      }
+
+      internalNodes.push(internalNode);
+      internalNodesMap.set(nodeData.id, internalNode);
+    });
+
+    // Create internal wires
+    const internalWires = [];
+    subroutine.subGraph.wires.forEach((wireData) => {
+      const startNode = internalNodesMap.get(wireData.startNodeId);
+      const endNode = internalNodesMap.get(wireData.endNodeId);
+
+      if (startNode && endNode) {
+        const startPort = startNode.outputPorts[wireData.startPortIndex];
+        const endPort = endNode.inputPorts[wireData.endPortIndex];
+
+        if (startPort && endPort) {
+          const wire = new Wire(startPort, endPort);
+          startPort.connections.push(wire);
+          endPort.connections.push(wire);
+          internalWires.push(wire);
+        }
+      }
+    });
+
+    // Find interface nodes
+    const inputInterfaceNode = internalNodes.find(
+      (n) => n.nodeType.isSubroutineInput
+    );
+    const outputInterfaceNode = internalNodes.find(
+      (n) => n.nodeType.isSubroutineOutput
+    );
+
+    // Store the internal graph on the subroutine node
+    subroutineNode._internalNodes = internalNodes;
+    subroutineNode._internalWires = internalWires;
+    subroutineNode._inputInterfaceNode = inputInterfaceNode;
+    subroutineNode._outputInterfaceNode = outputInterfaceNode;
+
+    // Create invisible bridge wires connecting external ports to internal interface ports
+    // These wires participate in type propagation but are never rendered
+    const bridgeWires = [];
+
+    // Note: We can't use bridge wires because wires connect OUTPUT->INPUT,
+    // but we need to link INPUT->OUTPUT (external input to internal output).
+    // Instead, we'll handle type propagation manually in resolveGenericsForConnection.
+
+    // Reevaluate generic types for all internal nodes to propagate types through the internal graph
+    internalNodes.forEach((node) => {
+      // Get all unique generic types used by this node
+      const genericTypes = new Set();
+      node.getAllPorts().forEach((port) => {
+        if (isGenericType(port.portType)) {
+          genericTypes.add(port.portType);
+        }
+      });
+      // Reevaluate each generic type
+      genericTypes.forEach((genericType) => {
+        this.reevaluateGenericType(node, genericType);
+      });
+    });
+
+    // Initialize internal interface nodes with any already-resolved types from external ports
+    // This handles the case where the subroutine node is loaded from a file with existing connections
+    if (inputInterfaceNode) {
+      subroutineNode.inputPorts.forEach((externalInputPort, i) => {
+        const internalOutputPort = inputInterfaceNode.outputPorts[i];
+        if (internalOutputPort && isGenericType(internalOutputPort.portType)) {
+          // Check if the external port has any connections with resolved types
+          if (externalInputPort.connections.length > 0) {
+            const wire = externalInputPort.connections[0];
+            const sourcePort = wire.startPort;
+            const resolvedType = sourcePort.getResolvedType();
+            if (!isGenericType(resolvedType)) {
+              internalOutputPort.node.updateResolvedGenerics(
+                internalOutputPort.portType,
+                resolvedType
+              );
+              this.propagateGenericResolution(
+                internalOutputPort.node,
+                internalOutputPort.portType,
+                resolvedType
+              );
+            }
+          }
+        }
+      });
+    }
+
+    if (outputInterfaceNode) {
+      subroutineNode.outputPorts.forEach((externalOutputPort, i) => {
+        const internalInputPort = outputInterfaceNode.inputPorts[i];
+        if (internalInputPort && isGenericType(internalInputPort.portType)) {
+          // Check if the external port has any connections with resolved types
+          if (externalOutputPort.connections.length > 0) {
+            const wire = externalOutputPort.connections[0];
+            const targetPort = wire.endPort;
+            const resolvedType = targetPort.getResolvedType();
+            if (!isGenericType(resolvedType)) {
+              internalInputPort.node.updateResolvedGenerics(
+                internalInputPort.portType,
+                resolvedType
+              );
+              this.propagateGenericResolution(
+                internalInputPort.node,
+                internalInputPort.portType,
+                resolvedType
+              );
+            }
+          }
+        }
+      });
     }
   }
 
   resolveGenericsForConnection(outputPort, inputPort) {
+    // Normal generic resolution for all nodes
+    // The bridge wires in subroutines will automatically propagate types
     // Get the actual types (resolved if generic)
     const outputType = outputPort.getResolvedType();
     const inputType = inputPort.getResolvedType();
@@ -12056,6 +12278,53 @@ class BlueprintSystem {
       inputPort.node.inputPorts.forEach((port) => {
         port.updateEditability();
       });
+    }
+
+    // Special handling for subroutine nodes: propagate types through to internal interface nodes
+    // When connecting TO a subroutine input, immediately propagate to the internal interface output
+    if (
+      inputPort.node.nodeType?.isSubroutine &&
+      inputPort.portType === "custom"
+    ) {
+      const internalOutputPort =
+        inputPort.node._inputInterfaceNode?.outputPorts[inputPort.index];
+      if (internalOutputPort && isGenericType(internalOutputPort.portType)) {
+        const resolvedType = outputPort.getResolvedType();
+        if (!isGenericType(resolvedType)) {
+          internalOutputPort.node.updateResolvedGenerics(
+            internalOutputPort.portType,
+            resolvedType
+          );
+          this.propagateGenericResolution(
+            internalOutputPort.node,
+            internalOutputPort.portType,
+            resolvedType
+          );
+        }
+      }
+    }
+
+    // When connecting FROM a subroutine output, immediately propagate to internal interface input
+    if (
+      outputPort.node.nodeType?.isSubroutine &&
+      outputPort.portType === "custom"
+    ) {
+      const internalInputPort =
+        outputPort.node._outputInterfaceNode?.inputPorts[outputPort.index];
+      if (internalInputPort && isGenericType(internalInputPort.portType)) {
+        const resolvedType = inputPort.getResolvedType();
+        if (!isGenericType(resolvedType)) {
+          internalInputPort.node.updateResolvedGenerics(
+            internalInputPort.portType,
+            resolvedType
+          );
+          this.propagateGenericResolution(
+            internalInputPort.node,
+            internalInputPort.portType,
+            resolvedType
+          );
+        }
+      }
     }
   }
 
@@ -14498,8 +14767,12 @@ class BlueprintSystem {
     // Draw comments (under everything else)
     displayedComments.forEach((comment) => this.drawComment(comment));
 
-    // Draw wires
-    displayedWires.forEach((wire) => this.drawWire(wire));
+    // Draw wires (skip bridge wires which are internal to subroutines)
+    displayedWires.forEach((wire) => {
+      if (!wire._isBridgeWire) {
+        this.drawWire(wire);
+      }
+    });
 
     // Draw active wire being created
     if (this.activeWire) {
