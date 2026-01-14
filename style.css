@@ -1617,6 +1617,194 @@ body {
   padding: 2px;
 }
 
+/* Generic Modal */
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 10000;
+  justify-content: center;
+  align-items: center;
+}
+
+.modal-content {
+  background: #2a2a2a;
+  border: 2px solid #4a4a4a;
+  border-radius: 8px;
+  padding: 25px;
+  min-width: 350px;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal-content h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.modal-content input[type="text"] {
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.modal-content input[type="text"]:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+.modal-content select {
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.modal-content select:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.modal-buttons .primary-btn {
+  background: #4a90e2;
+  border: none;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.modal-buttons .primary-btn:hover {
+  background: #357abd;
+}
+
+.modal-buttons .secondary-btn {
+  background: transparent;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.modal-buttons .secondary-btn:hover {
+  background: #3a3a3a;
+  border-color: #6a6a6a;
+}
+
+/* Subroutine Items */
+.subroutine-item {
+  background: #2d2d2d;
+  border: 1px solid #4a4a4a;
+  border-left: 4px solid #4a90e2;
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.2s;
+  cursor: grab;
+  user-select: none;
+}
+
+.subroutine-item:hover {
+  background: #353535;
+  border-color: #5a9ae2;
+  transform: translateX(2px);
+  box-shadow: 0 2px 8px rgba(74, 144, 226, 0.2);
+}
+
+.subroutine-item:active {
+  cursor: grabbing;
+}
+
+.subroutine-item.dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+}
+
+.subroutine-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  pointer-events: none;
+}
+
+.subroutine-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+}
+
+.subroutine-type {
+  font-size: 11px;
+  color: #888;
+  font-family: 'Courier New', monospace;
+}
+
+.subroutine-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.subroutine-action-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.subroutine-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+.subroutine-action-btn:active {
+  transform: scale(0.95);
+}
+
 /* Uniform Modal */
 .uniform-modal {
   display: none;
@@ -4357,30 +4545,7 @@ body {
   background: #357abd;
 }
 
-/* Node Action Button */
-.node-action-button {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 24px;
-  height: 24px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-  z-index: 10;
-}
-
-.node-action-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
-  transform: scale(1.1);
-}
+/* Node Action Button - rendered on canvas, no CSS needed */
 
 /* Adjust canvas container when subroutine editor is open */
 #canvas-container.editing-subroutine #canvas {

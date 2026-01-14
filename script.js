@@ -939,6 +939,7 @@ class BlueprintSystem {
     this.draggedNode = null;
     this.activeWire = null;
     this.hoveredPort = null;
+    this.hoveredActionButton = null;
     this.draggedRerouteNode = null;
     this.draggedComment = null;
     this.resizingComment = null;
@@ -4406,7 +4407,10 @@ class BlueprintSystem {
 
   onShaderChanged() {
     // Called whenever the shader structure changes (not just uniform values)
-    this.updatePreview();
+    // Don't update preview while editing subroutines
+    if (!this.subroutineEditorOpen) {
+      this.updatePreview();
+    }
   }
 
   onUniformValueChanged() {
@@ -4722,6 +4726,16 @@ class BlueprintSystem {
       "vec4",
       "color",
       "texture",
+      "mat2",
+      "mat3",
+      "mat4",
+      "T",
+      "genType",
+      "genType2Plus",
+      "genType3Plus",
+      "genType2OrLess",
+      "genType3OrLess",
+      "genMatType",
     ];
     types.forEach((t) => {
       const option = document.createElement("option");
@@ -5253,9 +5267,18 @@ class BlueprintSystem {
       this.createSubroutineInterfaceNodes();
     }
 
+    // Hide preview while editing subroutine
+    const previewWindow = document.getElementById("preview-window");
+    if (previewWindow) {
+      previewWindow.style.display = "none";
+    }
+
     // Show editor header
     this.subroutineEditorHeader.style.display = "flex";
     this.canvasContainer.classList.add("editing-subroutine");
+
+    // call zoom to fit
+    this.centerView();
 
     this.render();
   }
@@ -5273,6 +5296,12 @@ class BlueprintSystem {
     this.editingSubroutine = null;
     this.subroutineEditorOpen = false;
 
+    // Show preview again
+    const previewWindow = document.getElementById("preview-window");
+    if (previewWindow) {
+      previewWindow.style.display = "";
+    }
+
     // Hide editor header
     this.subroutineEditorHeader.style.display = "none";
     this.canvasContainer.classList.remove("editing-subroutine");
@@ -5281,14 +5310,13 @@ class BlueprintSystem {
   }
 
   handleNodeActionButton(node) {
-    if (node.nodeType?.isSubroutineInput) {
-      this.showSubroutinePortsModal(node, "Inputs");
-    } else if (node.nodeType?.isSubroutineOutput) {
-      this.showSubroutinePortsModal(node, "Outputs");
+    if (node.nodeType?.onActionButtonClick) {
+      node.nodeType.onActionButtonClick(node, this);
     }
   }
 
   showSubroutinePortsModal(node, portType) {
+    console.log("showSubroutinePortsModal called with:", { node, portType });
     this.editingPortsNode = node;
 
     // Set modal title
@@ -5343,17 +5371,153 @@ class BlueprintSystem {
 
     // Update node's actual inputs/outputs based on the ports
     if (this.editingPortsNode.nodeType?.isSubroutineInput) {
+      // Store old connections before recreating ports
+      const oldConnections = this.editingPortsNode.outputPorts.map(
+        (port, index) => ({
+          index,
+          port,
+          wires: this.wires.filter((w) => w.startPort === port),
+          type: port.portType,
+        })
+      );
+
+      // Update outputs for input node
       this.editingPortsNode.nodeType.outputs = ports.map((p) => ({
         name: p.name,
         type: p.type,
       }));
-      this.editingPortsNode.updatePorts();
+
+      // Recreate output ports
+      this.editingPortsNode.outputPorts =
+        this.editingPortsNode.nodeType.outputs.map(
+          (outputDef, index) =>
+            new Port(this.editingPortsNode, "output", index, outputDef)
+        );
+
+      // Try to reconnect compatible wires
+      oldConnections.forEach((oldConn) => {
+        if (oldConn.index < this.editingPortsNode.outputPorts.length) {
+          const newPort = this.editingPortsNode.outputPorts[oldConn.index];
+
+          oldConn.wires.forEach((wire) => {
+            // Check if types are compatible
+            if (areTypesCompatible(newPort.portType, wire.endPort.portType)) {
+              // Reconnect the wire
+              wire.startPort = newPort;
+              newPort.connections.push(wire);
+            } else {
+              // Remove incompatible wire
+              const wireIndex = this.wires.indexOf(wire);
+              if (wireIndex !== -1) {
+                this.wires.splice(wireIndex, 1);
+              }
+              // Remove from end port connections
+              const endConnIndex = wire.endPort.connections.indexOf(wire);
+              if (endConnIndex !== -1) {
+                wire.endPort.connections.splice(endConnIndex, 1);
+              }
+            }
+          });
+        } else {
+          // Port no longer exists, remove all wires
+          oldConn.wires.forEach((wire) => {
+            const wireIndex = this.wires.indexOf(wire);
+            if (wireIndex !== -1) {
+              this.wires.splice(wireIndex, 1);
+            }
+            // Remove from end port connections
+            const endConnIndex = wire.endPort.connections.indexOf(wire);
+            if (endConnIndex !== -1) {
+              wire.endPort.connections.splice(endConnIndex, 1);
+            }
+          });
+        }
+      });
+
+      // Recalculate node dimensions (add extra space for action button)
+      this.editingPortsNode.width = 180;
+      const baseHeight =
+        40 +
+        Math.max(
+          this.editingPortsNode.inputPorts.length,
+          this.editingPortsNode.outputPorts.length
+        ) *
+          25;
+      this.editingPortsNode.height = Math.max(80, baseHeight + 35); // +35 for action button
     } else if (this.editingPortsNode.nodeType?.isSubroutineOutput) {
+      // Store old connections before recreating ports
+      const oldConnections = this.editingPortsNode.inputPorts.map(
+        (port, index) => ({
+          index,
+          port,
+          wires: this.wires.filter((w) => w.endPort === port),
+          type: port.portType,
+        })
+      );
+
+      // Update inputs for output node
       this.editingPortsNode.nodeType.inputs = ports.map((p) => ({
         name: p.name,
         type: p.type,
       }));
-      this.editingPortsNode.updatePorts();
+
+      // Recreate input ports
+      this.editingPortsNode.inputPorts =
+        this.editingPortsNode.nodeType.inputs.map(
+          (inputDef, index) =>
+            new Port(this.editingPortsNode, "input", index, inputDef)
+        );
+
+      // Try to reconnect compatible wires
+      oldConnections.forEach((oldConn) => {
+        if (oldConn.index < this.editingPortsNode.inputPorts.length) {
+          const newPort = this.editingPortsNode.inputPorts[oldConn.index];
+
+          oldConn.wires.forEach((wire) => {
+            // Check if types are compatible
+            if (areTypesCompatible(wire.startPort.portType, newPort.portType)) {
+              // Reconnect the wire
+              wire.endPort = newPort;
+              newPort.connections.push(wire);
+            } else {
+              // Remove incompatible wire
+              const wireIndex = this.wires.indexOf(wire);
+              if (wireIndex !== -1) {
+                this.wires.splice(wireIndex, 1);
+              }
+              // Remove from start port connections
+              const startConnIndex = wire.startPort.connections.indexOf(wire);
+              if (startConnIndex !== -1) {
+                wire.startPort.connections.splice(startConnIndex, 1);
+              }
+            }
+          });
+        } else {
+          // Port no longer exists, remove all wires
+          oldConn.wires.forEach((wire) => {
+            const wireIndex = this.wires.indexOf(wire);
+            if (wireIndex !== -1) {
+              this.wires.splice(wireIndex, 1);
+            }
+            // Remove from start port connections
+            const startConnIndex = wire.startPort.connections.indexOf(wire);
+            if (startConnIndex !== -1) {
+              wire.startPort.connections.splice(startConnIndex, 1);
+            }
+          });
+        }
+      });
+
+      // Recalculate node dimensions (add extra space for action button)
+      this.editingPortsNode.width = 180;
+      const baseHeight =
+        40 +
+        Math.max(
+          this.editingPortsNode.inputPorts.length,
+          this.editingPortsNode.outputPorts.length
+        ) *
+          25;
+      this.editingPortsNode.height = Math.max(80, baseHeight + 35); // +35 for action button
     }
 
     this.hideSubroutinePortsModal();
@@ -5375,8 +5539,11 @@ class BlueprintSystem {
       hasCustomInput: false,
       hasVariableDropdown: false,
       hasActionButton: true,
-      actionButtonIcon: "⚙",
+      actionButtonText: "⚙ Configure Inputs",
       actionButtonTooltip: "Configure Inputs",
+      onActionButtonClick: (node, blueprint) => {
+        blueprint.showSubroutinePortsModal(node, "Inputs");
+      },
       getDependency: () => "",
       getExecution: () => () => "",
     };
@@ -5398,8 +5565,11 @@ class BlueprintSystem {
       hasCustomInput: false,
       hasVariableDropdown: false,
       hasActionButton: true,
-      actionButtonIcon: "⚙",
+      actionButtonText: "⚙ Configure Outputs",
       actionButtonTooltip: "Configure Outputs",
+      onActionButtonClick: (node, blueprint) => {
+        blueprint.showSubroutinePortsModal(node, "Outputs");
+      },
       getDependency: () => "",
       getExecution: () => () => "",
     };
@@ -5539,28 +5709,40 @@ class BlueprintSystem {
 
     this.subroutines.forEach((subroutine) => {
       const item = document.createElement("div");
-      item.className = "uniform-item";
-      item.style.borderLeft = `3px solid ${subroutine.color}`;
+      item.className = "subroutine-item";
+      item.style.borderLeftColor = subroutine.color;
+      item.draggable = true;
+
+      // Drag start
+      item.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("subroutine", JSON.stringify(subroutine));
+        e.dataTransfer.effectAllowed = "copy";
+        item.classList.add("dragging");
+      });
+
+      item.addEventListener("dragend", () => {
+        item.classList.remove("dragging");
+      });
 
       const info = document.createElement("div");
-      info.className = "uniform-info";
+      info.className = "subroutine-info";
 
       const nameSpan = document.createElement("span");
-      nameSpan.className = "uniform-name";
+      nameSpan.className = "subroutine-name";
       nameSpan.textContent = subroutine.name;
 
       const typeSpan = document.createElement("span");
-      typeSpan.className = "uniform-type";
+      typeSpan.className = "subroutine-type";
       typeSpan.textContent = `${subroutine.inputs.length} in, ${subroutine.outputs.length} out`;
 
       info.appendChild(nameSpan);
       info.appendChild(typeSpan);
 
       const actions = document.createElement("div");
-      actions.className = "uniform-actions";
+      actions.className = "subroutine-actions";
 
       const editBtn = document.createElement("button");
-      editBtn.className = "uniform-action-btn";
+      editBtn.className = "subroutine-action-btn";
       editBtn.innerHTML = "✎";
       editBtn.title = "Edit";
       editBtn.addEventListener("click", (e) => {
@@ -5569,12 +5751,18 @@ class BlueprintSystem {
       });
 
       const deleteBtn = document.createElement("button");
-      deleteBtn.className = "uniform-action-btn";
+      deleteBtn.className = "subroutine-action-btn";
       deleteBtn.innerHTML = "×";
       deleteBtn.title = "Delete";
       deleteBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.deleteSubroutine(subroutine.id);
+        if (
+          confirm(
+            `Delete subroutine "${subroutine.name}"? This will also remove all instances from the graph.`
+          )
+        ) {
+          this.deleteSubroutine(subroutine.id);
+        }
       });
 
       actions.appendChild(editBtn);
@@ -7369,6 +7557,15 @@ class BlueprintSystem {
           this.history.pushState("Create custom node");
         }
         return;
+      }
+
+      // Check for subroutine drop
+      const subroutineData = e.dataTransfer.getData("subroutine");
+      if (subroutineData) {
+        const subroutine = JSON.parse(subroutineData);
+        const nodeType = this.createNodeTypeFromSubroutine(subroutine);
+        this.addNode(x, y, nodeType);
+        this.history.pushState("Add subroutine node");
       }
     });
 
@@ -12423,52 +12620,82 @@ class BlueprintSystem {
       if (overValueBox) {
         this.canvas.style.cursor = "text";
       } else {
-        // Check if hovering over comment handles
-        let overCommentHandle = false;
-        for (let i = this.comments.length - 1; i >= 0; i--) {
-          const comment = this.comments[i];
-
-          // Check resize handle
-          if (comment.isPointInResizeHandle(pos.x, pos.y)) {
-            this.canvas.style.cursor = "nwse-resize";
-            overCommentHandle = true;
-            break;
-          }
-
-          // Check drag handle
-          if (comment.isPointInDragHandle(pos.x, pos.y)) {
-            this.canvas.style.cursor = "grab";
-            overCommentHandle = true;
-            break;
-          }
-
-          // Check edit button
-          if (comment.isPointInEditButton(pos.x, pos.y)) {
-            this.canvas.style.cursor = "pointer";
-            overCommentHandle = true;
-            break;
-          }
-
-          // Check title bar
-          const inTitleBar =
-            pos.x >= comment.x &&
-            pos.x <= comment.x + comment.width &&
-            pos.y >= comment.y &&
-            pos.y <= comment.y + COMMENT_TITLE_HEIGHT;
-
-          if (inTitleBar) {
-            this.canvas.style.cursor = "move";
-            overCommentHandle = true;
-            break;
+        // Check if hovering over action buttons
+        let overActionButton = false;
+        for (const node of this.nodes) {
+          if (
+            node.nodeType &&
+            node.nodeType.hasActionButton &&
+            node.actionButtonBounds
+          ) {
+            const btn = node.actionButtonBounds;
+            if (
+              pos.x >= btn.x &&
+              pos.x <= btn.x + btn.width &&
+              pos.y >= btn.y &&
+              pos.y <= btn.y + btn.height
+            ) {
+              overActionButton = true;
+              this.hoveredActionButton = node;
+              break;
+            }
           }
         }
 
-        if (!overCommentHandle) {
-          const node = this.findNodeAtPosition(pos.x, pos.y);
-          if (node && node.isPointInHeader(pos.x, pos.y)) {
-            this.canvas.style.cursor = "move";
-          } else {
-            this.canvas.style.cursor = "default";
+        if (!overActionButton) {
+          this.hoveredActionButton = null;
+        }
+
+        if (overActionButton) {
+          this.canvas.style.cursor = "pointer";
+        } else {
+          // Check if hovering over comment handles
+          let overCommentHandle = false;
+          for (let i = this.comments.length - 1; i >= 0; i--) {
+            const comment = this.comments[i];
+
+            // Check resize handle
+            if (comment.isPointInResizeHandle(pos.x, pos.y)) {
+              this.canvas.style.cursor = "nwse-resize";
+              overCommentHandle = true;
+              break;
+            }
+
+            // Check drag handle
+            if (comment.isPointInDragHandle(pos.x, pos.y)) {
+              this.canvas.style.cursor = "grab";
+              overCommentHandle = true;
+              break;
+            }
+
+            // Check edit button
+            if (comment.isPointInEditButton(pos.x, pos.y)) {
+              this.canvas.style.cursor = "pointer";
+              overCommentHandle = true;
+              break;
+            }
+
+            // Check title bar
+            const inTitleBar =
+              pos.x >= comment.x &&
+              pos.x <= comment.x + comment.width &&
+              pos.y >= comment.y &&
+              pos.y <= comment.y + COMMENT_TITLE_HEIGHT;
+
+            if (inTitleBar) {
+              this.canvas.style.cursor = "move";
+              overCommentHandle = true;
+              break;
+            }
+          }
+
+          if (!overCommentHandle) {
+            const node = this.findNodeAtPosition(pos.x, pos.y);
+            if (node && node.isPointInHeader(pos.x, pos.y)) {
+              this.canvas.style.cursor = "move";
+            } else {
+              this.canvas.style.cursor = "default";
+            }
           }
         }
       }
@@ -13663,30 +13890,44 @@ class BlueprintSystem {
       }
 
       // Action button for nodes with hasActionButton
-      if (node.nodeType && node.nodeType.hasActionButton) {
-        const buttonSize = 24;
-        const buttonX = node.x + node.width - buttonSize - 5;
-        const buttonY = node.y + 7;
+      if (node.nodeType && node.nodeType.hasActionButton && shouldDrawText) {
+        const buttonHeight = 24;
+        const buttonPadding = 8;
+        const buttonY = node.y + node.height - buttonHeight - 5;
+        const buttonX = node.x + buttonPadding;
+        const buttonWidth = node.width - buttonPadding * 2;
+
+        // Check if hovered
+        const isHovered = this.hoveredActionButton === node;
 
         // Button background
-        ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+        ctx.fillStyle = isHovered
+          ? "rgba(255, 255, 255, 0.15)"
+          : "rgba(255, 255, 255, 0.08)";
+        ctx.strokeStyle = isHovered
+          ? "rgba(255, 255, 255, 0.4)"
+          : "rgba(255, 255, 255, 0.2)";
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+        ctx.roundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4);
         ctx.fill();
         ctx.stroke();
 
-        // Icon (using the actionButtonIcon from nodeType)
+        // Button text
         ctx.fillStyle = "#fff";
-        ctx.font = "14px sans-serif";
+        ctx.font = "11px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(
-          node.nodeType.actionButtonIcon || "⚙",
-          buttonX + buttonSize / 2,
-          buttonY + buttonSize / 2
+          node.nodeType.actionButtonText ||
+            node.nodeType.actionButtonTooltip ||
+            "Configure",
+          buttonX + buttonWidth / 2,
+          buttonY + buttonHeight / 2
         );
+
+        // Reset text baseline
+        ctx.textBaseline = "alphabetic";
 
         // Store button bounds for click detection
         if (!node.actionButtonBounds) {
@@ -13694,8 +13935,8 @@ class BlueprintSystem {
         }
         node.actionButtonBounds.x = buttonX;
         node.actionButtonBounds.y = buttonY;
-        node.actionButtonBounds.width = buttonSize;
-        node.actionButtonBounds.height = buttonSize;
+        node.actionButtonBounds.width = buttonWidth;
+        node.actionButtonBounds.height = buttonHeight;
       }
 
       // Operation dropdown (if node has operations)
