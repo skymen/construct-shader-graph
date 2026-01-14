@@ -15365,3 +15365,75 @@ const blueprint = new BlueprintSystem(canvas);
 // Initialize with default nodes
 
 blueprint.createNewFile();
+
+// Experimental build dialog
+async function showExperimentalDialog() {
+  const isExperimental = import.meta.env.VITE_IS_EXPERIMENTAL === "true";
+
+  if (!isExperimental) {
+    return;
+  }
+
+  try {
+    // Fetch the experimental info markdown file
+    const response = await fetch("/EXPERIMENTAL_INFO.md");
+    if (!response.ok) {
+      console.warn("Could not load experimental info file");
+      return;
+    }
+
+    const markdown = await response.text();
+
+    // Simple markdown to HTML conversion
+    let html = markdown
+      // Headers
+      .replace(/^### (.*$)/gim, "<h3>$1</h3>")
+      .replace(/^## (.*$)/gim, "<h2>$1</h2>")
+      .replace(/^# (.*$)/gim, "<h1>$1</h1>")
+      // Bold
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      // Italic
+      .replace(/\*(.*?)\*/g, "<em>$1</em>")
+      // Lists
+      .replace(/^\- (.*$)/gim, "<li>$1</li>")
+      // Paragraphs
+      .replace(/\n\n/g, "</p><p>")
+      // Code blocks
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+
+    // Wrap list items in ul tags
+    html = html.replace(/(<li>.*<\/li>)/s, "<ul>$1</ul>");
+
+    // Wrap in paragraphs if not already wrapped
+    if (!html.startsWith("<h") && !html.startsWith("<p>")) {
+      html = "<p>" + html + "</p>";
+    }
+
+    // Show the modal
+    const modal = document.getElementById("experimentalModal");
+    const content = modal.querySelector(".experimental-info-content");
+    const okButton = document.getElementById("experimentalModalOk");
+
+    content.innerHTML = html;
+    modal.style.display = "flex";
+
+    // Close button handler
+    okButton.onclick = () => {
+      modal.style.display = "none";
+    };
+
+    // Prevent closing by clicking outside
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        // Don't close - user must acknowledge
+      }
+    };
+  } catch (error) {
+    console.error("Error loading experimental info:", error);
+  }
+}
+
+// Show experimental dialog after a short delay to ensure UI is ready
+if (import.meta.env.VITE_IS_EXPERIMENTAL === "true") {
+  setTimeout(showExperimentalDialog, 500);
+}
