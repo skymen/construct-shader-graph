@@ -4111,7 +4111,9 @@ class BlueprintSystem {
   }
 
   zoomToFit() {
-    if (this.nodes.length === 0) {
+    const displayedNodes = this.getDisplayedNodes();
+
+    if (displayedNodes.length === 0) {
       this.resetZoom();
       return;
     }
@@ -4122,7 +4124,7 @@ class BlueprintSystem {
     let maxX = -Infinity;
     let maxY = -Infinity;
 
-    this.nodes.forEach((node) => {
+    displayedNodes.forEach((node) => {
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
       maxX = Math.max(maxX, node.x + node.width);
@@ -4182,7 +4184,9 @@ class BlueprintSystem {
   }
 
   centerView() {
-    if (this.nodes.length === 0) {
+    const displayedNodes = this.getDisplayedNodes();
+
+    if (displayedNodes.length === 0) {
       this.camera.x = 0;
       this.camera.y = 0;
       this.render();
@@ -4195,7 +4199,7 @@ class BlueprintSystem {
     let maxX = -Infinity;
     let maxY = -Infinity;
 
-    this.nodes.forEach((node) => {
+    displayedNodes.forEach((node) => {
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
       maxX = Math.max(maxX, node.x + node.width);
@@ -5232,26 +5236,27 @@ class BlueprintSystem {
   }
 
   enterSubroutineEditor(subroutine = null) {
-    // Save current main graph state
-    this.savedMainGraphState = {
-      nodes: this.nodes,
-      wires: this.wires,
-      comments: this.comments,
-      camera: { ...this.camera },
-    };
+    // Clear selection before entering subroutine editor
+    this.clearSelection();
 
     this.editingSubroutine = subroutine;
     this.subroutineEditorOpen = true;
+
+    // Save main graph camera position
+    this.savedMainCamera = {
+      x: this.camera.x,
+      y: this.camera.y,
+      zoom: this.camera.zoom,
+    };
 
     // Clear form
     this.subroutineNameInput.value = "";
     this.subroutineColorInput.value = "#4a90e2";
 
-    // Clear main canvas and load subroutine graph
-    this.nodes = [];
-    this.wires = [];
-    this.comments = [];
-    this.camera = { x: 400, y: 300, zoom: 1 };
+    // Initialize or load subroutine editing state
+    this.subroutineEditingNodes = [];
+    this.subroutineEditingWires = [];
+    this.subroutineEditingComments = [];
 
     // If editing, populate form and load graph
     if (subroutine) {
@@ -5262,9 +5267,22 @@ class BlueprintSystem {
       if (subroutine.subGraph) {
         this.loadSubroutineGraph(subroutine.subGraph);
       }
+
+      // Restore saved camera position for this subroutine if it exists
+      if (subroutine.savedCamera) {
+        this.camera.x = subroutine.savedCamera.x;
+        this.camera.y = subroutine.savedCamera.y;
+        this.camera.zoom = subroutine.savedCamera.zoom;
+        this.updateZoomLevelDisplay();
+      } else {
+        // First time opening, center view
+        this.centerView();
+      }
     } else {
       // Add default input/output interface nodes
       this.createSubroutineInterfaceNodes();
+      // New subroutine, center view
+      this.centerView();
     }
 
     // Hide preview while editing subroutine
@@ -5277,21 +5295,35 @@ class BlueprintSystem {
     this.subroutineEditorHeader.style.display = "flex";
     this.canvasContainer.classList.add("editing-subroutine");
 
-    // call zoom to fit
-    this.centerView();
-
     this.render();
   }
 
   exitSubroutineEditor() {
-    // Restore main graph state
-    if (this.savedMainGraphState) {
-      this.nodes = this.savedMainGraphState.nodes;
-      this.wires = this.savedMainGraphState.wires;
-      this.comments = this.savedMainGraphState.comments;
-      this.camera = this.savedMainGraphState.camera;
-      this.savedMainGraphState = null;
+    // Clear selection before exiting subroutine editor
+    this.clearSelection();
+
+    // Save current camera position for this subroutine if we were editing one
+    if (this.editingSubroutine) {
+      this.editingSubroutine.savedCamera = {
+        x: this.camera.x,
+        y: this.camera.y,
+        zoom: this.camera.zoom,
+      };
     }
+
+    // Restore main graph camera position
+    if (this.savedMainCamera) {
+      this.camera.x = this.savedMainCamera.x;
+      this.camera.y = this.savedMainCamera.y;
+      this.camera.zoom = this.savedMainCamera.zoom;
+      this.updateZoomLevelDisplay();
+      this.savedMainCamera = null;
+    }
+
+    // Clear subroutine editing state
+    this.subroutineEditingNodes = null;
+    this.subroutineEditingWires = null;
+    this.subroutineEditingComments = null;
 
     this.editingSubroutine = null;
     this.subroutineEditorOpen = false;
@@ -5307,6 +5339,29 @@ class BlueprintSystem {
     this.canvasContainer.classList.remove("editing-subroutine");
 
     this.render();
+  }
+
+  // Get the nodes that should be displayed (main graph or subroutine being edited)
+  getDisplayedNodes() {
+    return this.subroutineEditorOpen ? this.subroutineEditingNodes : this.nodes;
+  }
+
+  getDisplayedWires() {
+    return this.subroutineEditorOpen ? this.subroutineEditingWires : this.wires;
+  }
+
+  getDisplayedComments() {
+    return this.subroutineEditorOpen
+      ? this.subroutineEditingComments
+      : this.comments;
+  }
+
+  addWire(wire) {
+    if (this.subroutineEditorOpen) {
+      this.subroutineEditingWires.push(wire);
+    } else {
+      this.wires.push(wire);
+    }
   }
 
   handleNodeActionButton(node) {
@@ -5547,11 +5602,11 @@ class BlueprintSystem {
       getDependency: () => "",
       getExecution: () => () => "",
     };
-    const inputNode = this.addNode(100, 200, inputNodeType);
+    const inputNode = this.addNode(100, 300, inputNodeType);
     // Initialize with default T type port
     inputNode.subroutinePorts = [{ name: "Value", type: "T" }];
 
-    // Create Output node with default T type input
+    // Create Output node with default T type input (more space between them)
     const outputNodeType = {
       name: "Subroutine Output",
       inputs: [{ name: "Value", type: "T" }],
@@ -5573,14 +5628,131 @@ class BlueprintSystem {
       getDependency: () => "",
       getExecution: () => () => "",
     };
-    const outputNode = this.addNode(500, 200, outputNodeType);
+    const outputNode = this.addNode(700, 300, outputNodeType);
     // Initialize with default T type port
     outputNode.subroutinePorts = [{ name: "Value", type: "T" }];
   }
 
   loadSubroutineGraph(subGraph) {
-    // TODO: Implement loading saved subroutine graph
-    // This will restore nodes and wires from the saved state
+    if (!subGraph || !subGraph.nodes) return;
+
+    // Map to store old ID -> new node
+    const nodeMap = new Map();
+
+    // Create nodes
+    subGraph.nodes.forEach((nodeData) => {
+      let nodeType;
+
+      // Special handling for subroutine interface nodes
+      if (nodeData.nodeTypeKey === "subroutineInput") {
+        // Recreate the input node type with saved ports
+        const ports = nodeData.subroutinePorts || [
+          { name: "Value", type: "T" },
+        ];
+        nodeType = {
+          name: "Subroutine Input",
+          inputs: [],
+          outputs: ports.map((p) => ({ name: p.name, type: p.type })),
+          color: "#4a90e2",
+          isSubroutineInput: true,
+          isCustom: false,
+          isSubroutine: false,
+          isUniform: false,
+          hasOperation: false,
+          hasCustomInput: false,
+          hasVariableDropdown: false,
+          hasActionButton: true,
+          actionButtonText: "⚙ Configure Inputs",
+          actionButtonTooltip: "Configure Inputs",
+          onActionButtonClick: (node, blueprint) => {
+            blueprint.showSubroutinePortsModal(node, "Inputs");
+          },
+          getDependency: () => "",
+          getExecution: () => () => "",
+        };
+      } else if (nodeData.nodeTypeKey === "subroutineOutput") {
+        // Recreate the output node type with saved ports
+        const ports = nodeData.subroutinePorts || [
+          { name: "Value", type: "T" },
+        ];
+        nodeType = {
+          name: "Subroutine Output",
+          inputs: ports.map((p) => ({ name: p.name, type: p.type })),
+          outputs: [],
+          color: "#e74c3c",
+          isSubroutineOutput: true,
+          isCustom: false,
+          isSubroutine: false,
+          isUniform: false,
+          hasOperation: false,
+          hasCustomInput: false,
+          hasVariableDropdown: false,
+          hasActionButton: true,
+          actionButtonText: "⚙ Configure Outputs",
+          actionButtonTooltip: "Configure Outputs",
+          onActionButtonClick: (node, blueprint) => {
+            blueprint.showSubroutinePortsModal(node, "Outputs");
+          },
+          getDependency: () => "",
+          getExecution: () => () => "",
+        };
+      } else {
+        nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
+        if (!nodeType) {
+          console.warn("Unknown node type:", nodeData.nodeTypeKey);
+          return;
+        }
+      }
+
+      const node = this.addNode(nodeData.x, nodeData.y, nodeType);
+      nodeMap.set(nodeData.id, node);
+
+      // Restore port values
+      nodeData.inputPorts.forEach((portData, index) => {
+        if (index < node.inputPorts.length) {
+          const port = node.inputPorts[index];
+          if (portData.value !== undefined) {
+            port.value = this.cloneValue(portData.value);
+          }
+        }
+      });
+
+      // Restore subroutine ports if this is an interface node
+      if (
+        node.nodeType?.isSubroutineInput ||
+        node.nodeType?.isSubroutineOutput
+      ) {
+        if (nodeData.subroutinePorts) {
+          node.subroutinePorts = nodeData.subroutinePorts;
+        }
+      }
+    });
+
+    // Create wires
+    if (subGraph.wires) {
+      subGraph.wires.forEach((wireData) => {
+        const startNode = nodeMap.get(wireData.startNodeId);
+        const endNode = nodeMap.get(wireData.endNodeId);
+
+        if (startNode && endNode) {
+          const startPort = startNode.outputPorts[wireData.startPortIndex];
+          const endPort = endNode.inputPorts[wireData.endPortIndex];
+
+          if (startPort && endPort) {
+            const wire = new Wire(startPort, endPort);
+            this.subroutineEditingWires.push(wire);
+            startPort.connections.push(wire);
+            endPort.connections.push(wire);
+
+            // Resolve generic types for this connection
+            this.resolveGenericsForConnection(startPort, endPort);
+
+            // Update editability
+            endPort.updateEditability();
+          }
+        }
+      });
+    }
   }
 
   saveSubroutine() {
@@ -5606,11 +5778,15 @@ class BlueprintSystem {
     }
 
     // Collect inputs from Subroutine Input node
-    const inputNode = this.nodes.find((n) => n.nodeType?.isSubroutineInput);
+    const inputNode = this.subroutineEditingNodes.find(
+      (n) => n.nodeType?.isSubroutineInput
+    );
     const inputs = inputNode?.subroutinePorts || [];
 
     // Collect outputs from Subroutine Output node
-    const outputNode = this.nodes.find((n) => n.nodeType?.isSubroutineOutput);
+    const outputNode = this.subroutineEditingNodes.find(
+      (n) => n.nodeType?.isSubroutineOutput
+    );
     const outputs = outputNode?.subroutinePorts || [];
 
     if (outputs.length === 0) {
@@ -5659,7 +5835,7 @@ class BlueprintSystem {
 
   exportSubroutineGraph() {
     return {
-      nodes: this.nodes.map((node) => ({
+      nodes: this.subroutineEditingNodes.map((node) => ({
         id: node.id,
         x: node.x,
         y: node.y,
@@ -5673,8 +5849,10 @@ class BlueprintSystem {
           name: port.name,
           portType: port.portType,
         })),
+        // Save subroutine ports for interface nodes
+        subroutinePorts: node.subroutinePorts || undefined,
       })),
-      wires: this.wires.map((wire) => ({
+      wires: this.subroutineEditingWires.map((wire) => ({
         startNodeId: wire.startPort.node.id,
         startPortIndex: wire.startPort.node.outputPorts.indexOf(wire.startPort),
         endNodeId: wire.endPort.node.id,
@@ -7396,7 +7574,7 @@ class BlueprintSystem {
         if (compatibleOutput) {
           // Create a new wire from the output to the input
           const wire = new Wire(compatibleOutput, this.searchFilterPort);
-          this.wires.push(wire);
+          this.addWire(wire);
           compatibleOutput.connections.push(wire);
           this.searchFilterPort.connections.push(wire);
 
@@ -7424,7 +7602,7 @@ class BlueprintSystem {
 
           // Create a new wire from the output to the input
           const wire = new Wire(this.searchFilterPort, compatibleInput);
-          this.wires.push(wire);
+          this.addWire(wire);
           this.searchFilterPort.connections.push(wire);
           compatibleInput.connections.push(wire);
 
@@ -8208,7 +8386,8 @@ class BlueprintSystem {
   }
 
   selectAllNodes() {
-    this.nodes.forEach((node) => {
+    const displayedNodes = this.getDisplayedNodes();
+    displayedNodes.forEach((node) => {
       node.isSelected = true;
       this.selectedNodes.add(node);
     });
@@ -8318,13 +8497,16 @@ class BlueprintSystem {
   }
 
   deleteSelected() {
+    const displayedComments = this.getDisplayedComments();
+    const displayedNodes = this.getDisplayedNodes();
+
     // Delete selected comments first
-    const commentsToDelete = this.comments.filter((c) => c.isSelected);
+    const commentsToDelete = displayedComments.filter((c) => c.isSelected);
     if (commentsToDelete.length > 0) {
       commentsToDelete.forEach((comment) => {
-        const index = this.comments.indexOf(comment);
+        const index = displayedComments.indexOf(comment);
         if (index > -1) {
-          this.comments.splice(index, 1);
+          displayedComments.splice(index, 1);
         }
       });
       this.history.pushState("Delete comments");
@@ -8353,8 +8535,14 @@ class BlueprintSystem {
         this.disconnectWire(wire);
       });
 
-      // Remove the node
-      this.nodes = this.nodes.filter((n) => n !== node);
+      // Remove the node from the appropriate array
+      if (this.subroutineEditorOpen) {
+        this.subroutineEditingNodes = this.subroutineEditingNodes.filter(
+          (n) => n !== node
+        );
+      } else {
+        this.nodes = this.nodes.filter((n) => n !== node);
+      }
     });
 
     // Delete selected reroute nodes
@@ -8827,7 +9015,7 @@ class BlueprintSystem {
             );
             wire.rerouteNodes.push(rerouteNode);
           });
-          this.wires.push(wire);
+          this.addWire(wire);
           startPort.connections.push(wire);
           endPort.connections.push(wire);
 
@@ -10474,7 +10662,7 @@ class BlueprintSystem {
       frontUVNode.outputPorts[0],
       textureFrontNode.inputPorts[0]
     );
-    this.wires.push(wire1);
+    this.addWire(wire1);
     frontUVNode.outputPorts[0].connections.push(wire1);
     textureFrontNode.inputPorts[0].connections.push(wire1);
 
@@ -10483,7 +10671,7 @@ class BlueprintSystem {
       textureFrontNode.outputPorts[0],
       outputNode.inputPorts[0]
     );
-    this.wires.push(wire2);
+    this.addWire(wire2);
     textureFrontNode.outputPorts[0].connections.push(wire2);
     outputNode.inputPorts[0].connections.push(wire2);
 
@@ -10557,6 +10745,12 @@ class BlueprintSystem {
   }
 
   async saveToJSON() {
+    // Don't allow saving while editing a subroutine
+    if (this.subroutineEditorOpen) {
+      alert("Please exit the subroutine editor before saving the project.");
+      return;
+    }
+
     // Capture preview screenshot
     const previewScreenshot = await this.getPreviewScreenshot();
 
@@ -10567,6 +10761,7 @@ class BlueprintSystem {
       shaderSettings: this.shaderSettings,
       uniforms: this.uniforms,
       customNodes: this.customNodes,
+      subroutines: this.subroutines,
       previewSettings: this.previewSettings,
       camera: {
         x: this.camera.x,
@@ -10620,6 +10815,7 @@ class BlueprintSystem {
       nodeIdCounter: this.nodeIdCounter,
       uniformIdCounter: this.uniformIdCounter,
       customNodeIdCounter: this.customNodeIdCounter,
+      subroutineIdCounter: this.subroutineIdCounter,
       commentIdCounter: this.commentIdCounter,
     };
 
@@ -10903,7 +11099,7 @@ class BlueprintSystem {
             });
           }
 
-          this.wires.push(wire);
+          this.addWire(wire);
           startPort.connections.push(wire);
           endPort.connections.push(wire);
 
@@ -10977,6 +11173,14 @@ class BlueprintSystem {
   }
 
   getNodeTypeKey(nodeType) {
+    // Check if it's a subroutine interface node
+    if (nodeType.isSubroutineInput) {
+      return "subroutineInput";
+    }
+    if (nodeType.isSubroutineOutput) {
+      return "subroutineOutput";
+    }
+
     // Check if it's a custom node
     if (nodeType.isCustom && nodeType.customNodeId) {
       return `custom_${nodeType.customNodeId}`;
@@ -11177,7 +11381,7 @@ class BlueprintSystem {
             const rerouteNode = new RerouteNode(rnData.x, rnData.y, wire);
             wire.rerouteNodes.push(rerouteNode);
           });
-          this.wires.push(wire);
+          this.addWire(wire);
           startPort.connections.push(wire);
           endPort.connections.push(wire);
 
@@ -11405,13 +11609,21 @@ class BlueprintSystem {
     const node = new Node(x, y, this.nodeIdCounter++, nodeType);
     // Store reference to blueprint system for nodes that need it (like Get Variable)
     node._blueprintSystem = this;
-    this.nodes.push(node);
+
+    // Add to the appropriate array based on context
+    if (this.subroutineEditorOpen) {
+      this.subroutineEditingNodes.push(node);
+    } else {
+      this.nodes.push(node);
+    }
+
     this.render();
     return node;
   }
 
   findPortAtPosition(x, y) {
-    for (const node of this.nodes) {
+    const displayedNodes = this.getDisplayedNodes();
+    for (const node of displayedNodes) {
       for (const port of node.getAllPorts()) {
         if (port.isPointInside(x, y)) {
           return port;
@@ -11422,17 +11634,19 @@ class BlueprintSystem {
   }
 
   findNodeAtPosition(x, y) {
+    const displayedNodes = this.getDisplayedNodes();
     // Check in reverse order so top nodes are selected first
-    for (let i = this.nodes.length - 1; i >= 0; i--) {
-      if (this.nodes[i].isPointInside(x, y)) {
-        return this.nodes[i];
+    for (let i = displayedNodes.length - 1; i >= 0; i--) {
+      if (displayedNodes[i].isPointInside(x, y)) {
+        return displayedNodes[i];
       }
     }
     return null;
   }
 
   findRerouteNodeAtPosition(x, y) {
-    for (const wire of this.wires) {
+    const displayedWires = this.getDisplayedWires();
+    for (const wire of displayedWires) {
       for (const rerouteNode of wire.rerouteNodes) {
         if (rerouteNode.isPointInside(x, y)) {
           return rerouteNode;
@@ -11443,10 +11657,11 @@ class BlueprintSystem {
   }
 
   findWireAtPosition(x, y) {
-    for (let i = this.wires.length - 1; i >= 0; i--) {
-      const result = this.wires[i].isPointNearWire(x, y);
+    const displayedWires = this.getDisplayedWires();
+    for (let i = displayedWires.length - 1; i >= 0; i--) {
+      const result = displayedWires[i].isPointNearWire(x, y);
       if (result) {
-        return { wire: this.wires[i], ...result };
+        return { wire: displayedWires[i], ...result };
       }
     }
     return null;
@@ -11556,7 +11771,7 @@ class BlueprintSystem {
 
     // Create a new wire from the node's output to the original end port
     const newWire = new Wire(outputPort, originalEndPort);
-    this.wires.push(newWire);
+    this.addWire(newWire);
     outputPort.connections.push(newWire);
     originalEndPort.connections.push(newWire);
 
@@ -11612,9 +11827,10 @@ class BlueprintSystem {
       // Recalculate node height
       wire.endPort.node.recalculateHeight();
     }
-    // Remove from wires array
-    const wireIndex = this.wires.indexOf(wire);
-    if (wireIndex > -1) this.wires.splice(wireIndex, 1);
+    // Remove from the appropriate wires array
+    const displayedWires = this.getDisplayedWires();
+    const wireIndex = displayedWires.indexOf(wire);
+    if (wireIndex > -1) displayedWires.splice(wireIndex, 1);
     this.onShaderChanged();
   }
 
@@ -12019,9 +12235,15 @@ class BlueprintSystem {
       return;
     }
 
-    // Check if clicking on edit button for custom nodes
-    for (const node of this.nodes) {
-      if (node.nodeType && node.nodeType.isCustom && node.editButtonBounds) {
+    const displayedNodes = this.getDisplayedNodes();
+
+    // Check if clicking on edit button for custom nodes or subroutines
+    for (const node of displayedNodes) {
+      if (
+        node.nodeType &&
+        (node.nodeType.isCustom || node.nodeType.isSubroutine) &&
+        node.editButtonBounds
+      ) {
         const btn = node.editButtonBounds;
         if (
           pos.x >= btn.x &&
@@ -12029,12 +12251,22 @@ class BlueprintSystem {
           pos.y >= btn.y &&
           pos.y <= btn.y + btn.height
         ) {
-          // Find the custom node definition
-          const customNode = this.customNodes.find(
-            (cn) => cn.id === node.nodeType.customNodeId
-          );
-          if (customNode) {
-            this.showCustomNodeModal(customNode);
+          if (node.nodeType.isCustom) {
+            // Find the custom node definition
+            const customNode = this.customNodes.find(
+              (cn) => cn.id === node.nodeType.customNodeId
+            );
+            if (customNode) {
+              this.showCustomNodeModal(customNode);
+            }
+          } else if (node.nodeType.isSubroutine) {
+            // Find the subroutine definition
+            const subroutine = this.subroutines.find(
+              (s) => s.id === node.nodeType.subroutineId
+            );
+            if (subroutine) {
+              this.enterSubroutineEditor(subroutine);
+            }
           }
           return;
         }
@@ -12042,7 +12274,7 @@ class BlueprintSystem {
     }
 
     // Check if clicking on action button for nodes with hasActionButton
-    for (const node of this.nodes) {
+    for (const node of displayedNodes) {
       if (
         node.nodeType &&
         node.nodeType.hasActionButton &&
@@ -12062,7 +12294,7 @@ class BlueprintSystem {
     }
 
     // Check if clicking on an operation dropdown
-    for (const node of this.nodes) {
+    for (const node of displayedNodes) {
       if (node.nodeType.hasOperation) {
         const dropdown = node.getOperationDropdownBounds();
         if (
@@ -12078,7 +12310,7 @@ class BlueprintSystem {
     }
 
     // Check if clicking on a variable dropdown
-    for (const node of this.nodes) {
+    for (const node of displayedNodes) {
       if (node.nodeType.hasVariableDropdown) {
         const dropdown = node.getVariableDropdownBounds();
         if (
@@ -12094,7 +12326,7 @@ class BlueprintSystem {
     }
 
     // Check if clicking on a custom input field
-    for (const node of this.nodes) {
+    for (const node of displayedNodes) {
       if (node.nodeType.hasCustomInput) {
         const inputBounds = node.getCustomInputBounds();
         if (
@@ -12110,7 +12342,7 @@ class BlueprintSystem {
     }
 
     // Check if clicking on a value box for editable ports
-    for (const node of this.nodes) {
+    for (const node of displayedNodes) {
       for (const port of node.inputPorts) {
         if (
           port.isEditable &&
@@ -12158,9 +12390,12 @@ class BlueprintSystem {
       return;
     }
 
+    const displayedComments = this.getDisplayedComments();
+    const displayedWires = this.getDisplayedWires();
+
     // Check if clicking on a comment (from top to bottom for proper layering)
-    for (let i = this.comments.length - 1; i >= 0; i--) {
-      const comment = this.comments[i];
+    for (let i = displayedComments.length - 1; i >= 0; i--) {
+      const comment = displayedComments[i];
 
       // Check resize handle first
       if (comment.isPointInResizeHandle(pos.x, pos.y)) {
@@ -12245,18 +12480,18 @@ class BlueprintSystem {
         }
 
         // Find all nodes, reroute nodes, and comments contained in this comment
-        comment.containedNodes = this.nodes.filter((n) =>
+        comment.containedNodes = displayedNodes.filter((n) =>
           comment.containsNode(n)
         );
         comment.containedRerouteNodes = [];
-        this.wires.forEach((wire) => {
+        displayedWires.forEach((wire) => {
           wire.rerouteNodes.forEach((rn) => {
             if (comment.containsRerouteNode(rn)) {
               comment.containedRerouteNodes.push(rn);
             }
           });
         });
-        comment.containedComments = this.comments.filter(
+        comment.containedComments = displayedComments.filter(
           (c) => c !== comment && comment.containsComment(c)
         );
 
@@ -12435,8 +12670,11 @@ class BlueprintSystem {
       const minY = Math.min(this.boxSelectStart.y, this.boxSelectEnd.y);
       const maxY = Math.max(this.boxSelectStart.y, this.boxSelectEnd.y);
 
+      const displayedNodes = this.getDisplayedNodes();
+      const displayedWires = this.getDisplayedWires();
+
       // Select nodes within box
-      this.nodes.forEach((node) => {
+      displayedNodes.forEach((node) => {
         const inBox =
           node.x < maxX &&
           node.x + node.width > minX &&
@@ -12456,7 +12694,7 @@ class BlueprintSystem {
       });
 
       // Select reroute nodes within box
-      this.wires.forEach((wire) => {
+      displayedWires.forEach((wire) => {
         wire.rerouteNodes.forEach((rn) => {
           const inBox =
             rn.x >= minX && rn.x <= maxX && rn.y >= minY && rn.y <= maxY;
@@ -12601,9 +12839,12 @@ class BlueprintSystem {
     } else if (this.hoveredPort) {
       this.canvas.style.cursor = "pointer";
     } else {
+      const displayedNodes = this.getDisplayedNodes();
+      const displayedComments = this.getDisplayedComments();
+
       // Check if hovering over a value box
       let overValueBox = false;
-      for (const node of this.nodes) {
+      for (const node of displayedNodes) {
         for (const port of node.inputPorts) {
           if (
             port.isEditable &&
@@ -12622,7 +12863,7 @@ class BlueprintSystem {
       } else {
         // Check if hovering over action buttons
         let overActionButton = false;
-        for (const node of this.nodes) {
+        for (const node of displayedNodes) {
           if (
             node.nodeType &&
             node.nodeType.hasActionButton &&
@@ -12651,8 +12892,8 @@ class BlueprintSystem {
         } else {
           // Check if hovering over comment handles
           let overCommentHandle = false;
-          for (let i = this.comments.length - 1; i >= 0; i--) {
-            const comment = this.comments[i];
+          for (let i = displayedComments.length - 1; i >= 0; i--) {
+            const comment = displayedComments[i];
 
             // Check resize handle
             if (comment.isPointInResizeHandle(pos.x, pos.y)) {
@@ -12805,8 +13046,9 @@ class BlueprintSystem {
           delete this.activeWire.isReversed;
 
           // Add to wires if not already there
-          if (!this.wires.includes(this.activeWire)) {
-            this.wires.push(this.activeWire);
+          const displayedWires = this.getDisplayedWires();
+          if (!displayedWires.includes(this.activeWire)) {
+            this.addWire(this.activeWire);
           }
           port.connections.push(this.activeWire);
           inputPort.connections.push(this.activeWire);
@@ -12821,7 +13063,8 @@ class BlueprintSystem {
           this.history.pushState("Connect wire");
         } else {
           // Remove the wire if it was picked up
-          if (this.wires.includes(this.activeWire)) {
+          const displayedWires = this.getDisplayedWires();
+          if (displayedWires.includes(this.activeWire)) {
             this.disconnectWire(this.activeWire);
             this.onShaderChanged();
           }
@@ -12855,8 +13098,9 @@ class BlueprintSystem {
 
           // Valid connection
           this.activeWire.endPort = port;
-          if (!this.wires.includes(this.activeWire)) {
-            this.wires.push(this.activeWire);
+          const displayedWires = this.getDisplayedWires();
+          if (!displayedWires.includes(this.activeWire)) {
+            this.addWire(this.activeWire);
           }
           port.connections.push(this.activeWire);
           this.activeWire.startPort.connections.push(this.activeWire);
@@ -12871,7 +13115,8 @@ class BlueprintSystem {
           this.history.pushState("Connect wire");
         } else {
           // Remove the wire if it was picked up
-          if (this.wires.includes(this.activeWire)) {
+          const displayedWires = this.getDisplayedWires();
+          if (displayedWires.includes(this.activeWire)) {
             this.disconnectWire(this.activeWire);
           }
 
@@ -13834,8 +14079,11 @@ class BlueprintSystem {
         );
       }
 
-      // Edit button for custom nodes
-      if (node.nodeType && node.nodeType.isCustom) {
+      // Edit button for custom nodes and subroutines
+      if (
+        node.nodeType &&
+        (node.nodeType.isCustom || node.nodeType.isSubroutine)
+      ) {
         const buttonSize = 20;
         const buttonX = node.x + node.width - buttonSize - 5;
         const buttonY = node.y + 7;
@@ -14234,6 +14482,11 @@ class BlueprintSystem {
       this.logicalHeight || this.canvas.height
     );
 
+    // Get the displayed content based on context
+    const displayedNodes = this.getDisplayedNodes();
+    const displayedWires = this.getDisplayedWires();
+    const displayedComments = this.getDisplayedComments();
+
     // Save context and apply camera transform
     ctx.save();
     ctx.translate(this.camera.x, this.camera.y);
@@ -14243,10 +14496,10 @@ class BlueprintSystem {
     this.drawGrid();
 
     // Draw comments (under everything else)
-    this.comments.forEach((comment) => this.drawComment(comment));
+    displayedComments.forEach((comment) => this.drawComment(comment));
 
     // Draw wires
-    this.wires.forEach((wire) => this.drawWire(wire));
+    displayedWires.forEach((wire) => this.drawWire(wire));
 
     // Draw active wire being created
     if (this.activeWire) {
@@ -14254,7 +14507,7 @@ class BlueprintSystem {
     }
 
     // Draw nodes (with debug opacity if in debug mode)
-    this.nodes.forEach((node) => {
+    displayedNodes.forEach((node) => {
       if (this.debugActiveNodes && this.debugActiveNodes.size > 0) {
         // In debug mode: lower opacity for inactive nodes
         const isActive = this.debugActiveNodes.has(node.id);
@@ -14302,7 +14555,7 @@ class BlueprintSystem {
       ctx.setLineDash([5 / this.camera.zoom, 5 / this.camera.zoom]);
       ctx.lineWidth = 2 / this.camera.zoom;
 
-      this.nodes.forEach((node) => {
+      displayedNodes.forEach((node) => {
         // Draw node bounding box
         ctx.strokeStyle = "#00ffff";
         ctx.fillStyle = "rgba(0, 255, 255, 0.05)";
@@ -14359,7 +14612,10 @@ class BlueprintSystem {
   }
 
   getNodesBounds() {
-    if (this.nodes.length === 0 && this.comments.length === 0) {
+    const displayedNodes = this.getDisplayedNodes();
+    const displayedComments = this.getDisplayedComments();
+
+    if (displayedNodes.length === 0 && displayedComments.length === 0) {
       return { x: 0, y: 0, width: 800, height: 600 };
     }
 
@@ -14369,7 +14625,7 @@ class BlueprintSystem {
     let maxY = -Infinity;
 
     // Include nodes in bounds
-    this.nodes.forEach((node) => {
+    displayedNodes.forEach((node) => {
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
       maxX = Math.max(maxX, node.x + node.width);
@@ -14377,7 +14633,7 @@ class BlueprintSystem {
     });
 
     // Include comments in bounds
-    this.comments.forEach((comment) => {
+    displayedComments.forEach((comment) => {
       minX = Math.min(minX, comment.x);
       minY = Math.min(minY, comment.y);
       maxX = Math.max(maxX, comment.x + comment.width);
@@ -14414,6 +14670,11 @@ class BlueprintSystem {
     // Draw background
     ctx.fillStyle = "rgba(26, 26, 26, 0.95)";
     ctx.fillRect(0, 0, width, height);
+
+    // Get displayed content
+    const displayedNodes = this.getDisplayedNodes();
+    const displayedWires = this.getDisplayedWires();
+    const displayedComments = this.getDisplayedComments();
 
     // Get bounds of all nodes
     let bounds = this.getNodesBounds();
@@ -14471,7 +14732,7 @@ class BlueprintSystem {
     ctx.save();
 
     // Draw comments first (as background)
-    this.comments.forEach((comment) => {
+    displayedComments.forEach((comment) => {
       const x = (comment.x - bounds.x) * scale + offsetX;
       const y = (comment.y - bounds.y) * scale + offsetY;
       const w = comment.width * scale;
@@ -14488,7 +14749,7 @@ class BlueprintSystem {
     });
 
     // Draw wires/links (so they appear behind nodes but above comments)
-    this.wires.forEach((wire) => {
+    displayedWires.forEach((wire) => {
       const points = wire.getPoints();
       if (points.length < 2) return;
 
@@ -14514,7 +14775,7 @@ class BlueprintSystem {
     });
 
     // Draw nodes
-    this.nodes.forEach((node) => {
+    displayedNodes.forEach((node) => {
       const x = (node.x - bounds.x) * scale + offsetX;
       const y = (node.y - bounds.y) * scale + offsetY;
       const w = node.width * scale;
