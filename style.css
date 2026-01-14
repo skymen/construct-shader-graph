@@ -4237,82 +4237,153 @@ body {
   padding: 40px;
 }
 
-/* Subroutine Modal Styles */
-.subroutine-modal-content {
-  min-width: 1100px;
-  max-width: 1400px;
-  max-height: 95vh;
-}
-
-.subroutine-form {
+/* Subroutine Editor Header */
+#subroutine-editor-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 200px; /* Leave space for minimap */
+  background: linear-gradient(135deg, #2a2a2a 0%, #1e1e1e 100%);
+  border-bottom: 2px solid #4a90e2;
+  padding: 12px 20px;
+  z-index: 100;
   display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.subroutine-graph-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.subroutine-graph-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  background: #1a1a1a;
-  border-radius: 5px;
-  border: 1px solid #4a4a4a;
+  gap: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
-.subroutine-graph-header span {
-  font-size: 14px;
-  font-weight: 600;
-  color: #4a90e2;
-}
-
-.subroutine-graph-actions {
+.subroutine-editor-exit {
   display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subroutine-editor-exit-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
   gap: 6px;
 }
 
-.subroutine-btn {
-  background: #3a3a3a;
-  border: 1px solid #4a4a4a;
+.subroutine-editor-exit-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.subroutine-editor-divider {
+  width: 1px;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.subroutine-editor-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.subroutine-editor-title span {
+  color: #4a90e2;
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+#subroutineEditorName {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
-  padding: 4px 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 250px;
+  font-weight: 500;
+}
+
+#subroutineEditorName::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+#subroutineEditorName:focus {
+  outline: none;
+  border-color: #4a90e2;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+#subroutineEditorColor {
+  width: 40px;
+  height: 36px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: bold;
   transition: all 0.2s;
 }
 
-.subroutine-btn:hover {
-  background: #4a4a4a;
-  border-color: #5a5a5a;
+#subroutineEditorColor:hover {
+  border-color: #4a90e2;
 }
 
-.subroutine-btn:active {
-  background: #2a2a2a;
+.subroutine-editor-info {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-style: italic;
+  margin-left: auto;
+  margin-right: 10px;
 }
 
-.subroutine-graph-container {
-  position: relative;
-  width: 100%;
-  height: 500px;
-  background: #1a1a1a;
-  border: 2px solid #4a4a4a;
-  border-radius: 8px;
-  overflow: hidden;
+.subroutine-editor-save-btn {
+  background: #4a90e2;
+  border: none;
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-#subroutineCanvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-  cursor: default;
+.subroutine-editor-save-btn:hover {
+  background: #357abd;
+}
+
+/* Node Action Button */
+.node-action-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.node-action-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: scale(1.1);
+}
+
+/* Adjust canvas container when subroutine editor is open */
+#canvas-container.editing-subroutine #canvas {
+  margin-top: 60px;
 }
 

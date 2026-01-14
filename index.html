@@ -1002,6 +1002,52 @@
           </div>
         </div>
         <div id="canvas-container">
+          <!-- Subroutine Editor Header -->
+          <div id="subroutine-editor-header" style="display: none">
+            <div class="subroutine-editor-exit">
+              <button
+                id="exitSubroutineEditor"
+                class="subroutine-editor-exit-btn"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"
+                  />
+                </svg>
+                Exit Subroutine
+              </button>
+            </div>
+            <div class="subroutine-editor-divider"></div>
+            <div class="subroutine-editor-title">
+              <span>Subroutine:</span>
+              <input
+                type="text"
+                id="subroutineEditorName"
+                placeholder="Enter name..."
+              />
+              <input
+                type="color"
+                id="subroutineEditorColor"
+                value="#4a90e2"
+                title="Node Color"
+              />
+            </div>
+            <span class="subroutine-editor-info"
+              >Click on Input/Output nodes to configure ports</span
+            >
+            <button
+              id="saveSubroutineEditor"
+              class="subroutine-editor-save-btn"
+            >
+              Save Subroutine
+            </button>
+          </div>
           <canvas id="canvas"></canvas>
           <div id="minimap-container">
             <canvas id="minimap"></canvas>
@@ -1463,9 +1509,27 @@
             <div class="subroutine-graph-header">
               <span>Subroutine Graph</span>
               <div class="subroutine-graph-actions">
-                <button id="subroutineZoomIn" class="subroutine-btn" title="Zoom In">+</button>
-                <button id="subroutineZoomOut" class="subroutine-btn" title="Zoom Out">-</button>
-                <button id="subroutineResetView" class="subroutine-btn" title="Reset View">⊙</button>
+                <button
+                  id="subroutineZoomIn"
+                  class="subroutine-btn"
+                  title="Zoom In"
+                >
+                  +
+                </button>
+                <button
+                  id="subroutineZoomOut"
+                  class="subroutine-btn"
+                  title="Zoom Out"
+                >
+                  -
+                </button>
+                <button
+                  id="subroutineResetView"
+                  class="subroutine-btn"
+                  title="Reset View"
+                >
+                  ⊙
+                </button>
               </div>
             </div>
             <div class="subroutine-graph-container">
@@ -1477,6 +1541,30 @@
             <button id="saveSubroutine" class="primary-btn">Save</button>
             <button id="cancelSubroutine" class="secondary-btn">Cancel</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Subroutine Ports Modal -->
+    <div id="subroutinePortsModal" class="modal">
+      <div class="modal-content" style="max-width: 500px">
+        <h3 id="subroutinePortsModalTitle">Configure Ports</h3>
+        <div class="custom-node-ports-section">
+          <div class="custom-node-ports-column" style="width: 100%">
+            <div class="custom-node-ports-header">
+              <h4 id="subroutinePortsLabel">Ports</h4>
+              <button id="addSubroutinePort" class="add-port-btn-small">
+                +
+              </button>
+            </div>
+            <div id="subroutinePortsList" class="custom-node-ports-list"></div>
+          </div>
+        </div>
+        <div class="modal-buttons">
+          <button id="saveSubroutinePorts" class="primary-btn">Save</button>
+          <button id="cancelSubroutinePorts" class="secondary-btn">
+            Cancel
+          </button>
         </div>
       </div>
     </div>

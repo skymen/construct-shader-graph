@@ -406,7 +406,8 @@ class Node {
       nodeType.outputs.length > 0 &&
       !nodeType.hasOperation &&
       !nodeType.hasCustomInput &&
-      !nodeType.hasVariableDropdown;
+      !nodeType.hasVariableDropdown &&
+      !nodeType.hasActionButton;
 
     // Variable nodes are smaller and pill-shaped
     if (this.isVariable) {
@@ -1469,7 +1470,8 @@ class BlueprintSystem {
 
     // Subroutine Modal
     const subroutineModalH3 = document.querySelector("#subroutineModal h3");
-    if (subroutineModalH3) subroutineModalH3.textContent = t("Subroutine Editor");
+    if (subroutineModalH3)
+      subroutineModalH3.textContent = t("Subroutine Editor");
 
     const subroutineNameLabel = document.querySelector(
       "label:has(#subroutineName) > span"
@@ -5145,151 +5147,102 @@ class BlueprintSystem {
 
   initSubroutineUI() {
     // Get UI elements
-    this.subroutineModal = document.getElementById("subroutineModal");
-    this.subroutineNameInput = document.getElementById("subroutineName");
-    this.subroutineColorInput = document.getElementById("subroutineColor");
-    this.subroutineInputsContainer = document.getElementById("subroutineInputs");
-    this.subroutineOutputsContainer = document.getElementById("subroutineOutputs");
-    this.subroutineCanvas = document.getElementById("subroutineCanvas");
+    this.subroutineEditorHeader = document.getElementById(
+      "subroutine-editor-header"
+    );
+    this.subroutineNameInput = document.getElementById("subroutineEditorName");
+    this.subroutineColorInput = document.getElementById(
+      "subroutineEditorColor"
+    );
     this.subroutinesList = document.getElementById("subroutines-list");
+    this.canvasContainer = document.getElementById("canvas-container");
 
-    // Initialize subroutine canvas context
-    if (this.subroutineCanvas) {
-      this.subroutineCtx = this.subroutineCanvas.getContext("2d");
-      this.subroutineCamera = { x: 0, y: 0, zoom: 1 };
-      this.subroutineNodes = [];
-      this.subroutineWires = [];
-    }
+    // Subroutine ports modal elements
+    this.subroutinePortsModal = document.getElementById("subroutinePortsModal");
+    this.subroutinePortsModalTitle = document.getElementById(
+      "subroutinePortsModalTitle"
+    );
+    this.subroutinePortsLabel = document.getElementById("subroutinePortsLabel");
+    this.subroutinePortsList = document.getElementById("subroutinePortsList");
+    this.editingPortsNode = null;
 
     // Add event listeners
-    document.getElementById("addSubroutineInput").addEventListener("click", () => {
-      this.addCustomPortItem(this.subroutineInputsContainer, "input");
-    });
+    document
+      .getElementById("saveSubroutineEditor")
+      .addEventListener("click", () => {
+        this.saveSubroutine();
+      });
 
-    document.getElementById("addSubroutineOutput").addEventListener("click", () => {
-      this.addCustomPortItem(this.subroutineOutputsContainer, "output");
-    });
+    document
+      .getElementById("exitSubroutineEditor")
+      .addEventListener("click", () => {
+        this.exitSubroutineEditor();
+      });
 
-    document.getElementById("saveSubroutine").addEventListener("click", () => {
-      this.saveSubroutine();
-    });
+    document
+      .getElementById("addSubroutineBtn")
+      .addEventListener("click", () => {
+        this.enterSubroutineEditor();
+      });
 
-    document.getElementById("cancelSubroutine").addEventListener("click", () => {
-      this.hideSubroutineModal();
-    });
+    // Subroutine ports modal listeners
+    document
+      .getElementById("addSubroutinePort")
+      .addEventListener("click", () => {
+        this.addCustomPortItem(
+          this.subroutinePortsList,
+          this.editingPortsNode?.nodeType?.isSubroutineInput
+            ? "input"
+            : "output"
+        );
+      });
 
-    document.getElementById("addSubroutineBtn").addEventListener("click", () => {
-      this.showSubroutineModal();
-    });
+    document
+      .getElementById("saveSubroutinePorts")
+      .addEventListener("click", () => {
+        this.saveSubroutinePorts();
+      });
 
-    // Zoom controls
-    document.getElementById("subroutineZoomIn").addEventListener("click", () => {
-      this.subroutineCamera.zoom = Math.min(this.subroutineCamera.zoom * 1.2, 3);
-      this.renderSubroutineCanvas();
-    });
+    document
+      .getElementById("cancelSubroutinePorts")
+      .addEventListener("click", () => {
+        this.hideSubroutinePortsModal();
+      });
 
-    document.getElementById("subroutineZoomOut").addEventListener("click", () => {
-      this.subroutineCamera.zoom = Math.max(this.subroutineCamera.zoom / 1.2, 0.3);
-      this.renderSubroutineCanvas();
-    });
-
-    document.getElementById("subroutineResetView").addEventListener("click", () => {
-      this.subroutineCamera = { x: 0, y: 0, zoom: 1 };
-      this.renderSubroutineCanvas();
-    });
-
-    // Close on background click
-    this.subroutineModal.addEventListener("mousedown", (e) => {
-      if (e.target === this.subroutineModal) {
-        this.hideSubroutineModal();
+    // Close modal when clicking outside
+    this.subroutinePortsModal.addEventListener("click", (e) => {
+      if (e.target === this.subroutinePortsModal) {
+        this.hideSubroutinePortsModal();
       }
-    });
-
-    // Setup canvas interactions
-    this.setupSubroutineCanvas();
-  }
-
-  setupSubroutineCanvas() {
-    if (!this.subroutineCanvas) return;
-
-    let isPanning = false;
-    let lastX = 0;
-    let lastY = 0;
-
-    this.subroutineCanvas.addEventListener("mousedown", (e) => {
-      if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
-        isPanning = true;
-        lastX = e.clientX;
-        lastY = e.clientY;
-        this.subroutineCanvas.style.cursor = "grabbing";
-        e.preventDefault();
-      }
-    });
-
-    this.subroutineCanvas.addEventListener("mousemove", (e) => {
-      if (isPanning) {
-        const dx = e.clientX - lastX;
-        const dy = e.clientY - lastY;
-        this.subroutineCamera.x += dx;
-        this.subroutineCamera.y += dy;
-        lastX = e.clientX;
-        lastY = e.clientY;
-        this.renderSubroutineCanvas();
-      }
-    });
-
-    this.subroutineCanvas.addEventListener("mouseup", () => {
-      if (isPanning) {
-        isPanning = false;
-        this.subroutineCanvas.style.cursor = "default";
-      }
-    });
-
-    this.subroutineCanvas.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      this.subroutineCamera.zoom = Math.max(0.3, Math.min(3, this.subroutineCamera.zoom * delta));
-      this.renderSubroutineCanvas();
     });
   }
 
-  showSubroutineModal(subroutine = null) {
+  enterSubroutineEditor(subroutine = null) {
+    // Save current main graph state
+    this.savedMainGraphState = {
+      nodes: this.nodes,
+      wires: this.wires,
+      comments: this.comments,
+      camera: { ...this.camera },
+    };
+
     this.editingSubroutine = subroutine;
     this.subroutineEditorOpen = true;
 
     // Clear form
     this.subroutineNameInput.value = "";
-    this.subroutineColorInput.value = "#8e44ad";
-    this.subroutineInputsContainer.innerHTML = "";
-    this.subroutineOutputsContainer.innerHTML = "";
+    this.subroutineColorInput.value = "#4a90e2";
 
-    // Reset canvas
-    this.subroutineNodes = [];
-    this.subroutineWires = [];
-    this.subroutineCamera = { x: 250, y: 250, zoom: 1 };
+    // Clear main canvas and load subroutine graph
+    this.nodes = [];
+    this.wires = [];
+    this.comments = [];
+    this.camera = { x: 400, y: 300, zoom: 1 };
 
-    // If editing, populate form
+    // If editing, populate form and load graph
     if (subroutine) {
       this.subroutineNameInput.value = subroutine.name;
-      this.subroutineColorInput.value = subroutine.color || "#8e44ad";
-
-      subroutine.inputs.forEach((input) => {
-        this.addCustomPortItem(
-          this.subroutineInputsContainer,
-          "input",
-          input.name,
-          input.type
-        );
-      });
-
-      subroutine.outputs.forEach((output) => {
-        this.addCustomPortItem(
-          this.subroutineOutputsContainer,
-          "output",
-          output.name,
-          output.type
-        );
-      });
+      this.subroutineColorInput.value = subroutine.color || "#4a90e2";
 
       // Load subroutine graph
       if (subroutine.subGraph) {
@@ -5300,33 +5253,115 @@ class BlueprintSystem {
       this.createSubroutineInterfaceNodes();
     }
 
-    // Resize canvas
-    this.resizeSubroutineCanvas();
-    this.renderSubroutineCanvas();
+    // Show editor header
+    this.subroutineEditorHeader.style.display = "flex";
+    this.canvasContainer.classList.add("editing-subroutine");
 
-    // Show modal
-    this.subroutineModal.classList.add("visible");
-    this.subroutineModal.style.display = "flex";
+    this.render();
   }
 
-  hideSubroutineModal() {
-    this.subroutineModal.classList.remove("visible");
-    this.subroutineModal.style.display = "none";
+  exitSubroutineEditor() {
+    // Restore main graph state
+    if (this.savedMainGraphState) {
+      this.nodes = this.savedMainGraphState.nodes;
+      this.wires = this.savedMainGraphState.wires;
+      this.comments = this.savedMainGraphState.comments;
+      this.camera = this.savedMainGraphState.camera;
+      this.savedMainGraphState = null;
+    }
+
     this.editingSubroutine = null;
     this.subroutineEditorOpen = false;
-    this.subroutineNodes = [];
-    this.subroutineWires = [];
+
+    // Hide editor header
+    this.subroutineEditorHeader.style.display = "none";
+    this.canvasContainer.classList.remove("editing-subroutine");
+
+    this.render();
   }
 
-  resizeSubroutineCanvas() {
-    if (!this.subroutineCanvas) return;
-    const container = this.subroutineCanvas.parentElement;
-    this.subroutineCanvas.width = container.clientWidth;
-    this.subroutineCanvas.height = container.clientHeight;
+  handleNodeActionButton(node) {
+    if (node.nodeType?.isSubroutineInput) {
+      this.showSubroutinePortsModal(node, "Inputs");
+    } else if (node.nodeType?.isSubroutineOutput) {
+      this.showSubroutinePortsModal(node, "Outputs");
+    }
+  }
+
+  showSubroutinePortsModal(node, portType) {
+    this.editingPortsNode = node;
+
+    // Set modal title
+    this.subroutinePortsModalTitle.textContent = `Configure ${portType}`;
+    this.subroutinePortsLabel.textContent = portType;
+
+    // Clear and populate ports list
+    this.subroutinePortsList.innerHTML = "";
+
+    if (!node.subroutinePorts) {
+      node.subroutinePorts = [];
+    }
+
+    node.subroutinePorts.forEach((port) => {
+      this.addCustomPortItem(
+        this.subroutinePortsList,
+        portType.toLowerCase() === "inputs" ? "input" : "output",
+        port.name,
+        port.type
+      );
+    });
+
+    // Show modal
+    this.subroutinePortsModal.style.display = "flex";
+  }
+
+  hideSubroutinePortsModal() {
+    this.subroutinePortsModal.style.display = "none";
+    this.editingPortsNode = null;
+  }
+
+  saveSubroutinePorts() {
+    if (!this.editingPortsNode) return;
+
+    // Collect ports from the list
+    const ports = [];
+    this.subroutinePortsList
+      .querySelectorAll(".custom-port-item")
+      .forEach((item) => {
+        const nameInput = item.querySelector("input");
+        const typeSelect = item.querySelector("select");
+        if (nameInput.value.trim()) {
+          ports.push({
+            name: nameInput.value.trim(),
+            type: typeSelect.value,
+          });
+        }
+      });
+
+    // Update node's ports
+    this.editingPortsNode.subroutinePorts = ports;
+
+    // Update node's actual inputs/outputs based on the ports
+    if (this.editingPortsNode.nodeType?.isSubroutineInput) {
+      this.editingPortsNode.nodeType.outputs = ports.map((p) => ({
+        name: p.name,
+        type: p.type,
+      }));
+      this.editingPortsNode.updatePorts();
+    } else if (this.editingPortsNode.nodeType?.isSubroutineOutput) {
+      this.editingPortsNode.nodeType.inputs = ports.map((p) => ({
+        name: p.name,
+        type: p.type,
+      }));
+      this.editingPortsNode.updatePorts();
+    }
+
+    this.hideSubroutinePortsModal();
+    this.render();
   }
 
   createSubroutineInterfaceNodes() {
-    // Create Input node
+    // Create Input node with default T type output
     const inputNodeType = {
       name: "Subroutine Input",
       inputs: [],
@@ -5336,12 +5371,20 @@ class BlueprintSystem {
       isCustom: false,
       isSubroutine: false,
       isUniform: false,
+      hasOperation: false,
+      hasCustomInput: false,
+      hasVariableDropdown: false,
+      hasActionButton: true,
+      actionButtonIcon: "⚙",
+      actionButtonTooltip: "Configure Inputs",
       getDependency: () => "",
       getExecution: () => () => "",
     };
-    const inputNode = this.addSubroutineNode(100, 200, inputNodeType);
+    const inputNode = this.addNode(100, 200, inputNodeType);
+    // Initialize with default T type port
+    inputNode.subroutinePorts = [{ name: "Value", type: "T" }];
 
-    // Create Output node
+    // Create Output node with default T type input
     const outputNodeType = {
       name: "Subroutine Output",
       inputs: [{ name: "Value", type: "T" }],
@@ -5351,52 +5394,18 @@ class BlueprintSystem {
       isCustom: false,
       isSubroutine: false,
       isUniform: false,
+      hasOperation: false,
+      hasCustomInput: false,
+      hasVariableDropdown: false,
+      hasActionButton: true,
+      actionButtonIcon: "⚙",
+      actionButtonTooltip: "Configure Outputs",
       getDependency: () => "",
       getExecution: () => () => "",
     };
-    const outputNode = this.addSubroutineNode(500, 200, outputNodeType);
-  }
-
-  addSubroutineNode(x, y, nodeType) {
-    const node = new Node(x, y, this.subroutineNodes.length, nodeType);
-    this.subroutineNodes.push(node);
-    return node;
-  }
-
-  renderSubroutineCanvas() {
-    if (!this.subroutineCtx) return;
-
-    const ctx = this.subroutineCtx;
-    const canvas = this.subroutineCanvas;
-
-    // Clear canvas
-    ctx.fillStyle = "#1a1a1a";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw grid
-    this.drawGrid(ctx, this.subroutineCamera);
-
-    // Save context state
-    ctx.save();
-    ctx.translate(this.subroutineCamera.x, this.subroutineCamera.y);
-    ctx.scale(this.subroutineCamera.zoom, this.subroutineCamera.zoom);
-
-    // Draw wires
-    this.subroutineWires.forEach((wire) => {
-      this.drawWire(ctx, wire);
-    });
-
-    // Draw nodes
-    this.subroutineNodes.forEach((node) => {
-      this.drawNode(ctx, node);
-    });
-
-    ctx.restore();
-
-    // Draw info text
-    ctx.fillStyle = "#666";
-    ctx.font = "12px sans-serif";
-    ctx.fillText("Right-click or Shift+Click to add nodes", 10, canvas.height - 10);
+    const outputNode = this.addNode(500, 200, outputNodeType);
+    // Initialize with default T type port
+    outputNode.subroutinePorts = [{ name: "Value", type: "T" }];
   }
 
   loadSubroutineGraph(subGraph) {
@@ -5420,39 +5429,19 @@ class BlueprintSystem {
     });
 
     if (isDuplicateName) {
-      alert(`A subroutine with the name "${name}" already exists. Please choose a different name.`);
+      alert(
+        `A subroutine with the name "${name}" already exists. Please choose a different name.`
+      );
       return;
     }
 
-    // Collect inputs
-    const inputs = [];
-    this.subroutineInputsContainer
-      .querySelectorAll(".custom-port-item")
-      .forEach((item) => {
-        const nameInput = item.querySelector("input");
-        const typeSelect = item.querySelector("select");
-        if (nameInput.value.trim()) {
-          inputs.push({
-            name: nameInput.value.trim(),
-            type: typeSelect.value,
-          });
-        }
-      });
+    // Collect inputs from Subroutine Input node
+    const inputNode = this.nodes.find((n) => n.nodeType?.isSubroutineInput);
+    const inputs = inputNode?.subroutinePorts || [];
 
-    // Collect outputs
-    const outputs = [];
-    this.subroutineOutputsContainer
-      .querySelectorAll(".custom-port-item")
-      .forEach((item) => {
-        const nameInput = item.querySelector("input");
-        const typeSelect = item.querySelector("select");
-        if (nameInput.value.trim()) {
-          outputs.push({
-            name: nameInput.value.trim(),
-            type: typeSelect.value,
-          });
-        }
-      });
+    // Collect outputs from Subroutine Output node
+    const outputNode = this.nodes.find((n) => n.nodeType?.isSubroutineOutput);
+    const outputs = outputNode?.subroutinePorts || [];
 
     if (outputs.length === 0) {
       alert("Please add at least one output");
@@ -5491,7 +5480,7 @@ class BlueprintSystem {
     }
 
     this.renderSubroutinesList();
-    this.hideSubroutineModal();
+    this.exitSubroutineEditor();
     console.log("Subroutine saved:", subroutine);
 
     // Reload preview
@@ -5500,7 +5489,7 @@ class BlueprintSystem {
 
   exportSubroutineGraph() {
     return {
-      nodes: this.subroutineNodes.map((node) => ({
+      nodes: this.nodes.map((node) => ({
         id: node.id,
         x: node.x,
         y: node.y,
@@ -5515,7 +5504,7 @@ class BlueprintSystem {
           portType: port.portType,
         })),
       })),
-      wires: this.subroutineWires.map((wire) => ({
+      wires: this.wires.map((wire) => ({
         startNodeId: wire.startPort.node.id,
         startPortIndex: wire.startPort.node.outputPorts.indexOf(wire.startPort),
         endNodeId: wire.endPort.node.id,
@@ -5576,7 +5565,7 @@ class BlueprintSystem {
       editBtn.title = "Edit";
       editBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.showSubroutineModal(subroutine);
+        this.enterSubroutineEditor(subroutine);
       });
 
       const deleteBtn = document.createElement("button");
@@ -5651,7 +5640,12 @@ class BlueprintSystem {
       getExecution: (target) => {
         return (inputs, outputs) => {
           // Generate execution code by inlining subroutine nodes
-          return this.generateSubroutineExecution(subroutine, target, inputs, outputs);
+          return this.generateSubroutineExecution(
+            subroutine,
+            target,
+            inputs,
+            outputs
+          );
         };
       },
     };
@@ -5670,9 +5664,9 @@ class BlueprintSystem {
     // 2. Map external inputs to subroutine input nodes
     // 3. Execute all nodes in the subroutine graph in topological order
     // 4. Map subroutine output nodes to external outputs
-    
+
     let code = `  // Subroutine: ${subroutine.name}\n`;
-    
+
     // Simple pass-through for demonstration
     // In a full implementation, this would process the entire subroutine graph
     if (inputs.length > 0 && outputs.length > 0) {
@@ -5681,7 +5675,7 @@ class BlueprintSystem {
         code += `  ${output} = ${input};\n`;
       });
     }
-    
+
     return code;
   }
 
@@ -11850,6 +11844,26 @@ class BlueprintSystem {
       }
     }
 
+    // Check if clicking on action button for nodes with hasActionButton
+    for (const node of this.nodes) {
+      if (
+        node.nodeType &&
+        node.nodeType.hasActionButton &&
+        node.actionButtonBounds
+      ) {
+        const btn = node.actionButtonBounds;
+        if (
+          pos.x >= btn.x &&
+          pos.x <= btn.x + btn.width &&
+          pos.y >= btn.y &&
+          pos.y <= btn.y + btn.height
+        ) {
+          this.handleNodeActionButton(node);
+          return;
+        }
+      }
+    }
+
     // Check if clicking on an operation dropdown
     for (const node of this.nodes) {
       if (node.nodeType.hasOperation) {
@@ -13646,6 +13660,42 @@ class BlueprintSystem {
         node.editButtonBounds.y = buttonY;
         node.editButtonBounds.width = buttonSize;
         node.editButtonBounds.height = buttonSize;
+      }
+
+      // Action button for nodes with hasActionButton
+      if (node.nodeType && node.nodeType.hasActionButton) {
+        const buttonSize = 24;
+        const buttonX = node.x + node.width - buttonSize - 5;
+        const buttonY = node.y + 7;
+
+        // Button background
+        ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        // Icon (using the actionButtonIcon from nodeType)
+        ctx.fillStyle = "#fff";
+        ctx.font = "14px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(
+          node.nodeType.actionButtonIcon || "⚙",
+          buttonX + buttonSize / 2,
+          buttonY + buttonSize / 2
+        );
+
+        // Store button bounds for click detection
+        if (!node.actionButtonBounds) {
+          node.actionButtonBounds = {};
+        }
+        node.actionButtonBounds.x = buttonX;
+        node.actionButtonBounds.y = buttonY;
+        node.actionButtonBounds.width = buttonSize;
+        node.actionButtonBounds.height = buttonSize;
       }
 
       // Operation dropdown (if node has operations)
