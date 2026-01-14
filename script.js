@@ -5575,8 +5575,170 @@ class BlueprintSystem {
       this.editingPortsNode.height = Math.max(80, baseHeight + 35); // +35 for action button
     }
 
+    // Update the subroutine definition itself
+    if (this.editingSubroutine) {
+      if (this.editingPortsNode.nodeType?.isSubroutineInput) {
+        this.editingSubroutine.inputs = ports;
+      } else if (this.editingPortsNode.nodeType?.isSubroutineOutput) {
+        this.editingSubroutine.outputs = ports;
+      }
+
+      // Update all instances of this subroutine in the main graph and other subroutines
+      this.updateAllSubroutineInstances(this.editingSubroutine);
+    }
+
     this.hideSubroutinePortsModal();
     this.render();
+  }
+
+  updateAllSubroutineInstances(subroutine) {
+    // Helper to update instances in a given node array
+    const updateInstancesInNodes = (nodes) => {
+      nodes.forEach((node) => {
+        if (
+          node.nodeType?.isSubroutine &&
+          node.nodeType?.subroutineId === subroutine.id
+        ) {
+          // Update the node type
+          node.nodeType = this.createNodeTypeFromSubroutine(subroutine);
+
+          // Store old connections
+          const oldInputConnections = node.inputPorts.map((port, index) => ({
+            index,
+            port,
+            wires: port.connections.slice(),
+            type: port.portType,
+          }));
+          const oldOutputConnections = node.outputPorts.map((port, index) => ({
+            index,
+            port,
+            wires: port.connections.slice(),
+            type: port.portType,
+          }));
+
+          // Recreate ports
+          node.inputPorts = node.nodeType.inputs.map(
+            (inputDef, index) => new Port(node, "input", index, inputDef)
+          );
+          node.outputPorts = node.nodeType.outputs.map(
+            (outputDef, index) => new Port(node, "output", index, outputDef)
+          );
+
+          // Get the correct wire array based on context
+          const wireArray = node._internalNodes
+            ? this.subroutineEditingWires
+            : this.wires;
+
+          // Reconnect compatible input wires
+          oldInputConnections.forEach((oldConn) => {
+            if (oldConn.index < node.inputPorts.length) {
+              const newPort = node.inputPorts[oldConn.index];
+              oldConn.wires.forEach((wire) => {
+                if (
+                  areTypesCompatible(wire.startPort.portType, newPort.portType)
+                ) {
+                  wire.endPort = newPort;
+                  newPort.connections.push(wire);
+                } else {
+                  // Remove incompatible wire
+                  const wireIndex = wireArray.indexOf(wire);
+                  if (wireIndex !== -1) wireArray.splice(wireIndex, 1);
+                  const startConnIndex =
+                    wire.startPort.connections.indexOf(wire);
+                  if (startConnIndex !== -1)
+                    wire.startPort.connections.splice(startConnIndex, 1);
+                }
+              });
+            } else {
+              // Port no longer exists
+              oldConn.wires.forEach((wire) => {
+                const wireIndex = wireArray.indexOf(wire);
+                if (wireIndex !== -1) wireArray.splice(wireIndex, 1);
+                const startConnIndex = wire.startPort.connections.indexOf(wire);
+                if (startConnIndex !== -1)
+                  wire.startPort.connections.splice(startConnIndex, 1);
+              });
+            }
+          });
+
+          // Reconnect compatible output wires
+          oldOutputConnections.forEach((oldConn) => {
+            if (oldConn.index < node.outputPorts.length) {
+              const newPort = node.outputPorts[oldConn.index];
+              oldConn.wires.forEach((wire) => {
+                if (
+                  areTypesCompatible(newPort.portType, wire.endPort.portType)
+                ) {
+                  wire.startPort = newPort;
+                  newPort.connections.push(wire);
+                } else {
+                  // Remove incompatible wire
+                  const wireIndex = wireArray.indexOf(wire);
+                  if (wireIndex !== -1) wireArray.splice(wireIndex, 1);
+                  const endConnIndex = wire.endPort.connections.indexOf(wire);
+                  if (endConnIndex !== -1)
+                    wire.endPort.connections.splice(endConnIndex, 1);
+                }
+              });
+            } else {
+              // Port no longer exists
+              oldConn.wires.forEach((wire) => {
+                const wireIndex = wireArray.indexOf(wire);
+                if (wireIndex !== -1) wireArray.splice(wireIndex, 1);
+                const endConnIndex = wire.endPort.connections.indexOf(wire);
+                if (endConnIndex !== -1)
+                  wire.endPort.connections.splice(endConnIndex, 1);
+              });
+            }
+          });
+
+          // Recalculate node dimensions
+          node.recalculateHeight();
+
+          // Reinstantiate the internal graph with the new ports
+          this.instantiateSubroutineInternalGraph(node, subroutine);
+
+          // Reevaluate generic types on reconnected wires
+          node.inputPorts.forEach((port) => {
+            port.connections.forEach((wire) => {
+              if (isGenericType(wire.startPort.portType)) {
+                this.reevaluateGenericType(
+                  wire.startPort.node,
+                  wire.startPort.portType
+                );
+              }
+            });
+          });
+          node.outputPorts.forEach((port) => {
+            port.connections.forEach((wire) => {
+              if (isGenericType(wire.endPort.portType)) {
+                this.reevaluateGenericType(
+                  wire.endPort.node,
+                  wire.endPort.portType
+                );
+              }
+            });
+          });
+        }
+      });
+    };
+
+    // Update instances in main graph
+    updateInstancesInNodes(this.nodes);
+
+    // Update instances in all other subroutines' internal graphs
+    this.subroutines.forEach((otherSubroutine) => {
+      // Find all instances of this subroutine in other subroutines
+      this.nodes.forEach((node) => {
+        if (
+          node.nodeType?.isSubroutine &&
+          node.nodeType?.subroutineId === otherSubroutine.id &&
+          node._internalNodes
+        ) {
+          updateInstancesInNodes(node._internalNodes);
+        }
+      });
+    });
   }
 
   createSubroutineInterfaceNodes() {
@@ -6024,7 +6186,6 @@ class BlueprintSystem {
       },
       // Custom type resolution - read from internal interface nodes
       getCustomType: (node, port) => {
-        debugger;
         if (port.type === "input") {
           // Input port: get type from internal input interface output port
           const internalOutputPort =
@@ -12031,6 +12192,7 @@ class BlueprintSystem {
           inputs: [],
           outputs: ports.map((p) => ({ name: p.name, type: p.type })),
           isSubroutineInput: true,
+          preventInternalPropagation: true, // Don't propagate generics between ports on this node
           hasOperation: false,
           hasCustomInput: false,
           hasVariableDropdown: false,
@@ -12044,6 +12206,7 @@ class BlueprintSystem {
           inputs: ports.map((p) => ({ name: p.name, type: p.type })),
           outputs: [],
           isSubroutineOutput: true,
+          preventInternalPropagation: true, // Don't propagate generics between ports on this node
           hasOperation: false,
           hasCustomInput: false,
           hasVariableDropdown: false,
@@ -12328,17 +12491,44 @@ class BlueprintSystem {
     }
   }
 
-  propagateGenericResolution(node, genericType, concreteType) {
-    // Get all ports of this node with the same generic type
-    const genericPorts = node
+  propagateGenericResolution(
+    node,
+    genericType,
+    concreteType,
+    sourcePort = null
+  ) {
+    // If this node prevents internal propagation, only propagate from the specific source port
+    // Otherwise, propagate from all ports with the same generic type
+    const shouldPropagateInternally =
+      !node.nodeType?.preventInternalPropagation;
+
+    // Get ports to propagate from
+    let portsToPropagate;
+    if (shouldPropagateInternally) {
+      // Normal behavior: propagate from all ports with the same generic type
+      portsToPropagate = node
+        .getAllPorts()
+        .filter((port) => port.portType === genericType);
+    } else {
+      // Prevent internal propagation: only propagate from the source port
+      if (sourcePort) {
+        portsToPropagate = [sourcePort];
+      } else {
+        // If no source port specified, propagate from all ports (this happens on initial resolution)
+        portsToPropagate = node
+          .getAllPorts()
+          .filter((port) => port.portType === genericType);
+      }
+    }
+
+    // Update editability for all ports with this generic type
+    const allGenericPorts = node
       .getAllPorts()
       .filter((port) => port.portType === genericType);
+    allGenericPorts.forEach((port) => port.updateEditability());
 
-    // For each generic port, propagate to connected nodes
-    genericPorts.forEach((port) => {
-      // Update editability for this port
-      port.updateEditability();
-
+    // For each port to propagate from, propagate to connected nodes
+    portsToPropagate.forEach((port) => {
       port.connections.forEach((wire) => {
         const connectedPort =
           wire.startPort === port ? wire.endPort : wire.startPort;
@@ -12357,12 +12547,13 @@ class BlueprintSystem {
               concreteType
             );
 
-            // Recursively propagate
+            // Recursively propagate, passing the connected port as the source
             if (wasUpdated) {
               this.propagateGenericResolution(
                 connectedNode,
                 connectedPort.portType,
-                concreteType
+                concreteType,
+                connectedPort
               );
             }
           }
