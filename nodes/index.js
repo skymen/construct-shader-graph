@@ -147,6 +147,13 @@ import { UnpremultiplyNode } from "./UnpremultiplyNode.js";
 import { PremultiplyNode } from "./PremultiplyNode.js";
 import { LinearizeDepthNode } from "./LinearizeDepthNode.js";
 import { NormalFromDepthNode } from "./NormalFromDepthNode.js";
+import { DirectionalLightNode } from "./DirectionalLightNode.js";
+import { RimLightNode } from "./RimLightNode.js";
+import { HemisphereLightNode } from "./HemisphereLightNode.js";
+import { SpecularLightNode } from "./SpecularLightNode.js";
+import { MatcapNode } from "./MatcapNode.js";
+import { NormalViewToWorldNode } from "./NormalViewToWorldNode.js";
+import { NormalWorldToViewNode } from "./NormalWorldToViewNode.js";
 import { SrcToNormNode } from "./SrcToNormNode.js";
 import { NormToSrcNode } from "./NormToSrcNode.js";
 import { NormToSrcOriginNode } from "./NormToSrcOriginNode.js";
@@ -444,6 +451,13 @@ export const NODE_TYPES = {
   premultiply: PremultiplyNode,
   linearizeDepth: LinearizeDepthNode,
   normalFromDepth: NormalFromDepthNode,
+  directionalLight: DirectionalLightNode,
+  rimLight: RimLightNode,
+  hemisphereLight: HemisphereLightNode,
+  specularLight: SpecularLightNode,
+  matcap: MatcapNode,
+  normalViewToWorld: NormalViewToWorldNode,
+  normalWorldToView: NormalWorldToViewNode,
   srcToNorm: SrcToNormNode,
   normToSrc: NormToSrcNode,
   normToSrcOrigin: NormToSrcOriginNode,

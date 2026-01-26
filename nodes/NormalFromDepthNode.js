@@ -85,7 +85,7 @@ vec3 normalFromDepth_calc(vec2 uv, float radius) {
         `    var ${outputs[0]}: vec3<f32> = normalFromDepth_calc(${inputs[0]}, ${inputs[1]});`,
     },
   },
-  "Texture",
+  "Lighting",
   [
     "normal",
     "depth",
