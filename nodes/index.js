@@ -146,6 +146,7 @@ import { GetLayoutPosNode } from "./GetLayoutPosNode.js";
 import { UnpremultiplyNode } from "./UnpremultiplyNode.js";
 import { PremultiplyNode } from "./PremultiplyNode.js";
 import { LinearizeDepthNode } from "./LinearizeDepthNode.js";
+import { NormalFromDepthNode } from "./NormalFromDepthNode.js";
 import { SrcToNormNode } from "./SrcToNormNode.js";
 import { NormToSrcNode } from "./NormToSrcNode.js";
 import { NormToSrcOriginNode } from "./NormToSrcOriginNode.js";
@@ -441,6 +442,7 @@ export const NODE_TYPES = {
   unpremultiply: UnpremultiplyNode,
   premultiply: PremultiplyNode,
   linearizeDepth: LinearizeDepthNode,
+  normalFromDepth: NormalFromDepthNode,
   srcToNorm: SrcToNormNode,
   normToSrc: NormToSrcNode,
   normToSrcOrigin: NormToSrcOriginNode,
