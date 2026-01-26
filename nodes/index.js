@@ -166,6 +166,7 @@ import { PosterizeNode } from "./PosterizeNode.js";
 import { BlendModeNode } from "./BlendModeNode.js";
 import { LuminosityNode } from "./LuminosityNode.js";
 import { AlphaOverNode } from "./AlphaOverNode.js";
+import { CompositeNode } from "./CompositeNode.js";
 
 // Import constant nodes
 import { PiNode } from "./PiNode.js";
@@ -462,6 +463,7 @@ export const NODE_TYPES = {
   blendMode: BlendModeNode,
   luminosity: LuminosityNode,
   alphaOver: AlphaOverNode,
+  composite: CompositeNode,
 
   // Constants
   pi: PiNode,
