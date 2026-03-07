@@ -315,22 +315,22 @@ class Port {
       outputPort.portType === "custom"
         ? outputResolvedType
         : outputResolvedType !== outputPort.portType
-        ? outputResolvedType
-        : null;
+          ? outputResolvedType
+          : null;
 
     const inputTypeToCheck =
       inputPort.portType === "custom"
         ? inputResolvedType
         : inputResolvedType !== inputPort.portType
-        ? inputResolvedType
-        : null;
+          ? inputResolvedType
+          : null;
 
     // Check type compatibility using the new system with resolved types
     return areTypesCompatible(
       outputPort.portType,
       inputPort.portType,
       outputTypeToCheck,
-      inputTypeToCheck
+      inputTypeToCheck,
     );
   }
 
@@ -405,10 +405,10 @@ class Node {
 
     // Create ports based on node type definition
     this.inputPorts = nodeType.inputs.map(
-      (inputDef, index) => new Port(this, "input", index, inputDef)
+      (inputDef, index) => new Port(this, "input", index, inputDef),
     );
     this.outputPorts = nodeType.outputs.map(
-      (outputDef, index) => new Port(this, "output", index, outputDef)
+      (outputDef, index) => new Port(this, "output", index, outputDef),
     );
 
     // Determine if this is a variable node (pill-shaped)
@@ -438,7 +438,7 @@ class Node {
       // Calculate height based on number of ports and their extra heights
       const maxPorts = Math.max(
         this.inputPorts.length,
-        this.outputPorts.length
+        this.outputPorts.length,
       );
 
       // Calculate extra height from input ports' value boxes
@@ -562,7 +562,7 @@ class Node {
   clearResolvedGeneric(genericType) {
     // Check if any ports with this generic type still have connections
     const hasConnections = this.getAllPorts().some(
-      (port) => port.portType === genericType && port.connections.length > 0
+      (port) => port.portType === genericType && port.connections.length > 0,
     );
 
     if (!hasConnections) {
@@ -665,7 +665,7 @@ class Node {
 
     // Check if any ports have custom types
     const customPorts = this.getAllPorts().filter(
-      (port) => port.portType === "custom"
+      (port) => port.portType === "custom",
     );
 
     if (customPorts.length > 0 && this.nodeType.getCustomType) {
@@ -708,7 +708,7 @@ class Node {
     this.operation = newValue;
 
     const customPorts = this.getAllPorts().filter(
-      (port) => port.portType === "custom"
+      (port) => port.portType === "custom",
     );
 
     if (customPorts.length > 0 && this.nodeType.getCustomType) {
@@ -836,7 +836,7 @@ class Wire {
         start.x,
         start.y,
         end.x,
-        end.y
+        end.y,
       );
       if (dist < threshold) {
         return { segmentIndex: i, distance: dist };
@@ -1237,7 +1237,7 @@ class BlueprintSystem {
     updateButton(
       "autoArrangeBtn",
       "Auto Arrange",
-      "Auto Arrange Nodes (Ctrl+L)"
+      "Auto Arrange Nodes (Ctrl+L)",
     );
     updateButton("viewCodeBtn", "View Code", "View Generated Code");
     updateButton("exportBtn", "Export", "Export Addon");
@@ -1272,35 +1272,35 @@ class BlueprintSystem {
 
     updateLabel(
       "#preview-controls .preview-control-group label[for='effectTargetSelect'], .preview-control-group:has(#effectTargetSelect) > label",
-      "Effect Target:"
+      "Effect Target:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#objectSelect) > label",
-      "Object:"
+      "Object:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#cameraModeSelect) > label",
-      "Camera:"
+      "Camera:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#autoRotateCheckbox) label",
-      "Auto Rotate"
+      "Auto Rotate",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#samplingModeSelect) > label",
-      "Sampling:"
+      "Sampling:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#shaderLanguageSelect) > label",
-      "Shader Language:"
+      "Shader Language:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#spriteTextureInput) > label",
-      "Sprite Texture:"
+      "Sprite Texture:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#shapeTextureInput) > label",
-      "Shape Texture:"
+      "Shape Texture:",
     );
 
     // Preview select options
@@ -1338,7 +1338,7 @@ class BlueprintSystem {
     }
 
     const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect"
+      "shaderLanguageSelect",
     );
     if (shaderLanguageSelect) {
       shaderLanguageSelect.options[0].text = t("WebGPU");
@@ -1351,7 +1351,7 @@ class BlueprintSystem {
     if (spriteTextureBtn) spriteTextureBtn.title = t("Load sprite texture");
 
     const clearSpriteTextureBtn = document.getElementById(
-      "clearSpriteTextureBtn"
+      "clearSpriteTextureBtn",
     );
     if (clearSpriteTextureBtn)
       clearSpriteTextureBtn.title = t("Clear sprite texture");
@@ -1360,13 +1360,13 @@ class BlueprintSystem {
     if (shapeTextureBtn) shapeTextureBtn.title = t("Load shape texture");
 
     const clearShapeTextureBtn = document.getElementById(
-      "clearShapeTextureBtn"
+      "clearShapeTextureBtn",
     );
     if (clearShapeTextureBtn)
       clearShapeTextureBtn.title = t("Clear shape texture");
 
     const resetPreviewSettingsBtn = document.getElementById(
-      "resetPreviewSettingsBtn"
+      "resetPreviewSettingsBtn",
     );
     if (resetPreviewSettingsBtn)
       resetPreviewSettingsBtn.textContent = t("Reset Preview Settings");
@@ -1385,7 +1385,7 @@ class BlueprintSystem {
 
     // Sidebar sections
     const shaderInfoHeaders = document.querySelectorAll(
-      "#shader-settings-section .sidebar-section-header h2"
+      "#shader-settings-section .sidebar-section-header h2",
     );
     if (shaderInfoHeaders[0])
       shaderInfoHeaders[0].textContent = t("Shader Info");
@@ -1393,12 +1393,12 @@ class BlueprintSystem {
       shaderInfoHeaders[1].textContent = t("Shader Settings");
 
     const uniformsHeader = document.querySelector(
-      "#uniforms-section .sidebar-section-header h2"
+      "#uniforms-section .sidebar-section-header h2",
     );
     if (uniformsHeader) uniformsHeader.textContent = t("Uniforms");
 
     const customNodesHeader = document.querySelector(
-      "#custom-nodes-section .sidebar-section-header h2"
+      "#custom-nodes-section .sidebar-section-header h2",
     );
     if (customNodesHeader) customNodesHeader.textContent = t("Custom Nodes");
 
@@ -1413,7 +1413,7 @@ class BlueprintSystem {
 
     updateSidebarLabel(
       "#settingName + label span, label:has(#settingName) > span",
-      "Name"
+      "Name",
     );
     updateSidebarLabel("label:has(#settingVersion) > span", "Version");
     updateSidebarLabel("label:has(#settingAuthor) > span", "Author");
@@ -1436,7 +1436,7 @@ class BlueprintSystem {
     if (settingWebsite) settingWebsite.placeholder = "https://example.com";
 
     const settingDocumentation = document.getElementById(
-      "settingDocumentation"
+      "settingDocumentation",
     );
     if (settingDocumentation)
       settingDocumentation.placeholder = "https://docs.example.com";
@@ -1461,26 +1461,26 @@ class BlueprintSystem {
     // Checkbox labels
     updateSidebarLabel(
       "label:has(#settingBlendsBackground) > span",
-      "Blends Background"
+      "Blends Background",
     );
     updateSidebarLabel(
       "label:has(#settingCrossSampling) > span",
-      "Cross Sampling"
+      "Cross Sampling",
     );
     updateSidebarLabel(
       "label:has(#settingPreservesOpaqueness) > span",
-      "Preserves Opaqueness"
+      "Preserves Opaqueness",
     );
     updateSidebarLabel("label:has(#settingAnimated) > span", "Animated");
     updateSidebarLabel("label:has(#settingUsesDepth) > span", "Uses Depth");
     updateSidebarLabel("label:has(#settingMustPredraw) > span", "Must Predraw");
     updateSidebarLabel(
       "label:has(#settingSupports3DDirectRendering) > span",
-      "Supports 3D Direct Rendering"
+      "Supports 3D Direct Rendering",
     );
     updateSidebarLabel(
       "label:has(#settingIsDeprecated) > span",
-      "Is Deprecated"
+      "Is Deprecated",
     );
     updateSidebarLabel("label:has(.extend-box-inputs) > span", "Extend Box");
 
@@ -1530,7 +1530,7 @@ class BlueprintSystem {
     if (customNodeModalH3) customNodeModalH3.textContent = t("Custom Node");
 
     const customNodeNameLabel = document.querySelector(
-      "label:has(#customNodeName) > span"
+      "label:has(#customNodeName) > span",
     );
     if (customNodeNameLabel)
       customNodeNameLabel.textContent = t("Custom Node Name");
@@ -1539,28 +1539,28 @@ class BlueprintSystem {
     if (customNodeName) customNodeName.placeholder = t("My Custom Node");
 
     const customNodeSplitLabel = document.querySelector(
-      "label:has(#customNodeSplitWebGL) > span"
+      "label:has(#customNodeSplitWebGL) > span",
     );
     if (customNodeSplitLabel)
       customNodeSplitLabel.textContent = t("split webgl");
 
     const inputsHeader = document.querySelector(
-      ".custom-node-ports-column:first-child h4"
+      ".custom-node-ports-column:first-child h4",
     );
     if (inputsHeader) inputsHeader.textContent = t("Inputs");
 
     const outputsHeader = document.querySelector(
-      ".custom-node-ports-column:last-child h4"
+      ".custom-node-ports-column:last-child h4",
     );
     if (outputsHeader) outputsHeader.textContent = t("Outputs");
 
     const dependencyTab = document.querySelector(
-      '.code-tab[data-code-type="dependency"]'
+      '.code-tab[data-code-type="dependency"]',
     );
     if (dependencyTab) dependencyTab.textContent = t("Dependency");
 
     const executionTab = document.querySelector(
-      '.code-tab[data-code-type="execution"]'
+      '.code-tab[data-code-type="execution"]',
     );
     if (executionTab) executionTab.textContent = t("Execution");
 
@@ -1578,7 +1578,7 @@ class BlueprintSystem {
     if (commentModalH3) commentModalH3.textContent = t("Edit Comment");
 
     const uniformNameLabel = document.querySelector(
-      "label:has(#uniformNameInput)"
+      "label:has(#uniformNameInput)",
     );
     if (uniformNameLabel) {
       const text = uniformNameLabel.childNodes[0];
@@ -1591,7 +1591,7 @@ class BlueprintSystem {
     if (uniformNameInput) uniformNameInput.placeholder = t("My Uniform");
 
     const uniformDescLabel = document.querySelector(
-      "label:has(#uniformDescriptionInput)"
+      "label:has(#uniformDescriptionInput)",
     );
     if (uniformDescLabel) {
       const text = uniformDescLabel.childNodes[0];
@@ -1601,13 +1601,13 @@ class BlueprintSystem {
     }
 
     const uniformDescriptionInput = document.getElementById(
-      "uniformDescriptionInput"
+      "uniformDescriptionInput",
     );
     if (uniformDescriptionInput)
       uniformDescriptionInput.placeholder = t("Optional description");
 
     const uniformTypeLabel = document.querySelector(
-      "label:has(#uniformTypeSelect)"
+      "label:has(#uniformTypeSelect)",
     );
     if (uniformTypeLabel) {
       const text = uniformTypeLabel.childNodes[0];
@@ -1650,26 +1650,26 @@ class BlueprintSystem {
     if (openFilesModalH2) openFilesModalH2.textContent = t("Open Shader");
 
     const recentFilesTab = document.querySelector(
-      '.modal-tab[data-tab="recent"]'
+      '.modal-tab[data-tab="recent"]',
     );
     if (recentFilesTab) recentFilesTab.textContent = t("Recent Files");
 
     const examplesTab = document.querySelector(
-      '.modal-tab[data-tab="examples"]'
+      '.modal-tab[data-tab="examples"]',
     );
     if (examplesTab) examplesTab.textContent = t("Examples");
 
     const recentFilesEmpty = document.querySelector(
-      "#recentFilesEmpty p:first-of-type"
+      "#recentFilesEmpty p:first-of-type",
     );
     if (recentFilesEmpty) recentFilesEmpty.textContent = t("No recent files");
 
     const recentFilesEmptySubtext = document.querySelector(
-      "#recentFilesEmpty p:last-of-type"
+      "#recentFilesEmpty p:last-of-type",
     );
     if (recentFilesEmptySubtext)
       recentFilesEmptySubtext.textContent = t(
-        "Open or create a file to get started"
+        "Open or create a file to get started",
       );
 
     const clearRecentFilesBtn = document.getElementById("clearRecentFilesBtn");
@@ -1693,7 +1693,7 @@ class BlueprintSystem {
     }
 
     const openFilesModalCancel = document.getElementById(
-      "openFilesModalCancel"
+      "openFilesModalCancel",
     );
     if (openFilesModalCancel) openFilesModalCancel.textContent = t("Cancel");
   }
@@ -1858,7 +1858,7 @@ class BlueprintSystem {
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
         <div>
           <div style="font-size:18px;font-weight:600;">Gradient Editor</div>
-          <div style="font-size:12px;color:#a0a0a0;margin-top:2px;">Drag handles to move stops. Double-click the bar to add one.</div>
+          <div style="font-size:12px;color:#a0a0a0;margin-top:2px;">Shift-click to select multiple colors. Double-click the bar to add one.</div>
         </div>
       </div>
       <div id="gradientEditorPreviewShell" style="position:relative;margin-bottom:16px;">
@@ -1866,23 +1866,29 @@ class BlueprintSystem {
         <div id="gradientEditorHandles" style="position:absolute;inset:0;pointer-events:none;"></div>
       </div>
       <div style="background:#171717;border:1px solid #343434;border-radius:10px;padding:14px;margin-bottom:14px;">
-        <div id="gradientEditorStopLabel" style="font-size:13px;font-weight:600;margin-bottom:12px;color:#f2f2f2;">Selected Stop</div>
+        <div id="gradientEditorStopLabel" style="font-size:13px;font-weight:600;margin-bottom:12px;color:#f2f2f2;">Selected Color</div>
         <div style="display:grid;grid-template-columns:96px 1fr;gap:12px;align-items:center;margin-bottom:12px;">
           <label style="font-size:12px;color:#a0a0a0;">Color</label>
-          <input type="color" id="gradientEditorColor" style="width:100%;height:36px;background:#111;border:1px solid #3a3a3a;border-radius:6px;cursor:pointer;" />
+          <div style="display:grid;grid-template-columns:56px 1fr;gap:10px;align-items:center;">
+            <input type="color" id="gradientEditorColor" style="width:56px;height:36px;background:#111;border:1px solid #3a3a3a;border-radius:6px;cursor:pointer;" />
+            <input type="text" id="gradientEditorColorText" spellcheck="false" style="background:#1a1a1a;border:1px solid #3a3a3a;color:white;border-radius:6px;padding:8px;font-family:monospace;" />
+          </div>
         </div>
         <div id="gradientEditorAlphaRow" style="display:grid;grid-template-columns:96px 1fr;gap:12px;align-items:center;margin-bottom:12px;">
           <label style="font-size:12px;color:#a0a0a0;">Alpha</label>
-          <input type="range" id="gradientEditorAlpha" min="0" max="1" step="0.01" />
+          <div style="display:grid;grid-template-columns:1fr 74px;gap:12px;align-items:center;">
+            <input type="range" id="gradientEditorAlpha" min="0" max="1" step="0.01" />
+            <input type="text" id="gradientEditorAlphaNumber" spellcheck="false" style="background:#1a1a1a;border:1px solid #3a3a3a;color:white;border-radius:6px;padding:8px;" />
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:96px 1fr 74px;gap:12px;align-items:center;">
           <label style="font-size:12px;color:#a0a0a0;">Position</label>
           <input type="range" id="gradientEditorPositionRange" min="0" max="1" step="0.001" />
-          <input type="number" id="gradientEditorPositionNumber" min="0" max="1" step="0.01" style="background:#1a1a1a;border:1px solid #3a3a3a;color:white;border-radius:6px;padding:8px;" />
+          <input type="text" id="gradientEditorPositionNumber" spellcheck="false" style="background:#1a1a1a;border:1px solid #3a3a3a;color:white;border-radius:6px;padding:8px;" />
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;">
-        <button type="button" id="gradientEditorDeleteStop" style="background:#3a1f24;border:1px solid #7a3a45;color:#ffd7de;border-radius:6px;padding:8px 12px;cursor:pointer;">Delete Stop</button>
+        <button type="button" id="gradientEditorDeleteStop" style="background:#3a1f24;border:1px solid #7a3a45;color:#ffd7de;border-radius:6px;padding:8px 12px;cursor:pointer;">Delete Colors</button>
         <div style="display:flex;gap:8px;">
           <button type="button" id="gradientEditorCancel" style="background:#2a2a2a;border:1px solid #4a4a4a;color:white;border-radius:6px;padding:8px 12px;cursor:pointer;">Cancel</button>
           <button type="button" id="gradientEditorSave" style="background:#2f5f36;border:1px solid #4e9b59;color:#ecfff0;border-radius:6px;padding:8px 12px;cursor:pointer;">Save</button>
@@ -1892,38 +1898,46 @@ class BlueprintSystem {
 
     this.gradientEditorModal.appendChild(gradientPanel);
     document.body.appendChild(this.gradientEditorModal);
-    this.gradientEditorPreview = document.getElementById("gradientEditorPreview");
+    this.gradientEditorPreview = document.getElementById(
+      "gradientEditorPreview",
+    );
     this.gradientEditorHandles = document.getElementById(
-      "gradientEditorHandles"
+      "gradientEditorHandles",
     );
     this.gradientEditorStopLabel = document.getElementById(
-      "gradientEditorStopLabel"
+      "gradientEditorStopLabel",
     );
     this.gradientEditorColorInput = document.getElementById(
-      "gradientEditorColor"
+      "gradientEditorColor",
+    );
+    this.gradientEditorColorTextInput = document.getElementById(
+      "gradientEditorColorText",
     );
     this.gradientEditorAlphaRow = document.getElementById(
-      "gradientEditorAlphaRow"
+      "gradientEditorAlphaRow",
     );
     this.gradientEditorAlphaInput = document.getElementById(
-      "gradientEditorAlpha"
+      "gradientEditorAlpha",
+    );
+    this.gradientEditorAlphaNumberInput = document.getElementById(
+      "gradientEditorAlphaNumber",
     );
     this.gradientEditorPositionRange = document.getElementById(
-      "gradientEditorPositionRange"
+      "gradientEditorPositionRange",
     );
     this.gradientEditorPositionNumber = document.getElementById(
-      "gradientEditorPositionNumber"
+      "gradientEditorPositionNumber",
     );
     this.gradientEditorDeleteStopBtn = document.getElementById(
-      "gradientEditorDeleteStop"
+      "gradientEditorDeleteStop",
     );
     this.gradientEditorCancelBtn = document.getElementById(
-      "gradientEditorCancel"
+      "gradientEditorCancel",
     );
     this.gradientEditorSaveBtn = document.getElementById("gradientEditorSave");
     this.gradientEditorStops = [];
-    this.gradientEditorSelectedStop = 0;
-    this.gradientEditorDragStop = null;
+    this.gradientEditorSelectedStops = [];
+    this.gradientEditorDragState = null;
 
     gradientPanel.addEventListener("mousedown", (e) => e.stopPropagation());
     this.gradientEditorModal.addEventListener("mousedown", (e) => {
@@ -1937,10 +1951,17 @@ class BlueprintSystem {
       }
 
       const rect = this.gradientEditorPreview.getBoundingClientRect();
-      const position = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+      const position = Math.min(
+        1,
+        Math.max(0, (e.clientX - rect.left) / rect.width),
+      );
 
       if (e.detail === 2) {
-        this.gradientEditorDragStop = this.addGradientEditorStop(position);
+        this.beginGradientEditorDrag(
+          "move",
+          this.addGradientEditorStop(position),
+          position,
+        );
         return;
       }
 
@@ -1953,35 +1974,51 @@ class BlueprintSystem {
           closestIndex = index;
         }
       });
-      this.gradientEditorSelectedStop = closestIndex;
+      const clickedStop = this.gradientEditorStops[closestIndex];
+      if (e.shiftKey) {
+        if (this.gradientEditorSelectedStops.includes(clickedStop)) {
+          this.gradientEditorSelectedStops =
+            this.gradientEditorSelectedStops.filter(
+              (stop) => stop !== clickedStop,
+            );
+        } else {
+          this.gradientEditorSelectedStops = [
+            ...this.gradientEditorSelectedStops,
+            clickedStop,
+          ];
+        }
+      } else {
+        this.gradientEditorSelectedStops = [clickedStop];
+      }
       this.renderGradientEditor();
     });
     this.gradientEditorColorInput.addEventListener("input", () => {
-      const stop = this.gradientEditorStops[this.gradientEditorSelectedStop];
-      if (!stop) return;
       const hex = this.gradientEditorColorInput.value;
-      stop.color[0] = parseInt(hex.slice(1, 3), 16) / 255;
-      stop.color[1] = parseInt(hex.slice(3, 5), 16) / 255;
-      stop.color[2] = parseInt(hex.slice(5, 7), 16) / 255;
-      this.renderGradientEditor();
+      this.applyGradientEditorColorHex(hex);
+    });
+    this.gradientEditorColorTextInput.addEventListener("change", () => {
+      this.applyGradientEditorColorHex(this.gradientEditorColorTextInput.value);
     });
     this.gradientEditorAlphaInput.addEventListener("input", () => {
-      const stop = this.gradientEditorStops[this.gradientEditorSelectedStop];
-      if (!stop) return;
       const value = parseFloat(this.gradientEditorAlphaInput.value);
       if (!Number.isNaN(value)) {
-        stop.color[3] = Math.min(1, Math.max(0, value));
-        this.renderGradientEditor();
+        this.applyGradientEditorAlpha(value);
+      }
+    });
+    this.gradientEditorAlphaNumberInput.addEventListener("change", () => {
+      const value = parseFloat(this.gradientEditorAlphaNumberInput.value);
+      if (!Number.isNaN(value)) {
+        this.applyGradientEditorAlpha(value);
       }
     });
     this.gradientEditorPositionRange.addEventListener("input", () => {
       this.updateSelectedGradientStopPosition(
-        parseFloat(this.gradientEditorPositionRange.value)
+        parseFloat(this.gradientEditorPositionRange.value),
       );
     });
-    this.gradientEditorPositionNumber.addEventListener("input", () => {
+    this.gradientEditorPositionNumber.addEventListener("change", () => {
       this.updateSelectedGradientStopPosition(
-        parseFloat(this.gradientEditorPositionNumber.value)
+        parseFloat(this.gradientEditorPositionNumber.value),
       );
     });
     this.gradientEditorDeleteStopBtn.addEventListener("click", () => {
@@ -1991,19 +2028,23 @@ class BlueprintSystem {
       this.closeGradientEditor();
     });
     this.gradientEditorSaveBtn.addEventListener("click", () => {
+      debugger;
       this.saveGradientEditor();
     });
     document.addEventListener("mousemove", (e) => {
-      if (this.gradientEditorDragStop === null || !this.gradientEditorPreview) {
+      if (!this.gradientEditorDragState || !this.gradientEditorPreview) {
         return;
       }
 
       const rect = this.gradientEditorPreview.getBoundingClientRect();
-      const position = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-      this.updateSelectedGradientStopPosition(position, this.gradientEditorDragStop);
+      const position = Math.min(
+        1,
+        Math.max(0, (e.clientX - rect.left) / rect.width),
+      );
+      this.updateGradientEditorDrag(position);
     });
     document.addEventListener("mouseup", () => {
-      this.gradientEditorDragStop = null;
+      this.gradientEditorDragState = null;
     });
 
     // Create vec2 editor (two number inputs in a column)
@@ -2311,20 +2352,20 @@ class BlueprintSystem {
     const descriptionInput = document.getElementById("settingDescription");
     const categorySelect = document.getElementById("settingCategory");
     const blendsBackgroundCheckbox = document.getElementById(
-      "settingBlendsBackground"
+      "settingBlendsBackground",
     );
     const crossSamplingCheckbox = document.getElementById(
-      "settingCrossSampling"
+      "settingCrossSampling",
     );
     const preservesOpaquenessCheckbox = document.getElementById(
-      "settingPreservesOpaqueness"
+      "settingPreservesOpaqueness",
     );
     const animatedCheckbox = document.getElementById("settingAnimated");
     const isDeprecatedCheckbox = document.getElementById("settingIsDeprecated");
     const usesDepthCheckbox = document.getElementById("settingUsesDepth");
     const mustPredrawCheckbox = document.getElementById("settingMustPredraw");
     const supports3DDirectRenderingCheckbox = document.getElementById(
-      "settingSupports3DDirectRendering"
+      "settingSupports3DDirectRendering",
     );
     const extendBoxHInput = document.getElementById("settingExtendBoxH");
     const extendBoxVInput = document.getElementById("settingExtendBoxV");
@@ -2484,7 +2525,7 @@ class BlueprintSystem {
     this.uniformModal = document.getElementById("uniformModal");
     this.uniformNameInput = document.getElementById("uniformNameInput");
     this.uniformDescriptionInput = document.getElementById(
-      "uniformDescriptionInput"
+      "uniformDescriptionInput",
     );
     this.uniformTypeSelect = document.getElementById("uniformTypeSelect");
     this.uniformList = document.getElementById("uniform-list");
@@ -2525,7 +2566,7 @@ class BlueprintSystem {
     this.commentModal = document.getElementById("commentModal");
     this.commentTitleInput = document.getElementById("commentTitleInput");
     this.commentDescriptionInput = document.getElementById(
-      "commentDescriptionInput"
+      "commentDescriptionInput",
     );
     this.commentColorInput = document.getElementById("commentColorInput");
     this.commentColorText = document.getElementById("commentColorText");
@@ -2772,7 +2813,7 @@ class BlueprintSystem {
     this.customNodeNameInput = document.getElementById("customNodeName");
     this.customNodeColorInput = document.getElementById("customNodeColor");
     this.customNodeSplitWebGLInput = document.getElementById(
-      "customNodeSplitWebGL"
+      "customNodeSplitWebGL",
     );
     this.customNodeInputsContainer =
       document.getElementById("customNodeInputs");
@@ -2782,7 +2823,7 @@ class BlueprintSystem {
 
     // Code editor container
     this.customNodeCodeEditorContainer = document.getElementById(
-      "customNodeCodeEditor"
+      "customNodeCodeEditor",
     );
     this.codeMirrorEditor = null;
 
@@ -2877,7 +2918,7 @@ class BlueprintSystem {
     // Handle splitWebGL checkbox changes
     this.customNodeSplitWebGLInput.addEventListener("change", () => {
       const webgl2Tab = document.querySelector(
-        '.shader-tab[data-shader="webgl2"]'
+        '.shader-tab[data-shader="webgl2"]',
       );
       if (this.customNodeSplitWebGLInput.checked) {
         webgl2Tab.classList.remove("disabled");
@@ -2996,7 +3037,7 @@ class BlueprintSystem {
           this.customNodeInputsContainer,
           "input",
           input.name,
-          input.type
+          input.type,
         );
       });
 
@@ -3005,7 +3046,7 @@ class BlueprintSystem {
           this.customNodeOutputsContainer,
           "output",
           output.name,
-          output.type
+          output.type,
         );
       });
 
@@ -3025,7 +3066,7 @@ class BlueprintSystem {
     }
     // Update WebGL 2 tab disabled state based on splitWebGL
     const webgl2Tab = document.querySelector(
-      '.shader-tab[data-shader="webgl2"]'
+      '.shader-tab[data-shader="webgl2"]',
     );
     if (!this.customNodeSplitWebGLInput.checked) {
       webgl2Tab.classList.add("disabled");
@@ -3270,7 +3311,7 @@ class BlueprintSystem {
             const handle = await this.getFileHandleById(fileInfo.id);
             if (!handle) {
               alert(
-                "Cannot access this file. It may have been moved or deleted."
+                "Cannot access this file. It may have been moved or deleted.",
               );
               this.removeRecentFile(fileInfo.id);
               this.populateRecentFiles();
@@ -3290,7 +3331,7 @@ class BlueprintSystem {
             } else {
               // Permission denied by user
               alert(
-                "Permission denied. Please grant permission to access this file, or use 'Open File' to select it manually."
+                "Permission denied. Please grant permission to access this file, or use 'Open File' to select it manually.",
               );
             }
           } catch (error) {
@@ -3299,14 +3340,14 @@ class BlueprintSystem {
             // Handle specific error types
             if (error.name === "NotFoundError") {
               alert(
-                "This file no longer exists or has been moved. Removing it from recent files."
+                "This file no longer exists or has been moved. Removing it from recent files.",
               );
               this.removeRecentFile(fileInfo.id);
               this.populateRecentFiles();
             } else if (error.name === "NotAllowedError") {
               alert(
                 "Cannot request file permission at this time. This may be due to browser security policies. " +
-                  "Please use the 'Open File' button to select the file manually."
+                  "Please use the 'Open File' button to select the file manually.",
               );
             } else {
               alert("Failed to open file: " + error.message);
@@ -3560,7 +3601,7 @@ class BlueprintSystem {
         if (error.name !== "AbortError") {
           console.warn(
             "File System Access API failed, falling back to file input:",
-            error
+            error,
           );
         } else {
           return; // User cancelled, don't show file input
@@ -3672,7 +3713,7 @@ class BlueprintSystem {
 
     // Toggle settings button
     const togglePreviewSettingsBtn = document.getElementById(
-      "togglePreviewSettingsBtn"
+      "togglePreviewSettingsBtn",
     );
     const previewControls = document.getElementById("preview-controls");
 
@@ -3787,7 +3828,7 @@ class BlueprintSystem {
 
     // Shader language select (requires reload)
     const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect"
+      "shaderLanguageSelect",
     );
     shaderLanguageSelect.addEventListener("change", (e) => {
       this.previewSettings.shaderLanguage = e.target.value;
@@ -3796,7 +3837,7 @@ class BlueprintSystem {
 
     // Reset preview settings button
     const resetPreviewSettingsBtn = document.getElementById(
-      "resetPreviewSettingsBtn"
+      "resetPreviewSettingsBtn",
     );
     resetPreviewSettingsBtn.addEventListener("click", () => {
       this.resetPreviewSettings();
@@ -3805,7 +3846,7 @@ class BlueprintSystem {
     // Preview Tabs
     const previewTabs = document.querySelectorAll(".preview-tab");
     const previewTabContents = document.querySelectorAll(
-      ".preview-tab-content"
+      ".preview-tab-content",
     );
 
     previewTabs.forEach((tab) => {
@@ -3824,7 +3865,7 @@ class BlueprintSystem {
 
     // Show/Hide 3D Background Cube
     const showBackgroundCubeCheckbox = document.getElementById(
-      "showBackgroundCubeCheckbox"
+      "showBackgroundCubeCheckbox",
     );
     showBackgroundCubeCheckbox.addEventListener("change", (e) => {
       this.previewSettings.showBackgroundCube = e.target.checked;
@@ -3886,7 +3927,7 @@ class BlueprintSystem {
 
     // Screenshot preview button
     const screenshotPreviewBtn = document.getElementById(
-      "screenshotPreviewBtn"
+      "screenshotPreviewBtn",
     );
     screenshotPreviewBtn.addEventListener("click", () => {
       this.screenshotPreview();
@@ -3897,7 +3938,7 @@ class BlueprintSystem {
 
     // Startup script textarea
     const startupScriptTextarea = document.getElementById(
-      "previewStartupScript"
+      "previewStartupScript",
     );
     if (startupScriptTextarea) {
       startupScriptTextarea.addEventListener("input", (e) => {
@@ -3936,25 +3977,25 @@ class BlueprintSystem {
         // Send saved preview settings
         this.sendPreviewCommand(
           "setEffectTarget",
-          this.previewSettings.effectTarget
+          this.previewSettings.effectTarget,
         );
         this.sendPreviewCommand("setObject", this.previewSettings.object);
         this.sendPreviewCommand(
           "setCameraMode",
-          this.previewSettings.cameraMode
+          this.previewSettings.cameraMode,
         );
         this.sendPreviewCommand(
           "setAutoRotate",
-          this.previewSettings.autoRotate
+          this.previewSettings.autoRotate,
         );
         this.sendPreviewCommand(
           "setShowBackgroundCube",
-          this.previewSettings.showBackgroundCube
+          this.previewSettings.showBackgroundCube,
         );
         this.sendPreviewCommand("setBgOpacity", this.previewSettings.bgOpacity);
         this.sendPreviewCommand(
           "setBg3dOpacity",
-          this.previewSettings.bg3dOpacity
+          this.previewSettings.bg3dOpacity,
         );
         this.sendPreviewCommand("setZoomLevel", this.previewSettings.zoomLevel);
 
@@ -3962,13 +4003,13 @@ class BlueprintSystem {
         if (this.previewSettings.spriteTextureUrl) {
           this.loadPreviewTexture(
             "sprite",
-            this.previewSettings.spriteTextureUrl
+            this.previewSettings.spriteTextureUrl,
           );
         }
         if (this.previewSettings.shapeTextureUrl) {
           this.loadPreviewTexture(
             "shape",
-            this.previewSettings.shapeTextureUrl
+            this.previewSettings.shapeTextureUrl,
           );
         }
         if (this.previewSettings.bgTextureUrl) {
@@ -3978,11 +4019,11 @@ class BlueprintSystem {
         // Apply scale values after textures are loaded
         this.sendPreviewCommand(
           "setSpriteScale",
-          this.previewSettings.spriteScale
+          this.previewSettings.spriteScale,
         );
         this.sendPreviewCommand(
           "setShapeScale",
-          this.previewSettings.shapeScale
+          this.previewSettings.shapeScale,
         );
         this.sendPreviewCommand("setRoomScale", this.previewSettings.roomScale);
 
@@ -4027,16 +4068,16 @@ class BlueprintSystem {
     const spriteTextureInput = document.getElementById("spriteTextureInput");
     const spriteTextureBtn = document.getElementById("spriteTextureBtn");
     const clearSpriteTextureBtn = document.getElementById(
-      "clearSpriteTextureBtn"
+      "clearSpriteTextureBtn",
     );
     const spriteTexturePreview = document.getElementById(
-      "spriteTexturePreview"
+      "spriteTexturePreview",
     );
 
     const shapeTextureInput = document.getElementById("shapeTextureInput");
     const shapeTextureBtn = document.getElementById("shapeTextureBtn");
     const clearShapeTextureBtn = document.getElementById(
-      "clearShapeTextureBtn"
+      "clearShapeTextureBtn",
     );
     const shapeTexturePreview = document.getElementById("shapeTexturePreview");
 
@@ -4129,7 +4170,7 @@ class BlueprintSystem {
           // Clamp value to slider range
           value = Math.max(
             parseFloat(slider.min),
-            Math.min(parseFloat(slider.max), value)
+            Math.min(parseFloat(slider.max), value),
           );
 
           // Update slider and span
@@ -4174,14 +4215,14 @@ class BlueprintSystem {
       this.updateTexturePreview(
         "spriteTexturePreview",
         "clearSpriteTextureBtn",
-        url
+        url,
       );
     } else if (type === "shape") {
       this.previewSettings.shapeTextureUrl = url;
       this.updateTexturePreview(
         "shapeTexturePreview",
         "clearShapeTextureBtn",
-        url
+        url,
       );
     } else if (type === "bg") {
       this.previewSettings.bgTextureUrl = url;
@@ -4220,7 +4261,7 @@ class BlueprintSystem {
         function: functionName,
         url: url,
       },
-      "*"
+      "*",
     );
   }
 
@@ -4230,14 +4271,14 @@ class BlueprintSystem {
       this.updateTexturePreview(
         "spriteTexturePreview",
         "clearSpriteTextureBtn",
-        null
+        null,
       );
     } else if (type === "shape") {
       this.previewSettings.shapeTextureUrl = null;
       this.updateTexturePreview(
         "shapeTexturePreview",
         "clearShapeTextureBtn",
-        null
+        null,
       );
     } else if (type === "bg") {
       this.previewSettings.bgTextureUrl = null;
@@ -4451,7 +4492,7 @@ class BlueprintSystem {
       // Display error if shader generation failed
       this.handlePreviewError(
         "Failed to generate shader. Make sure you have an Output node and all required connections are made.",
-        "error"
+        "error",
       );
       return;
     }
@@ -4487,8 +4528,8 @@ class BlueprintSystem {
         uniform.type === "color"
           ? "color"
           : uniform.isPercent
-          ? "percent"
-          : "float",
+            ? "percent"
+            : "float",
       ];
     });
 
@@ -4517,7 +4558,7 @@ class BlueprintSystem {
         type: "shaderData",
         shaderData: this.cachedShaderData,
       },
-      "*"
+      "*",
     );
   }
 
@@ -4530,7 +4571,7 @@ class BlueprintSystem {
         command: command,
         value: value,
       },
-      "*"
+      "*",
     );
   }
 
@@ -4542,7 +4583,7 @@ class BlueprintSystem {
         type: "runStartupScript",
         script: script,
       },
-      "*"
+      "*",
     );
   }
 
@@ -4566,7 +4607,7 @@ class BlueprintSystem {
           index: index,
           value: value,
         },
-        "*"
+        "*",
       );
     });
   }
@@ -4583,7 +4624,7 @@ class BlueprintSystem {
 
       const levels = this.topologicalSort(
         graph.dependencies,
-        graph.connectedNodes
+        graph.connectedNodes,
       );
 
       // Generate shaders for all targets (each needs its own variable names for proper value formatting)
@@ -4593,7 +4634,7 @@ class BlueprintSystem {
       const webgl1Code = this.generateShader(
         "webgl1",
         levels,
-        webgl1PortToVarName
+        webgl1PortToVarName,
       );
       const webgl1 = webgl1Boilerplate + webgl1Uniforms + webgl1Code;
 
@@ -4603,7 +4644,7 @@ class BlueprintSystem {
       const webgl2Code = this.generateShader(
         "webgl2",
         levels,
-        webgl2PortToVarName
+        webgl2PortToVarName,
       );
       const webgl2 = webgl2Boilerplate + webgl2Uniforms + webgl2Code;
 
@@ -4613,7 +4654,7 @@ class BlueprintSystem {
       const webgpuCode = this.generateShader(
         "webgpu",
         levels,
-        webgpuPortToVarName
+        webgpuPortToVarName,
       );
       const webgpu = webgpuBoilerplate + webgpuUniforms + webgpuCode;
 
@@ -4683,7 +4724,7 @@ class BlueprintSystem {
 
   setupNotifications() {
     this.notificationContainer = document.getElementById(
-      "notification-container"
+      "notification-container",
     );
     this.notifications = [];
   }
@@ -4730,7 +4771,7 @@ class BlueprintSystem {
 
     const closeBtn = notification.querySelector(".notification-close");
     closeBtn.addEventListener("click", () =>
-      this.dismissNotification(notification)
+      this.dismissNotification(notification),
     );
 
     this.notificationContainer.appendChild(notification);
@@ -4763,7 +4804,7 @@ class BlueprintSystem {
   setupPreviewConsole() {
     this.previewConsole = document.getElementById("preview-console");
     this.previewConsoleContent = document.getElementById(
-      "preview-console-content"
+      "preview-console-content",
     );
     this.previewConsoleBadge = document.getElementById("preview-console-badge");
     this.consoleEntries = [];
@@ -4797,15 +4838,15 @@ class BlueprintSystem {
 
   togglePreviewConsole() {
     const isExpanded = this.previewConsole.classList.contains(
-      "preview-console-expanded"
+      "preview-console-expanded",
     );
     this.previewConsole.classList.toggle(
       "preview-console-collapsed",
-      isExpanded
+      isExpanded,
     );
     this.previewConsole.classList.toggle(
       "preview-console-expanded",
-      !isExpanded
+      !isExpanded,
     );
   }
 
@@ -4981,7 +5022,7 @@ class BlueprintSystem {
 
     if (isDuplicateName) {
       alert(
-        `A custom node with the name "${name}" already exists. Please choose a different name.`
+        `A custom node with the name "${name}" already exists. Please choose a different name.`,
       );
       return;
     }
@@ -5068,7 +5109,7 @@ class BlueprintSystem {
     if (this.editingCustomNode) {
       // Update existing
       const index = this.customNodes.findIndex(
-        (n) => n.id === this.editingCustomNode.id
+        (n) => n.id === this.editingCustomNode.id,
       );
       if (index !== -1) {
         this.customNodes[index] = customNode;
@@ -5460,10 +5501,10 @@ class BlueprintSystem {
           const baseVariableName = newVariableName;
           while (
             this.uniforms.some(
-              (u) => u.id !== uniform.id && u.variableName === newVariableName
+              (u) => u.id !== uniform.id && u.variableName === newVariableName,
             ) ||
             this.uniforms.some(
-              (u) => u.id !== uniform.id && u.name === newVariableName
+              (u) => u.id !== uniform.id && u.name === newVariableName,
             )
           ) {
             newVariableName = `${baseVariableName}_${counter}`;
@@ -5650,7 +5691,7 @@ class BlueprintSystem {
         colorInput.value = rgbToHex(
           uniform.value.r,
           uniform.value.g,
-          uniform.value.b
+          uniform.value.b,
         );
 
         colorInput.addEventListener("input", (e) => {
@@ -5725,7 +5766,7 @@ class BlueprintSystem {
     // Update all nodes that reference this uniform
     // Find the uniform to get both names
     const uniform = this.uniforms.find(
-      (u) => u.variableName === newVariableName
+      (u) => u.variableName === newVariableName,
     );
     if (!uniform) return;
 
@@ -5801,14 +5842,28 @@ class BlueprintSystem {
 
     const normalizedStops = sourceStops
       .map((stop, index) => {
-        const fallbackColor = fallbackStops[Math.min(index, fallbackStops.length - 1)]
-          .color;
-        const colorSource = Array.isArray(stop?.color) ? stop.color : fallbackColor;
+        const fallbackColor =
+          fallbackStops[Math.min(index, fallbackStops.length - 1)].color;
+        const colorSource = Array.isArray(stop?.color)
+          ? stop.color
+          : fallbackColor;
         const color = [
-          Math.min(1, Math.max(0, Number.isFinite(colorSource[0]) ? colorSource[0] : 1)),
-          Math.min(1, Math.max(0, Number.isFinite(colorSource[1]) ? colorSource[1] : 1)),
-          Math.min(1, Math.max(0, Number.isFinite(colorSource[2]) ? colorSource[2] : 1)),
-          Math.min(1, Math.max(0, Number.isFinite(colorSource[3]) ? colorSource[3] : 1)),
+          Math.min(
+            1,
+            Math.max(0, Number.isFinite(colorSource[0]) ? colorSource[0] : 1),
+          ),
+          Math.min(
+            1,
+            Math.max(0, Number.isFinite(colorSource[1]) ? colorSource[1] : 1),
+          ),
+          Math.min(
+            1,
+            Math.max(0, Number.isFinite(colorSource[2]) ? colorSource[2] : 1),
+          ),
+          Math.min(
+            1,
+            Math.max(0, Number.isFinite(colorSource[3]) ? colorSource[3] : 1),
+          ),
         ];
 
         if (channelCount === 3) {
@@ -5818,7 +5873,10 @@ class BlueprintSystem {
         return {
           position: Math.min(
             1,
-            Math.max(0, Number.isFinite(stop?.position) ? stop.position : index)
+            Math.max(
+              0,
+              Number.isFinite(stop?.position) ? stop.position : index,
+            ),
           ),
           color,
         };
@@ -5841,6 +5899,9 @@ class BlueprintSystem {
     this.editingCustomEditor = node;
     const stops = this.normalizeGradientStopsForNode(node);
     this.gradientEditorStops = this.cloneNodeData(stops);
+    this.gradientEditorSelectedStops = this.gradientEditorStops[0]
+      ? [this.gradientEditorStops[0]]
+      : [];
     this.renderGradientEditor();
     this.gradientEditorModal.style.display = "flex";
   }
@@ -5849,13 +5910,153 @@ class BlueprintSystem {
     this.gradientEditorModal.style.display = "none";
     this.editingCustomEditor = null;
     this.gradientEditorStops = [];
-    this.gradientEditorSelectedStop = null;
-    this.gradientEditorDragStop = null;
+    this.gradientEditorSelectedStops = [];
+    this.gradientEditorDragState = null;
+  }
+
+  getSelectedGradientEditorStops() {
+    return (this.gradientEditorSelectedStops || []).filter((stop) =>
+      this.gradientEditorStops.includes(stop),
+    );
+  }
+
+  ensureGradientEditorSelection() {
+    this.gradientEditorSelectedStops = this.getSelectedGradientEditorStops();
+    if (
+      this.gradientEditorSelectedStops.length === 0 &&
+      this.gradientEditorStops[0]
+    ) {
+      this.gradientEditorSelectedStops = [this.gradientEditorStops[0]];
+    }
+  }
+
+  normalizeGradientEditorHex(value) {
+    const normalized = value.trim().toLowerCase();
+    if (/^#[0-9a-f]{6}$/.test(normalized)) {
+      return normalized;
+    }
+    if (/^[0-9a-f]{6}$/.test(normalized)) {
+      return `#${normalized}`;
+    }
+    return null;
+  }
+
+  gradientEditorColorToHex(color) {
+    return `#${Math.round((color[0] ?? 0) * 255)
+      .toString(16)
+      .padStart(2, "0")}${Math.round((color[1] ?? 0) * 255)
+      .toString(16)
+      .padStart(2, "0")}${Math.round((color[2] ?? 0) * 255)
+      .toString(16)
+      .padStart(2, "0")}`;
+  }
+
+  getGradientSelectionBounds() {
+    const selectedStops = this.getSelectedGradientEditorStops();
+    if (selectedStops.length === 0) return null;
+
+    let min = Infinity;
+    let max = -Infinity;
+    selectedStops.forEach((stop) => {
+      min = Math.min(min, stop.position);
+      max = Math.max(max, stop.position);
+    });
+
+    return { min, max };
+  }
+
+  beginGradientEditorDrag(type, anchor) {
+    const selectedStops = this.getSelectedGradientEditorStops();
+    if (selectedStops.length === 0) return;
+
+    this.gradientEditorDragState = {
+      type,
+      anchor,
+      selectedStops: [...selectedStops],
+      originalPositions: new Map(
+        selectedStops.map((stop) => [stop, stop.position]),
+      ),
+      bounds: this.getGradientSelectionBounds(),
+    };
+  }
+
+  updateGradientEditorDrag(position) {
+    const dragState = this.gradientEditorDragState;
+    if (!dragState) return;
+
+    const clampedPosition = Math.min(1, Math.max(0, position));
+
+    if (dragState.type === "move") {
+      const anchorOriginal =
+        dragState.originalPositions.get(dragState.anchor) ?? 0;
+      const requestedDelta = clampedPosition - anchorOriginal;
+      let minDelta = -Infinity;
+      let maxDelta = Infinity;
+
+      dragState.selectedStops.forEach((stop) => {
+        const original = dragState.originalPositions.get(stop) ?? stop.position;
+        minDelta = Math.max(minDelta, -original);
+        maxDelta = Math.min(maxDelta, 1 - original);
+      });
+
+      const appliedDelta = Math.min(
+        maxDelta,
+        Math.max(minDelta, requestedDelta),
+      );
+      dragState.selectedStops.forEach((stop) => {
+        stop.position =
+          (dragState.originalPositions.get(stop) ?? 0) + appliedDelta;
+      });
+    } else {
+      const { min, max } = dragState.bounds;
+      const originalSpan = Math.max(max - min, 0.0001);
+      let newMin = min;
+      let newMax = max;
+
+      if (dragState.type === "resize-left") {
+        newMin = Math.min(newMax, Math.max(0, clampedPosition));
+      } else {
+        newMax = Math.max(newMin, Math.min(1, clampedPosition));
+      }
+
+      const nextSpan = Math.max(newMax - newMin, 0.0001);
+      dragState.selectedStops.forEach((stop) => {
+        const original = dragState.originalPositions.get(stop) ?? stop.position;
+        const normalized =
+          originalSpan === 0 ? 0 : (original - min) / originalSpan;
+        stop.position = newMin + normalized * nextSpan;
+      });
+    }
+
+    this.renderGradientEditor();
+  }
+
+  applyGradientEditorColorHex(value) {
+    const hex = this.normalizeGradientEditorHex(value || "");
+    if (!hex) {
+      this.renderGradientEditor();
+      return;
+    }
+
+    this.getSelectedGradientEditorStops().forEach((stop) => {
+      stop.color[0] = parseInt(hex.slice(1, 3), 16) / 255;
+      stop.color[1] = parseInt(hex.slice(3, 5), 16) / 255;
+      stop.color[2] = parseInt(hex.slice(5, 7), 16) / 255;
+    });
+    this.renderGradientEditor();
+  }
+
+  applyGradientEditorAlpha(value) {
+    const alpha = Math.min(1, Math.max(0, value));
+    this.getSelectedGradientEditorStops().forEach((stop) => {
+      stop.color[3] = alpha;
+    });
+    this.renderGradientEditor();
   }
 
   addGradientEditorStop(position) {
     const stops = [...(this.gradientEditorStops || [])].sort(
-      (a, b) => a.position - b.position
+      (a, b) => a.position - b.position,
     );
     let insertIndex = stops.findIndex((stop) => stop.position >= position);
     if (insertIndex === -1) {
@@ -5863,7 +6064,8 @@ class BlueprintSystem {
     }
 
     const previousStop = stops[Math.max(0, insertIndex - 1)] || stops[0];
-    const nextStop = stops[Math.min(stops.length - 1, insertIndex)] || stops[stops.length - 1];
+    const nextStop =
+      stops[Math.min(stops.length - 1, insertIndex)] || stops[stops.length - 1];
     const blend =
       previousStop && nextStop && nextStop.position !== previousStop.position
         ? (position - previousStop.position) /
@@ -5880,33 +6082,34 @@ class BlueprintSystem {
       color: newColor,
     };
     this.gradientEditorStops.push(newStop);
-    this.gradientEditorSelectedStop = this.gradientEditorStops.indexOf(newStop);
+    this.gradientEditorSelectedStops = [newStop];
     this.renderGradientEditor();
     return newStop;
   }
 
-  updateSelectedGradientStopPosition(value, forcedStop = null) {
-    const index = forcedStop
-      ? this.gradientEditorStops.indexOf(forcedStop)
-      : this.gradientEditorSelectedStop;
-    const stop = this.gradientEditorStops[index];
-    if (!stop || Number.isNaN(value)) return;
+  updateSelectedGradientStopPosition(value) {
+    if (Number.isNaN(value)) return;
 
-    stop.position = Math.min(1, Math.max(0, value));
-    this.gradientEditorSelectedStop = index;
+    const selectedStops = this.getSelectedGradientEditorStops();
+    selectedStops.forEach((stop) => {
+      stop.position = Math.min(1, Math.max(0, value));
+    });
     this.renderGradientEditor();
   }
 
   deleteSelectedGradientStop() {
-    if (!this.gradientEditorStops || this.gradientEditorStops.length <= 2) {
+    const selectedStops = this.getSelectedGradientEditorStops();
+    if (
+      !this.gradientEditorStops ||
+      this.gradientEditorStops.length - selectedStops.length < 2
+    ) {
       return;
     }
 
-    this.gradientEditorStops.splice(this.gradientEditorSelectedStop, 1);
-    this.gradientEditorSelectedStop = Math.max(
-      0,
-      Math.min(this.gradientEditorSelectedStop, this.gradientEditorStops.length - 1)
+    this.gradientEditorStops = this.gradientEditorStops.filter(
+      (stop) => !selectedStops.includes(stop),
     );
+    this.gradientEditorSelectedStops = [];
     this.renderGradientEditor();
   }
 
@@ -5921,7 +6124,7 @@ class BlueprintSystem {
           x + col * cellSize,
           y + row * cellSize,
           cellSize,
-          cellSize
+          cellSize,
         );
       }
     }
@@ -5933,8 +6136,8 @@ class BlueprintSystem {
     const node = this.editingCustomEditor;
     const outputType = node?.operation || "vec4";
     const channelCount = outputType === "vec3" ? 3 : 4;
-    const selectedReference = this.gradientEditorStops[this.gradientEditorSelectedStop ?? 0];
     this.gradientEditorStops.sort((a, b) => a.position - b.position);
+    this.ensureGradientEditorSelection();
 
     if (!this.gradientEditorStops.length) {
       this.gradientEditorPreview.style.backgroundImage = "none";
@@ -5943,38 +6146,30 @@ class BlueprintSystem {
       return;
     }
 
-    if (selectedReference) {
-      this.gradientEditorSelectedStop = Math.max(
-        0,
-        this.gradientEditorStops.indexOf(selectedReference)
-      );
-    }
-
-    this.gradientEditorSelectedStop = Math.max(
-      0,
-      Math.min(this.gradientEditorSelectedStop ?? 0, this.gradientEditorStops.length - 1)
-    );
-
     const stops = this.gradientEditorStops;
-    const selectedStop = stops[this.gradientEditorSelectedStop];
+    const selectedStops = this.getSelectedGradientEditorStops();
+    const selectedStop = selectedStops[0];
+    const selectionBounds = this.getGradientSelectionBounds();
     const gradient = stops
       .map((stop) => {
         const color = stop.color || [1, 1, 1, 1];
-        const alpha = channelCount === 4 ? color[3] ?? 1 : 1;
+        const alpha = channelCount === 4 ? (color[3] ?? 1) : 1;
         return `rgba(${Math.round((color[0] ?? 0) * 255)}, ${Math.round(
-          (color[1] ?? 0) * 255
+          (color[1] ?? 0) * 255,
         )}, ${Math.round((color[2] ?? 0) * 255)}, ${alpha}) ${Math.round(
-          stop.position * 100
+          stop.position * 100,
         )}%`;
       })
       .join(", ");
     this.gradientEditorPreview.style.backgroundImage = `linear-gradient(90deg, ${gradient}), linear-gradient(45deg, #2b2b2b 25%, transparent 25%, transparent 75%, #2b2b2b 75%, #2b2b2b), linear-gradient(45deg, #2b2b2b 25%, transparent 25%, transparent 75%, #2b2b2b 75%, #2b2b2b)`;
     this.gradientEditorPreview.style.backgroundColor = "#1f1f1f";
-    this.gradientEditorPreview.style.backgroundSize = "auto, 16px 16px, 16px 16px";
+    this.gradientEditorPreview.style.backgroundSize =
+      "auto, 16px 16px, 16px 16px";
     this.gradientEditorPreview.style.backgroundPosition = "0 0, 0 0, 8px 8px";
 
     this.gradientEditorHandles.innerHTML = "";
-    stops.forEach((stop, index) => {
+    stops.forEach((stop) => {
+      const isSelected = selectedStops.includes(stop);
       const handle = document.createElement("button");
       handle.type = "button";
       handle.style.position = "absolute";
@@ -5983,12 +6178,11 @@ class BlueprintSystem {
       handle.style.width = "18px";
       handle.style.height = "18px";
       handle.style.borderRadius = "999px";
-      handle.style.border =
-        index === this.gradientEditorSelectedStop
-          ? "2px solid white"
-          : "1px solid rgba(255,255,255,0.75)";
+      handle.style.border = isSelected
+        ? "2px solid white"
+        : "1px solid rgba(255,255,255,0.75)";
       handle.style.background = `rgb(${Math.round((stop.color[0] ?? 0) * 255)}, ${Math.round(
-        (stop.color[1] ?? 0) * 255
+        (stop.color[1] ?? 0) * 255,
       )}, ${Math.round((stop.color[2] ?? 0) * 255)})`;
       handle.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.35)";
       handle.style.cursor = "ew-resize";
@@ -5997,38 +6191,107 @@ class BlueprintSystem {
       handle.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        this.gradientEditorSelectedStop = index;
-        this.gradientEditorDragStop = stop;
+        if (e.shiftKey) {
+          if (this.gradientEditorSelectedStops.includes(stop)) {
+            this.gradientEditorSelectedStops =
+              this.gradientEditorSelectedStops.filter(
+                (entry) => entry !== stop,
+              );
+          } else {
+            this.gradientEditorSelectedStops = [
+              ...this.gradientEditorSelectedStops,
+              stop,
+            ];
+          }
+        } else if (!this.gradientEditorSelectedStops.includes(stop)) {
+          this.gradientEditorSelectedStops = [stop];
+        }
+        this.beginGradientEditorDrag("move", stop);
         this.renderGradientEditor();
       });
       handle.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        this.gradientEditorSelectedStop = index;
+        if (e.shiftKey) {
+          if (this.gradientEditorSelectedStops.includes(stop)) {
+            this.gradientEditorSelectedStops =
+              this.gradientEditorSelectedStops.filter(
+                (entry) => entry !== stop,
+              );
+          } else {
+            this.gradientEditorSelectedStops = [
+              ...this.gradientEditorSelectedStops,
+              stop,
+            ];
+          }
+        } else {
+          this.gradientEditorSelectedStops = [stop];
+        }
         this.renderGradientEditor();
       });
 
       this.gradientEditorHandles.appendChild(handle);
     });
 
-    this.gradientEditorStopLabel.textContent = `Selected Stop ${
-      this.gradientEditorSelectedStop + 1
-    } of ${stops.length}`;
-    this.gradientEditorColorInput.value = `#${Math.round(
-      (selectedStop.color[0] ?? 0) * 255
-    )
-      .toString(16)
-      .padStart(2, "0")}${Math.round((selectedStop.color[1] ?? 0) * 255)
-      .toString(16)
-      .padStart(2, "0")}${Math.round((selectedStop.color[2] ?? 0) * 255)
-      .toString(16)
-      .padStart(2, "0")}`;
+    if (selectedStops.length > 1 && selectionBounds) {
+      [
+        { type: "resize-left", position: selectionBounds.min },
+        { type: "resize-right", position: selectionBounds.max },
+      ].forEach((resizeHandle) => {
+        const handle = document.createElement("button");
+        handle.type = "button";
+        handle.style.position = "absolute";
+        handle.style.left = `calc(${(resizeHandle.position * 100).toFixed(3)}% - 7px)`;
+        handle.style.top = "6px";
+        handle.style.width = "14px";
+        handle.style.height = "14px";
+        handle.style.borderRadius = "4px";
+        handle.style.border = "2px solid #ffe082";
+        handle.style.background = "#7a5d10";
+        handle.style.cursor = "ew-resize";
+        handle.style.pointerEvents = "auto";
+        handle.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.35)";
+        handle.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.beginGradientEditorDrag(resizeHandle.type, resizeHandle.type);
+        });
+        this.gradientEditorHandles.appendChild(handle);
+      });
+    }
+
+    this.gradientEditorStopLabel.textContent =
+      selectedStops.length === 1
+        ? `Selected Color ${stops.indexOf(selectedStop) + 1} of ${stops.length}`
+        : `${selectedStops.length} Colors Selected`;
+    const colorHex = this.gradientEditorColorToHex(selectedStop.color);
+    const sameColor = selectedStops.every(
+      (stop) => this.gradientEditorColorToHex(stop.color) === colorHex,
+    );
+    this.gradientEditorColorInput.value = colorHex;
+    this.gradientEditorColorTextInput.value = sameColor ? colorHex : "mixed";
     this.gradientEditorAlphaRow.style.display =
       channelCount === 4 ? "grid" : "none";
-    this.gradientEditorAlphaInput.value = `${selectedStop.color[3] ?? 1}`;
+    if (channelCount === 4) {
+      const alphaValue = selectedStop.color[3] ?? 1;
+      const sameAlpha = selectedStops.every(
+        (stop) => (stop.color[3] ?? 1) === alphaValue,
+      );
+      this.gradientEditorAlphaInput.value = `${alphaValue}`;
+      this.gradientEditorAlphaNumberInput.value = sameAlpha
+        ? alphaValue.toFixed(2)
+        : "mixed";
+    }
+    const samePosition = selectedStops.every(
+      (stop) => stop.position === selectedStop.position,
+    );
+    this.gradientEditorPositionRange.disabled = false;
     this.gradientEditorPositionRange.value = `${selectedStop.position}`;
-    this.gradientEditorPositionNumber.value = selectedStop.position.toFixed(2);
-    this.gradientEditorDeleteStopBtn.disabled = stops.length <= 2;
+    this.gradientEditorPositionNumber.value = samePosition
+      ? selectedStop.position.toFixed(2)
+      : "mixed";
+    this.gradientEditorDeleteStopBtn.disabled =
+      stops.length - selectedStops.length < 2;
   }
 
   saveGradientEditor() {
@@ -6037,11 +6300,19 @@ class BlueprintSystem {
     const node = this.editingCustomEditor;
     const normalizedStops = [...(this.gradientEditorStops || [])]
       .map((stop) => ({
-        position: Math.min(1, Math.max(0, Number.isFinite(stop.position) ? stop.position : 0)),
-        color: (Array.isArray(stop.color) ? stop.color : [1, 1, 1, 1]).map((value, index) => {
-          if (index > 3) return undefined;
-          return Math.min(1, Math.max(0, Number.isFinite(value) ? value : index === 3 ? 1 : 0));
-        }).filter((value) => value !== undefined),
+        position: Math.min(
+          1,
+          Math.max(0, Number.isFinite(stop.position) ? stop.position : 0),
+        ),
+        color: (Array.isArray(stop.color) ? stop.color : [1, 1, 1, 1])
+          .map((value, index) => {
+            if (index > 3) return undefined;
+            return Math.min(
+              1,
+              Math.max(0, Number.isFinite(value) ? value : index === 3 ? 1 : 0),
+            );
+          })
+          .filter((value) => value !== undefined),
       }))
       .sort((a, b) => a.position - b.position);
 
@@ -6639,11 +6910,11 @@ class BlueprintSystem {
 
     // Filter out output node if one already exists
     const hasOutputNode = this.nodes.some(
-      (node) => node.nodeType === NODE_TYPES.output
+      (node) => node.nodeType === NODE_TYPES.output,
     );
     if (hasOutputNode) {
       nodeTypes = nodeTypes.filter(
-        ([key, nodeType]) => nodeType !== NODE_TYPES.output
+        ([key, nodeType]) => nodeType !== NODE_TYPES.output,
       );
     }
 
@@ -6656,12 +6927,12 @@ class BlueprintSystem {
         if (this.searchFilterType === "input") {
           // Dragging from an input port - show nodes with compatible output ports
           return nodeType.outputs.some((output) =>
-            areTypesCompatible(output.type, portType)
+            areTypesCompatible(output.type, portType),
           );
         } else {
           // Dragging from an output port - show nodes with compatible input ports
           return nodeType.inputs.some((input) =>
-            areTypesCompatible(portType, input.type)
+            areTypesCompatible(portType, input.type),
           );
         }
       });
@@ -6751,7 +7022,7 @@ class BlueprintSystem {
     // Get translated tags
     const tags = (nodeType.tags || []).map((tag) => tag.toLowerCase());
     const translatedTags = tags.map((tag) =>
-      languageManager.getTagName(tag).toLowerCase()
+      languageManager.getTagName(tag).toLowerCase(),
     );
 
     let score = 0;
@@ -6824,7 +7095,7 @@ class BlueprintSystem {
     if (score < 250) {
       const normalizedTags = tags.map((t) => this.normalizeForSearch(t));
       const normalizedTranslatedTags = translatedTags.map((t) =>
-        this.normalizeForSearch(t)
+        this.normalizeForSearch(t),
       );
       if (
         normalizedTags.some((tag) => tag.includes(normalizedQuery)) ||
@@ -6838,11 +7109,11 @@ class BlueprintSystem {
     if (score === 0 && query.length >= 2) {
       const minEnglishDist = this.levenshteinDistance(
         normalizedQuery,
-        normalizedEnglish
+        normalizedEnglish,
       );
       const minTranslatedDist = this.levenshteinDistance(
         normalizedQuery,
-        normalizedTranslated
+        normalizedTranslated,
       );
       const minDist = Math.min(minEnglishDist, minTranslatedDist);
 
@@ -6960,7 +7231,7 @@ class BlueprintSystem {
         this.hideSearchMenu();
         this.createComment(
           this.searchMenuPosition.x,
-          this.searchMenuPosition.y
+          this.searchMenuPosition.y,
         );
       });
 
@@ -6969,7 +7240,7 @@ class BlueprintSystem {
           this.hideSearchMenu();
           this.createComment(
             this.searchMenuPosition.x,
-            this.searchMenuPosition.y
+            this.searchMenuPosition.y,
           );
         }
       });
@@ -7132,7 +7403,7 @@ class BlueprintSystem {
       worldY,
       300,
       200,
-      this.commentIdCounter++
+      this.commentIdCounter++,
     );
     this.comments.push(comment);
 
@@ -7169,7 +7440,7 @@ class BlueprintSystem {
         // We were dragging from an input port
         // Connect to a compatible output port on the new node
         const compatibleOutput = newNode.outputPorts.find((port) =>
-          this.searchFilterPort.canConnectTo(port)
+          this.searchFilterPort.canConnectTo(port),
         );
         if (compatibleOutput) {
           // Create a new wire from the output to the input
@@ -7181,14 +7452,14 @@ class BlueprintSystem {
           // Resolve generic types
           this.resolveGenericsForConnection(
             compatibleOutput,
-            this.searchFilterPort
+            this.searchFilterPort,
           );
         }
       } else {
         // We were dragging from an output port
         // Connect to a compatible input port on the new node
         const compatibleInput = newNode.inputPorts.find((port) =>
-          this.searchFilterPort.canConnectTo(port)
+          this.searchFilterPort.canConnectTo(port),
         );
         if (compatibleInput) {
           // Remove existing connection if any
@@ -7209,7 +7480,7 @@ class BlueprintSystem {
           // Resolve generic types
           this.resolveGenericsForConnection(
             this.searchFilterPort,
-            compatibleInput
+            compatibleInput,
           );
         }
       }
@@ -7229,7 +7500,7 @@ class BlueprintSystem {
 
   focusNextSearchResult() {
     const items = Array.from(
-      this.searchResults.querySelectorAll(".search-result-item")
+      this.searchResults.querySelectorAll(".search-result-item"),
     );
     if (items.length === 0) return;
 
@@ -7245,7 +7516,7 @@ class BlueprintSystem {
 
   focusPrevSearchResult() {
     const items = Array.from(
-      this.searchResults.querySelectorAll(".search-result-item")
+      this.searchResults.querySelectorAll(".search-result-item"),
     );
     if (items.length === 0) return;
 
@@ -7626,7 +7897,7 @@ class BlueprintSystem {
         handler: () =>
           window.open(
             "https://github.com/skymen/construct-shader-graph/issues/new",
-            "_blank"
+            "_blank",
           ),
       },
       {
@@ -7636,7 +7907,7 @@ class BlueprintSystem {
         handler: () =>
           window.open(
             "https://github.com/skymen/construct-shader-graph",
-            "_blank"
+            "_blank",
           ),
       },
       {
@@ -7652,7 +7923,7 @@ class BlueprintSystem {
         handler: () =>
           window.open(
             "https://opencollective.com/construct-community/projects/shader-graph",
-            "_blank"
+            "_blank",
           ),
       },
       // Debug menu (only available in debug mode)
@@ -7781,7 +8052,7 @@ class BlueprintSystem {
       const matches = this.menuActions.filter(
         (action) =>
           action.label.toLowerCase().includes(query) ||
-          action.menu.toLowerCase().includes(query)
+          action.menu.toLowerCase().includes(query),
       );
 
       if (matches.length === 0) {
@@ -7803,7 +8074,7 @@ class BlueprintSystem {
               : ""
           }
         </div>
-      `
+      `,
         )
         .join("");
 
@@ -7816,7 +8087,7 @@ class BlueprintSystem {
           result.addEventListener("click", () => {
             const action = result.dataset.action;
             const menuAction = this.menuActions.find(
-              (a) => a.action === action
+              (a) => a.action === action,
             );
             if (menuAction) {
               // Close the menu
@@ -7837,7 +8108,7 @@ class BlueprintSystem {
     searchInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         const firstResult = resultsContainer.querySelector(
-          ".help-search-result[data-action]"
+          ".help-search-result[data-action]",
         );
         if (firstResult) {
           firstResult.click();
@@ -7906,7 +8177,7 @@ class BlueprintSystem {
       heart.style.setProperty("--float-height", -options.floatHeight + "px");
       heart.style.setProperty(
         "--sway-delay",
-        "-" + (Math.random() * 1.3).toFixed(2) + "s"
+        "-" + (Math.random() * 1.3).toFixed(2) + "s",
       );
 
       document.body.appendChild(heart);
@@ -7958,7 +8229,7 @@ class BlueprintSystem {
   updateMenuItemStates() {
     this.menuActions.forEach((action) => {
       const item = document.querySelector(
-        `.dropdown-item[data-action="${action.action}"]`
+        `.dropdown-item[data-action="${action.action}"]`,
       );
       if (item) {
         // Update enabled state
@@ -8174,7 +8445,7 @@ class BlueprintSystem {
 
     if (!hasValidOutput) {
       console.log(
-        "Selected node does not have a valid output type for preview (float, vec2, vec3, vec4)"
+        "Selected node does not have a valid output type for preview (float, vec2, vec3, vec4)",
       );
       return;
     }
@@ -8212,7 +8483,7 @@ class BlueprintSystem {
 
     if (selectedOnly) {
       console.log(
-        `DEBUG: Auto-arranging ${this.selectedNodes.size} selected nodes`
+        `DEBUG: Auto-arranging ${this.selectedNodes.size} selected nodes`,
       );
     } else {
       console.log(`DEBUG: Auto-arranging all ${this.nodes.length} nodes`);
@@ -8318,7 +8589,7 @@ class BlueprintSystem {
         currentY - COMMENT_PADDING,
         commentWidth,
         commentHeight,
-        this.commentIdCounter++
+        this.commentIdCounter++,
       );
       comment.title = categoryName;
       comment.color = mostCommonColor;
@@ -8359,7 +8630,7 @@ class BlueprintSystem {
     });
 
     console.log(
-      `Created ${createdNodes.length} nodes in ${sortedCategories.length} categories`
+      `Created ${createdNodes.length} nodes in ${sortedCategories.length} categories`,
     );
   }
 
@@ -8371,7 +8642,7 @@ class BlueprintSystem {
 
     // Filter out output nodes (they cannot be copied)
     const selectedNodesArray = Array.from(this.selectedNodes).filter(
-      (node) => node.nodeType !== NODE_TYPES.output
+      (node) => node.nodeType !== NODE_TYPES.output,
     );
 
     if (selectedNodesArray.length === 0) {
@@ -8419,7 +8690,7 @@ class BlueprintSystem {
         copiedData.wires.push({
           startNodeIndex: startIndex,
           startPortIndex: wire.startPort.node.outputPorts.indexOf(
-            wire.startPort
+            wire.startPort,
           ),
           endNodeIndex: endIndex,
           endPortIndex: wire.endPort.node.inputPorts.indexOf(wire.endPort),
@@ -8465,7 +8736,7 @@ class BlueprintSystem {
     const existingNames = new Set(
       this.nodes
         .filter((n) => n.nodeType.name === "Set Variable" && n.customInput)
-        .map((n) => n.customInput)
+        .map((n) => n.customInput),
     );
 
     // If the base name doesn't exist, use it
@@ -8505,7 +8776,7 @@ class BlueprintSystem {
         nodeData.x + offsetX,
         nodeData.y + offsetY,
         this.nodeIdCounter++,
-        nodeType
+        nodeType,
       );
       newNode._blueprintSystem = this;
 
@@ -8594,7 +8865,7 @@ class BlueprintSystem {
             const rerouteNode = new RerouteNode(
               rnData.x + offsetX,
               rnData.y + offsetY,
-              wire
+              wire,
             );
             wire.rerouteNodes.push(rerouteNode);
           });
@@ -8625,7 +8896,7 @@ class BlueprintSystem {
 
     // Push state for undo/redo
     this.history.pushState(
-      `Paste ${newNodes.length} node${newNodes.length > 1 ? "s" : ""}`
+      `Paste ${newNodes.length} node${newNodes.length > 1 ? "s" : ""}`,
     );
 
     console.log(`Pasted ${newNodes.length} nodes`);
@@ -8816,7 +9087,7 @@ class BlueprintSystem {
       const delta = -e.deltaY * zoomSpeed;
       const newZoom = Math.max(
         0.1,
-        Math.min(5, this.camera.zoom * Math.exp(delta))
+        Math.min(5, this.camera.zoom * Math.exp(delta)),
       );
 
       // Adjust camera position to zoom towards mouse
@@ -8836,7 +9107,7 @@ class BlueprintSystem {
   buildDependencyGraph() {
     // Find the output node
     const outputNode = this.nodes.find(
-      (node) => node.nodeType === NODE_TYPES.output
+      (node) => node.nodeType === NODE_TYPES.output,
     );
     if (!outputNode) {
       return null;
@@ -8876,7 +9147,7 @@ class BlueprintSystem {
         const setVarNode = this.nodes.find(
           (n) =>
             n.nodeType.name === "Set Variable" &&
-            n.customInput === node.selectedVariable
+            n.customInput === node.selectedVariable,
         );
 
         if (setVarNode) {
@@ -8980,7 +9251,7 @@ class BlueprintSystem {
 
     const levels = this.topologicalSort(
       graph.dependencies,
-      graph.connectedNodes
+      graph.connectedNodes,
     );
 
     noOutputMsg.style.display = "none";
@@ -9105,13 +9376,13 @@ class BlueprintSystem {
         // Add after samplerFront
         boilerplate = boilerplate.replace(
           /uniform lowp sampler2D samplerFront;/,
-          "uniform lowp sampler2D samplerFront;\nuniform lowp sampler2D samplerBack;"
+          "uniform lowp sampler2D samplerFront;\nuniform lowp sampler2D samplerBack;",
         );
       } else if (target === "webgpu") {
         // Add after textureFront
         boilerplate = boilerplate.replace(
           /%%TEXTUREFRONT_BINDING%% var textureFront : texture_2d<f32>;/,
-          "%%TEXTUREFRONT_BINDING%% var textureFront : texture_2d<f32>;\n\n%%SAMPLERBACK_BINDING%% var samplerBack : sampler;\n%%TEXTUREBACK_BINDING%% var textureBack : texture_2d<f32>;"
+          "%%TEXTUREFRONT_BINDING%% var textureFront : texture_2d<f32>;\n\n%%SAMPLERBACK_BINDING%% var samplerBack : sampler;\n%%TEXTUREBACK_BINDING%% var textureBack : texture_2d<f32>;",
         );
       }
     }
@@ -9125,7 +9396,7 @@ class BlueprintSystem {
           : /uniform lowp sampler2D samplerFront;/;
         boilerplate = boilerplate.replace(
           insertAfter,
-          (match) => match + "\nuniform lowp sampler2D samplerDepth;"
+          (match) => match + "\nuniform lowp sampler2D samplerDepth;",
         );
       } else if (target === "webgpu") {
         // Add after textureBack or textureFront
@@ -9136,7 +9407,7 @@ class BlueprintSystem {
           insertAfter,
           (match) =>
             match +
-            "\n\n%%SAMPLERDEPTH_BINDING%% var samplerDepth : sampler;\n%%TEXTUREDEPTH_BINDING%% var textureDepth : texture_depth_2d;"
+            "\n\n%%SAMPLERDEPTH_BINDING%% var samplerDepth : sampler;\n%%TEXTUREDEPTH_BINDING%% var textureDepth : texture_depth_2d;",
         );
       }
     }
@@ -9249,22 +9520,22 @@ class BlueprintSystem {
         if (execution) {
           // Get input variable names
           const inputVars = node.inputPorts.map(
-            (port) => portToVarName.get(port) || "0.0"
+            (port) => portToVarName.get(port) || "0.0",
           );
 
           // Get output variable names
           const outputVars = node.outputPorts.map((port) =>
-            portToVarName.get(port)
+            portToVarName.get(port),
           );
 
           // Get resolved input types
           const inputTypes = node.inputPorts.map((port) =>
-            port.getResolvedType()
+            port.getResolvedType(),
           );
 
           // Get resolved output types
           const outputTypes = node.outputPorts.map((port) =>
-            port.getResolvedType()
+            port.getResolvedType(),
           );
 
           // Generate code with comment indicating which node generated it
@@ -9274,7 +9545,7 @@ class BlueprintSystem {
             outputVars,
             node,
             inputTypes,
-            outputTypes
+            outputTypes,
           );
           shader += code + "\n";
         }
@@ -9363,7 +9634,7 @@ class BlueprintSystem {
 
     const levels = this.topologicalSort(
       graph.dependencies,
-      graph.connectedNodes
+      graph.connectedNodes,
     );
 
     // Generate shaders for all targets
@@ -9509,7 +9780,7 @@ class BlueprintSystem {
     let sidebarHtml = "";
     for (const category of sortedCategories) {
       const nodes = categories[category].sort((a, b) =>
-        a.nodeType.name.localeCompare(b.nodeType.name)
+        a.nodeType.name.localeCompare(b.nodeType.name),
       );
 
       sidebarHtml += `
@@ -9526,8 +9797,8 @@ class BlueprintSystem {
               .map(
                 ({ key, nodeType }) => `
               <div class="manual-node-item" data-node-key="${key}" style="border-left-color: ${
-                  nodeType.color
-                }">
+                nodeType.color
+              }">
                 <span class="manual-node-name">${nodeType.name}</span>
                 ${
                   nodeType.manual
@@ -9535,7 +9806,7 @@ class BlueprintSystem {
                     : ""
                 }
               </div>
-            `
+            `,
               )
               .join("")}
           </div>
@@ -9551,7 +9822,7 @@ class BlueprintSystem {
       // Mark the node item as active in the sidebar
       setTimeout(() => {
         const nodeItem = categoriesContainer.querySelector(
-          `[data-node-key="${selectedNodeKey}"]`
+          `[data-node-key="${selectedNodeKey}"]`,
         );
         if (nodeItem) {
           nodeItem.classList.add("active");
@@ -9618,7 +9889,7 @@ class BlueprintSystem {
       .forEach((category) => {
         const nodes = category.querySelectorAll(".manual-node-item");
         const categoryCountEl = category.querySelector(
-          ".manual-category-count"
+          ".manual-category-count",
         );
         const totalInCategory = nodes.length;
         let categoryVisibleCount = 0;
@@ -9720,7 +9991,7 @@ class BlueprintSystem {
                   <td><code>${input.name}</code></td>
                   <td><span class="manual-type-badge">${input.type}</span></td>
                 </tr>
-              `
+              `,
                 )
                 .join("")}
             </tbody>
@@ -9756,7 +10027,7 @@ class BlueprintSystem {
                   <td><code>${output.name}</code></td>
                   <td><span class="manual-type-badge">${output.type}</span></td>
                 </tr>
-              `
+              `,
                 )
                 .join("")}
             </tbody>
@@ -9791,7 +10062,7 @@ class BlueprintSystem {
                     : ""
                 }
               </div>
-            `
+            `,
               )
               .join("")}
           </div>
@@ -9837,7 +10108,7 @@ class BlueprintSystem {
 
     const levels = this.topologicalSort(
       graph.dependencies,
-      graph.connectedNodes
+      graph.connectedNodes,
     );
 
     // Create ZIP file
@@ -9883,7 +10154,7 @@ class BlueprintSystem {
 
     // Use sanitized name for the download filename with version
     const addonId = this.sanitizeAddonId(
-      this.shaderSettings.name || "MyEffect"
+      this.shaderSettings.name || "MyEffect",
     );
     const version = this.shaderSettings.version || "0.0.0.0";
     a.download = `${addonId}-${version}.c3addon`;
@@ -9953,7 +10224,7 @@ class BlueprintSystem {
     const author = settings.author || "MyCompany";
     const name = settings.name || "MyEffect";
     const addonId = `${this.sanitizeVariableName(
-      author
+      author,
     )}_${this.sanitizeVariableName(name)}`;
 
     return {
@@ -10003,8 +10274,8 @@ class BlueprintSystem {
           uniform.type === "color"
             ? "color"
             : uniform.isPercent
-            ? "percent"
-            : "float",
+              ? "percent"
+              : "float",
       };
 
       // Add initial value
@@ -10027,7 +10298,7 @@ class BlueprintSystem {
     const author = settings.author || "MyCompany";
     const name = settings.name || "MyEffect";
     const addonId = `${this.sanitizeVariableName(
-      author
+      author,
     )}_${this.sanitizeVariableName(name)}`.toLowerCase();
 
     const langData = {
@@ -10088,10 +10359,10 @@ class BlueprintSystem {
     const autoRotateGroup = document.getElementById("autoRotateGroup");
     const samplingModeSelect = document.getElementById("samplingModeSelect");
     const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect"
+      "shaderLanguageSelect",
     );
     const showBackgroundCubeCheckbox = document.getElementById(
-      "showBackgroundCubeCheckbox"
+      "showBackgroundCubeCheckbox",
     );
     const spriteScaleSlider = document.getElementById("spriteScaleSlider");
     const spriteScaleValue = document.getElementById("spriteScaleValue");
@@ -10125,7 +10396,7 @@ class BlueprintSystem {
 
     // Reset startup script
     const startupScriptTextarea = document.getElementById(
-      "previewStartupScript"
+      "previewStartupScript",
     );
     if (startupScriptTextarea) startupScriptTextarea.value = "";
 
@@ -10133,12 +10404,12 @@ class BlueprintSystem {
     this.updateTexturePreview(
       "spriteTexturePreview",
       "clearSpriteTextureBtn",
-      null
+      null,
     );
     this.updateTexturePreview(
       "shapeTexturePreview",
       "clearShapeTextureBtn",
-      null
+      null,
     );
     this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", null);
 
@@ -10169,7 +10440,7 @@ class BlueprintSystem {
     // Request screenshot from the preview iframe
     this.previewIframe.contentWindow.postMessage(
       { type: "requestScreenshot" },
-      "*"
+      "*",
     );
 
     // Listen for the screenshot response
@@ -10229,7 +10500,7 @@ class BlueprintSystem {
       // Request screenshot from the preview iframe
       this.previewIframe.contentWindow.postMessage(
         { type: "requestScreenshot" },
-        "*"
+        "*",
       );
     });
   }
@@ -10243,7 +10514,7 @@ class BlueprintSystem {
     // Connect FrontUV output to TextureFront input (UV input)
     const wire1 = new Wire(
       frontUVNode.outputPorts[0],
-      textureFrontNode.inputPorts[0]
+      textureFrontNode.inputPorts[0],
     );
     this.wires.push(wire1);
     frontUVNode.outputPorts[0].connections.push(wire1);
@@ -10252,7 +10523,7 @@ class BlueprintSystem {
     // Connect TextureFront output to Output input (Color input)
     const wire2 = new Wire(
       textureFrontNode.outputPorts[0],
-      outputNode.inputPorts[0]
+      outputNode.inputPorts[0],
     );
     this.wires.push(wire2);
     textureFrontNode.outputPorts[0].connections.push(wire2);
@@ -10429,7 +10700,7 @@ class BlueprintSystem {
         await writable.close();
 
         console.log(
-          "Blueprint saved successfully using File System Access API"
+          "Blueprint saved successfully using File System Access API",
         );
 
         // Show save notification
@@ -10455,7 +10726,7 @@ class BlueprintSystem {
         // Other error - fall back to download
         console.warn(
           "File System Access API failed, falling back to download:",
-          error
+          error,
         );
       }
     }
@@ -10516,7 +10787,7 @@ class BlueprintSystem {
         for (const uniformData of data.uniforms) {
           // Recalculate variableName from the uniform name
           let variableName = `uniform_${this.sanitizeVariableName(
-            uniformData.name
+            uniformData.name,
           )}`;
 
           // Ensure variable name is unique
@@ -10575,7 +10846,7 @@ class BlueprintSystem {
             nodeData.uniformId !== undefined
           ) {
             const uniform = this.uniforms.find(
-              (u) => u.id === nodeData.uniformId
+              (u) => u.id === nodeData.uniformId,
             );
             if (uniform) {
               nodeType =
@@ -10618,7 +10889,7 @@ class BlueprintSystem {
           if (nodeData.uniformId !== undefined) {
             node.uniformId = nodeData.uniformId;
             const uniform = this.uniforms.find(
-              (u) => u.id === nodeData.uniformId
+              (u) => u.id === nodeData.uniformId,
             );
             if (uniform) {
               node.uniformName = uniform.variableName;
@@ -10688,7 +10959,7 @@ class BlueprintSystem {
             commentData.y,
             commentData.width,
             commentData.height,
-            commentData.id
+            commentData.id,
           );
           comment.title = commentData.title || "Comment";
           comment.description = commentData.description || "";
@@ -10949,7 +11220,7 @@ class BlueprintSystem {
           commentData.y,
           commentData.width,
           commentData.height,
-          commentData.id
+          commentData.id,
         );
         comment.title = commentData.title;
         comment.description = commentData.description;
@@ -11016,7 +11287,7 @@ class BlueprintSystem {
     const autoRotateGroup = document.getElementById("autoRotateGroup");
     const samplingModeSelect = document.getElementById("samplingModeSelect");
     const showBackgroundCubeCheckbox = document.getElementById(
-      "showBackgroundCubeCheckbox"
+      "showBackgroundCubeCheckbox",
     );
     const spriteScaleSlider = document.getElementById("spriteScaleSlider");
     const spriteScaleValue = document.getElementById("spriteScaleValue");
@@ -11051,7 +11322,7 @@ class BlueprintSystem {
       samplingModeSelect.value = this.previewSettings.samplingMode;
     }
     const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect"
+      "shaderLanguageSelect",
     );
     if (shaderLanguageSelect) {
       shaderLanguageSelect.value =
@@ -11101,22 +11372,22 @@ class BlueprintSystem {
     this.updateTexturePreview(
       "spriteTexturePreview",
       "clearSpriteTextureBtn",
-      this.previewSettings.spriteTextureUrl
+      this.previewSettings.spriteTextureUrl,
     );
     this.updateTexturePreview(
       "shapeTexturePreview",
       "clearShapeTextureBtn",
-      this.previewSettings.shapeTextureUrl
+      this.previewSettings.shapeTextureUrl,
     );
     this.updateTexturePreview(
       "bgTexturePreview",
       "clearBgTextureBtn",
-      this.previewSettings.bgTextureUrl
+      this.previewSettings.bgTextureUrl,
     );
 
     // Update startup script textarea
     const startupScriptTextarea = document.getElementById(
-      "previewStartupScript"
+      "previewStartupScript",
     );
     if (startupScriptTextarea) {
       startupScriptTextarea.value = this.previewSettings.startupScript || "";
@@ -11302,7 +11573,7 @@ class BlueprintSystem {
     if (isGenericType(originalEndPort.portType)) {
       this.reevaluateGenericType(
         originalEndPort.node,
-        originalEndPort.portType
+        originalEndPort.portType,
       );
     }
     originalEndPort.updateEditability();
@@ -11339,7 +11610,7 @@ class BlueprintSystem {
       if (isGenericType(wire.startPort.portType)) {
         this.reevaluateGenericType(
           wire.startPort.node,
-          wire.startPort.portType
+          wire.startPort.portType,
         );
       }
 
@@ -11410,7 +11681,7 @@ class BlueprintSystem {
 
             // Also check if it has a concrete resolution we can use
             const resolvedType = connectedPort.node.resolveGenericType(
-              connectedPort.portType
+              connectedPort.portType,
             );
             if (resolvedType) {
               const resolvedTypeDef = PORT_TYPES[resolvedType];
@@ -11429,7 +11700,7 @@ class BlueprintSystem {
             if (connectedPort.node.nodeType.getCustomType) {
               const customType = connectedPort.node.nodeType.getCustomType(
                 connectedPort.node,
-                connectedPort
+                connectedPort,
               );
               if (customType) {
                 connectedType = customType;
@@ -11501,9 +11772,9 @@ class BlueprintSystem {
           this.reevaluateGenericType(
             connectedNode,
             connectedGenericType,
-            visited
+            visited,
           );
-        }
+        },
       );
     }
   }
@@ -11540,7 +11811,7 @@ class BlueprintSystem {
     if (isGenericType(outputPort.portType)) {
       const wasUpdated = outputPort.node.updateResolvedGenerics(
         outputPort.portType,
-        concreteTypeForOutput
+        concreteTypeForOutput,
       );
 
       // Propagate resolution to connected generic ports
@@ -11548,7 +11819,7 @@ class BlueprintSystem {
         this.propagateGenericResolution(
           outputPort.node,
           outputPort.portType,
-          concreteTypeForOutput
+          concreteTypeForOutput,
         );
       }
 
@@ -11568,7 +11839,7 @@ class BlueprintSystem {
     if (isGenericType(inputPort.portType)) {
       const wasUpdated = inputPort.node.updateResolvedGenerics(
         inputPort.portType,
-        concreteTypeForInput
+        concreteTypeForInput,
       );
 
       // Propagate resolution to connected generic ports
@@ -11576,7 +11847,7 @@ class BlueprintSystem {
         this.propagateGenericResolution(
           inputPort.node,
           inputPort.portType,
-          concreteTypeForInput
+          concreteTypeForInput,
         );
       }
 
@@ -11624,14 +11895,14 @@ class BlueprintSystem {
           // Check if the connected node hasn't resolved this generic yet
           const connectedNode = connectedPort.node;
           const currentResolution = connectedNode.resolveGenericType(
-            connectedPort.portType
+            connectedPort.portType,
           );
 
           if (!currentResolution) {
             // Resolve the connected node's generic
             const wasUpdated = connectedNode.updateResolvedGenerics(
               connectedPort.portType,
-              concreteType
+              concreteType,
             );
 
             // Recursively propagate
@@ -11639,7 +11910,7 @@ class BlueprintSystem {
               this.propagateGenericResolution(
                 connectedNode,
                 connectedPort.portType,
-                concreteType
+                concreteType,
               );
             }
           }
@@ -11700,7 +11971,7 @@ class BlueprintSystem {
     const timeSinceLastClick = currentTime - this.lastClickTime;
     const distanceFromLastClick = Math.sqrt(
       Math.pow(pos.x - this.lastClickPos.x, 2) +
-        Math.pow(pos.y - this.lastClickPos.y, 2)
+        Math.pow(pos.y - this.lastClickPos.y, 2),
     );
 
     // If this is the second click of a double-click (within 300ms and close to same position)
@@ -11783,7 +12054,10 @@ class BlueprintSystem {
     }
 
     // Check if clicking on edit button for custom nodes
-    if (topNodeAtPointer?.nodeType.isCustom && topNodeAtPointer.editButtonBounds) {
+    if (
+      topNodeAtPointer?.nodeType.isCustom &&
+      topNodeAtPointer.editButtonBounds
+    ) {
       const btn = topNodeAtPointer.editButtonBounds;
       if (
         pos.x >= btn.x &&
@@ -11792,7 +12066,7 @@ class BlueprintSystem {
         pos.y <= btn.y + btn.height
       ) {
         const customNode = this.customNodes.find(
-          (cn) => cn.id === topNodeAtPointer.nodeType.customNodeId
+          (cn) => cn.id === topNodeAtPointer.nodeType.customNodeId,
         );
         if (customNode) {
           this.showCustomNodeModal(customNode);
@@ -12000,7 +12274,7 @@ class BlueprintSystem {
 
         // Find all nodes, reroute nodes, and comments contained in this comment
         comment.containedNodes = this.nodes.filter((n) =>
-          comment.containsNode(n)
+          comment.containsNode(n),
         );
         comment.containedRerouteNodes = [];
         this.wires.forEach((wire) => {
@@ -12011,7 +12285,7 @@ class BlueprintSystem {
           });
         });
         comment.containedComments = this.comments.filter(
-          (c) => c !== comment && comment.containsComment(c)
+          (c) => c !== comment && comment.containsComment(c),
         );
 
         this.render();
@@ -12117,7 +12391,7 @@ class BlueprintSystem {
     ) {
       let nodeType;
       const key = Object.keys(nodeCreateShortCuts).find((key) =>
-        this.pressedKeys.has(key)
+        this.pressedKeys.has(key),
       );
       nodeType = nodeCreateShortCuts[key];
 
@@ -12165,7 +12439,7 @@ class BlueprintSystem {
     if (this.pendingCustomEditorClick) {
       const distance = Math.hypot(
         pos.x - this.pendingCustomEditorClick.startX,
-        pos.y - this.pendingCustomEditorClick.startY
+        pos.y - this.pendingCustomEditorClick.startY,
       );
       if (distance > 5) {
         this.pendingCustomEditorClick = null;
@@ -12339,7 +12613,7 @@ class BlueprintSystem {
         const wireResult = this.findClosestCompatibleWire(
           draggedNode,
           pos.x,
-          pos.y
+          pos.y,
         );
         this.highlightedWire = wireResult ? wireResult.wire : null;
       } else {
@@ -12364,24 +12638,24 @@ class BlueprintSystem {
       this.canvas.style.cursor = "move";
     } else if (this.hoveredPort) {
       this.canvas.style.cursor = "pointer";
-      } else {
-        // Check if hovering over a value box
-        let overValueBox = false;
-        const topNodeAtPointer = this.findNodeAtPosition(pos.x, pos.y);
-        if (topNodeAtPointer) {
-          for (const port of topNodeAtPointer.inputPorts) {
-            if (
-              port.isEditable &&
-              port.connections.length === 0 &&
-              port.isPointInValueBox(pos.x, pos.y, this.ctx)
-            ) {
-              overValueBox = true;
-              break;
-            }
+    } else {
+      // Check if hovering over a value box
+      let overValueBox = false;
+      const topNodeAtPointer = this.findNodeAtPosition(pos.x, pos.y);
+      if (topNodeAtPointer) {
+        for (const port of topNodeAtPointer.inputPorts) {
+          if (
+            port.isEditable &&
+            port.connections.length === 0 &&
+            port.isPointInValueBox(pos.x, pos.y, this.ctx)
+          ) {
+            overValueBox = true;
+            break;
           }
         }
+      }
 
-        if (overValueBox) {
+      if (overValueBox) {
         this.canvas.style.cursor = "text";
       } else {
         // Check if hovering over comment handles
@@ -12686,14 +12960,14 @@ class BlueprintSystem {
         const wireResult = this.findClosestCompatibleWire(
           draggedNode,
           pos.x,
-          pos.y
+          pos.y,
         );
         if (wireResult) {
           this.insertNodeIntoWire(
             draggedNode,
             wireResult.wire,
             wireResult.inputPort,
-            wireResult.outputPort
+            wireResult.outputPort,
           );
           // Clear the highlighted wire and drag state
           this.highlightedWire = null;
@@ -12816,7 +13090,7 @@ class BlueprintSystem {
           end.x + endOffset,
           end.y,
           end.x,
-          end.y
+          end.y,
         );
         ctx.stroke();
       }
@@ -12853,7 +13127,7 @@ class BlueprintSystem {
         end.x + endOffset,
         end.y,
         end.x,
-        end.y
+        end.y,
       );
       ctx.stroke();
     }
@@ -12933,7 +13207,7 @@ class BlueprintSystem {
         let valueStr;
         const validatedValue = this.validateTypedValue(
           port.value,
-          resolvedType
+          resolvedType,
         );
         if (resolvedType === "float") {
           valueStr = validatedValue.toFixed(2);
@@ -12968,7 +13242,7 @@ class BlueprintSystem {
               ctx.fillText(
                 value,
                 boxX + boxWidth / 2,
-                boxY + boxHeight / 2 + 4
+                boxY + boxHeight / 2 + 4,
               );
             }
           });
@@ -13028,7 +13302,7 @@ class BlueprintSystem {
                 ctx.fillText(
                   values[i],
                   boxX + boxWidth / 2,
-                  boxY + boxHeight / 2 + 4
+                  boxY + boxHeight / 2 + 4,
                 );
               }
             }
@@ -13052,7 +13326,7 @@ class BlueprintSystem {
               ctx.fillText(
                 values[2],
                 boxX + boxWidth / 2,
-                boxY + boxHeight / 2 + 4
+                boxY + boxHeight / 2 + 4,
               );
             }
 
@@ -13131,7 +13405,7 @@ class BlueprintSystem {
                   ctx.fillText(
                     values[index],
                     boxX + boxWidth / 2,
-                    boxY + boxHeight / 2 + 4
+                    boxY + boxHeight / 2 + 4,
                   );
                 }
               }
@@ -13161,7 +13435,7 @@ class BlueprintSystem {
             ctx.fillText(
               valueStr,
               bounds.x + bounds.width / 2,
-              bounds.y + bounds.height / 2 + 4
+              bounds.y + bounds.height / 2 + 4,
             );
           }
         }
@@ -13261,7 +13535,7 @@ class BlueprintSystem {
       comment.y,
       comment.width,
       COMMENT_TITLE_HEIGHT,
-      [8, 8, 0, 0]
+      [8, 8, 0, 0],
     );
     ctx.fill();
 
@@ -13274,7 +13548,7 @@ class BlueprintSystem {
       dragHandleBounds.y,
       dragHandleBounds.width,
       dragHandleBounds.height,
-      4
+      4,
     );
     ctx.fill();
 
@@ -13314,7 +13588,7 @@ class BlueprintSystem {
       editButtonBounds.y,
       editButtonBounds.width,
       editButtonBounds.height,
-      4
+      4,
     );
     ctx.fill();
 
@@ -13337,11 +13611,11 @@ class BlueprintSystem {
     ctx.moveTo(iconCenterX - iconSize - 1, iconCenterY + iconSize + 1);
     ctx.lineTo(
       iconCenterX - iconSize + triangleSideLength / 2,
-      iconCenterY + iconSize
+      iconCenterY + iconSize,
     );
     ctx.lineTo(
       iconCenterX - iconSize,
-      iconCenterY + iconSize - triangleSideLength / 2
+      iconCenterY + iconSize - triangleSideLength / 2,
     );
     ctx.closePath();
     ctx.fill();
@@ -13420,7 +13694,7 @@ class BlueprintSystem {
       handleBounds.y,
       handleBounds.width,
       handleBounds.height,
-      [3, 0, 3, 0]
+      [3, 0, 3, 0],
     );
     ctx.fill();
 
@@ -13462,7 +13736,7 @@ class BlueprintSystem {
         node.x,
         node.y,
         node.x + node.width,
-        node.y + node.height
+        node.y + node.height,
       );
 
       // Create gradient from the base color
@@ -13506,7 +13780,7 @@ class BlueprintSystem {
           ctx.fillText(
             node.uniformDisplayName,
             node.x + node.width / 2,
-            node.y + node.height / 2 - 2
+            node.y + node.height / 2 - 2,
           );
 
           // Variable name (smaller, gray)
@@ -13515,14 +13789,14 @@ class BlueprintSystem {
           ctx.fillText(
             `(${node.uniformVariableName})`,
             node.x + node.width / 2,
-            node.y + node.height / 2 + 10
+            node.y + node.height / 2 + 10,
           );
         } else {
           // Single title
           ctx.fillText(
             node.displayTitle || node.title,
             node.x + node.width / 2,
-            node.y + node.height / 2 + 4
+            node.y + node.height / 2 + 4,
           );
         }
       }
@@ -13579,7 +13853,7 @@ class BlueprintSystem {
         ctx.fillText(
           node.displayTitle || node.title,
           node.x + node.width / 2,
-          node.y + 22
+          node.y + 22,
         );
       }
 
@@ -13652,7 +13926,7 @@ class BlueprintSystem {
           dropdown.y,
           dropdown.width,
           dropdown.height,
-          4
+          4,
         );
         ctx.fill();
         ctx.stroke();
@@ -13660,7 +13934,7 @@ class BlueprintSystem {
         if (shouldDrawText) {
           // Get the label for the current operation
           const currentOp = node.nodeType.operationOptions.find(
-            (op) => op.value === node.operation
+            (op) => op.value === node.operation,
           );
           const operationLabel = currentOp
             ? currentOp.label
@@ -13680,7 +13954,7 @@ class BlueprintSystem {
           ctx.fillText(
             displayText,
             dropdown.x + dropdown.width / 2,
-            dropdown.y + dropdown.height / 2 + 5
+            dropdown.y + dropdown.height / 2 + 5,
           );
 
           // Dropdown arrow
@@ -13690,7 +13964,7 @@ class BlueprintSystem {
           ctx.fillText(
             "▼",
             dropdown.x + dropdown.width - 5,
-            dropdown.y + dropdown.height / 2 + 3
+            dropdown.y + dropdown.height / 2 + 3,
           );
         }
       }
@@ -13710,7 +13984,7 @@ class BlueprintSystem {
           inputBounds.y,
           inputBounds.width,
           inputBounds.height,
-          4
+          4,
         );
         ctx.fill();
         ctx.stroke();
@@ -13732,7 +14006,7 @@ class BlueprintSystem {
             inputBounds.x,
             inputBounds.y,
             inputBounds.width,
-            inputBounds.height
+            inputBounds.height,
           );
           ctx.clip();
           ctx.fillText(displayValue, textX, textY);
@@ -13746,7 +14020,7 @@ class BlueprintSystem {
             ctx.fillText(
               node.nodeType.customInputConfig.label,
               inputBounds.x,
-              inputBounds.y - 3
+              inputBounds.y - 3,
             );
           }
         }
@@ -13765,7 +14039,7 @@ class BlueprintSystem {
           editorBounds.y,
           editorBounds.width,
           editorBounds.height,
-          6
+          6,
         );
         ctx.fill();
         ctx.stroke();
@@ -13780,29 +14054,23 @@ class BlueprintSystem {
             previewX,
             editorBounds.y,
             previewX + previewWidth,
-            editorBounds.y
+            editorBounds.y,
           );
 
           stops.forEach((stop) => {
             const color = stop.color || [1, 1, 1, 1];
-            const alpha = node.operation === "vec4" ? color[3] ?? 1 : 1;
+            const alpha = node.operation === "vec4" ? (color[3] ?? 1) : 1;
             gradient.addColorStop(
               stop.position,
               `rgba(${Math.round((color[0] ?? 0) * 255)}, ${Math.round(
-                (color[1] ?? 0) * 255
-              )}, ${Math.round((color[2] ?? 0) * 255)}, ${alpha})`
+                (color[1] ?? 0) * 255,
+              )}, ${Math.round((color[2] ?? 0) * 255)}, ${alpha})`,
             );
           });
 
           ctx.save();
           ctx.beginPath();
-          ctx.roundRect(
-            previewX,
-            previewY,
-            previewWidth,
-            previewHeight,
-            5
-          );
+          ctx.roundRect(previewX, previewY, previewWidth, previewHeight, 5);
           ctx.clip();
           this.drawCheckerboard(
             ctx,
@@ -13810,7 +14078,7 @@ class BlueprintSystem {
             previewY,
             previewWidth,
             previewHeight,
-            6
+            6,
           );
           ctx.fillStyle = gradient;
           ctx.fillRect(previewX, previewY, previewWidth, previewHeight);
@@ -13827,7 +14095,6 @@ class BlueprintSystem {
             ctx.lineWidth = 1;
             ctx.stroke();
           });
-
         }
 
         if (shouldDrawText && editorLabel) {
@@ -13852,7 +14119,7 @@ class BlueprintSystem {
           dropdown.y,
           dropdown.width,
           dropdown.height,
-          4
+          4,
         );
         ctx.fill();
         ctx.stroke();
@@ -13882,13 +14149,13 @@ class BlueprintSystem {
             dropdown.x,
             dropdown.y,
             dropdown.width - 20, // Leave space for arrow
-            dropdown.height
+            dropdown.height,
           );
           ctx.clip();
           ctx.fillText(
             displayText,
             dropdown.x + 8,
-            dropdown.y + dropdown.height / 2 + 5
+            dropdown.y + dropdown.height / 2 + 5,
           );
           ctx.restore();
 
@@ -13899,7 +14166,7 @@ class BlueprintSystem {
           ctx.fillText(
             "▼",
             dropdown.x + dropdown.width - 5,
-            dropdown.y + dropdown.height / 2 + 3
+            dropdown.y + dropdown.height / 2 + 3,
           );
         }
       }
@@ -13938,7 +14205,7 @@ class BlueprintSystem {
           node.y - 5,
           node.width + 10,
           node.height + 10,
-          node.height / 2
+          node.height / 2,
         );
       } else {
         ctx.roundRect(
@@ -13946,7 +14213,7 @@ class BlueprintSystem {
           node.y - 5,
           node.width + 10,
           node.height + 10,
-          8
+          8,
         );
       }
       ctx.stroke();
@@ -13970,15 +14237,15 @@ class BlueprintSystem {
     const hex = color.replace("#", "");
     const r = Math.max(
       0,
-      Math.min(255, parseInt(hex.substr(0, 2), 16) + amount)
+      Math.min(255, parseInt(hex.substr(0, 2), 16) + amount),
     );
     const g = Math.max(
       0,
-      Math.min(255, parseInt(hex.substr(2, 2), 16) + amount)
+      Math.min(255, parseInt(hex.substr(2, 2), 16) + amount),
     );
     const b = Math.max(
       0,
-      Math.min(255, parseInt(hex.substr(4, 2), 16) + amount)
+      Math.min(255, parseInt(hex.substr(4, 2), 16) + amount),
     );
 
     // Convert back to hex
@@ -14003,7 +14270,7 @@ class BlueprintSystem {
         cancelAnimationFrame(this.previewAnimationFrameId);
       }
       this.previewAnimationFrameId = requestAnimationFrame(
-        this._boundRenderForAnimation
+        this._boundRenderForAnimation,
       );
     } else if (this.previewAnimationFrameId) {
       // Cancel pending animation frame and clear state when preview node is disabled
@@ -14016,7 +14283,7 @@ class BlueprintSystem {
       0,
       0,
       this.logicalWidth || this.canvas.width,
-      this.logicalHeight || this.canvas.height
+      this.logicalHeight || this.canvas.height,
     );
 
     // Save context and apply camera transform
@@ -14062,13 +14329,13 @@ class BlueprintSystem {
         this.debugBBox.x,
         this.debugBBox.y,
         this.debugBBox.width,
-        this.debugBBox.height
+        this.debugBBox.height,
       );
       ctx.strokeRect(
         this.debugBBox.x,
         this.debugBBox.y,
         this.debugBBox.width,
-        this.debugBBox.height
+        this.debugBBox.height,
       );
 
       // Draw label
@@ -14078,7 +14345,7 @@ class BlueprintSystem {
       ctx.fillText(
         this.debugBBoxLabel || "Debug BBox",
         this.debugBBox.x,
-        this.debugBBox.y - 10 / this.camera.zoom
+        this.debugBBox.y - 10 / this.camera.zoom,
       );
     }
 
@@ -14102,7 +14369,7 @@ class BlueprintSystem {
         ctx.fillText(
           label,
           node.x + 5 / this.camera.zoom,
-          node.y - 5 / this.camera.zoom
+          node.y - 5 / this.camera.zoom,
         );
 
         // Draw dimensions at bottom
@@ -14110,7 +14377,7 @@ class BlueprintSystem {
         ctx.fillText(
           `y: ${node.y.toFixed(1)} to ${(node.y + node.height).toFixed(1)}`,
           node.x + 5 / this.camera.zoom,
-          node.y + node.height + 15 / this.camera.zoom
+          node.y + node.height + 15 / this.camera.zoom,
         );
 
         ctx.setLineDash([5 / this.camera.zoom, 5 / this.camera.zoom]);
