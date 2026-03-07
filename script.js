@@ -13740,10 +13740,14 @@ class BlueprintSystem {
 
         if (node.nodeType.customEditorConfig?.type === "gradient") {
           const stops = this.normalizeGradientStopsForNode(node);
+          const previewX = editorBounds.x + 6;
+          const previewY = editorBounds.y + 6;
+          const previewWidth = editorBounds.width - 12;
+          const previewHeight = editorBounds.height - 12;
           const gradient = ctx.createLinearGradient(
-            editorBounds.x + 6,
+            previewX,
             editorBounds.y,
-            editorBounds.x + editorBounds.width - 6,
+            previewX + previewWidth,
             editorBounds.y
           );
 
@@ -13761,33 +13765,28 @@ class BlueprintSystem {
           ctx.save();
           ctx.beginPath();
           ctx.roundRect(
-            editorBounds.x + 6,
-            editorBounds.y + 6,
-            editorBounds.width - 12,
-            editorBounds.height - 12,
+            previewX,
+            previewY,
+            previewWidth,
+            previewHeight,
             5
           );
           ctx.clip();
           this.drawCheckerboard(
             ctx,
-            editorBounds.x + 6,
-            editorBounds.y + 6,
-            editorBounds.width - 12,
-            editorBounds.height - 12,
+            previewX,
+            previewY,
+            previewWidth,
+            previewHeight,
             6
           );
           ctx.fillStyle = gradient;
-          ctx.fillRect(
-            editorBounds.x + 6,
-            editorBounds.y + 6,
-            editorBounds.width - 12,
-            editorBounds.height - 12
-          );
+          ctx.fillRect(previewX, previewY, previewWidth, previewHeight);
           ctx.restore();
 
           stops.forEach((stop) => {
-            const markerX = editorBounds.x + 6 + (editorBounds.width - 12) * stop.position;
-            const markerY = editorBounds.y + editorBounds.height - 8;
+            const markerX = previewX + previewWidth * stop.position;
+            const markerY = previewY + previewHeight - 4;
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
             ctx.arc(markerX, markerY, 3, 0, Math.PI * 2);
@@ -13797,22 +13796,6 @@ class BlueprintSystem {
             ctx.stroke();
           });
 
-          if (shouldDrawText) {
-            ctx.fillStyle = "rgba(255,255,255,0.88)";
-            ctx.font = "11px sans-serif";
-            ctx.textAlign = "left";
-            ctx.fillText(
-              `${stops.length} stop${stops.length === 1 ? "" : "s"}`,
-              editorBounds.x + 10,
-              editorBounds.y + editorBounds.height / 2 + 4
-            );
-            ctx.textAlign = "right";
-            ctx.fillText(
-              "Edit",
-              editorBounds.x + editorBounds.width - 10,
-              editorBounds.y + editorBounds.height / 2 + 4
-            );
-          }
         }
 
         if (shouldDrawText && editorLabel) {
