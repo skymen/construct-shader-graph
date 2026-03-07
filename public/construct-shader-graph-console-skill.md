@@ -1,46 +1,200 @@
 # Construct Shader Graph Console Skill
 
-Use `window.shaderGraphAPI` or the short alias `window.sg` from the browser console to inspect and control the editor.
+Use this skill to control Construct Shader Graph from the browser console through `window.shaderGraphAPI` or `window.sg`.
 
-## Quick start
+## Purpose
+
+- Use this API to inspect the current graph, make targeted graph edits, validate the result, and report progress clearly.
+- Prefer this API over poking random internals directly.
+- Treat the graph as the source of truth for shader logic. Use preview controls only to inspect or demonstrate the result.
+
+## Operating contract
+
+- Preserve existing user work unless the task clearly requires replacing it.
+- Inspect first, mutate second.
+- Make the smallest valid change that satisfies the request.
+- Verify after every structural edit such as creating nodes, deleting nodes, or wiring ports.
+- Use stable ids from API results; do not rely on labels, visual position, or selection alone.
+- Do not open arbitrary local files or save project files autonomously.
+- Built-in examples are safe to open.
+- Export is allowed because it triggers a download rather than silently overwriting a project.
+
+## Execution priorities
+
+1. Preserve the current graph and user intent.
+2. Inspect the graph state before editing.
+3. Prefer existing nodes and helper nodes over rebuilding standard shader math.
+4. Prefer small, reversible edits over large speculative rewrites.
+5. Verify graph integrity and preview behavior after each important edit.
+6. End with a short recap.
+
+## Hard rules
+
+- Always call `sg.session.initAIWork()` when starting a task.
+- Always call `sg.session.endAIWork()` when finishing a task.
+- Use `sg.session.updateAIWork()` only for short phase updates.
+- Never assume a node id, port index, or wire id without reading it first.
+- Never connect ports without checking the actual node ports.
+- Never replace an output connection blindly; inspect the affected ports first.
+- Never use startup scripts as a substitute for graph logic.
+- Never assume renderer-specific branching is needed; the tool already generates WebGL 1, WebGL 2, and WebGPU from one graph.
+
+## Preferred workflow
+
+Use this loop for most tasks:
+
+1. Start the session.
+2. Inspect current graph state.
+3. Identify exact node ids, port refs, uniform ids, or settings keys.
+4. Apply one atomic edit or one tightly related batch.
+5. Re-read the affected nodes, ports, wires, or settings.
+6. Check preview or generated code if relevant.
+7. Repeat only if needed.
+8. End the session with a recap.
+
+Example session skeleton:
 
 ```js
-sg.help()
 sg.session.initAIWork({ message: "Inspecting graph" })
-sg.nodeTypes.list()
-sg.nodes.list()
-sg.shader.getGeneratedCode()
-sg.preview.getSettings()
-```
 
-## AI work session
+const nodes = sg.nodes.list()
+const output = nodes.find((node) => node.typeKey === "output")
 
-Use the session helpers when an AI starts and finishes a task.
+sg.session.updateAIWork("Adding node")
+const multiply = sg.nodes.create({ type: "multiply", x: 420, y: 180 })
 
-```js
-sg.session.initAIWork({ message: "Inspecting graph" })
-sg.session.updateAIWork("Adding uniforms")
+sg.session.updateAIWork("Verifying")
+sg.nodes.get(multiply.id)
+
 sg.session.endAIWork({
   title: "AI task complete",
-  summary: ["Added 2 uniforms", "Rewired output", "Updated preview"],
+  summary: ["Added multiply node", "Verified node creation"],
 })
 ```
 
-- `initAIWork()` closes the startup dialog and shows a compact on-screen "AI working" indicator.
-- `updateAIWork()` updates that indicator with a short, concise status message.
-- `endAIWork()` hides the indicator and shows a completion notification with a short recap.
-- Keep update messages very short, like `"Scanning nodes"`, `"Adding preview"`, or `"Exporting addon"`.
+## Status update guidance
 
-## Core model
+- Keep messages to about 4 to 10 words.
+- Update only when changing phase or when a task finishes a meaningful step.
+- Good examples:
+  - `"Inspecting graph"`
+  - `"Finding output node"`
+  - `"Adding variable nodes"`
+  - `"Rewiring preview path"`
+  - `"Verifying generated code"`
+- Avoid noisy or repetitive updates.
 
-- The graph is made of nodes, ports, wires, uniforms, shader settings, preview settings, camera state, and an optional node preview target.
-- The tool already generates WebGL 1, WebGL 2, and WebGPU shader code from the same graph. Most of the time you should build one renderer-agnostic graph and let the tool generate all targets.
-- Only branch renderer behavior when necessary. If you need renderer-specific logic, prefer the shader test node instead of manually forking the whole graph.
-- The preview normally compiles the graph from the `Output` node. If node preview is enabled, the preview compiles from that node instead.
+## Environment assumptions
 
-## Construct effect context
+- API namespace: `window.shaderGraphAPI`
+- Short alias: `window.sg`
+- The graph has nodes, ports, wires, uniforms, shader settings, preview settings, and camera state.
+- The tool compiles one graph to three targets: WebGL 1, WebGL 2, and WebGPU.
+- The preview normally uses the `Output` node unless node preview is enabled.
 
-Construct effects are renderer-backed shaders with effect metadata that controls how they can be used.
+## Safe vs side-effecting calls
+
+Read-only calls:
+
+- `sg.help()`
+- `sg.nodes.list()`
+- `sg.nodes.get()`
+- `sg.nodes.getPorts()`
+- `sg.nodeTypes.list()`
+- `sg.nodeTypes.get()`
+- `sg.ports.get()`
+- `sg.ports.listConnections()`
+- `sg.wires.get()`
+- `sg.wires.getAll()`
+- `sg.uniforms.list()`
+- `sg.uniforms.get()`
+- `sg.shader.getInfo()`
+- `sg.shader.getGeneratedCode()`
+- `sg.preview.getSettings()`
+- `sg.preview.getNodePreview()`
+- `sg.preview.getStartupScriptInfo()`
+- `sg.camera.getState()`
+- `sg.projects.listExamples()`
+
+Side-effecting calls:
+
+- `sg.nodes.create()`
+- `sg.nodes.edit()`
+- `sg.nodes.delete()`
+- `sg.wires.create()`
+- `sg.wires.delete()`
+- `sg.uniforms.create()`
+- `sg.uniforms.edit()`
+- `sg.uniforms.reorder()`
+- `sg.uniforms.delete()`
+- `sg.shader.updateInfo()`
+- `sg.preview.updateSettings()`
+- `sg.preview.resetSettings()`
+- `sg.preview.setNodePreview()`
+- `sg.preview.toggleNodePreview()`
+- `sg.preview.screenshot({ download: true })`
+- `sg.layout.autoArrange()`
+- `sg.camera.center()`
+- `sg.camera.zoomToFit()`
+- `sg.camera.setPosition()`
+- `sg.camera.setZoom()`
+- `sg.projects.openExample()`
+- `sg.projects.exportAddon()`
+
+## Core graph guidance
+
+### Node and port discipline
+
+- Always inspect ports before creating wires.
+- Use explicit port refs: `{ nodeId, kind, index }`.
+- Prefer `index` over `name` for automation stability.
+- Use `declaredType` and `resolvedType` to understand generic or dynamic nodes.
+
+Port reference examples:
+
+```js
+{ nodeId: 12, kind: "input", index: 0 }
+{ nodeId: 12, kind: "output", index: 1 }
+```
+
+### Variables
+
+Use variable nodes to reduce wire clutter.
+
+- `Set Variable` stores a computed value once.
+- `Get Variable` reads it back in multiple places.
+- The `Get Variable` output type is inferred from the matching `Set Variable` input.
+
+Preferred rule:
+
+- If one output would feed many distant nodes, prefer a variable instead of many long wires.
+- This makes `autoArrange()` cleaner and keeps the graph easier to inspect.
+
+Good variable cases:
+
+- reused UV transforms
+- reused masks
+- reused sampled colors
+- reused lighting terms
+- any value with 3 or more downstream uses
+
+### Preview
+
+- Default preview compiles from `Output`.
+- Node preview compiles from one selected intermediate node instead.
+- Use node preview for masks, UVs, gradients, lighting terms, and intermediate color values.
+- A node can only be previewed if it resolves to `float`, `vec2`, `vec3`, or `vec4` on one output.
+
+### Renderer guidance
+
+- Normally build one graph and let the tool generate all targets.
+- Only branch behavior when absolutely necessary.
+- If renderer-specific logic is needed, prefer the shader test node.
+- Use preview `shaderLanguage` switching to test generated targets.
+
+## Construct shader guidance
+
+The app is a Construct effect authoring tool, so the AI should understand a few Construct-specific ideas.
 
 - Official docs:
   - `https://www.construct.net/en/make-games/manuals/addon-sdk/guide/configuring-effects`
@@ -48,122 +202,31 @@ Construct effects are renderer-backed shaders with effect metadata that controls
   - `https://www.construct.net/en/make-games/manuals/addon-sdk/guide/configuring-effects/webgpu-shaders`
   - `https://www.construct.net/en/make-games/manuals/construct-3/project-primitives/objects/effects`
   - `https://www.construct.net/en/make-games/manuals/construct-3/scripting/scripting-reference/object-interfaces/ieffectinstance`
-- Important shader settings exposed by this tool include `blendsBackground`, `usesDepth`, `crossSampling`, `animated`, `mustPredraw`, `supports3DDirectRendering`, `extendBoxH`, and `extendBoxV`.
+- Important shader settings include `blendsBackground`, `usesDepth`, `crossSampling`, `animated`, `mustPredraw`, `supports3DDirectRendering`, `extendBoxH`, and `extendBoxV`.
 - Background sampling only makes sense when `blendsBackground` is enabled.
 - Depth sampling only makes sense when `usesDepth` is enabled.
-- Construct uses premultiplied alpha, so for many color operations you should unpremultiply, edit, then premultiply again.
+- Construct uses premultiplied alpha, so many color workflows should use `unpremultiply` before edits and `premultiply` before output.
 
-## Construct helper nodes already implemented
+## Prefer existing Construct helper nodes
 
-Many of the common calculations from Construct shader docs already exist as nodes. Prefer these over rebuilding the math manually.
+Many common Construct shader calculations are already implemented as nodes. Prefer these over rebuilding the math manually.
 
 - Sampling and UV nodes: `frontUV`, `backUV`, `depthUV`, `textureFront`, `textureBack`, `textureDepth`, `samplerFront`, `samplerBack`, `samplerDepth`, `textureSample`, `textureSampleLOD`, `textureSampleGrad`, `texelFetch`
 - Built-in Construct values: `builtinSrcStart`, `builtinSrcEnd`, `builtinSrcSize`, `builtinSrcCenter`, `builtinSrcOriginStart`, `builtinSrcOriginEnd`, `builtinSrcOriginSize`, `builtinSrcOriginCenter`, `builtinLayoutStart`, `builtinLayoutEnd`, `builtinLayoutCenter`, `builtinLayoutSize`, `builtinDestStart`, `builtinDestEnd`, `builtinDestCenter`, `builtinDestSize`, `builtinDevicePixelRatio`, `builtinLayerScale`, `builtinLayerAngle`, `builtinSeconds`, `builtinZNear`, `builtinZFar`
 - Coordinate helpers: `pixelSize`, `texelSize`, `layoutPixelSize`, `srcOriginToNorm`, `srcToNorm`, `normToSrc`, `normToSrcOrigin`, `srcToDest`, `clampToSrc`, `clampToSrcOrigin`, `clampToDest`, `getLayoutPos`
-- Color/depth helpers: `premultiply`, `unpremultiply`, `linearizeDepth`, `normalFromDepth`, `grayscale`, `rgbToHsl`, `hslToRgb`
-- Higher-level effect helpers: `gradientMap`, `blendMode`, `directionalLight`, `rimLight`, `hemisphereLight`, `specularLight`, `matcap`
+- Color and depth helpers: `premultiply`, `unpremultiply`, `linearizeDepth`, `normalFromDepth`, `grayscale`, `rgbToHsl`, `hslToRgb`
+- Higher-level helpers: `gradientMap`, `blendMode`, `directionalLight`, `rimLight`, `hemisphereLight`, `specularLight`, `matcap`
 
-## Variable nodes
+## Startup script guidance
 
-Use variable nodes to keep the graph clean.
+The startup script is optional and exists only to make preview testing easier.
 
-- `Set Variable` stores a value under a custom variable name.
-- `Get Variable` reads the named value later.
-- The `Get Variable` output type is dynamic and matches the connected `Set Variable` input type.
-- Prefer variables when one computed value is reused in multiple places.
+- Use it for preview interactivity, not shader logic.
+- Good uses: camera setup, object rotation, layout tweaks, quick runtime animation.
+- Keep it short and preview-focused.
+- Do not depend on it for exported shader behavior.
 
-Recommended guideline:
-
-- Avoid creating many long wires from the same output port.
-- Instead, compute once, store with `Set Variable`, and read the value back with multiple `Get Variable` nodes.
-- This makes auto-arrange much cleaner and keeps the graph readable.
-
-Good uses for variables:
-
-- reused UV transforms
-- reused masks or noise values
-- reused sampled colors
-- reused lighting terms
-- any value used by 3 or more downstream nodes
-
-## Preview model
-
-The preview is a live Construct sandbox running in an iframe.
-
-- By default it previews the effect generated from the `Output` node.
-- When node preview is enabled, it previews from the selected node instead of the `Output` node.
-- Node preview works best for debugging masks, gradients, noise, UVs, lighting terms, and intermediate color values.
-- Preview settings control the scene, renderer target, object type, camera mode, scales, background visibility, and more.
-
-### Preview settings
-
-You can read and edit the basic preview settings with:
-
-```js
-sg.preview.getSettings()
-sg.preview.updateSettings({ shaderLanguage: "webgl2", cameraMode: "perspective" })
-sg.preview.resetSettings()
-sg.preview.getStartupScriptInfo()
-```
-
-Supported settings:
-
-- `effectTarget`
-- `object`
-- `cameraMode`
-- `autoRotate`
-- `samplingMode`
-- `shaderLanguage`
-- `spriteTextureUrl`
-- `shapeTextureUrl`
-- `bgTextureUrl`
-- `showBackgroundCube`
-- `spriteScale`
-- `shapeScale`
-- `roomScale`
-- `bgOpacity`
-- `bg3dOpacity`
-- `zoomLevel`
-- `startupScript`
-
-Notes:
-
-- `shaderLanguage` and `samplingMode` reload the preview.
-- Most other settings update live.
-- Use `shaderLanguage` for testing generated targets, not as a reason to split the graph unless needed.
-
-### Node preview
-
-```js
-sg.preview.getNodePreview()
-sg.preview.setNodePreview(42)
-sg.preview.setNodePreview(null)
-sg.preview.toggleNodePreview(42)
-```
-
-- A node can only be previewed if it has an output resolving to `float`, `vec2`, `vec3`, or `vec4`.
-- Use this to inspect intermediate values before they reach the final `Output` node.
-
-## Startup script
-
-The startup script is optional and exists to make previewing more interactive.
-
-- Use it when an effect needs motion, camera control, object changes, or runtime tweaks to be easy to evaluate in preview.
-- The script runs inside the preview iframe after the Construct preview scene is ready.
-- It is not part of the shader graph itself; it is only a preview helper.
-
-You can read or edit it with preview settings:
-
-```js
-sg.preview.updateSettings({
-  startupScript: `
-camera.lookAtPosition(0, 0, 120, 0, 0, 0, 0, 1, 0);
-shape3D.angleY += 15;
-`
-})
-```
-
-Variables available to the startup script:
+Available startup script variables:
 
 - `runtime`
 - `sprite`
@@ -174,26 +237,142 @@ Variables available to the startup script:
 - `layout`
 - `layer`
 
-These come from the preview runtime and are passed directly into the startup script function.
-
-Use the Construct scripting reference to understand what those objects expose:
+Construct scripting reference:
 
 - `https://www.construct.net/en/make-games/manuals/construct-3/scripting/scripting-reference`
 
-Practical uses:
+Example:
 
-- move or rotate the 3D preview object
-- reposition the camera
-- tweak layout/layer state for testing
-- build simple interactive preview setups
+```js
+sg.preview.updateSettings({
+  startupScript: `
+camera.lookAtPosition(0, 0, 120, 0, 0, 0, 0, 1, 0);
+shape3D.angleY += 15;
+`,
+})
+```
 
-Guidelines:
+## Projects and session workflow
 
-- keep startup scripts short and preview-focused
-- do not rely on them as part of the exported effect logic
-- prefer the graph for visual logic and the startup script only for preview interactivity
+Use the session API for start, progress, and finish.
 
-## API reference
+```js
+sg.session.initAIWork({ message: "Inspecting graph" })
+sg.session.updateAIWork("Opening example")
+sg.session.endAIWork({
+  title: "AI task complete",
+  summary: ["Loaded example", "Added rim light", "Verified preview"],
+})
+```
+
+Project rules:
+
+- Use `sg.projects.listExamples()` and `sg.projects.openExample()` for built-in examples.
+- Do not assume the AI should open arbitrary local files.
+- Do not assume the AI should save project files on its own.
+- If the user wants a new project, refresh the page and then close the startup dialog again.
+- Use `sg.projects.exportAddon()` when the user wants a downloadable export.
+
+## Recommended task workflows
+
+### Inspect a graph safely
+
+```js
+sg.session.initAIWork({ message: "Inspecting graph" })
+const nodes = sg.nodes.list()
+const wires = sg.wires.getAll()
+const uniforms = sg.uniforms.list()
+const shaderInfo = sg.shader.getInfo()
+sg.session.endAIWork({
+  summary: [`Found ${nodes.length} nodes`, `Found ${wires.length} wires`, `Found ${uniforms.length} uniforms`],
+})
+```
+
+### Create a node and verify it
+
+```js
+sg.session.initAIWork({ message: "Adding node" })
+const node = sg.nodes.create({ type: "mix", x: 400, y: 200 })
+const verified = sg.nodes.get(node.id)
+sg.session.endAIWork({ summary: [`Created node ${verified.id}`, `Type ${verified.typeKey}`] })
+```
+
+### Connect two nodes correctly
+
+```js
+const sourcePorts = sg.nodes.getPorts(1)
+const targetPorts = sg.nodes.getPorts(2)
+
+sg.wires.create({
+  from: { nodeId: 1, kind: "output", index: 0 },
+  to: { nodeId: 2, kind: "input", index: 0 },
+})
+
+sg.ports.listConnections({ nodeId: 1, kind: "output", index: 0 })
+```
+
+### Use variables instead of fan-out
+
+```js
+const setVar = sg.nodes.create({ type: "setVariable", customInput: "baseMask" })
+const getVarA = sg.nodes.create({ type: "getVariable", selectedVariable: "baseMask" })
+const getVarB = sg.nodes.create({ type: "getVariable", selectedVariable: "baseMask" })
+```
+
+### Debug an intermediate value
+
+```js
+sg.preview.setNodePreview(12)
+sg.preview.updateSettings({ shaderLanguage: "webgpu" })
+sg.preview.setNodePreview(null)
+```
+
+### Export with version bump
+
+```js
+sg.projects.exportAddon({ bumpVersion: "patch" })
+```
+
+## Good vs bad behavior
+
+Good:
+
+- Inspect ids before editing.
+- Inspect ports before wiring.
+- Use `batch()` for a tightly related group of edits.
+- Re-read affected nodes and ports after structural changes.
+- Prefer helper nodes and variable nodes.
+
+Bad:
+
+- Guess node ids from names.
+- Rebuild a whole graph for a tiny fix.
+- Create many long wires from one output when variables would do.
+- Use startup scripts to simulate graph logic.
+- Split the graph by renderer without a real need.
+
+## Troubleshooting
+
+- `API unavailable`
+  - Check that `window.sg` exists.
+  - Refresh the page if the app just loaded incorrectly.
+- `Node not found`
+  - Re-run `sg.nodes.list()` and resolve the correct id.
+- `Wire creation failed`
+  - Inspect both nodes with `sg.nodes.getPorts()`.
+  - Check port direction and `resolvedType`.
+- `Generated code failed`
+  - Make sure an `Output` node exists.
+  - Re-check required connections.
+- `Preview looks wrong`
+  - Inspect `sg.preview.getSettings()`.
+  - Test node preview on intermediate values.
+  - Switch `shaderLanguage` to compare targets.
+- `Graph became cluttered`
+  - Replace repeated fan-out with `Set Variable` and `Get Variable`.
+  - Run `sg.layout.autoArrange()` after structural edits.
+
+## API cheat sheet
 
 ### General
 
@@ -202,27 +381,19 @@ sg.help()
 sg.batch(label, fn)
 ```
 
-- `batch()` groups multiple graph edits into one undo history entry.
-
 ### Session and projects
 
 ```js
 sg.session.initAIWork({ message: "Inspecting graph" })
-sg.session.updateAIWork("Opening example")
-sg.session.endAIWork({ title: "AI task complete", summary: ["Loaded example"] })
+sg.session.updateAIWork("Adding nodes")
+sg.session.endAIWork({ title: "AI task complete", summary: ["Done"] })
 
 sg.projects.listExamples()
-sg.projects.openExample("my-example.c3sg")
+sg.projects.openExample("example.c3sg")
 sg.projects.exportAddon()
 sg.projects.exportAddon({ bumpVersion: "patch" })
 sg.projects.exportAddon({ version: "1.2.0.0" })
 ```
-
-- Use `projects.listExamples()` and `projects.openExample()` for built-in examples only.
-- Do not assume the AI can or should open arbitrary local project files.
-- Do not assume the AI should save project files on its own.
-- `projects.exportAddon()` is acceptable because it triggers an explicit download.
-- If you want a brand-new project, the recommended path is to refresh the page and close the startup dialog again.
 
 ### Nodes
 
@@ -236,18 +407,6 @@ sg.nodes.edit(nodeId, patch)
 sg.nodes.delete(nodeId)
 ```
 
-`nodes.get()` returns a serialized node snapshot including port info.
-
-Useful editable node patch fields:
-
-- `x`, `y`, or `position`
-- `operation`
-- `customInput`
-- `selectedVariable`
-- `data`
-- `gradientStops`
-- `inputValues`
-
 ### Node types
 
 ```js
@@ -257,36 +416,12 @@ sg.nodeTypes.search("depth")
 sg.nodeTypes.get("normalFromDepth")
 ```
 
-- `nodeTypes.get()` includes the node manual entry when it exists.
-
-### Ports
-
-Port references use this form:
-
-```js
-{ nodeId: 12, kind: "input", index: 0 }
-{ nodeId: 12, kind: "output", index: 1 }
-```
-
-You can also use `name` instead of `index`, but `index` is the more stable automation path.
+### Ports and wires
 
 ```js
 sg.ports.get({ nodeId: 12, kind: "input", index: 0 })
 sg.ports.listConnections({ nodeId: 12, kind: "output", index: 0 })
-```
 
-Each serialized port includes:
-
-- `declaredType` - original type from the node definition
-- `resolvedType` - actual current type after generic/custom resolution
-- `isEditable`
-- `value`
-- `connectionCount`
-- `wireIds`
-
-### Wires
-
-```js
 sg.wires.getAll()
 sg.wires.get(wireId)
 sg.wires.create({
@@ -296,9 +431,14 @@ sg.wires.create({
 sg.wires.delete(wireId)
 ```
 
-- Create wires using explicit port refs so the connection target is unambiguous.
-- The API checks port compatibility before connecting.
-- If the destination input already has a wire, it is replaced.
+Each serialized port includes:
+
+- `declaredType`
+- `resolvedType`
+- `isEditable`
+- `value`
+- `connectionCount`
+- `wireIds`
 
 ### Uniforms
 
@@ -319,13 +459,13 @@ sg.shader.updateInfo({ blendsBackground: true, usesDepth: true })
 sg.shader.getGeneratedCode()
 ```
 
-`getGeneratedCode()` returns:
+`sg.shader.getGeneratedCode()` returns:
 
 ```js
 {
   webgl1: "...",
   webgl2: "...",
-  webgpu: "..."
+  webgpu: "...",
 }
 ```
 
@@ -333,6 +473,7 @@ sg.shader.getGeneratedCode()
 
 ```js
 sg.preview.getSettings()
+sg.preview.getStartupScriptInfo()
 sg.preview.updateSettings({ object: "box", shaderLanguage: "webgpu" })
 sg.preview.resetSettings()
 sg.preview.getNodePreview()
@@ -354,61 +495,3 @@ sg.camera.zoomToFit()
 sg.camera.setPosition({ x: 100, y: 50 })
 sg.camera.setZoom(1.25)
 ```
-
-## Common workflows
-
-### Inspect available node types
-
-```js
-sg.nodeTypes.search("depth")
-```
-
-### Create a node and inspect its ports
-
-```js
-const node = sg.nodes.create({ type: "mix", x: 400, y: 200, select: true });
-sg.nodes.getPorts(node.id)
-```
-
-### Connect two nodes
-
-```js
-sg.wires.create({
-  from: { nodeId: 1, kind: "output", index: 0 },
-  to: { nodeId: 2, kind: "input", index: 0 },
-})
-```
-
-### Use variables to reduce wire clutter
-
-```js
-const setVar = sg.nodes.create({ type: "setVariable", customInput: "baseMask" });
-const getVarA = sg.nodes.create({ type: "getVariable", selectedVariable: "baseMask" });
-const getVarB = sg.nodes.create({ type: "getVariable", selectedVariable: "baseMask" });
-```
-
-### Preview an intermediate node
-
-```js
-sg.preview.setNodePreview(12)
-sg.preview.setNodePreview(null)
-```
-
-### Test generated code across targets
-
-```js
-sg.shader.getGeneratedCode()
-sg.preview.updateSettings({ shaderLanguage: "webgl1" })
-sg.preview.updateSettings({ shaderLanguage: "webgl2" })
-sg.preview.updateSettings({ shaderLanguage: "webgpu" })
-```
-
-## Best practices for AI use
-
-- Start by inspecting `nodeTypes.list()` and `nodes.list()`.
-- Prefer existing Construct helper nodes instead of rebuilding standard shader math.
-- Use variables instead of heavy fan-out from one output.
-- Use `nodes.getPorts()` before wiring so `from` and `to` are explicit.
-- Check both `declaredType` and `resolvedType` when working with generic or variable-driven nodes.
-- Use node preview to debug intermediate values.
-- Use the startup script only to make preview testing easier, not to replace graph logic.
