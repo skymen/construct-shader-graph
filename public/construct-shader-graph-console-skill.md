@@ -38,6 +38,7 @@ Use this skill to control Construct Shader Graph from the browser console throug
 - Never replace an output connection blindly; inspect the affected ports first.
 - Never use startup scripts as a substitute for graph logic.
 - Never assume renderer-specific branching is needed; the tool already generates WebGL 1, WebGL 2, and WebGPU from one graph.
+- Never create or edit custom node definitions unless the user explicitly asks for advanced custom node authoring.
 
 ## Preferred workflow
 
@@ -115,6 +116,8 @@ Read-only calls:
 - `sg.preview.getStartupScriptInfo()`
 - `sg.camera.getState()`
 - `sg.projects.listExamples()`
+- `sg.customNodes.list()`
+- `sg.customNodes.get()`
 
 Side-effecting calls:
 
@@ -169,6 +172,29 @@ Preferred rule:
 
 - If one output would feed many distant nodes, prefer a variable instead of many long wires.
 - This makes `autoArrange()` cleaner and keeps the graph easier to inspect.
+
+### Existing custom nodes
+
+Existing custom nodes are not an emergency hatch. They are part of the project and can be inspected and used.
+
+- It is safe to inspect existing custom node definitions.
+- It is safe to place existing custom nodes in the graph if they already exist in the project.
+- Creating a new custom node definition is the advanced escape hatch and should be avoided unless the user explicitly asks for it.
+- Prefer built-in nodes first, but if a project already contains a custom node designed for a task, using it is acceptable.
+
+Inspect existing custom nodes with:
+
+```js
+sg.customNodes.list()
+sg.customNodes.get(3)
+sg.customNodes.get("custom_3")
+```
+
+When a custom node already exists:
+
+- inspect its ports and code first
+- treat it like a project-specific reusable node
+- use `sg.nodeTypes.get("custom_<id>")` or `sg.customNodes.get(id)` to understand it before placing or wiring it
 
 Good variable cases:
 
@@ -342,6 +368,7 @@ Good:
 - Use `batch()` for a tightly related group of edits.
 - Re-read affected nodes and ports after structural changes.
 - Prefer helper nodes and variable nodes.
+- Reuse an existing custom node when it is clearly the project-specific tool for the job.
 
 Bad:
 
@@ -350,6 +377,7 @@ Bad:
 - Create many long wires from one output when variables would do.
 - Use startup scripts to simulate graph logic.
 - Split the graph by renderer without a real need.
+- Create new custom nodes casually instead of composing the graph from existing nodes.
 
 ## Troubleshooting
 
@@ -393,6 +421,10 @@ sg.projects.openExample("example.c3sg")
 sg.projects.exportAddon()
 sg.projects.exportAddon({ bumpVersion: "patch" })
 sg.projects.exportAddon({ version: "1.2.0.0" })
+
+sg.customNodes.list()
+sg.customNodes.get(3)
+sg.customNodes.get("custom_3")
 ```
 
 ### Nodes

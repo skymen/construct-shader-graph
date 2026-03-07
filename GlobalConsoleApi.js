@@ -129,6 +129,19 @@ function getAllNodeTypes(bp) {
   return [...types.values()];
 }
 
+function serializeCustomNodeDefinition(customNode) {
+  return {
+    id: customNode.id,
+    key: `custom_${customNode.id}`,
+    name: customNode.name,
+    color: customNode.color,
+    splitWebGL: customNode.splitWebGL !== false,
+    inputs: cloneValue(customNode.inputs || []),
+    outputs: cloneValue(customNode.outputs || []),
+    code: cloneValue(customNode.code || {}),
+  };
+}
+
 function filterNodeTypes(types, query) {
   const normalizedQuery = String(query || "").trim().toLowerCase();
   if (!normalizedQuery) {
@@ -708,6 +721,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         methods: [
           "session",
           "projects",
+          "customNodes",
           "nodes",
           "nodeTypes",
           "ports",
@@ -810,6 +824,25 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           ok: true,
           version: blueprint.shaderSettings.version,
         };
+      },
+    },
+
+    customNodes: {
+      list() {
+        return blueprint.customNodes.map((customNode) =>
+          serializeCustomNodeDefinition(customNode),
+        );
+      },
+
+      get(customNodeIdOrKey) {
+        const customNodeId = String(customNodeIdOrKey).startsWith("custom_")
+          ? Number(String(customNodeIdOrKey).replace("custom_", ""))
+          : Number(customNodeIdOrKey);
+        const customNode = blueprint.customNodes.find(
+          (entry) => entry.id === customNodeId,
+        );
+        assert(customNode, `Custom node ${customNodeIdOrKey} not found`);
+        return serializeCustomNodeDefinition(customNode);
       },
     },
 
