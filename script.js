@@ -11162,8 +11162,19 @@ class BlueprintSystem {
   }
 
   findPortAtPosition(x, y) {
-    for (const node of this.nodes) {
-      for (const port of node.getAllPorts()) {
+    const topNode = this.findNodeAtPosition(x, y);
+
+    if (topNode) {
+      for (const port of topNode.getAllPorts()) {
+        if (port.isPointInside(x, y)) {
+          return port;
+        }
+      }
+      return null;
+    }
+
+    for (let i = this.nodes.length - 1; i >= 0; i--) {
+      for (const port of this.nodes[i].getAllPorts()) {
         if (port.isPointInside(x, y)) {
           return port;
         }
@@ -11732,6 +11743,7 @@ class BlueprintSystem {
     // Update last click info
     this.lastClickTime = currentTime;
     this.lastClickPos = { x: pos.x, y: pos.y };
+    const topNodeAtPointer = this.findNodeAtPosition(pos.x, pos.y);
 
     // Check if clicking on a reroute node
     const rerouteNode = this.findRerouteNodeAtPosition(pos.x, pos.y);
@@ -11771,100 +11783,89 @@ class BlueprintSystem {
     }
 
     // Check if clicking on edit button for custom nodes
-    for (const node of this.nodes) {
-      if (node.nodeType.isCustom && node.editButtonBounds) {
-        const btn = node.editButtonBounds;
-        if (
-          pos.x >= btn.x &&
-          pos.x <= btn.x + btn.width &&
-          pos.y >= btn.y &&
-          pos.y <= btn.y + btn.height
-        ) {
-          // Find the custom node definition
-          const customNode = this.customNodes.find(
-            (cn) => cn.id === node.nodeType.customNodeId
-          );
-          if (customNode) {
-            this.showCustomNodeModal(customNode);
-          }
-          return;
+    if (topNodeAtPointer?.nodeType.isCustom && topNodeAtPointer.editButtonBounds) {
+      const btn = topNodeAtPointer.editButtonBounds;
+      if (
+        pos.x >= btn.x &&
+        pos.x <= btn.x + btn.width &&
+        pos.y >= btn.y &&
+        pos.y <= btn.y + btn.height
+      ) {
+        const customNode = this.customNodes.find(
+          (cn) => cn.id === topNodeAtPointer.nodeType.customNodeId
+        );
+        if (customNode) {
+          this.showCustomNodeModal(customNode);
         }
+        return;
       }
     }
 
     // Check if clicking on an operation dropdown
-    for (const node of this.nodes) {
-      if (node.nodeType.hasOperation) {
-        const dropdown = node.getOperationDropdownBounds();
-        if (
-          pos.x >= dropdown.x &&
-          pos.x <= dropdown.x + dropdown.width &&
-          pos.y >= dropdown.y &&
-          pos.y <= dropdown.y + dropdown.height
-        ) {
-          this.showOperationMenu(node, dropdown);
-          return;
-        }
+    if (topNodeAtPointer?.nodeType.hasOperation) {
+      const dropdown = topNodeAtPointer.getOperationDropdownBounds();
+      if (
+        pos.x >= dropdown.x &&
+        pos.x <= dropdown.x + dropdown.width &&
+        pos.y >= dropdown.y &&
+        pos.y <= dropdown.y + dropdown.height
+      ) {
+        this.showOperationMenu(topNodeAtPointer, dropdown);
+        return;
       }
     }
 
     // Check if clicking on a variable dropdown
-    for (const node of this.nodes) {
-      if (node.nodeType.hasVariableDropdown) {
-        const dropdown = node.getVariableDropdownBounds();
-        if (
-          pos.x >= dropdown.x &&
-          pos.x <= dropdown.x + dropdown.width &&
-          pos.y >= dropdown.y &&
-          pos.y <= dropdown.y + dropdown.height
-        ) {
-          this.showVariableMenu(node, dropdown);
-          return;
-        }
+    if (topNodeAtPointer?.nodeType.hasVariableDropdown) {
+      const dropdown = topNodeAtPointer.getVariableDropdownBounds();
+      if (
+        pos.x >= dropdown.x &&
+        pos.x <= dropdown.x + dropdown.width &&
+        pos.y >= dropdown.y &&
+        pos.y <= dropdown.y + dropdown.height
+      ) {
+        this.showVariableMenu(topNodeAtPointer, dropdown);
+        return;
       }
     }
 
     // Check if clicking on a custom input field
-    for (const node of this.nodes) {
-      if (node.nodeType.hasCustomInput) {
-        const inputBounds = node.getCustomInputBounds();
-        if (
-          pos.x >= inputBounds.x &&
-          pos.x <= inputBounds.x + inputBounds.width &&
-          pos.y >= inputBounds.y &&
-          pos.y <= inputBounds.y + inputBounds.height
-        ) {
-          this.startEditingCustomInput(node);
-          return;
-        }
+    if (topNodeAtPointer?.nodeType.hasCustomInput) {
+      const inputBounds = topNodeAtPointer.getCustomInputBounds();
+      if (
+        pos.x >= inputBounds.x &&
+        pos.x <= inputBounds.x + inputBounds.width &&
+        pos.y >= inputBounds.y &&
+        pos.y <= inputBounds.y + inputBounds.height
+      ) {
+        this.startEditingCustomInput(topNodeAtPointer);
+        return;
       }
     }
 
-    for (const node of this.nodes) {
-      if (node.nodeType.hasCustomEditor) {
-        const editorBounds = node.getCustomEditorBounds();
-        if (
-          pos.x >= editorBounds.x &&
-          pos.x <= editorBounds.x + editorBounds.width &&
-          pos.y >= editorBounds.y &&
-          pos.y <= editorBounds.y + editorBounds.height
-        ) {
-          if (node.nodeType.customEditorConfig?.type === "gradient") {
-            this.pendingCustomEditorClick = {
-              node,
-              bounds: editorBounds,
-              startX: pos.x,
-              startY: pos.y,
-            };
-            return;
-          }
+    if (topNodeAtPointer?.nodeType.hasCustomEditor) {
+      const editorBounds = topNodeAtPointer.getCustomEditorBounds();
+      if (
+        pos.x >= editorBounds.x &&
+        pos.x <= editorBounds.x + editorBounds.width &&
+        pos.y >= editorBounds.y &&
+        pos.y <= editorBounds.y + editorBounds.height
+      ) {
+        if (topNodeAtPointer.nodeType.customEditorConfig?.type === "gradient") {
+          this.pendingCustomEditorClick = {
+            node: topNodeAtPointer,
+            bounds: editorBounds,
+            startX: pos.x,
+            startY: pos.y,
+          };
+          return;
         }
       }
     }
 
     // Check if clicking on a value box for editable ports
-    for (const node of this.nodes) {
-      for (const port of node.inputPorts) {
+    if (topNodeAtPointer) {
+      for (const port of topNodeAtPointer.inputPorts) {
         if (
           port.isEditable &&
           port.connections.length === 0 &&
@@ -12363,24 +12364,24 @@ class BlueprintSystem {
       this.canvas.style.cursor = "move";
     } else if (this.hoveredPort) {
       this.canvas.style.cursor = "pointer";
-    } else {
-      // Check if hovering over a value box
-      let overValueBox = false;
-      for (const node of this.nodes) {
-        for (const port of node.inputPorts) {
-          if (
-            port.isEditable &&
-            port.connections.length === 0 &&
-            port.isPointInValueBox(pos.x, pos.y, this.ctx)
-          ) {
-            overValueBox = true;
-            break;
+      } else {
+        // Check if hovering over a value box
+        let overValueBox = false;
+        const topNodeAtPointer = this.findNodeAtPosition(pos.x, pos.y);
+        if (topNodeAtPointer) {
+          for (const port of topNodeAtPointer.inputPorts) {
+            if (
+              port.isEditable &&
+              port.connections.length === 0 &&
+              port.isPointInValueBox(pos.x, pos.y, this.ctx)
+            ) {
+              overValueBox = true;
+              break;
+            }
           }
         }
-        if (overValueBox) break;
-      }
 
-      if (overValueBox) {
+        if (overValueBox) {
         this.canvas.style.cursor = "text";
       } else {
         // Check if hovering over comment handles
