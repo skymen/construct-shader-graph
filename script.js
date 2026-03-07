@@ -1035,6 +1035,7 @@ class BlueprintSystem {
     this.lastClickPos = { x: 0, y: 0 };
     this.editingPort = null;
     this.editingCustomEditor = null;
+    this.pendingCustomEditorClick = null;
 
     // Selection state
     this.selectedNodes = new Set();
@@ -11849,7 +11850,12 @@ class BlueprintSystem {
           pos.y <= editorBounds.y + editorBounds.height
         ) {
           if (node.nodeType.customEditorConfig?.type === "gradient") {
-            this.openGradientEditor(node);
+            this.pendingCustomEditorClick = {
+              node,
+              bounds: editorBounds,
+              startX: pos.x,
+              startY: pos.y,
+            };
             return;
           }
         }
@@ -12154,6 +12160,16 @@ class BlueprintSystem {
     }
 
     const pos = this.getMousePos(e);
+
+    if (this.pendingCustomEditorClick) {
+      const distance = Math.hypot(
+        pos.x - this.pendingCustomEditorClick.startX,
+        pos.y - this.pendingCustomEditorClick.startY
+      );
+      if (distance > 5) {
+        this.pendingCustomEditorClick = null;
+      }
+    }
 
     // Check if we should auto-pan (when dragging near edges)
     const isDragging =
@@ -12503,6 +12519,21 @@ class BlueprintSystem {
     }
 
     const pos = this.getMousePos(e);
+
+    if (this.pendingCustomEditorClick) {
+      const { node, bounds } = this.pendingCustomEditorClick;
+      const shouldOpen =
+        pos.x >= bounds.x &&
+        pos.x <= bounds.x + bounds.width &&
+        pos.y >= bounds.y &&
+        pos.y <= bounds.y + bounds.height;
+      this.pendingCustomEditorClick = null;
+
+      if (shouldOpen && node.nodeType.customEditorConfig?.type === "gradient") {
+        this.openGradientEditor(node);
+        return;
+      }
+    }
 
     // Complete wire connection
     if (this.activeWire) {
