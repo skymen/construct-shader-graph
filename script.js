@@ -23,6 +23,7 @@ import JSZip from "jszip";
 import { HistoryManager } from "./HistoryManager.js";
 import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
 import { languageManager } from "./LanguageManager.js";
+import { installGlobalConsoleApi } from "./GlobalConsoleApi.js";
 
 // Import boilerplate files as raw text
 import boilerplateWebGL1 from "./shaders/boilerplate-webgl1.glsl?raw";
@@ -1020,6 +1021,7 @@ class BlueprintSystem {
     this.comments = [];
     this.nodeIdCounter = 1;
     this.commentIdCounter = 1;
+    this.wireIdCounter = 1;
 
     // Debug state
     this.debugBoundingBoxes = false;
@@ -14697,6 +14699,7 @@ class BlueprintSystem {
 // Initialize the system
 const canvas = document.getElementById("canvas");
 const blueprint = new BlueprintSystem(canvas);
+installGlobalConsoleApi(blueprint, { Wire });
 
 // Initialize with default nodes
 
