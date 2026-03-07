@@ -138,7 +138,7 @@ GradientMapNode.hasCustomEditor = true;
 GradientMapNode.customEditorConfig = {
   type: "gradient",
   label: "Gradient",
-  height: 42,
+  height: 38,
 };
 
 GradientMapNode.createDefaultData = getDefaultGradientData;

@@ -150,7 +150,7 @@ class Port {
     // Add extra offset if node has variable dropdown
     const variableDropdownOffset = node.nodeType.hasVariableDropdown ? 45 : 0;
     const customEditorOffset = node.nodeType.hasCustomEditor
-      ? (node.nodeType.customEditorConfig?.height || 38) + 22
+      ? (node.nodeType.customEditorConfig?.height || 38) + 28
       : 0;
     const startY =
       node.y +
@@ -460,7 +460,7 @@ class Node {
       // Add extra space for variable dropdown if node has it
       const variableDropdownSpace = nodeType.hasVariableDropdown ? 45 : 0;
       const customEditorSpace = nodeType.hasCustomEditor
-        ? (nodeType.customEditorConfig?.height || 38) + 22
+        ? (nodeType.customEditorConfig?.height || 38) + 28
         : 0;
       this.height =
         50 +
@@ -530,7 +530,7 @@ class Node {
     // Add extra space for variable dropdown if node has it
     const variableDropdownSpace = this.nodeType.hasVariableDropdown ? 45 : 0;
     const customEditorSpace = this.nodeType.hasCustomEditor
-      ? (this.nodeType.customEditorConfig?.height || 38) + 22
+      ? (this.nodeType.customEditorConfig?.height || 38) + 28
       : 0;
     this.height =
       50 +

@@ -1058,7 +1058,7 @@ export class AutoLayoutEngine {
       : 0;
 
     const customEditorOffset = node.nodeType?.hasCustomEditor
-      ? (node.nodeType?.customEditorConfig?.height || 38) + 22
+      ? (node.nodeType?.customEditorConfig?.height || 38) + 28
       : 0;
 
     const startY = 50 + dropdownOffset + customInputOffset + customEditorOffset;
@@ -1940,7 +1940,7 @@ export class AutoLayoutEngine {
     height += customInputOffset;
 
     const customEditorOffset = node.nodeType?.hasCustomEditor
-      ? (node.nodeType?.customEditorConfig?.height || 38) + 22
+      ? (node.nodeType?.customEditorConfig?.height || 38) + 28
       : 0;
     height += customEditorOffset;
 
