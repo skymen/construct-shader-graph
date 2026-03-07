@@ -1057,7 +1057,11 @@ export class AutoLayoutEngine {
         : 30
       : 0;
 
-    const startY = 50 + dropdownOffset + customInputOffset;
+    const customEditorOffset = node.nodeType?.hasCustomEditor
+      ? (node.nodeType?.customEditorConfig?.height || 38) + 22
+      : 0;
+
+    const startY = 50 + dropdownOffset + customInputOffset + customEditorOffset;
 
     // Calculate cumulative Y position based on actual port heights
     let y = startY;
@@ -1910,7 +1914,8 @@ export class AutoLayoutEngine {
       node.nodeType?.outputs?.length > 0 &&
       !node.nodeType?.hasOperation &&
       !node.nodeType?.hasCustomInput &&
-      !node.nodeType?.hasVariableDropdown;
+      !node.nodeType?.hasVariableDropdown &&
+      !node.nodeType?.hasCustomEditor;
 
     // Variable nodes are small and pill-shaped
     if (isVariable) {
@@ -1933,6 +1938,11 @@ export class AutoLayoutEngine {
         : 30
       : 0;
     height += customInputOffset;
+
+    const customEditorOffset = node.nodeType?.hasCustomEditor
+      ? (node.nodeType?.customEditorConfig?.height || 38) + 22
+      : 0;
+    height += customEditorOffset;
 
     // Add variable dropdown offset if present
     const variableDropdownOffset = node.nodeType?.hasVariableDropdown ? 45 : 0;

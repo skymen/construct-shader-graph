@@ -79,6 +79,7 @@ import { SetVec4AlphaNode } from "./SetVec4AlphaNode.js";
 import { SetVec3AlphaNode } from "./SetVec3AlphaNode.js";
 import { LinearGradientNode } from "./LinearGradientNode.js";
 import { RadialGradientNode } from "./RadialGradientNode.js";
+import { GradientMapNode } from "./GradientMapNode.js";
 import { TextureFrontNode } from "./TextureFrontNode.js";
 import { TextureBackNode } from "./TextureBackNode.js";
 import { TextureDepthNode } from "./TextureDepthNode.js";
@@ -386,6 +387,7 @@ export const NODE_TYPES = {
   setVec3Alpha: SetVec3AlphaNode,
   linearGradient: LinearGradientNode,
   radialGradient: RadialGradientNode,
+  gradientMap: GradientMapNode,
   textureFront: TextureFrontNode,
   textureBack: TextureBackNode,
   textureDepth: TextureDepthNode,

@@ -149,8 +149,16 @@ class Port {
       : 0;
     // Add extra offset if node has variable dropdown
     const variableDropdownOffset = node.nodeType.hasVariableDropdown ? 45 : 0;
+    const customEditorOffset = node.nodeType.hasCustomEditor
+      ? (node.nodeType.customEditorConfig?.height || 38) + 22
+      : 0;
     const startY =
-      node.y + 50 + dropdownOffset + customInputOffset + variableDropdownOffset;
+      node.y +
+      50 +
+      dropdownOffset +
+      customInputOffset +
+      variableDropdownOffset +
+      customEditorOffset;
 
     // Calculate cumulative Y position based on actual port heights
     let y = startY;
@@ -378,6 +386,10 @@ class Node {
       this.operation = nodeType.operationOptions[0].value;
     }
 
+    if (typeof nodeType.createDefaultData === "function") {
+      this.data = nodeType.createDefaultData();
+    }
+
     // Initialize custom input for nodes that have it
     if (nodeType.hasCustomInput) {
       this.customInput = nodeType.customInputConfig.defaultValue;
@@ -406,7 +418,8 @@ class Node {
       nodeType.outputs.length > 0 &&
       !nodeType.hasOperation &&
       !nodeType.hasCustomInput &&
-      !nodeType.hasVariableDropdown;
+      !nodeType.hasVariableDropdown &&
+      !nodeType.hasCustomEditor;
 
     // Variable nodes are smaller and pill-shaped
     if (this.isVariable) {
@@ -446,11 +459,15 @@ class Node {
         : 0;
       // Add extra space for variable dropdown if node has it
       const variableDropdownSpace = nodeType.hasVariableDropdown ? 45 : 0;
+      const customEditorSpace = nodeType.hasCustomEditor
+        ? (nodeType.customEditorConfig?.height || 38) + 22
+        : 0;
       this.height =
         50 +
         dropdownSpace +
         customInputSpace +
         variableDropdownSpace +
+        customEditorSpace +
         maxPorts * 40 +
         extraHeight +
         10;
@@ -512,11 +529,15 @@ class Node {
       : 0;
     // Add extra space for variable dropdown if node has it
     const variableDropdownSpace = this.nodeType.hasVariableDropdown ? 45 : 0;
+    const customEditorSpace = this.nodeType.hasCustomEditor
+      ? (this.nodeType.customEditorConfig?.height || 38) + 22
+      : 0;
     this.height =
       50 +
       dropdownSpace +
       customInputSpace +
       variableDropdownSpace +
+      customEditorSpace +
       maxPorts * 40 +
       extraHeight +
       10;
@@ -606,6 +627,37 @@ class Node {
     };
   }
 
+  getCustomEditorBounds() {
+    if (!this.nodeType.hasCustomEditor) return null;
+
+    const headerHeight = 30;
+    const padding = 10;
+    const topMargin = 10;
+    const editorHeight = this.nodeType.customEditorConfig?.height || 38;
+    const operationOffset = this.nodeType.hasOperation ? 35 : 0;
+    const customInputOffset = this.nodeType.hasCustomInput
+      ? this.nodeType.customInputConfig?.label
+        ? 45
+        : 30
+      : 0;
+    const variableDropdownOffset = this.nodeType.hasVariableDropdown ? 45 : 0;
+    const labelHeight = this.nodeType.customEditorConfig?.label ? 15 : 0;
+
+    return {
+      x: this.x + padding,
+      y:
+        this.y +
+        headerHeight +
+        topMargin +
+        operationOffset +
+        customInputOffset +
+        variableDropdownOffset +
+        labelHeight,
+      width: this.width - padding * 2,
+      height: editorHeight,
+    };
+  }
+
   // Update custom input and handle type changes
   updateCustomInput(newValue, editor) {
     const oldValue = this.customInput;
@@ -643,6 +695,44 @@ class Node {
           });
 
           // Only disconnect incompatible connections
+          connectionsToRemove.forEach((wire) => {
+            editor.disconnectWire(wire);
+          });
+        }
+      });
+    }
+  }
+
+  updateOperation(newValue, editor) {
+    const oldValue = this.operation;
+    this.operation = newValue;
+
+    const customPorts = this.getAllPorts().filter(
+      (port) => port.portType === "custom"
+    );
+
+    if (customPorts.length > 0 && this.nodeType.getCustomType) {
+      customPorts.forEach((port) => {
+        const oldNode = { ...this, operation: oldValue };
+        const newNode = { ...this, operation: newValue };
+
+        const oldType = this.nodeType.getCustomType(oldNode, port);
+        const newType = this.nodeType.getCustomType(newNode, port);
+
+        if (oldType !== newType && port.connections.length > 0) {
+          const connectionsToRemove = [];
+
+          port.connections.forEach((wire) => {
+            const otherPort =
+              wire.startPort === port ? wire.endPort : wire.startPort;
+
+            const isStillCompatible = port.canConnectTo(otherPort);
+
+            if (!isStillCompatible) {
+              connectionsToRemove.push(wire);
+            }
+          });
+
           connectionsToRemove.forEach((wire) => {
             editor.disconnectWire(wire);
           });
@@ -944,6 +1034,7 @@ class BlueprintSystem {
     this.lastClickTime = 0;
     this.lastClickPos = { x: 0, y: 0 };
     this.editingPort = null;
+    this.editingCustomEditor = null;
 
     // Selection state
     this.selectedNodes = new Set();
@@ -1739,6 +1830,179 @@ class BlueprintSystem {
 
     this.customInputField.addEventListener("mousedown", (e) => {
       e.stopPropagation();
+    });
+
+    this.gradientEditorModal = document.createElement("div");
+    this.gradientEditorModal.id = "gradientEditorModal";
+    this.gradientEditorModal.style.position = "fixed";
+    this.gradientEditorModal.style.inset = "0";
+    this.gradientEditorModal.style.display = "none";
+    this.gradientEditorModal.style.alignItems = "center";
+    this.gradientEditorModal.style.justifyContent = "center";
+    this.gradientEditorModal.style.background = "rgba(0, 0, 0, 0.65)";
+    this.gradientEditorModal.style.zIndex = "10020";
+
+    const gradientPanel = document.createElement("div");
+    gradientPanel.style.width = "min(560px, calc(100vw - 32px))";
+    gradientPanel.style.maxHeight = "calc(100vh - 32px)";
+    gradientPanel.style.overflow = "auto";
+    gradientPanel.style.background = "#202020";
+    gradientPanel.style.border = "1px solid #3a3a3a";
+    gradientPanel.style.borderRadius = "12px";
+    gradientPanel.style.boxShadow = "0 18px 50px rgba(0, 0, 0, 0.45)";
+    gradientPanel.style.padding = "16px";
+    gradientPanel.style.color = "white";
+    gradientPanel.style.fontFamily = "sans-serif";
+    gradientPanel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
+        <div>
+          <div style="font-size:18px;font-weight:600;">Gradient Editor</div>
+          <div style="font-size:12px;color:#a0a0a0;margin-top:2px;">Drag handles to move stops. Double-click the bar to add one.</div>
+        </div>
+      </div>
+      <div id="gradientEditorPreviewShell" style="position:relative;margin-bottom:16px;">
+        <div id="gradientEditorPreview" style="height:54px;border-radius:10px;border:1px solid #454545;background:#111;cursor:crosshair;position:relative;overflow:hidden;"></div>
+        <div id="gradientEditorHandles" style="position:absolute;inset:0;pointer-events:none;"></div>
+      </div>
+      <div style="background:#171717;border:1px solid #343434;border-radius:10px;padding:14px;margin-bottom:14px;">
+        <div id="gradientEditorStopLabel" style="font-size:13px;font-weight:600;margin-bottom:12px;color:#f2f2f2;">Selected Stop</div>
+        <div style="display:grid;grid-template-columns:96px 1fr;gap:12px;align-items:center;margin-bottom:12px;">
+          <label style="font-size:12px;color:#a0a0a0;">Color</label>
+          <input type="color" id="gradientEditorColor" style="width:100%;height:36px;background:#111;border:1px solid #3a3a3a;border-radius:6px;cursor:pointer;" />
+        </div>
+        <div id="gradientEditorAlphaRow" style="display:grid;grid-template-columns:96px 1fr;gap:12px;align-items:center;margin-bottom:12px;">
+          <label style="font-size:12px;color:#a0a0a0;">Alpha</label>
+          <input type="range" id="gradientEditorAlpha" min="0" max="1" step="0.01" />
+        </div>
+        <div style="display:grid;grid-template-columns:96px 1fr 74px;gap:12px;align-items:center;">
+          <label style="font-size:12px;color:#a0a0a0;">Position</label>
+          <input type="range" id="gradientEditorPositionRange" min="0" max="1" step="0.001" />
+          <input type="number" id="gradientEditorPositionNumber" min="0" max="1" step="0.01" style="background:#1a1a1a;border:1px solid #3a3a3a;color:white;border-radius:6px;padding:8px;" />
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;">
+        <button type="button" id="gradientEditorDeleteStop" style="background:#3a1f24;border:1px solid #7a3a45;color:#ffd7de;border-radius:6px;padding:8px 12px;cursor:pointer;">Delete Stop</button>
+        <div style="display:flex;gap:8px;">
+          <button type="button" id="gradientEditorCancel" style="background:#2a2a2a;border:1px solid #4a4a4a;color:white;border-radius:6px;padding:8px 12px;cursor:pointer;">Cancel</button>
+          <button type="button" id="gradientEditorSave" style="background:#2f5f36;border:1px solid #4e9b59;color:#ecfff0;border-radius:6px;padding:8px 12px;cursor:pointer;">Save</button>
+        </div>
+      </div>
+    `;
+
+    this.gradientEditorModal.appendChild(gradientPanel);
+    document.body.appendChild(this.gradientEditorModal);
+    this.gradientEditorPreview = document.getElementById("gradientEditorPreview");
+    this.gradientEditorHandles = document.getElementById(
+      "gradientEditorHandles"
+    );
+    this.gradientEditorStopLabel = document.getElementById(
+      "gradientEditorStopLabel"
+    );
+    this.gradientEditorColorInput = document.getElementById(
+      "gradientEditorColor"
+    );
+    this.gradientEditorAlphaRow = document.getElementById(
+      "gradientEditorAlphaRow"
+    );
+    this.gradientEditorAlphaInput = document.getElementById(
+      "gradientEditorAlpha"
+    );
+    this.gradientEditorPositionRange = document.getElementById(
+      "gradientEditorPositionRange"
+    );
+    this.gradientEditorPositionNumber = document.getElementById(
+      "gradientEditorPositionNumber"
+    );
+    this.gradientEditorDeleteStopBtn = document.getElementById(
+      "gradientEditorDeleteStop"
+    );
+    this.gradientEditorCancelBtn = document.getElementById(
+      "gradientEditorCancel"
+    );
+    this.gradientEditorSaveBtn = document.getElementById("gradientEditorSave");
+    this.gradientEditorStops = [];
+    this.gradientEditorSelectedStop = 0;
+    this.gradientEditorDragStop = null;
+
+    gradientPanel.addEventListener("mousedown", (e) => e.stopPropagation());
+    this.gradientEditorModal.addEventListener("mousedown", (e) => {
+      if (e.target === this.gradientEditorModal) {
+        this.closeGradientEditor();
+      }
+    });
+    this.gradientEditorPreview.addEventListener("mousedown", (e) => {
+      if (e.target !== this.gradientEditorPreview) {
+        return;
+      }
+
+      const rect = this.gradientEditorPreview.getBoundingClientRect();
+      const position = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+
+      if (e.detail === 2) {
+        this.gradientEditorDragStop = this.addGradientEditorStop(position);
+        return;
+      }
+
+      let closestIndex = 0;
+      let closestDistance = Infinity;
+      (this.gradientEditorStops || []).forEach((stop, index) => {
+        const distance = Math.abs(stop.position - position);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestIndex = index;
+        }
+      });
+      this.gradientEditorSelectedStop = closestIndex;
+      this.renderGradientEditor();
+    });
+    this.gradientEditorColorInput.addEventListener("input", () => {
+      const stop = this.gradientEditorStops[this.gradientEditorSelectedStop];
+      if (!stop) return;
+      const hex = this.gradientEditorColorInput.value;
+      stop.color[0] = parseInt(hex.slice(1, 3), 16) / 255;
+      stop.color[1] = parseInt(hex.slice(3, 5), 16) / 255;
+      stop.color[2] = parseInt(hex.slice(5, 7), 16) / 255;
+      this.renderGradientEditor();
+    });
+    this.gradientEditorAlphaInput.addEventListener("input", () => {
+      const stop = this.gradientEditorStops[this.gradientEditorSelectedStop];
+      if (!stop) return;
+      const value = parseFloat(this.gradientEditorAlphaInput.value);
+      if (!Number.isNaN(value)) {
+        stop.color[3] = Math.min(1, Math.max(0, value));
+        this.renderGradientEditor();
+      }
+    });
+    this.gradientEditorPositionRange.addEventListener("input", () => {
+      this.updateSelectedGradientStopPosition(
+        parseFloat(this.gradientEditorPositionRange.value)
+      );
+    });
+    this.gradientEditorPositionNumber.addEventListener("input", () => {
+      this.updateSelectedGradientStopPosition(
+        parseFloat(this.gradientEditorPositionNumber.value)
+      );
+    });
+    this.gradientEditorDeleteStopBtn.addEventListener("click", () => {
+      this.deleteSelectedGradientStop();
+    });
+    this.gradientEditorCancelBtn.addEventListener("click", () => {
+      this.closeGradientEditor();
+    });
+    this.gradientEditorSaveBtn.addEventListener("click", () => {
+      this.saveGradientEditor();
+    });
+    document.addEventListener("mousemove", (e) => {
+      if (this.gradientEditorDragStop === null || !this.gradientEditorPreview) {
+        return;
+      }
+
+      const rect = this.gradientEditorPreview.getBoundingClientRect();
+      const position = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+      this.updateSelectedGradientStopPosition(position, this.gradientEditorDragStop);
+    });
+    document.addEventListener("mouseup", () => {
+      this.gradientEditorDragStop = null;
     });
 
     // Create vec2 editor (two number inputs in a column)
@@ -5496,6 +5760,299 @@ class BlueprintSystem {
     return uniformNodeTypes;
   }
 
+  cloneNodeData(data) {
+    if (data === undefined) {
+      return undefined;
+    }
+
+    if (data === null) {
+      return null;
+    }
+
+    if (typeof structuredClone === "function") {
+      return structuredClone(data);
+    }
+
+    return JSON.parse(JSON.stringify(data));
+  }
+
+  ensureNodeData(node) {
+    if (!node.data) {
+      if (typeof node.nodeType.createDefaultData === "function") {
+        node.data = node.nodeType.createDefaultData();
+      } else {
+        node.data = {};
+      }
+    }
+
+    return node.data;
+  }
+
+  normalizeGradientStopsForNode(node) {
+    const data = this.ensureNodeData(node);
+    const outputType = node.operation || "vec4";
+    const channelCount = outputType === "vec3" ? 3 : 4;
+    const fallbackStops = [
+      { position: 0, color: [0, 0, 0, 1] },
+      { position: 1, color: [1, 1, 1, 1] },
+    ];
+    const sourceStops = Array.isArray(data.stops) ? data.stops : fallbackStops;
+
+    const normalizedStops = sourceStops
+      .map((stop, index) => {
+        const fallbackColor = fallbackStops[Math.min(index, fallbackStops.length - 1)]
+          .color;
+        const colorSource = Array.isArray(stop?.color) ? stop.color : fallbackColor;
+        const color = [
+          Math.min(1, Math.max(0, Number.isFinite(colorSource[0]) ? colorSource[0] : 1)),
+          Math.min(1, Math.max(0, Number.isFinite(colorSource[1]) ? colorSource[1] : 1)),
+          Math.min(1, Math.max(0, Number.isFinite(colorSource[2]) ? colorSource[2] : 1)),
+          Math.min(1, Math.max(0, Number.isFinite(colorSource[3]) ? colorSource[3] : 1)),
+        ];
+
+        if (channelCount === 3) {
+          color.length = 3;
+        }
+
+        return {
+          position: Math.min(
+            1,
+            Math.max(0, Number.isFinite(stop?.position) ? stop.position : index)
+          ),
+          color,
+        };
+      })
+      .sort((a, b) => a.position - b.position);
+
+    if (normalizedStops.length === 0) {
+      data.stops = fallbackStops.map((stop) => ({
+        position: stop.position,
+        color: channelCount === 3 ? stop.color.slice(0, 3) : [...stop.color],
+      }));
+      return data.stops;
+    }
+
+    data.stops = normalizedStops;
+    return data.stops;
+  }
+
+  openGradientEditor(node) {
+    this.editingCustomEditor = node;
+    const stops = this.normalizeGradientStopsForNode(node);
+    this.gradientEditorStops = this.cloneNodeData(stops);
+    this.renderGradientEditor();
+    this.gradientEditorModal.style.display = "flex";
+  }
+
+  closeGradientEditor() {
+    this.gradientEditorModal.style.display = "none";
+    this.editingCustomEditor = null;
+    this.gradientEditorStops = [];
+    this.gradientEditorSelectedStop = null;
+    this.gradientEditorDragStop = null;
+  }
+
+  addGradientEditorStop(position) {
+    const stops = [...(this.gradientEditorStops || [])].sort(
+      (a, b) => a.position - b.position
+    );
+    let insertIndex = stops.findIndex((stop) => stop.position >= position);
+    if (insertIndex === -1) {
+      insertIndex = stops.length;
+    }
+
+    const previousStop = stops[Math.max(0, insertIndex - 1)] || stops[0];
+    const nextStop = stops[Math.min(stops.length - 1, insertIndex)] || stops[stops.length - 1];
+    const blend =
+      previousStop && nextStop && nextStop.position !== previousStop.position
+        ? (position - previousStop.position) /
+          (nextStop.position - previousStop.position)
+        : 0;
+    const newColor = [0, 0, 0, 1].map((_, channel) => {
+      const from = previousStop?.color?.[channel] ?? (channel === 3 ? 1 : 0);
+      const to = nextStop?.color?.[channel] ?? from;
+      return from + (to - from) * blend;
+    });
+
+    const newStop = {
+      position: Math.min(1, Math.max(0, position)),
+      color: newColor,
+    };
+    this.gradientEditorStops.push(newStop);
+    this.gradientEditorSelectedStop = this.gradientEditorStops.indexOf(newStop);
+    this.renderGradientEditor();
+    return newStop;
+  }
+
+  updateSelectedGradientStopPosition(value, forcedStop = null) {
+    const index = forcedStop
+      ? this.gradientEditorStops.indexOf(forcedStop)
+      : this.gradientEditorSelectedStop;
+    const stop = this.gradientEditorStops[index];
+    if (!stop || Number.isNaN(value)) return;
+
+    stop.position = Math.min(1, Math.max(0, value));
+    this.gradientEditorSelectedStop = index;
+    this.renderGradientEditor();
+  }
+
+  deleteSelectedGradientStop() {
+    if (!this.gradientEditorStops || this.gradientEditorStops.length <= 2) {
+      return;
+    }
+
+    this.gradientEditorStops.splice(this.gradientEditorSelectedStop, 1);
+    this.gradientEditorSelectedStop = Math.max(
+      0,
+      Math.min(this.gradientEditorSelectedStop, this.gradientEditorStops.length - 1)
+    );
+    this.renderGradientEditor();
+  }
+
+  drawCheckerboard(ctx, x, y, width, height, cellSize = 6) {
+    const cols = Math.ceil(width / cellSize);
+    const rows = Math.ceil(height / cellSize);
+
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        ctx.fillStyle = (row + col) % 2 === 0 ? "#2b2b2b" : "#3a3a3a";
+        ctx.fillRect(
+          x + col * cellSize,
+          y + row * cellSize,
+          cellSize,
+          cellSize
+        );
+      }
+    }
+  }
+
+  renderGradientEditor() {
+    if (!this.gradientEditorHandles || !this.gradientEditorPreview) return;
+
+    const node = this.editingCustomEditor;
+    const outputType = node?.operation || "vec4";
+    const channelCount = outputType === "vec3" ? 3 : 4;
+    const selectedReference = this.gradientEditorStops[this.gradientEditorSelectedStop ?? 0];
+    this.gradientEditorStops.sort((a, b) => a.position - b.position);
+
+    if (!this.gradientEditorStops.length) {
+      this.gradientEditorPreview.style.backgroundImage = "none";
+      this.gradientEditorPreview.style.backgroundColor = "#1a1a1a";
+      this.gradientEditorHandles.innerHTML = "";
+      return;
+    }
+
+    if (selectedReference) {
+      this.gradientEditorSelectedStop = Math.max(
+        0,
+        this.gradientEditorStops.indexOf(selectedReference)
+      );
+    }
+
+    this.gradientEditorSelectedStop = Math.max(
+      0,
+      Math.min(this.gradientEditorSelectedStop ?? 0, this.gradientEditorStops.length - 1)
+    );
+
+    const stops = this.gradientEditorStops;
+    const selectedStop = stops[this.gradientEditorSelectedStop];
+    const gradient = stops
+      .map((stop) => {
+        const color = stop.color || [1, 1, 1, 1];
+        const alpha = channelCount === 4 ? color[3] ?? 1 : 1;
+        return `rgba(${Math.round((color[0] ?? 0) * 255)}, ${Math.round(
+          (color[1] ?? 0) * 255
+        )}, ${Math.round((color[2] ?? 0) * 255)}, ${alpha}) ${Math.round(
+          stop.position * 100
+        )}%`;
+      })
+      .join(", ");
+    this.gradientEditorPreview.style.backgroundImage = `linear-gradient(90deg, ${gradient}), linear-gradient(45deg, #2b2b2b 25%, transparent 25%, transparent 75%, #2b2b2b 75%, #2b2b2b), linear-gradient(45deg, #2b2b2b 25%, transparent 25%, transparent 75%, #2b2b2b 75%, #2b2b2b)`;
+    this.gradientEditorPreview.style.backgroundColor = "#1f1f1f";
+    this.gradientEditorPreview.style.backgroundSize = "auto, 16px 16px, 16px 16px";
+    this.gradientEditorPreview.style.backgroundPosition = "0 0, 0 0, 8px 8px";
+
+    this.gradientEditorHandles.innerHTML = "";
+    stops.forEach((stop, index) => {
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.style.position = "absolute";
+      handle.style.left = `calc(${(stop.position * 100).toFixed(3)}% - 9px)`;
+      handle.style.bottom = "6px";
+      handle.style.width = "18px";
+      handle.style.height = "18px";
+      handle.style.borderRadius = "999px";
+      handle.style.border =
+        index === this.gradientEditorSelectedStop
+          ? "2px solid white"
+          : "1px solid rgba(255,255,255,0.75)";
+      handle.style.background = `rgb(${Math.round((stop.color[0] ?? 0) * 255)}, ${Math.round(
+        (stop.color[1] ?? 0) * 255
+      )}, ${Math.round((stop.color[2] ?? 0) * 255)})`;
+      handle.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.35)";
+      handle.style.cursor = "ew-resize";
+      handle.style.pointerEvents = "auto";
+
+      handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.gradientEditorSelectedStop = index;
+        this.gradientEditorDragStop = stop;
+        this.renderGradientEditor();
+      });
+      handle.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.gradientEditorSelectedStop = index;
+        this.renderGradientEditor();
+      });
+
+      this.gradientEditorHandles.appendChild(handle);
+    });
+
+    this.gradientEditorStopLabel.textContent = `Selected Stop ${
+      this.gradientEditorSelectedStop + 1
+    } of ${stops.length}`;
+    this.gradientEditorColorInput.value = `#${Math.round(
+      (selectedStop.color[0] ?? 0) * 255
+    )
+      .toString(16)
+      .padStart(2, "0")}${Math.round((selectedStop.color[1] ?? 0) * 255)
+      .toString(16)
+      .padStart(2, "0")}${Math.round((selectedStop.color[2] ?? 0) * 255)
+      .toString(16)
+      .padStart(2, "0")}`;
+    this.gradientEditorAlphaRow.style.display =
+      channelCount === 4 ? "grid" : "none";
+    this.gradientEditorAlphaInput.value = `${selectedStop.color[3] ?? 1}`;
+    this.gradientEditorPositionRange.value = `${selectedStop.position}`;
+    this.gradientEditorPositionNumber.value = selectedStop.position.toFixed(2);
+    this.gradientEditorDeleteStopBtn.disabled = stops.length <= 2;
+  }
+
+  saveGradientEditor() {
+    if (!this.editingCustomEditor) return;
+
+    const node = this.editingCustomEditor;
+    const normalizedStops = [...(this.gradientEditorStops || [])]
+      .map((stop) => ({
+        position: Math.min(1, Math.max(0, Number.isFinite(stop.position) ? stop.position : 0)),
+        color: (Array.isArray(stop.color) ? stop.color : [1, 1, 1, 1]).map((value, index) => {
+          if (index > 3) return undefined;
+          return Math.min(1, Math.max(0, Number.isFinite(value) ? value : index === 3 ? 1 : 0));
+        }).filter((value) => value !== undefined),
+      }))
+      .sort((a, b) => a.position - b.position);
+
+    this.ensureNodeData(node).stops = normalizedStops;
+    this.normalizeGradientStopsForNode(node);
+    node.recalculateHeight();
+    this.closeGradientEditor();
+    this.render();
+    this.onShaderChanged();
+    this.history.pushState("Edit gradient");
+  }
+
   startEditingPort(port) {
     if (!port.isEditable || port.connections.length > 0) return;
 
@@ -5889,10 +6446,12 @@ class BlueprintSystem {
       });
 
       option.addEventListener("click", () => {
-        node.operation = op.value;
+        node.updateOperation(op.value, this);
         document.body.removeChild(menu);
+        node.recalculateHeight();
         this.render();
         this.onShaderChanged();
+        this.history.pushState("Change operation");
       });
 
       menu.appendChild(option);
@@ -7827,6 +8386,7 @@ class BlueprintSystem {
         y: node.y,
         operation: node.operation,
         customInput: node.customInput,
+        data: this.cloneNodeData(node.data),
         selectedVariable: node.selectedVariable,
         uniformId: node.uniformId,
         uniformName: node.uniformName,
@@ -7960,6 +8520,7 @@ class BlueprintSystem {
       } else {
         newNode.customInput = nodeData.customInput;
       }
+      newNode.data = this.cloneNodeData(nodeData.data);
 
       // Store original selectedVariable for Get Variable nodes
       // (we'll update it after all nodes are created)
@@ -9790,6 +10351,7 @@ class BlueprintSystem {
         title: node.title,
         operation: node.operation,
         customInput: node.customInput,
+        data: this.cloneNodeData(node.data),
         selectedVariable: node.selectedVariable,
         uniformName: node.uniformName,
         uniformDisplayName: node.uniformDisplayName,
@@ -10045,6 +10607,9 @@ class BlueprintSystem {
           if (nodeData.operation) node.operation = nodeData.operation;
           if (nodeData.customInput !== undefined)
             node.customInput = nodeData.customInput;
+          if (nodeData.data !== undefined) {
+            node.data = this.cloneNodeData(nodeData.data);
+          }
           if (nodeData.selectedVariable !== undefined)
             node.selectedVariable = nodeData.selectedVariable;
 
@@ -10236,6 +10801,7 @@ class BlueprintSystem {
         nodeTypeKey: this.getNodeTypeKey(node.nodeType),
         operation: node.operation,
         customInput: node.customInput,
+        data: this.cloneNodeData(node.data),
         selectedVariable: node.selectedVariable,
         uniformId: node.uniformId,
         uniformName: node.uniformName,
@@ -10325,6 +10891,7 @@ class BlueprintSystem {
 
       node.operation = nodeData.operation;
       node.customInput = nodeData.customInput;
+      node.data = this.cloneNodeData(nodeData.data);
       node.selectedVariable = nodeData.selectedVariable;
       node.uniformId = nodeData.uniformId;
       node.uniformName = nodeData.uniformName;
@@ -11268,6 +11835,23 @@ class BlueprintSystem {
         ) {
           this.startEditingCustomInput(node);
           return;
+        }
+      }
+    }
+
+    for (const node of this.nodes) {
+      if (node.nodeType.hasCustomEditor) {
+        const editorBounds = node.getCustomEditorBounds();
+        if (
+          pos.x >= editorBounds.x &&
+          pos.x <= editorBounds.x + editorBounds.width &&
+          pos.y >= editorBounds.y &&
+          pos.y <= editorBounds.y + editorBounds.height
+        ) {
+          if (node.nodeType.customEditorConfig?.type === "gradient") {
+            this.openGradientEditor(node);
+            return;
+          }
         }
       }
     }
@@ -13133,6 +13717,109 @@ class BlueprintSystem {
               inputBounds.y - 3
             );
           }
+        }
+      }
+
+      if (node.nodeType.hasCustomEditor) {
+        const editorBounds = node.getCustomEditorBounds();
+        const editorLabel = node.nodeType.customEditorConfig?.label;
+
+        ctx.fillStyle = "#171717";
+        ctx.strokeStyle = "#4a4a4a";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(
+          editorBounds.x,
+          editorBounds.y,
+          editorBounds.width,
+          editorBounds.height,
+          6
+        );
+        ctx.fill();
+        ctx.stroke();
+
+        if (node.nodeType.customEditorConfig?.type === "gradient") {
+          const stops = this.normalizeGradientStopsForNode(node);
+          const gradient = ctx.createLinearGradient(
+            editorBounds.x + 6,
+            editorBounds.y,
+            editorBounds.x + editorBounds.width - 6,
+            editorBounds.y
+          );
+
+          stops.forEach((stop) => {
+            const color = stop.color || [1, 1, 1, 1];
+            const alpha = node.operation === "vec4" ? color[3] ?? 1 : 1;
+            gradient.addColorStop(
+              stop.position,
+              `rgba(${Math.round((color[0] ?? 0) * 255)}, ${Math.round(
+                (color[1] ?? 0) * 255
+              )}, ${Math.round((color[2] ?? 0) * 255)}, ${alpha})`
+            );
+          });
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(
+            editorBounds.x + 6,
+            editorBounds.y + 6,
+            editorBounds.width - 12,
+            editorBounds.height - 12,
+            5
+          );
+          ctx.clip();
+          this.drawCheckerboard(
+            ctx,
+            editorBounds.x + 6,
+            editorBounds.y + 6,
+            editorBounds.width - 12,
+            editorBounds.height - 12,
+            6
+          );
+          ctx.fillStyle = gradient;
+          ctx.fillRect(
+            editorBounds.x + 6,
+            editorBounds.y + 6,
+            editorBounds.width - 12,
+            editorBounds.height - 12
+          );
+          ctx.restore();
+
+          stops.forEach((stop) => {
+            const markerX = editorBounds.x + 6 + (editorBounds.width - 12) * stop.position;
+            const markerY = editorBounds.y + editorBounds.height - 8;
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(markerX, markerY, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = "#111";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          });
+
+          if (shouldDrawText) {
+            ctx.fillStyle = "rgba(255,255,255,0.88)";
+            ctx.font = "11px sans-serif";
+            ctx.textAlign = "left";
+            ctx.fillText(
+              `${stops.length} stop${stops.length === 1 ? "" : "s"}`,
+              editorBounds.x + 10,
+              editorBounds.y + editorBounds.height / 2 + 4
+            );
+            ctx.textAlign = "right";
+            ctx.fillText(
+              "Edit",
+              editorBounds.x + editorBounds.width - 10,
+              editorBounds.y + editorBounds.height / 2 + 4
+            );
+          }
+        }
+
+        if (shouldDrawText && editorLabel) {
+          ctx.fillStyle = "#888";
+          ctx.font = "10px sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillText(editorLabel, editorBounds.x, editorBounds.y - 3);
         }
       }
 
