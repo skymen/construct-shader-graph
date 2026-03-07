@@ -14699,7 +14699,7 @@ class BlueprintSystem {
 // Initialize the system
 const canvas = document.getElementById("canvas");
 const blueprint = new BlueprintSystem(canvas);
-installGlobalConsoleApi(blueprint, { Wire });
+installGlobalConsoleApi(blueprint, { Wire, exampleFiles });
 
 // Initialize with default nodes
 

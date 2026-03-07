@@ -6,11 +6,30 @@ Use `window.shaderGraphAPI` or the short alias `window.sg` from the browser cons
 
 ```js
 sg.help()
+sg.session.initAIWork({ message: "Inspecting graph" })
 sg.nodeTypes.list()
 sg.nodes.list()
 sg.shader.getGeneratedCode()
 sg.preview.getSettings()
 ```
+
+## AI work session
+
+Use the session helpers when an AI starts and finishes a task.
+
+```js
+sg.session.initAIWork({ message: "Inspecting graph" })
+sg.session.updateAIWork("Adding uniforms")
+sg.session.endAIWork({
+  title: "AI task complete",
+  summary: ["Added 2 uniforms", "Rewired output", "Updated preview"],
+})
+```
+
+- `initAIWork()` closes the startup dialog and shows a compact on-screen "AI working" indicator.
+- `updateAIWork()` updates that indicator with a short, concise status message.
+- `endAIWork()` hides the indicator and shows a completion notification with a short recap.
+- Keep update messages very short, like `"Scanning nodes"`, `"Adding preview"`, or `"Exporting addon"`.
 
 ## Core model
 
@@ -184,6 +203,26 @@ sg.batch(label, fn)
 ```
 
 - `batch()` groups multiple graph edits into one undo history entry.
+
+### Session and projects
+
+```js
+sg.session.initAIWork({ message: "Inspecting graph" })
+sg.session.updateAIWork("Opening example")
+sg.session.endAIWork({ title: "AI task complete", summary: ["Loaded example"] })
+
+sg.projects.listExamples()
+sg.projects.openExample("my-example.c3sg")
+sg.projects.exportAddon()
+sg.projects.exportAddon({ bumpVersion: "patch" })
+sg.projects.exportAddon({ version: "1.2.0.0" })
+```
+
+- Use `projects.listExamples()` and `projects.openExample()` for built-in examples only.
+- Do not assume the AI can or should open arbitrary local project files.
+- Do not assume the AI should save project files on its own.
+- `projects.exportAddon()` is acceptable because it triggers an explicit download.
+- If you want a brand-new project, the recommended path is to refresh the page and close the startup dialog again.
 
 ### Nodes
 

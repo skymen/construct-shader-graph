@@ -579,6 +579,95 @@ function getStartupScriptInfo() {
   };
 }
 
+function ensureAiStatusElements() {
+  let shell = document.getElementById("ai-work-status");
+  if (!shell) {
+    shell = document.createElement("div");
+    shell.id = "ai-work-status";
+    shell.style.position = "fixed";
+    shell.style.right = "16px";
+    shell.style.bottom = "16px";
+    shell.style.zIndex = "10050";
+    shell.style.display = "none";
+    shell.style.maxWidth = "320px";
+    shell.style.padding = "10px 12px";
+    shell.style.borderRadius = "10px";
+    shell.style.background = "rgba(15, 18, 23, 0.92)";
+    shell.style.border = "1px solid rgba(255, 255, 255, 0.12)";
+    shell.style.boxShadow = "0 12px 40px rgba(0, 0, 0, 0.28)";
+    shell.style.color = "#f5f7fa";
+    shell.style.fontFamily = '"IBM Plex Sans", sans-serif';
+    shell.style.pointerEvents = "none";
+
+    const title = document.createElement("div");
+    title.dataset.role = "title";
+    title.style.fontSize = "12px";
+    title.style.fontWeight = "700";
+    title.style.letterSpacing = "0.08em";
+    title.style.textTransform = "uppercase";
+    title.style.color = "#9fd0ff";
+    title.textContent = "AI working";
+
+    const message = document.createElement("div");
+    message.dataset.role = "message";
+    message.style.marginTop = "4px";
+    message.style.fontSize = "13px";
+    message.style.lineHeight = "1.35";
+    message.style.color = "rgba(255, 255, 255, 0.9)";
+    message.textContent = "Starting...";
+
+    shell.appendChild(title);
+    shell.appendChild(message);
+    document.body.appendChild(shell);
+  }
+
+  return {
+    shell,
+    title: shell.querySelector('[data-role="title"]'),
+    message: shell.querySelector('[data-role="message"]'),
+  };
+}
+
+function getExamplesCatalog(exampleFiles) {
+  return Object.keys(exampleFiles || {})
+    .sort()
+    .map((fileName) => {
+      try {
+        const data = JSON.parse(exampleFiles[fileName]);
+        const shaderSettings = data.shaderSettings || {};
+        const name =
+          shaderSettings.name ||
+          fileName
+            .replace(".c3sg", "")
+            .split(/[-_\s]/)
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ");
+
+        return {
+          id: fileName,
+          fileName,
+          name,
+          description: shaderSettings.description || "",
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+async function openExampleProject(bp, exampleFiles, exampleId) {
+  const raw = exampleFiles?.[exampleId];
+  assert(raw, `Example '${exampleId}' not found`);
+
+  const data = JSON.parse(raw);
+  const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+  const file = new File([blob], exampleId, { type: "application/json" });
+  await bp.loadFromJSON(file);
+  bp.fileHandle = null;
+  return data;
+}
+
 function validatePreviewNode(node) {
   const hasValidOutput = node.outputPorts.some((port) =>
     PREVIEWABLE_TYPES.has(port.getResolvedType()),
@@ -592,7 +681,7 @@ function validatePreviewNode(node) {
 
 export function installGlobalConsoleApi(blueprint, helpers = {}) {
   assignMissingWireIds(blueprint);
-  const { Wire: WireClass } = helpers;
+  const { Wire: WireClass, exampleFiles } = helpers;
 
   const originalPushState = blueprint.history.pushState.bind(blueprint.history);
   const batchState = {
@@ -617,6 +706,8 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         namespace: "shaderGraphAPI",
         alias: "sg",
         methods: [
+          "session",
+          "projects",
           "nodes",
           "nodeTypes",
           "ports",
@@ -629,6 +720,97 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "batch",
         ],
       };
+    },
+
+    session: {
+      initAIWork(options = {}) {
+        const status = ensureAiStatusElements();
+        const modal = document.getElementById("openFilesModal");
+        if (modal && options.closeStartupDialog !== false) {
+          modal.style.display = "none";
+        }
+
+        status.title.textContent = "AI working";
+        status.message.textContent = String(options.message || "Working...");
+        status.shell.style.display = "block";
+
+        return {
+          active: true,
+          message: status.message.textContent,
+        };
+      },
+
+      updateAIWork(message) {
+        const status = ensureAiStatusElements();
+        status.message.textContent = String(message || "Working...");
+        status.shell.style.display = "block";
+        return {
+          active: true,
+          message: status.message.textContent,
+        };
+      },
+
+      endAIWork(options = {}) {
+        const status = ensureAiStatusElements();
+        status.shell.style.display = "none";
+
+        const summary = Array.isArray(options.summary)
+          ? options.summary.filter(Boolean)
+          : [];
+        blueprint.showNotification({
+          type: "success",
+          title: options.title || "AI task complete",
+          message: summary.join(" | "),
+          duration: options.duration || 7000,
+        });
+
+        return {
+          active: false,
+          title: options.title || "AI task complete",
+          summary,
+        };
+      },
+    },
+
+    projects: {
+      listExamples() {
+        return getExamplesCatalog(exampleFiles);
+      },
+
+      async openExample(exampleId) {
+        const data = await openExampleProject(blueprint, exampleFiles, exampleId);
+        const modal = document.getElementById("openFilesModal");
+        if (modal) {
+          modal.style.display = "none";
+        }
+
+        const entry = getExamplesCatalog(exampleFiles).find(
+          (item) => item.id === exampleId,
+        );
+
+        return {
+          ok: true,
+          example: entry,
+          shaderName: data.shaderSettings?.name || null,
+        };
+      },
+
+      exportAddon(options = {}) {
+        if (options.version) {
+          blueprint.shaderSettings.version = String(options.version);
+          blueprint.updateShaderSettingsUI();
+          blueprint.exportGLSL();
+        } else if (options.bumpVersion) {
+          blueprint.bumpVersionAndExport(options.bumpVersion);
+        } else {
+          blueprint.exportGLSL();
+        }
+
+        return {
+          ok: true,
+          version: blueprint.shaderSettings.version,
+        };
+      },
     },
 
     batch(label, fn) {
