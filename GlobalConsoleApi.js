@@ -207,6 +207,7 @@ function serializeNode(bp, node) {
       inputs: node.inputPorts.map((port) => serializePort(bp, port)),
       outputs: node.outputPorts.map((port) => serializePort(bp, port)),
     },
+    editableInputValues: getEditableInputValueSuggestions(node),
   };
 }
 
@@ -233,6 +234,108 @@ function serializeWire(bp, wire) {
       x: node.x,
       y: node.y,
     })),
+  };
+}
+
+function serializePreviewConsoleEntry(entry) {
+  const time = entry.time instanceof Date ? entry.time : new Date(entry.time);
+  return {
+    level: entry.level,
+    message: entry.message,
+    time: time.toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+    timestamp: time.toISOString(),
+  };
+}
+
+function countUpstreamNodes(node, visited = new Set()) {
+  if (!node || visited.has(node.id)) {
+    return 0;
+  }
+
+  visited.add(node.id);
+  let count = 1;
+
+  node.inputPorts.forEach((port) => {
+    port.connections.forEach((wire) => {
+      count += countUpstreamNodes(wire.startPort.node, visited);
+    });
+  });
+
+  return count;
+}
+
+function getAiWarnings(bp) {
+  const warnings = [];
+
+  bp.nodes.forEach((node) => {
+    node.outputPorts.forEach((port) => {
+      if (port.connections.length <= 1) {
+        return;
+      }
+
+      const distinctTargetNodeIds = new Set(
+        port.connections.map((wire) => wire.endPort.node.id),
+      );
+      if (distinctTargetNodeIds.size <= 1) {
+        return;
+      }
+
+      const subtreeSize = countUpstreamNodes(node);
+      const portSnapshot = serializePort(bp, port);
+      warnings.push({
+        type: "output-fanout",
+        severity: "warning",
+        nodeId: node.id,
+        nodeTypeKey: bp.getNodeTypeKey(node.nodeType),
+        port: portSnapshot,
+        connectionCount: port.connections.length,
+        distinctTargetNodeCount: distinctTargetNodeIds.size,
+        upstreamNodeCount: subtreeSize,
+        recommendation:
+          subtreeSize > 1
+            ? "This output fans out multiple times from a larger computed tree. Prefer a Set Variable / Get Variable pattern to keep layout clean."
+            : "This output fans out multiple times from a small local node. Prefer duplicating the node or using a variable if the branch grows.",
+      });
+    });
+  });
+
+  return warnings;
+}
+
+async function runAiDebugCheck(bp, api, options = {}) {
+  const generatedCode = (() => {
+    try {
+      return {
+        ok: true,
+        data: api.shader.getGeneratedCode(),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  })();
+
+  const previewErrors = api.preview.getErrors({ limit: options.previewErrorLimit ?? 50 });
+  const warnings = api.ai.getWarnings();
+
+  let screenshot = null;
+  if (options.includeScreenshot) {
+    screenshot = await api.preview.screenshot({ download: false });
+  }
+
+  return {
+    ok: generatedCode.ok && previewErrors.length === 0,
+    generatedCode,
+    previewErrors,
+    warnings,
+    screenshot,
   };
 }
 
@@ -359,6 +462,18 @@ function applyPortValues(bp, node, values) {
   });
 
   node.recalculateHeight();
+}
+
+function getEditableInputValueSuggestions(node) {
+  return node.inputPorts
+    .filter((port) => port.isEditable && port.connections.length === 0)
+    .map((port) => ({
+      index: port.index,
+      name: port.name,
+      declaredType: port.portType,
+      resolvedType: port.getResolvedType(),
+      currentValue: cloneValue(port.value),
+    }));
 }
 
 function maybeNormalizeGradient(bp, node, patch) {
@@ -722,6 +837,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "session",
           "projects",
           "customNodes",
+          "ai",
           "nodes",
           "nodeTypes",
           "ports",
@@ -843,6 +959,16 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         );
         assert(customNode, `Custom node ${customNodeIdOrKey} not found`);
         return serializeCustomNodeDefinition(customNode);
+      },
+    },
+
+    ai: {
+      getWarnings() {
+        return getAiWarnings(blueprint);
+      },
+
+      async runDebugCheck(options = {}) {
+        return runAiDebugCheck(blueprint, api, options);
       },
     },
 
@@ -1102,6 +1228,30 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         return serializeUniform(uniform, blueprint.uniforms.length - 1);
       },
 
+      createNode(uniformId, options = {}) {
+        const uniform = getUniformById(blueprint, uniformId);
+        const fallbackPosition = worldCenter(blueprint);
+        const node = blueprint.createUniformNode(
+          uniform,
+          options.x ?? options.position?.x ?? fallbackPosition.x,
+          options.y ?? options.position?.y ?? fallbackPosition.y,
+        );
+
+        if (options.select) {
+          blueprint.clearSelection();
+          blueprint.selectNode(node, false);
+        }
+
+        pushHistory(blueprint, `Create uniform node (${uniform.name})`);
+        return serializeNode(blueprint, node);
+      },
+
+      getNodeTypes() {
+        return Object.entries(blueprint.getUniformNodeTypes()).map(([key, nodeType]) =>
+          normalizeTypeSnapshot(nodeType, key),
+        );
+      },
+
       edit(uniformId, patch = {}) {
         const uniform = getUniformById(blueprint, uniformId);
         const oldVariableName = uniform.variableName;
@@ -1220,6 +1370,35 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
     preview: {
       getSettings() {
         return cloneValue(blueprint.previewSettings);
+      },
+
+      getConsoleEntries(options = {}) {
+        let entries = blueprint.consoleEntries.map((entry) =>
+          serializePreviewConsoleEntry(entry),
+        );
+
+        if (options.level) {
+          const allowedLevels = Array.isArray(options.level)
+            ? new Set(options.level)
+            : new Set([options.level]);
+          entries = entries.filter((entry) => allowedLevels.has(entry.level));
+        }
+
+        if (options.limit !== undefined) {
+          const limit = Math.max(0, Number(options.limit));
+          entries = entries.slice(-limit);
+        }
+
+        return entries;
+      },
+
+      getErrors(options = {}) {
+        return api.preview.getConsoleEntries({ ...options, level: "error" });
+      },
+
+      clearConsole() {
+        blueprint.clearPreviewConsole();
+        return { ok: true };
       },
 
       getStartupScriptInfo() {

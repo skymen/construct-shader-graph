@@ -47,6 +47,9 @@ Use this skill to control Construct Shader Graph from the browser console throug
 - Always call `sg.session.initAIWork()` when starting a task.
 - Always call `sg.session.endAIWork()` when finishing a task.
 - Use `sg.session.updateAIWork()` only for short phase updates.
+- Always inspect preview errors after meaningful shader edits.
+- Always use preview and screenshots for non-trivial visual validation.
+- Prefer setting editable input port values directly before adding constant/vector nodes.
 - Never assume a node id, port index, or wire id without reading it first.
 - Never connect ports without checking the actual node ports.
 - Never replace an output connection blindly; inspect the affected ports first.
@@ -127,12 +130,15 @@ Read-only calls:
 - `sg.shader.getInfo()`
 - `sg.shader.getGeneratedCode()`
 - `sg.preview.getSettings()`
+- `sg.preview.getConsoleEntries()`
+- `sg.preview.getErrors()`
 - `sg.preview.getNodePreview()`
 - `sg.preview.getStartupScriptInfo()`
 - `sg.camera.getState()`
 - `sg.projects.listExamples()`
 - `sg.customNodes.list()`
 - `sg.customNodes.get()`
+- `sg.ai.getWarnings()`
 
 Side-effecting calls:
 
@@ -147,6 +153,7 @@ Side-effecting calls:
 - `sg.uniforms.delete()`
 - `sg.shader.updateInfo()`
 - `sg.preview.updateSettings()`
+- `sg.preview.clearConsole()`
 - `sg.preview.resetSettings()`
 - `sg.preview.setNodePreview()`
 - `sg.preview.toggleNodePreview()`
@@ -167,6 +174,8 @@ Side-effecting calls:
 - Use explicit port refs: `{ nodeId, kind, index }`.
 - Prefer `index` over `name` for automation stability.
 - Use `declaredType` and `resolvedType` to understand generic or dynamic nodes.
+- If an input port is editable and unconnected, prefer setting its value directly instead of creating a separate constant node.
+- This applies to editable floats, vec2, vec3, and vec4 values when the input is intended to be a local literal.
 
 Port reference examples:
 
@@ -174,6 +183,21 @@ Port reference examples:
 { nodeId: 12, kind: "input", index: 0 }
 { nodeId: 12, kind: "output", index: 1 }
 ```
+
+Direct value editing example:
+
+```js
+const dotNode = sg.nodes.get(42)
+dotNode.editableInputValues
+
+sg.nodes.edit(42, {
+  inputValues: {
+    B: [0, 0, 0, 1],
+  },
+})
+```
+
+Prefer this over adding a `Vec4` node when the value is just a local literal used once.
 
 ### Variables
 
@@ -187,6 +211,16 @@ Preferred rule:
 
 - If one output would feed many distant nodes, prefer a variable instead of many long wires.
 - This makes `autoArrange()` cleaner and keeps the graph easier to inspect.
+
+AI-specific warning system:
+
+- Use `sg.ai.getWarnings()` during verification.
+- The multi-output warning only matters when one output fans out to multiple different target nodes.
+- If multiple wires from one output all go into the same node, that warning does not apply.
+- If it reports that an output port fans out multiple times:
+  - use `Set Variable` and `Get Variable` if the value represents a larger computed tree or reusable branch
+  - duplicate small local nodes if the output is just a simple leaf value and duplication is cleaner
+- Treat these warnings as layout and maintainability guidance, not as compile errors.
 
 ### Existing custom nodes
 
@@ -225,6 +259,34 @@ Good variable cases:
 - Node preview compiles from one selected intermediate node instead.
 - Use node preview for masks, UVs, gradients, lighting terms, and intermediate color values.
 - A node can only be previewed if it resolves to `float`, `vec2`, `vec3`, or `vec4` on one output.
+- Use the preview console as part of the normal debug loop.
+- Use screenshots to confirm that the visual result actually matches the intent.
+
+Recommended debug loop:
+
+1. inspect graph state
+2. make one structural change or one tight batch
+3. verify affected nodes and wires
+4. call `sg.shader.getGeneratedCode()`
+5. clear preview console and inspect `sg.preview.getErrors()`
+6. use node preview for intermediate values if needed
+7. take a screenshot with `sg.preview.screenshot()` for visual verification
+8. inspect `sg.ai.getWarnings()` for layout and reuse issues
+9. adjust and repeat only if needed
+
+You can also use the bundled helper:
+
+```js
+await sg.ai.runDebugCheck()
+await sg.ai.runDebugCheck({ includeScreenshot: true })
+```
+
+`sg.ai.runDebugCheck()` bundles:
+
+- generated code validation
+- preview error collection
+- AI graph warnings
+- optional screenshot capture
 
 ### Renderer guidance
 
@@ -232,6 +294,18 @@ Good variable cases:
 - Only branch behavior when absolutely necessary.
 - If renderer-specific logic is needed, prefer the shader test node.
 - Use preview `shaderLanguage` switching to test generated targets.
+
+### Scale-aware values
+
+- Do not rely on tiny arbitrary constants for widths, offsets, blur radii, distortion amounts, or outline thickness.
+- Prefer `pixelSize` for screen-space scaling.
+- Prefer `texelSize` for texture or world-sampling offsets.
+- If an effect looks too subtle or too tiny, first check whether it should be scaled by `pixelSize` or `texelSize` instead of increasing magic constants.
+
+Rule of thumb:
+
+- screen-relative effect -> `pixelSize`
+- texture/sample offset effect -> `texelSize`
 
 ## Construct shader guidance
 
@@ -352,6 +426,14 @@ sg.wires.create({
 sg.ports.listConnections({ nodeId: 1, kind: "output", index: 0 })
 ```
 
+### Create a uniform and place it in the graph
+
+```js
+const uniform = sg.uniforms.create({ name: "Edge Width", type: "float", value: 1, isPercent: false })
+const uniformNode = sg.uniforms.createNode(uniform.id, { x: 160, y: 220, select: true })
+sg.nodes.getPorts(uniformNode.id)
+```
+
 ### Use variables instead of fan-out
 
 ```js
@@ -363,7 +445,10 @@ const getVarB = sg.nodes.create({ type: "getVariable", selectedVariable: "baseMa
 ### Debug an intermediate value
 
 ```js
+sg.preview.clearConsole()
 sg.preview.setNodePreview(12)
+sg.preview.getErrors()
+await sg.preview.screenshot()
 sg.preview.updateSettings({ shaderLanguage: "webgpu" })
 sg.preview.setNodePreview(null)
 ```
@@ -384,6 +469,8 @@ Good:
 - Re-read affected nodes and ports after structural changes.
 - Prefer helper nodes and variable nodes.
 - Reuse an existing custom node when it is clearly the project-specific tool for the job.
+- Use preview errors, node preview, and screenshots as part of verification.
+- Scale visible effects with `pixelSize` or `texelSize` instead of tiny magic constants.
 
 Bad:
 
@@ -409,11 +496,17 @@ Bad:
   - Re-check required connections.
 - `Preview looks wrong`
   - Inspect `sg.preview.getSettings()`.
+  - Clear and inspect `sg.preview.getErrors()`.
   - Test node preview on intermediate values.
+  - Capture a screenshot and inspect the actual visible result.
   - Switch `shaderLanguage` to compare targets.
 - `Graph became cluttered`
   - Replace repeated fan-out with `Set Variable` and `Get Variable`.
   - Run `sg.layout.autoArrange()` after structural edits.
+- `Value is reused too many times`
+  - Inspect `sg.ai.getWarnings()`.
+  - Use a variable for reused computed branches.
+  - Duplicate tiny leaf nodes when that is simpler and cleaner.
 
 ## API cheat sheet
 
@@ -440,6 +533,10 @@ sg.projects.exportAddon({ version: "1.2.0.0" })
 sg.customNodes.list()
 sg.customNodes.get(3)
 sg.customNodes.get("custom_3")
+
+sg.ai.getWarnings()
+await sg.ai.runDebugCheck()
+await sg.ai.runDebugCheck({ includeScreenshot: true })
 ```
 
 ### Nodes
@@ -493,6 +590,8 @@ Each serialized port includes:
 sg.uniforms.list()
 sg.uniforms.get(id)
 sg.uniforms.create({ name, description, type, value, isPercent })
+sg.uniforms.createNode(id, { x, y, select })
+sg.uniforms.getNodeTypes()
 sg.uniforms.edit(id, { name, description, value, isPercent })
 sg.uniforms.reorder(id, newIndex)
 sg.uniforms.delete(id)
@@ -520,6 +619,9 @@ sg.shader.getGeneratedCode()
 
 ```js
 sg.preview.getSettings()
+sg.preview.getConsoleEntries()
+sg.preview.getErrors()
+sg.preview.clearConsole()
 sg.preview.getStartupScriptInfo()
 sg.preview.updateSettings({ object: "box", shaderLanguage: "webgpu" })
 sg.preview.resetSettings()
@@ -541,4 +643,12 @@ sg.camera.center()
 sg.camera.zoomToFit()
 sg.camera.setPosition({ x: 100, y: 50 })
 sg.camera.setZoom(1.25)
+```
+
+### AI warnings
+
+```js
+sg.ai.getWarnings()
+await sg.ai.runDebugCheck()
+await sg.ai.runDebugCheck({ includeScreenshot: true })
 ```
