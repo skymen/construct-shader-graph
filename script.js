@@ -1938,12 +1938,20 @@ class BlueprintSystem {
     this.gradientEditorStops = [];
     this.gradientEditorSelectedStops = [];
     this.gradientEditorDragState = null;
+    this.gradientEditorIgnoreNextBackdropClose = false;
 
     gradientPanel.addEventListener("mousedown", (e) => e.stopPropagation());
     this.gradientEditorModal.addEventListener("mousedown", (e) => {
       if (e.target === this.gradientEditorModal) {
+        if (this.gradientEditorIgnoreNextBackdropClose) {
+          this.gradientEditorIgnoreNextBackdropClose = false;
+          return;
+        }
         this.closeGradientEditor();
       }
+    });
+    this.gradientEditorColorInput.addEventListener("mousedown", () => {
+      this.gradientEditorIgnoreNextBackdropClose = true;
     });
     this.gradientEditorPreview.addEventListener("mousedown", (e) => {
       if (e.target !== this.gradientEditorPreview) {
@@ -5912,6 +5920,7 @@ class BlueprintSystem {
     this.gradientEditorStops = [];
     this.gradientEditorSelectedStops = [];
     this.gradientEditorDragState = null;
+    this.gradientEditorIgnoreNextBackdropClose = false;
   }
 
   getSelectedGradientEditorStops() {

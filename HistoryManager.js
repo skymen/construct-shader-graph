@@ -244,7 +244,7 @@ export class HistoryManager {
     };
 
     // Compare simple properties
-    ["x", "y", "operation", "customInput", "uniformId"].forEach((key) => {
+    ["x", "y", "operation", "customInput", "uniformId", "data"].forEach((key) => {
       if (!this.deepEqual(oldNode[key], newNode[key])) {
         diff.hasChanges = true;
         diff.changes[key] = {
