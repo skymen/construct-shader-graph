@@ -1,3 +1,14 @@
+---
+name: construct-shader-graph-console
+description: Use the Construct Shader Graph browser console API to inspect graphs, edit nodes and wires, control preview, and report AI work status safely.
+license: MIT
+compatibility: opencode
+metadata:
+  audience: ai-agents
+  domain: construct-shader-graph
+  interface: browser-console-api
+---
+
 # Construct Shader Graph Console Skill
 
 Use this skill to control Construct Shader Graph from the browser console through `window.shaderGraphAPI` or `window.sg`.
