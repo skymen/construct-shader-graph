@@ -37,5 +37,5 @@ export const BitwiseLeftShiftNode = new NodeType(
     "integer",
     "operation",
     "multiply",
-  ]
+  ],
 );
