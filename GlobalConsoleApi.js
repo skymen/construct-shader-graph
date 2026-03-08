@@ -54,6 +54,74 @@ function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function assertPlainObject(value, message) {
+  assert(isPlainObject(value), message);
+}
+
+function assertOptionalPlainObject(value, message) {
+  if (value === undefined) {
+    return;
+  }
+
+  assertPlainObject(value, message);
+}
+
+function assertNonEmptyString(value, message) {
+  assert(typeof value === "string" && value.trim() !== "", message);
+}
+
+function assertOptionalString(value, message) {
+  if (value === undefined) {
+    return;
+  }
+
+  assert(typeof value === "string", message);
+}
+
+function assertFiniteNumber(value, message) {
+  assert(typeof value === "number" && Number.isFinite(value), message);
+}
+
+function assertOptionalFiniteNumber(value, message) {
+  if (value === undefined) {
+    return;
+  }
+
+  assertFiniteNumber(value, message);
+}
+
+function assertOptionalBoolean(value, message) {
+  if (value === undefined) {
+    return;
+  }
+
+  assert(typeof value === "boolean", message);
+}
+
+function assertOptionalArray(value, message) {
+  if (value === undefined) {
+    return;
+  }
+
+  assert(Array.isArray(value), message);
+}
+
+function assertOneOf(value, allowed, message) {
+  assert(allowed.includes(value), message);
+}
+
+function assertOptionalOneOf(value, allowed, message) {
+  if (value === undefined) {
+    return;
+  }
+
+  assertOneOf(value, allowed, message);
+}
+
+function normalizeOptionalString(value) {
+  return value === undefined ? undefined : value.trim();
+}
+
 function worldCenter(bp) {
   return {
     x:
@@ -383,6 +451,7 @@ function resolvePortRef(bp, portRef, expectedKind = null) {
 function getWireByRef(bp, wireRef) {
   if (typeof wireRef === "number" || typeof wireRef === "string") {
     const wireId = Number(wireRef);
+    assert(Number.isInteger(wireId), `Wire reference '${wireRef}' must be a valid wire id`);
     const wire = bp.wires.find((entry) => getWireId(bp, entry) === wireId);
     assert(wire, `Wire ${wireRef} not found`);
     return wire;
@@ -407,6 +476,19 @@ function validateVariableName(bp, node, value) {
   const validation = config.validate(value, node);
   assert(validation.valid, validation.error || "Invalid custom input value");
   return validation.newValue !== undefined ? validation.newValue : value;
+}
+
+function validateVersionString(value) {
+  assert(typeof value === "string", "Version must be a string");
+  assert(/^\d+(?:\.\d+){3}$/.test(value.trim()), "Version must use X.X.X.X format");
+  return value.trim();
+}
+
+function validateBumpVersion(value) {
+  assert(typeof value === "string", "bumpVersion must be a string");
+  const normalized = value.trim();
+  assertOneOf(normalized, ["major", "minor", "patch"], "bumpVersion must be 'major', 'minor', or 'patch'");
+  return normalized;
 }
 
 function pushHistory(bp, label) {
@@ -1557,6 +1639,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
     },
 
     async runCommands({ label = "API command batch", commands = [] } = {}) {
+      assertPlainObject(arguments[0] ?? {}, "runCommands requires an input object");
+      if (label !== undefined) {
+        assert(typeof label === "string", "runCommands label must be a string");
+      }
       assert(Array.isArray(commands), "runCommands requires a commands array");
 
       return api.batch(label, async () => {
@@ -1564,7 +1650,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
         for (const [index, command] of commands.entries()) {
           assert(command && typeof command === "object", `Command at index ${index} must be an object`);
-          assert(command.method, `Command at index ${index} is missing a method`);
+          assertNonEmptyString(command.method, `Command at index ${index} is missing a method`);
+          if (command.args !== undefined) {
+            assert(Array.isArray(command.args), `Command '${command.method}' args must be an array`);
+          }
 
           const result = await api.call(command.method, command.args || []);
           results.push({
@@ -1584,13 +1673,21 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
     session: {
       initAIWork(options = {}) {
+        assertOptionalPlainObject(options, "session.initAIWork options must be an object");
+        assertOptionalString(options.title, "session.initAIWork title must be a string");
+        assertOptionalString(options.message, "session.initAIWork message must be a string");
+        assertOptionalBoolean(
+          options.closeStartupDialog,
+          "session.initAIWork closeStartupDialog must be a boolean",
+        );
+
         const status = ensureAiStatusElements();
         const modal = document.getElementById("openFilesModal");
         if (modal && options.closeStartupDialog !== false) {
           modal.style.display = "none";
         }
 
-        status.title.textContent = "AI working";
+        status.title.textContent = options.title?.trim() || "AI working";
         status.message.textContent = String(options.message || "Working...");
         status.shell.style.display = "block";
 
@@ -1601,6 +1698,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       updateAIWork(message) {
+        assert(typeof message === "string" || message === undefined, "session.updateAIWork message must be a string");
         const status = ensureAiStatusElements();
         status.message.textContent = String(message || "Working...");
         status.shell.style.display = "block";
@@ -1611,6 +1709,11 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       endAIWork(options = {}) {
+        assertOptionalPlainObject(options, "session.endAIWork options must be an object");
+        assertOptionalString(options.title, "session.endAIWork title must be a string");
+        assertOptionalArray(options.summary, "session.endAIWork summary must be an array");
+        assertOptionalFiniteNumber(options.duration, "session.endAIWork duration must be a finite number");
+
         const status = ensureAiStatusElements();
         status.shell.style.display = "none";
 
@@ -1638,6 +1741,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       async openExample(exampleId) {
+        assertNonEmptyString(exampleId, "projects.openExample requires a non-empty example id string");
         const data = await openExampleProject(blueprint, exampleFiles, exampleId);
         const modal = document.getElementById("openFilesModal");
         if (modal) {
@@ -1656,8 +1760,20 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       exportAddon(options = {}) {
+        assertOptionalPlainObject(options, "projects.exportAddon options must be an object");
+        if (options.version !== undefined) {
+          options.version = validateVersionString(options.version);
+        }
+        if (options.bumpVersion !== undefined) {
+          options.bumpVersion = validateBumpVersion(options.bumpVersion);
+        }
+        assert(
+          !(options.version !== undefined && options.bumpVersion !== undefined),
+          "projects.exportAddon accepts either version or bumpVersion, not both",
+        );
+
         if (options.version) {
-          blueprint.shaderSettings.version = String(options.version);
+          blueprint.shaderSettings.version = options.version;
           blueprint.updateShaderSettingsUI();
           blueprint.exportGLSL();
         } else if (options.bumpVersion) {
@@ -1681,9 +1797,14 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       get(customNodeIdOrKey) {
+        assert(
+          typeof customNodeIdOrKey === "string" || typeof customNodeIdOrKey === "number",
+          "customNodes.get requires a custom node id or custom_<id> key",
+        );
         const customNodeId = String(customNodeIdOrKey).startsWith("custom_")
           ? Number(String(customNodeIdOrKey).replace("custom_", ""))
           : Number(customNodeIdOrKey);
+        assert(Number.isInteger(customNodeId), `Invalid custom node reference '${customNodeIdOrKey}'`);
         const customNode = blueprint.customNodes.find(
           (entry) => entry.id === customNodeId,
         );
@@ -1698,6 +1819,19 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       async runDebugCheck(options = {}) {
+        assertOptionalPlainObject(options, "ai.runDebugCheck options must be an object");
+        assertOptionalFiniteNumber(
+          options.previewErrorLimit,
+          "ai.runDebugCheck previewErrorLimit must be a finite number",
+        );
+        assertOptionalBoolean(
+          options.includeScreenshot,
+          "ai.runDebugCheck includeScreenshot must be a boolean",
+        );
+        assertOptionalBoolean(
+          options.takeScreenshot,
+          "ai.runDebugCheck takeScreenshot must be a boolean",
+        );
         return runAiDebugCheck(blueprint, api, options);
       },
     },
@@ -1735,8 +1869,21 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
     nodes: {
       create(input = {}) {
+        assertPlainObject(input, "nodes.create requires an input object");
         const typeKey = input.typeKey || input.type;
-        assert(typeKey, "nodes.create requires a type or typeKey");
+        assertNonEmptyString(typeKey, "nodes.create requires a non-empty type or typeKey string");
+        assertOptionalFiniteNumber(input.x, "nodes.create x must be a finite number");
+        assertOptionalFiniteNumber(input.y, "nodes.create y must be a finite number");
+        assertOptionalPlainObject(input.position, "nodes.create position must be an object");
+        if (input.position) {
+          assertOptionalFiniteNumber(input.position.x, "nodes.create position.x must be a finite number");
+          assertOptionalFiniteNumber(input.position.y, "nodes.create position.y must be a finite number");
+        }
+        assertOptionalPlainObject(input.patch, "nodes.create patch must be an object");
+        assertOptionalString(input.operation, "nodes.create operation must be a string");
+        assertOptionalString(input.customInput, "nodes.create customInput must be a string");
+        assertOptionalString(input.selectedVariable, "nodes.create selectedVariable must be a string");
+        assertOptionalBoolean(input.select, "nodes.create select must be a boolean");
 
         if (typeKey === "output") {
           assert(
@@ -1805,6 +1952,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       delete(nodeId) {
+        assert(Number.isInteger(Number(nodeId)), "nodes.delete requires a valid node id");
         const node = getNodeById(blueprint, nodeId);
         assert(
           blueprint.getNodeTypeKey(node.nodeType) !== "output",
@@ -1829,6 +1977,8 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       edit(nodeId, patch = {}) {
+        assert(Number.isInteger(Number(nodeId)), "nodes.edit requires a valid node id");
+        assertPlainObject(patch, "nodes.edit patch must be an object");
         const node = getNodeById(blueprint, nodeId);
         assert(hasNodePatchChanges(patch), `No supported patch fields provided for node ${nodeId}`);
         applyNodePatch(blueprint, node, patch);
@@ -1837,10 +1987,12 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       get(nodeId) {
+        assert(Number.isInteger(Number(nodeId)), "nodes.get requires a valid node id");
         return serializeNode(blueprint, getNodeById(blueprint, nodeId));
       },
 
       getPorts(nodeId) {
+        assert(Number.isInteger(Number(nodeId)), "nodes.getPorts requires a valid node id");
         const node = getNodeById(blueprint, nodeId);
         return {
           inputs: node.inputPorts.map((port) => serializePort(blueprint, port)),
@@ -1853,12 +2005,17 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       search(query = "", options = {}) {
+        assert(typeof query === "string", "nodes.search query must be a string");
+        assertOptionalPlainObject(options, "nodes.search options must be an object");
         return api.nodeTypes.search(query, options);
       },
     },
 
     nodeTypes: {
       list(options = {}) {
+        assertOptionalPlainObject(options, "nodeTypes.list options must be an object");
+        assertOptionalBoolean(options.availableOnly, "nodeTypes.list availableOnly must be a boolean");
+        assertOptionalString(options.query, "nodeTypes.list query must be a string");
         const types = options.availableOnly
           ? blueprint
               .getFilteredNodeTypes()
@@ -1868,10 +2025,13 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       search(query = "", options = {}) {
+        assert(typeof query === "string", "nodeTypes.search query must be a string");
+        assertOptionalPlainObject(options, "nodeTypes.search options must be an object");
         return api.nodeTypes.list({ ...options, query });
       },
 
       get(typeKey) {
+        assertNonEmptyString(typeKey, "nodeTypes.get requires a non-empty type key string");
         const nodeType = blueprint.getNodeTypeFromKey(typeKey);
         assert(nodeType, `Unknown node type '${typeKey}'`);
         return normalizeTypeSnapshot(nodeType, typeKey);
@@ -1891,6 +2051,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
     wires: {
       create({ from, to }) {
+        assertPlainObject(arguments[0], "wires.create requires an object with from and to port refs");
         const startPort = resolvePortRef(blueprint, from, "output");
         const endPort = resolvePortRef(blueprint, to, "input");
 
@@ -1925,6 +2086,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       delete(wireRef) {
+        assert(wireRef !== undefined, "wires.delete requires a wire id or from/to reference");
         const wire = getWireByRef(blueprint, wireRef);
         const wireId = getWireId(blueprint, wire);
         blueprint.disconnectWire(wire);
@@ -1935,6 +2097,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       get(wireRef) {
+        assert(wireRef !== undefined, "wires.get requires a wire id or from/to reference");
         return serializeWire(blueprint, getWireByRef(blueprint, wireRef));
       },
 
@@ -1945,8 +2108,11 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
     uniforms: {
       create(input = {}) {
+        assertPlainObject(input, "uniforms.create requires an input object");
         const name = String(input.name || "").trim();
         assert(name, "uniforms.create requires a name");
+        assertOptionalString(input.description, "uniforms.create description must be a string");
+        assertOptionalBoolean(input.isPercent, "uniforms.create isPercent must be a boolean");
 
         const type = input.type || "float";
         assert(type === "float" || type === "color", "Uniform type must be 'float' or 'color'");
@@ -1980,6 +2146,16 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       createNode(uniformId, options = {}) {
+        assert(Number.isInteger(Number(uniformId)), "uniforms.createNode requires a valid uniform id");
+        assertOptionalPlainObject(options, "uniforms.createNode options must be an object");
+        assertOptionalFiniteNumber(options.x, "uniforms.createNode x must be a finite number");
+        assertOptionalFiniteNumber(options.y, "uniforms.createNode y must be a finite number");
+        assertOptionalPlainObject(options.position, "uniforms.createNode position must be an object");
+        if (options.position) {
+          assertOptionalFiniteNumber(options.position.x, "uniforms.createNode position.x must be a finite number");
+          assertOptionalFiniteNumber(options.position.y, "uniforms.createNode position.y must be a finite number");
+        }
+        assertOptionalBoolean(options.select, "uniforms.createNode select must be a boolean");
         const uniform = getUniformById(blueprint, uniformId);
         const fallbackPosition = worldCenter(blueprint);
         const node = blueprint.createUniformNode(
@@ -2004,6 +2180,8 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       edit(uniformId, patch = {}) {
+        assert(Number.isInteger(Number(uniformId)), "uniforms.edit requires a valid uniform id");
+        assertPlainObject(patch, "uniforms.edit patch must be an object");
         const uniform = getUniformById(blueprint, uniformId);
         const oldVariableName = uniform.variableName;
 
@@ -2056,12 +2234,15 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       delete(uniformId) {
+        assert(Number.isInteger(Number(uniformId)), "uniforms.delete requires a valid uniform id");
         const uniform = getUniformById(blueprint, uniformId);
         blueprint.deleteUniform(uniform.id);
         return { ok: true, uniformId: uniform.id };
       },
 
       reorder(uniformId, newIndex) {
+        assert(Number.isInteger(Number(uniformId)), "uniforms.reorder requires a valid uniform id");
+        assertFiniteNumber(newIndex, "uniforms.reorder newIndex must be a finite number");
         const index = blueprint.uniforms.findIndex((entry) => entry.id === Number(uniformId));
         assert(index >= 0, `Uniform ${uniformId} not found`);
 
@@ -2076,6 +2257,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       get(uniformId) {
+        assert(Number.isInteger(Number(uniformId)), "uniforms.get requires a valid uniform id");
         const uniform = getUniformById(blueprint, uniformId);
         return serializeUniform(
           uniform,
@@ -2094,11 +2276,15 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       updateInfo(patch = {}) {
+        assertPlainObject(patch, "shader.updateInfo patch must be an object");
         Object.keys(patch).forEach((key) => {
           assert(
             Object.prototype.hasOwnProperty.call(blueprint.shaderSettings, key),
             `Unknown shader setting '${key}'`,
           );
+          if (key === "version") {
+            patch[key] = validateVersionString(patch[key]);
+          }
           blueprint.shaderSettings[key] = cloneValue(patch[key]);
         });
 
@@ -2124,6 +2310,18 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       getConsoleEntries(options = {}) {
+        assertOptionalPlainObject(options, "preview.getConsoleEntries options must be an object");
+        if (options.level !== undefined) {
+          if (Array.isArray(options.level)) {
+            options.level.forEach((level) => {
+              assert(typeof level === "string", "preview.getConsoleEntries level entries must be strings");
+            });
+          } else {
+            assert(typeof options.level === "string", "preview.getConsoleEntries level must be a string or array of strings");
+          }
+        }
+        assertOptionalFiniteNumber(options.limit, "preview.getConsoleEntries limit must be a finite number");
+
         let entries = blueprint.consoleEntries.map((entry) =>
           serializePreviewConsoleEntry(entry),
         );
@@ -2144,6 +2342,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       getErrors(options = {}) {
+        assertOptionalPlainObject(options, "preview.getErrors options must be an object");
         return api.preview.getConsoleEntries({ ...options, level: "error" });
       },
 
@@ -2157,9 +2356,65 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       updateSettings(patch = {}) {
+        assertPlainObject(patch, "preview.updateSettings patch must be an object");
         Object.keys(patch).forEach((key) => {
           assert(PREVIEW_SETTING_KEYS.has(key), `Unknown preview setting '${key}'`);
         });
+
+        assertOptionalOneOf(
+          patch.effectTarget,
+          ["sprite", "shape3D", "layout", "layer"],
+          "preview.updateSettings effectTarget must be one of sprite, shape3D, layout, or layer",
+        );
+        assertOptionalOneOf(
+          patch.object,
+          ["sprite", "box", "sphere", "cylinder", "capsule", "cone", "torus", "plane"],
+          "preview.updateSettings object must be a supported preview object",
+        );
+        assertOptionalOneOf(
+          patch.cameraMode,
+          ["2d", "perspective", "orthographic"],
+          "preview.updateSettings cameraMode must be 2d, perspective, or orthographic",
+        );
+        assertOptionalOneOf(
+          patch.samplingMode,
+          ["trilinear", "bilinear", "nearest"],
+          "preview.updateSettings samplingMode must be trilinear, bilinear, or nearest",
+        );
+        assertOptionalOneOf(
+          patch.shaderLanguage,
+          ["webgpu", "webgl2", "webgl1"],
+          "preview.updateSettings shaderLanguage must be webgpu, webgl2, or webgl1",
+        );
+        assertOptionalBoolean(
+          patch.autoRotate,
+          "preview.updateSettings autoRotate must be a boolean",
+        );
+        assertOptionalBoolean(
+          patch.showBackgroundCube,
+          "preview.updateSettings showBackgroundCube must be a boolean",
+        );
+        [
+          "spriteScale",
+          "shapeScale",
+          "roomScale",
+          "bgOpacity",
+          "bg3dOpacity",
+          "zoomLevel",
+        ].forEach((key) => {
+          assertOptionalFiniteNumber(
+            patch[key],
+            `preview.updateSettings ${key} must be a finite number`,
+          );
+        });
+        ["spriteTextureUrl", "shapeTextureUrl", "bgTextureUrl", "startupScript"].forEach(
+          (key) => {
+            assertOptionalString(
+              patch[key],
+              `preview.updateSettings ${key} must be a string`,
+            );
+          },
+        );
 
         syncPreviewSettings(blueprint, patch);
         return cloneValue(blueprint.previewSettings);
@@ -2176,6 +2431,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       setNodePreview(nodeIdOrNull) {
+        assert(
+          nodeIdOrNull == null || Number.isInteger(Number(nodeIdOrNull)),
+          "preview.setNodePreview requires a node id or null",
+        );
         if (nodeIdOrNull == null) {
           blueprint.previewNode = null;
           blueprint.previewNeedsUpdate = true;
@@ -2194,6 +2453,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       toggleNodePreview(nodeId) {
+        assert(Number.isInteger(Number(nodeId)), "preview.toggleNodePreview requires a valid node id");
         const node = getNodeById(blueprint, nodeId);
         if (blueprint.previewNode === node) {
           return api.preview.setNodePreview(null);
@@ -2203,6 +2463,8 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       async screenshot(options = {}) {
+        assertOptionalPlainObject(options, "preview.screenshot options must be an object");
+        assertOptionalBoolean(options.download, "preview.screenshot download must be a boolean");
         if (options.download) {
           blueprint.screenshotPreview();
           return { ok: true, mode: "download" };
@@ -2219,6 +2481,13 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
     layout: {
       autoArrange(options = {}) {
+        assertOptionalPlainObject(options, "layout.autoArrange options must be an object");
+        if (options.nodeIds !== undefined) {
+          assert(Array.isArray(options.nodeIds), "layout.autoArrange nodeIds must be an array");
+          options.nodeIds.forEach((id) => {
+            assert(Number.isInteger(Number(id)), "layout.autoArrange nodeIds must contain valid node ids");
+          });
+        }
         if (Array.isArray(options.nodeIds) && options.nodeIds.length > 0) {
           const ids = new Set(options.nodeIds.map((id) => Number(id)));
           blueprint.selectedNodes.clear();
@@ -2249,7 +2518,15 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         return serializeCamera(blueprint);
       },
 
-      setPosition({ x, y }) {
+      setPosition(position) {
+        assertPlainObject(position, "camera.setPosition requires an object");
+        const { x, y } = position;
+        assert(
+          x !== undefined || y !== undefined,
+          "camera.setPosition requires at least x or y",
+        );
+        assertOptionalFiniteNumber(x, "camera.setPosition x must be a finite number");
+        assertOptionalFiniteNumber(y, "camera.setPosition y must be a finite number");
         if (x !== undefined) {
           blueprint.camera.x = Number(x);
         }
@@ -2261,6 +2538,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       setZoom(zoom) {
+        assertFiniteNumber(zoom, "camera.setZoom requires a finite number");
         blueprint.camera.zoom = Number(zoom);
         blueprint.updateZoomLevelDisplay();
         blueprint.render();
