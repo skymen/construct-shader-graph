@@ -328,6 +328,27 @@ function serializeWire(bp, wire) {
   };
 }
 
+function serializeWireSummary(bp, wire) {
+  return {
+    id: getWireId(bp, wire),
+    from: {
+      nodeId: wire.startPort.node.id,
+      nodeTypeKey: bp.getNodeTypeKey(wire.startPort.node.nodeType),
+      kind: wire.startPort.type,
+      index: wire.startPort.index,
+      name: wire.startPort.name,
+    },
+    to: {
+      nodeId: wire.endPort.node.id,
+      nodeTypeKey: bp.getNodeTypeKey(wire.endPort.node.nodeType),
+      kind: wire.endPort.type,
+      index: wire.endPort.index,
+      name: wire.endPort.name,
+    },
+    rerouteCount: wire.rerouteNodes.length,
+  };
+}
+
 function serializePreviewConsoleEntry(entry) {
   const time = entry.time instanceof Date ? entry.time : new Date(entry.time);
   return {
@@ -1265,7 +1286,7 @@ const API_METHOD_DESCRIPTORS = [
     description: "List all wires in the graph.",
     mutates: false,
     args: [],
-    returns: { type: "array", description: "Serialized wires." },
+    returns: { type: "array", description: "Wire summaries." },
   },
   {
     path: "uniforms.create",
@@ -2115,7 +2136,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       getAll() {
-        return blueprint.wires.map((wire) => serializeWire(blueprint, wire));
+        return blueprint.wires.map((wire) => serializeWireSummary(blueprint, wire));
       },
     },
 
