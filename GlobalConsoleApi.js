@@ -189,19 +189,32 @@ function normalizeTypeSnapshot(nodeType, typeKey) {
   };
 }
 
+function serializeNodeTypeSummary(nodeType, typeKey) {
+  if (!nodeType) {
+    return null;
+  }
+
+  return {
+    key: typeKey,
+    name: nodeType.name,
+    category: nodeType.category,
+    tags: [...(nodeType.tags || [])],
+  };
+}
+
 function getAllNodeTypes(bp) {
   const types = new Map();
 
   Object.entries(NODE_TYPES).forEach(([key, nodeType]) => {
-    types.set(key, normalizeTypeSnapshot(nodeType, key));
+    types.set(key, serializeNodeTypeSummary(nodeType, key));
   });
 
   Object.entries(bp.getUniformNodeTypes()).forEach(([key, nodeType]) => {
-    types.set(key, normalizeTypeSnapshot(nodeType, key));
+    types.set(key, serializeNodeTypeSummary(nodeType, key));
   });
 
   Object.entries(bp.getCustomNodeTypes()).forEach(([key, nodeType]) => {
-    types.set(key, normalizeTypeSnapshot(nodeType, key));
+    types.set(key, serializeNodeTypeSummary(nodeType, key));
   });
 
   return [...types.values()];
@@ -1137,7 +1150,7 @@ const API_METHOD_DESCRIPTORS = [
         description: "Additional node type filter options.",
       },
     ],
-    returns: { type: "array", description: "Matching node type snapshots." },
+    returns: { type: "array", description: "Matching node type summaries." },
   },
   {
     path: "nodeTypes.list",
@@ -1151,7 +1164,7 @@ const API_METHOD_DESCRIPTORS = [
         description: "Optional query and availability filters.",
       },
     ],
-    returns: { type: "array", description: "Available node type snapshots." },
+    returns: { type: "array", description: "Available node type summaries." },
   },
   {
     path: "nodeTypes.search",
@@ -1166,7 +1179,7 @@ const API_METHOD_DESCRIPTORS = [
         description: "Additional availability filters.",
       },
     ],
-    returns: { type: "array", description: "Matching node type snapshots." },
+    returns: { type: "array", description: "Matching node type summaries." },
   },
   {
     path: "nodeTypes.get",
@@ -2019,7 +2032,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         const types = options.availableOnly
           ? blueprint
               .getFilteredNodeTypes()
-              .map(([key, nodeType]) => normalizeTypeSnapshot(nodeType, key))
+              .map(([key, nodeType]) => serializeNodeTypeSummary(nodeType, key))
           : getAllNodeTypes(blueprint);
         return filterNodeTypes(types, options.query || "");
       },
