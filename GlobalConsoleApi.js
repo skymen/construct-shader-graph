@@ -302,6 +302,15 @@ function serializeNode(bp, node) {
   };
 }
 
+function serializeNodeSummary(bp, node) {
+  return {
+    id: node.id,
+    typeKey: bp.getNodeTypeKey(node.nodeType),
+    title: node.title,
+    displayTitle: node.displayTitle,
+  };
+}
+
 function serializeUniform(uniform, index) {
   return {
     id: uniform.id,
@@ -1143,6 +1152,15 @@ const API_METHOD_DESCRIPTORS = [
     returns: { type: "object", description: "Serialized node." },
   },
   {
+    path: "nodes.getInfo",
+    description: "Get full info for one node by id.",
+    mutates: false,
+    args: [
+      { name: "nodeId", type: "number", required: true, description: "Node id to fetch." },
+    ],
+    returns: { type: "object", description: "Serialized node." },
+  },
+  {
     path: "nodes.getPorts",
     description: "Get the input and output ports for one node.",
     mutates: false,
@@ -1156,7 +1174,7 @@ const API_METHOD_DESCRIPTORS = [
     description: "List every node in the graph.",
     mutates: false,
     args: [],
-    returns: { type: "array", description: "Serialized nodes." },
+    returns: { type: "array", description: "Node summaries." },
   },
   {
     path: "nodes.search",
@@ -2022,6 +2040,11 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
       get(nodeId) {
         assert(Number.isInteger(Number(nodeId)), "nodes.get requires a valid node id");
+        return serializeNodeSummary(blueprint, getNodeById(blueprint, nodeId));
+      },
+
+      getInfo(nodeId) {
+        assert(Number.isInteger(Number(nodeId)), "nodes.getInfo requires a valid node id");
         return serializeNode(blueprint, getNodeById(blueprint, nodeId));
       },
 
@@ -2035,7 +2058,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
 
       list() {
-        return blueprint.nodes.map((node) => serializeNode(blueprint, node));
+        return blueprint.nodes.map((node) => serializeNodeSummary(blueprint, node));
       },
 
       search(query = "", options = {}) {
