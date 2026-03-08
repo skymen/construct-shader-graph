@@ -1,6 +1,8 @@
 import { NODE_TYPES } from "./nodes/index.js";
 
 const API_VERSION = "1.0.0";
+const API_NAMESPACE = "shaderGraphAPI";
+const API_ALIAS = "sg";
 const PREVIEWABLE_TYPES = new Set(["float", "vec2", "vec3", "vec4"]);
 const PREVIEW_SETTING_KEYS = new Set([
   "effectTarget",
@@ -807,6 +809,663 @@ function validatePreviewNode(node) {
   );
 }
 
+const API_METHOD_DESCRIPTORS = [
+  {
+    path: "getProjectIdentity",
+    description: "Get the current project identity derived from shader settings.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Current project identity and shader info." },
+  },
+  {
+    path: "getManifest",
+    description: "Get the machine-readable API manifest for MCP clients.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "API manifest and project metadata." },
+  },
+  {
+    path: "runCommands",
+    description: "Execute multiple API calls as one logical batch.",
+    mutates: true,
+    args: [
+      {
+        name: "input",
+        type: "object",
+        required: true,
+        description: "Batch label and commands array with method and args entries.",
+      },
+    ],
+    returns: { type: "object", description: "Batch execution results." },
+  },
+  {
+    path: "session.initAIWork",
+    description: "Show the in-app AI working indicator.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional title/message behavior for the AI work indicator.",
+      },
+    ],
+    returns: { type: "object", description: "Current AI work status." },
+  },
+  {
+    path: "session.updateAIWork",
+    description: "Update the in-app AI working message.",
+    mutates: true,
+    args: [
+      {
+        name: "message",
+        type: "string",
+        required: false,
+        description: "The message shown in the AI work indicator.",
+      },
+    ],
+    returns: { type: "object", description: "Current AI work status." },
+  },
+  {
+    path: "session.endAIWork",
+    description: "Hide the AI working indicator and show a completion toast.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Completion title, summary, and toast duration options.",
+      },
+    ],
+    returns: { type: "object", description: "Completion status summary." },
+  },
+  {
+    path: "projects.listExamples",
+    description: "List bundled example projects.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Available example project metadata." },
+  },
+  {
+    path: "projects.openExample",
+    description: "Load a bundled example project into the current tab.",
+    mutates: true,
+    args: [
+      {
+        name: "exampleId",
+        type: "string",
+        required: true,
+        description: "The example file id returned by projects.listExamples.",
+      },
+    ],
+    returns: { type: "object", description: "Opened example metadata and shader name." },
+  },
+  {
+    path: "projects.exportAddon",
+    description: "Export the current shader addon, optionally updating the version first.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional version or bumpVersion export settings.",
+      },
+    ],
+    returns: { type: "object", description: "Export result with the active version." },
+  },
+  {
+    path: "customNodes.list",
+    description: "List all custom node definitions.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized custom node definitions." },
+  },
+  {
+    path: "customNodes.get",
+    description: "Get a custom node definition by id or key.",
+    mutates: false,
+    args: [
+      {
+        name: "customNodeIdOrKey",
+        type: "string|number",
+        required: true,
+        description: "A custom node id or custom_<id> key.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized custom node definition." },
+  },
+  {
+    path: "ai.getWarnings",
+    description: "Return AI-focused graph cleanup warnings.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Structured warning entries for the current graph." },
+  },
+  {
+    path: "ai.runDebugCheck",
+    description: "Run a combined graph/code/preview health check.",
+    mutates: false,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional limits and screenshot settings for the debug check.",
+      },
+    ],
+    returns: { type: "object", description: "Generated code status, preview errors, warnings, and optional screenshot." },
+  },
+  {
+    path: "nodes.create",
+    description: "Create a node in the graph.",
+    mutates: true,
+    args: [
+      {
+        name: "input",
+        type: "object",
+        required: true,
+        description: "Node type, position, optional patch data, and selection options.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized created node." },
+  },
+  {
+    path: "nodes.delete",
+    description: "Delete a non-output node and its connected wires.",
+    mutates: true,
+    args: [
+      { name: "nodeId", type: "number", required: true, description: "Node id to delete." },
+    ],
+    returns: { type: "object", description: "Deletion status and node id." },
+  },
+  {
+    path: "nodes.edit",
+    description: "Apply a patch to an existing node.",
+    mutates: true,
+    args: [
+      { name: "nodeId", type: "number", required: true, description: "Node id to edit." },
+      {
+        name: "patch",
+        type: "object",
+        required: true,
+        description: "Node field updates such as position, operation, data, or input values.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized updated node." },
+  },
+  {
+    path: "nodes.get",
+    description: "Get one node by id.",
+    mutates: false,
+    args: [
+      { name: "nodeId", type: "number", required: true, description: "Node id to fetch." },
+    ],
+    returns: { type: "object", description: "Serialized node." },
+  },
+  {
+    path: "nodes.getPorts",
+    description: "Get the input and output ports for one node.",
+    mutates: false,
+    args: [
+      { name: "nodeId", type: "number", required: true, description: "Node id to inspect." },
+    ],
+    returns: { type: "object", description: "Serialized input/output ports." },
+  },
+  {
+    path: "nodes.list",
+    description: "List every node in the graph.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized nodes." },
+  },
+  {
+    path: "nodes.search",
+    description: "Search available node types.",
+    mutates: false,
+    args: [
+      { name: "query", type: "string", required: false, description: "Search text." },
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Additional node type filter options.",
+      },
+    ],
+    returns: { type: "array", description: "Matching node type snapshots." },
+  },
+  {
+    path: "nodeTypes.list",
+    description: "List available node types.",
+    mutates: false,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional query and availability filters.",
+      },
+    ],
+    returns: { type: "array", description: "Available node type snapshots." },
+  },
+  {
+    path: "nodeTypes.search",
+    description: "Search available node types by text.",
+    mutates: false,
+    args: [
+      { name: "query", type: "string", required: false, description: "Search text." },
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Additional availability filters.",
+      },
+    ],
+    returns: { type: "array", description: "Matching node type snapshots." },
+  },
+  {
+    path: "nodeTypes.get",
+    description: "Get one node type by key.",
+    mutates: false,
+    args: [
+      { name: "typeKey", type: "string", required: true, description: "Node type key." },
+    ],
+    returns: { type: "object", description: "Node type snapshot." },
+  },
+  {
+    path: "ports.get",
+    description: "Get a port by node reference.",
+    mutates: false,
+    args: [
+      {
+        name: "portRef",
+        type: "object",
+        required: true,
+        description: "Port reference containing nodeId plus kind/type and name/index.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized port." },
+  },
+  {
+    path: "ports.listConnections",
+    description: "List wires connected to a given port.",
+    mutates: false,
+    args: [
+      {
+        name: "portRef",
+        type: "object",
+        required: true,
+        description: "Port reference containing nodeId plus kind/type and name/index.",
+      },
+    ],
+    returns: { type: "array", description: "Serialized wires attached to the port." },
+  },
+  {
+    path: "wires.create",
+    description: "Create a wire from one output port to one input port.",
+    mutates: true,
+    args: [
+      {
+        name: "input",
+        type: "object",
+        required: true,
+        description: "An object with from and to port references.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized created wire." },
+  },
+  {
+    path: "wires.delete",
+    description: "Delete a wire by id or by from/to port references.",
+    mutates: true,
+    args: [
+      {
+        name: "wireRef",
+        type: "number|string|object",
+        required: true,
+        description: "Wire id or from/to reference object.",
+      },
+    ],
+    returns: { type: "object", description: "Deletion status and wire id." },
+  },
+  {
+    path: "wires.get",
+    description: "Get one wire by id or by from/to port references.",
+    mutates: false,
+    args: [
+      {
+        name: "wireRef",
+        type: "number|string|object",
+        required: true,
+        description: "Wire id or from/to reference object.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized wire." },
+  },
+  {
+    path: "wires.getAll",
+    description: "List all wires in the graph.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized wires." },
+  },
+  {
+    path: "uniforms.create",
+    description: "Create a new uniform.",
+    mutates: true,
+    args: [
+      {
+        name: "input",
+        type: "object",
+        required: true,
+        description: "Uniform name, type, value, description, and percent settings.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized created uniform." },
+  },
+  {
+    path: "uniforms.createNode",
+    description: "Create a graph node for an existing uniform.",
+    mutates: true,
+    args: [
+      { name: "uniformId", type: "number", required: true, description: "Uniform id." },
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Position and selection options for the created node.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized created uniform node." },
+  },
+  {
+    path: "uniforms.getNodeTypes",
+    description: "List node types generated from current uniforms.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Uniform-backed node type snapshots." },
+  },
+  {
+    path: "uniforms.edit",
+    description: "Edit an existing uniform.",
+    mutates: true,
+    args: [
+      { name: "uniformId", type: "number", required: true, description: "Uniform id to edit." },
+      {
+        name: "patch",
+        type: "object",
+        required: true,
+        description: "Updated name, description, value, or percent settings.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized updated uniform." },
+  },
+  {
+    path: "uniforms.delete",
+    description: "Delete an existing uniform.",
+    mutates: true,
+    args: [
+      { name: "uniformId", type: "number", required: true, description: "Uniform id to delete." },
+    ],
+    returns: { type: "object", description: "Deletion status and uniform id." },
+  },
+  {
+    path: "uniforms.reorder",
+    description: "Move a uniform to a new list position.",
+    mutates: true,
+    args: [
+      { name: "uniformId", type: "number", required: true, description: "Uniform id to move." },
+      { name: "newIndex", type: "number", required: true, description: "Destination index." },
+    ],
+    returns: { type: "array", description: "Updated serialized uniform list." },
+  },
+  {
+    path: "uniforms.get",
+    description: "Get one uniform by id.",
+    mutates: false,
+    args: [
+      { name: "uniformId", type: "number", required: true, description: "Uniform id to fetch." },
+    ],
+    returns: { type: "object", description: "Serialized uniform." },
+  },
+  {
+    path: "uniforms.list",
+    description: "List all uniforms.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized uniforms." },
+  },
+  {
+    path: "shader.getInfo",
+    description: "Get the shader metadata that identifies the current project.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Shader settings snapshot." },
+  },
+  {
+    path: "shader.updateInfo",
+    description: "Patch shader metadata such as name, version, author, and flags.",
+    mutates: true,
+    args: [
+      { name: "patch", type: "object", required: true, description: "Shader settings patch." },
+    ],
+    returns: { type: "object", description: "Updated shader settings snapshot." },
+  },
+  {
+    path: "shader.getGeneratedCode",
+    description: "Generate shader code for the current graph.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Generated shaders payload." },
+  },
+  {
+    path: "preview.getSettings",
+    description: "Get current preview settings.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Preview settings snapshot." },
+  },
+  {
+    path: "preview.getConsoleEntries",
+    description: "Read preview console messages.",
+    mutates: false,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional level filter and result limit.",
+      },
+    ],
+    returns: { type: "array", description: "Preview console entries." },
+  },
+  {
+    path: "preview.getErrors",
+    description: "Read preview console errors.",
+    mutates: false,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional limit for returned errors.",
+      },
+    ],
+    returns: { type: "array", description: "Preview error entries." },
+  },
+  {
+    path: "preview.clearConsole",
+    description: "Clear preview console entries.",
+    mutates: true,
+    args: [],
+    returns: { type: "object", description: "Clear status." },
+  },
+  {
+    path: "preview.getStartupScriptInfo",
+    description: "Return startup script helper variables and docs.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Startup script support metadata." },
+  },
+  {
+    path: "preview.updateSettings",
+    description: "Patch preview settings.",
+    mutates: true,
+    args: [
+      { name: "patch", type: "object", required: true, description: "Preview settings patch." },
+    ],
+    returns: { type: "object", description: "Updated preview settings snapshot." },
+  },
+  {
+    path: "preview.resetSettings",
+    description: "Reset preview settings to defaults.",
+    mutates: true,
+    args: [],
+    returns: { type: "object", description: "Reset preview settings snapshot." },
+  },
+  {
+    path: "preview.getNodePreview",
+    description: "Get the current node preview selection.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Preview node state." },
+  },
+  {
+    path: "preview.setNodePreview",
+    description: "Set the current previewed node or clear preview mode.",
+    mutates: true,
+    args: [
+      {
+        name: "nodeIdOrNull",
+        type: "number|null",
+        required: true,
+        description: "Target node id or null to clear preview mode.",
+      },
+    ],
+    returns: { type: "object", description: "Updated preview node state." },
+  },
+  {
+    path: "preview.toggleNodePreview",
+    description: "Toggle preview mode for one node.",
+    mutates: true,
+    args: [
+      { name: "nodeId", type: "number", required: true, description: "Target node id." },
+    ],
+    returns: { type: "object", description: "Updated preview node state." },
+  },
+  {
+    path: "preview.screenshot",
+    description: "Take a preview screenshot or trigger a download.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Set download=true to save the screenshot locally.",
+      },
+    ],
+    returns: { type: "object", description: "Screenshot result or data URL." },
+  },
+  {
+    path: "layout.autoArrange",
+    description: "Auto-arrange the full graph or a subset of nodes.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional nodeIds array to arrange only selected nodes.",
+      },
+    ],
+    returns: { type: "object", description: "Arrangement status and resulting camera state." },
+  },
+  {
+    path: "camera.center",
+    description: "Center the camera on the graph.",
+    mutates: true,
+    args: [],
+    returns: { type: "object", description: "Updated camera state." },
+  },
+  {
+    path: "camera.zoomToFit",
+    description: "Zoom the camera to fit the graph.",
+    mutates: true,
+    args: [],
+    returns: { type: "object", description: "Updated camera state." },
+  },
+  {
+    path: "camera.setPosition",
+    description: "Set the camera x/y position.",
+    mutates: true,
+    args: [
+      {
+        name: "position",
+        type: "object",
+        required: true,
+        description: "Object with optional x and y values.",
+      },
+    ],
+    returns: { type: "object", description: "Updated camera state." },
+  },
+  {
+    path: "camera.setZoom",
+    description: "Set the camera zoom level.",
+    mutates: true,
+    args: [
+      { name: "zoom", type: "number", required: true, description: "New zoom level." },
+    ],
+    returns: { type: "object", description: "Updated camera state." },
+  },
+  {
+    path: "camera.getState",
+    description: "Get the current camera state.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Camera state." },
+  },
+];
+
+const API_METHOD_DESCRIPTOR_MAP = new Map(
+  API_METHOD_DESCRIPTORS.map((descriptor) => [descriptor.path, descriptor]),
+);
+
+function resolveApiMethod(root, path) {
+  assert(typeof path === "string" && path.trim(), "Method path must be a non-empty string");
+
+  return path.split(".").reduce((current, segment) => {
+    assert(segment !== "__proto__" && segment !== "prototype" && segment !== "constructor", "Invalid method path segment");
+    return current?.[segment];
+  }, root);
+}
+
+function getProjectIdentity(api) {
+  const info = api.shader.getInfo();
+  return {
+    name: info.name || "Untitled Shader",
+    version: info.version || "0.0.0.0",
+    author: info.author || "",
+    category: info.category || "",
+    description: info.description || "",
+    shaderInfo: info,
+  };
+}
+
+function getApiManifest(api) {
+  return {
+    namespace: API_NAMESPACE,
+    alias: API_ALIAS,
+    version: api.version,
+    project: getProjectIdentity(api),
+    methods: API_METHOD_DESCRIPTORS.map((descriptor) => ({
+      ...cloneValue(descriptor),
+      namespace: descriptor.path.split(".")[0],
+    })),
+  };
+}
+
 export function installGlobalConsoleApi(blueprint, helpers = {}) {
   assignMissingWireIds(blueprint);
   const { Wire: WireClass, exampleFiles } = helpers;
@@ -831,8 +1490,8 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
     help() {
       return {
-        namespace: "shaderGraphAPI",
-        alias: "sg",
+        namespace: API_NAMESPACE,
+        alias: API_ALIAS,
         methods: [
           "session",
           "projects",
@@ -848,8 +1507,57 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "layout",
           "camera",
           "batch",
+          "getProjectIdentity",
+          "getManifest",
+          "call",
+          "runCommands",
         ],
       };
+    },
+
+    getProjectIdentity() {
+      return getProjectIdentity(api);
+    },
+
+    getManifest() {
+      return getApiManifest(api);
+    },
+
+    call(methodPath, args = []) {
+      const descriptor = API_METHOD_DESCRIPTOR_MAP.get(methodPath);
+      assert(descriptor, `Unknown API method '${methodPath}'`);
+
+      const fn = resolveApiMethod(api, methodPath);
+      assert(typeof fn === "function", `Method '${methodPath}' is not callable`);
+
+      const inputArgs = Array.isArray(args) ? args : [args];
+      return fn(...inputArgs);
+    },
+
+    async runCommands({ label = "API command batch", commands = [] } = {}) {
+      assert(Array.isArray(commands), "runCommands requires a commands array");
+
+      return api.batch(label, async () => {
+        const results = [];
+
+        for (const [index, command] of commands.entries()) {
+          assert(command && typeof command === "object", `Command at index ${index} must be an object`);
+          assert(command.method, `Command at index ${index} is missing a method`);
+
+          const result = await api.call(command.method, command.args || []);
+          results.push({
+            index,
+            method: command.method,
+            result,
+          });
+        }
+
+        return {
+          ok: true,
+          label,
+          results,
+        };
+      });
     },
 
     session: {
@@ -978,15 +1686,28 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       batchState.active = true;
       batchState.dirty = false;
 
-      try {
-        const result = fn(api);
+      const completeBatch = () => {
         if (batchState.dirty) {
           originalPushState(label || "Console batch");
         }
-        return result;
-      } finally {
         batchState.active = false;
         batchState.dirty = false;
+      };
+
+      try {
+        const result = fn(api);
+
+        if (result && typeof result.then === "function") {
+          return result.finally(() => {
+            completeBatch();
+          });
+        }
+
+        completeBatch();
+        return result;
+      } catch (error) {
+        completeBatch();
+        throw error;
       }
     },
 

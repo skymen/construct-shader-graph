@@ -24,6 +24,11 @@ import { HistoryManager } from "./HistoryManager.js";
 import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
 import { languageManager } from "./LanguageManager.js";
 import { installGlobalConsoleApi } from "./GlobalConsoleApi.js";
+import {
+  DEFAULT_MCP_URL,
+  McpBridgeClient,
+  normalizeWebSocketUrl,
+} from "./McpBridgeClient.js";
 
 // Import boilerplate files as raw text
 import boilerplateWebGL1 from "./shaders/boilerplate-webgl1.glsl?raw";
@@ -1161,6 +1166,7 @@ class BlueprintSystem {
     this.setupMinimap();
     this.setupNotifications();
     this.setupPreviewConsole();
+    this.setupMcpBridge();
     this.render();
     this.updateUndoRedoButtons();
 
@@ -1177,6 +1183,10 @@ class BlueprintSystem {
       this.showOpenFilesModal();
     }, 100);
 
+    setTimeout(() => {
+      this.mcpBridge.autoConnect();
+    }, 0);
+
     // Initialize history after setup
     setTimeout(() => {
       this.history.currentState = this.exportState();
@@ -1184,6 +1194,142 @@ class BlueprintSystem {
   }
 
   // Called when language is changed
+  setupMcpBridge() {
+    this.mcpBridge = new McpBridgeClient({
+      getApi: () => globalThis.shaderGraphAPI || null,
+      onStatusChange: () => {
+        this.updateMenuItemStates();
+      },
+      onNotification: ({ type = "info", title, message = "", duration = 3000 }) => {
+        this.showNotification({ type, title, message, duration });
+      },
+    });
+  }
+
+  getMcpStatusLabel() {
+    const status = this.mcpBridge?.getStatus?.();
+    if (!status) {
+      return "Connect MCP";
+    }
+
+    if (status.status === "connected") {
+      return "Disconnect MCP";
+    }
+
+    if (status.status === "connecting") {
+      return "Connecting MCP...";
+    }
+
+    return "Connect MCP";
+  }
+
+  getMcpMenuTitle() {
+    const status = this.mcpBridge?.getStatus?.();
+    if (status?.status === "connected") {
+      return "MCP (Connected)";
+    }
+
+    return "MCP";
+  }
+
+  updateMcpMenuAppearance() {
+    const status = this.mcpBridge?.getStatus?.();
+    const menuBtn = document.getElementById("mcpMenuBtn");
+    if (!menuBtn) {
+      return;
+    }
+
+    const isConnected = status?.status === "connected";
+    menuBtn.classList.toggle("dropdown-item-mcp", isConnected);
+    menuBtn.classList.toggle("dropdown-item-subtle", !isConnected);
+  }
+
+  async toggleMcpConnection() {
+    const status = this.mcpBridge.getStatus();
+
+    if (status.status === "connected" || status.status === "connecting") {
+      this.mcpBridge.disconnect();
+      this.showNotification({
+        type: "info",
+        title: "MCP disconnected",
+        message: "Saved MCP URL cleared. The app will stop auto-connecting.",
+        duration: 2500,
+      });
+      this.updateMenuItemStates();
+      return;
+    }
+
+    const suggestedUrl = status.savedUrl || DEFAULT_MCP_URL;
+    const response = window.prompt("Enter MCP WebSocket URL", suggestedUrl);
+    if (response == null) {
+      return;
+    }
+
+    let normalizedUrl;
+    try {
+      normalizedUrl = normalizeWebSocketUrl(response);
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "Invalid MCP URL",
+        message: error instanceof Error ? error.message : String(error),
+        duration: 4000,
+      });
+      return;
+    }
+
+    try {
+      await this.mcpBridge.connect(normalizedUrl, { persist: true });
+      this.showNotification({
+        type: "success",
+        title: "MCP connected",
+        message: `Connected to ${normalizedUrl}`,
+        duration: 3000,
+      });
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "MCP connection failed",
+        message: error instanceof Error ? error.message : String(error),
+        duration: 4500,
+      });
+    }
+
+    this.updateMenuItemStates();
+  }
+
+  showMcpStatus() {
+    const status = this.mcpBridge.getStatus();
+    const project = status.project || { name: "Untitled Shader", version: "0.0.0.0" };
+    const parts = [
+      `Project: ${project.name}`,
+      `Version: ${project.version || "0.0.0.0"}`,
+      `Status: ${status.status}`,
+      `URL: ${status.url || status.savedUrl || "Not configured"}`,
+      `Session: ${status.sessionId}`,
+    ];
+
+    if (status.lastError?.message) {
+      parts.push(`Last error: ${status.lastError.message}`);
+    }
+
+    this.showNotification({
+      type: status.status === "connected" ? "success" : "info",
+      title: "MCP status",
+      message: parts.join(" | "),
+      duration: 7000,
+    });
+  }
+
+  announceMcpProjectUpdate(reason = "state-changed") {
+    if (!this.mcpBridge) {
+      return;
+    }
+
+    this.mcpBridge.sendProjectUpdate(reason);
+    this.updateMenuItemStates();
+  }
+
   onLanguageChanged() {
     // Update all existing nodes with new translations
     this.nodes.forEach((node) => {
@@ -7681,6 +7827,7 @@ class BlueprintSystem {
   setupToolbarMenus() {
     const menus = document.querySelectorAll(".toolbar-menu");
     let openMenu = null;
+    let openSubmenu = null;
 
     // Define all menu actions for help search
     this.menuActions = [
@@ -7902,6 +8049,25 @@ class BlueprintSystem {
         handler: () => this.showManualModal(),
       },
       {
+        label: "MCP",
+        menu: "Help",
+        action: "mcpMenuTitle",
+        getLabel: () => this.getMcpMenuTitle(),
+      },
+      {
+        label: "Connect MCP",
+        menu: "Help",
+        action: "toggleMcp",
+        handler: () => this.toggleMcpConnection(),
+        getLabel: () => this.getMcpStatusLabel(),
+      },
+      {
+        label: "MCP Status",
+        menu: "Help",
+        action: "mcpStatus",
+        handler: () => this.showMcpStatus(),
+      },
+      {
         label: "Report Issue",
         menu: "Help",
         action: "reportIssue",
@@ -7956,7 +8122,22 @@ class BlueprintSystem {
 
     const closeAllMenus = () => {
       menus.forEach((m) => m.classList.remove("open"));
+      document
+        .querySelectorAll(".dropdown-submenu.open")
+        .forEach((submenu) => submenu.classList.remove("open"));
       openMenu = null;
+      openSubmenu = null;
+    };
+
+    const setOpenSubmenu = (submenu) => {
+      if (openSubmenu && openSubmenu !== submenu) {
+        openSubmenu.classList.remove("open");
+      }
+
+      openSubmenu = submenu;
+      if (openSubmenu) {
+        openSubmenu.classList.add("open");
+      }
     };
 
     // Menu button click handling
@@ -7972,6 +8153,7 @@ class BlueprintSystem {
           closeAllMenus();
           menu.classList.add("open");
           openMenu = menu;
+          openSubmenu = null;
           this.updateMenuItemStates();
           // Focus search input if help menu
           const searchInput = dropdown.querySelector("#helpSearchInput");
@@ -7987,8 +8169,39 @@ class BlueprintSystem {
           closeAllMenus();
           menu.classList.add("open");
           openMenu = menu;
+          openSubmenu = null;
           this.updateMenuItemStates();
         }
+      });
+
+      dropdown.querySelectorAll(".dropdown-submenu").forEach((submenu) => {
+        const toggle = submenu.querySelector(".dropdown-item-submenu-toggle");
+        if (!toggle) {
+          return;
+        }
+
+        submenu.addEventListener("mouseenter", () => {
+          if (openMenu === menu) {
+            setOpenSubmenu(submenu);
+          }
+        });
+
+        submenu.addEventListener("mouseleave", () => {
+          if (openSubmenu === submenu) {
+            submenu.classList.remove("open");
+            openSubmenu = null;
+          }
+        });
+
+        toggle.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (openSubmenu === submenu) {
+            submenu.classList.remove("open");
+            openSubmenu = null;
+          } else {
+            setOpenSubmenu(submenu);
+          }
+        });
       });
 
       // Handle dropdown item clicks
@@ -7996,6 +8209,7 @@ class BlueprintSystem {
         item.addEventListener("click", (e) => {
           e.stopPropagation();
           if (item.disabled) return;
+          if (item.classList.contains("dropdown-item-submenu-toggle")) return;
           const action = item.dataset.action;
           const menuAction = this.menuActions.find((a) => a.action === action);
           if (menuAction) {
@@ -8256,6 +8470,8 @@ class BlueprintSystem {
         }
       }
     });
+
+    this.updateMcpMenuAppearance();
   }
 
   selectAllNodes() {
@@ -10607,6 +10823,7 @@ class BlueprintSystem {
     this.history.currentState = this.exportState();
 
     this.render();
+    this.announceMcpProjectUpdate("create-new-file");
   }
 
   async saveToJSON() {
@@ -11009,6 +11226,7 @@ class BlueprintSystem {
       // Clear and reinitialize history
       this.history.clear();
       this.history.currentState = this.exportState();
+      this.announceMcpProjectUpdate("load-project");
 
       // Add to recent files if we have a file handle
       if (this.fileHandle && data.previewScreenshot) {
@@ -11287,6 +11505,8 @@ class BlueprintSystem {
         }
       }
     }
+
+    this.announceMcpProjectUpdate("shader-info-updated");
   }
 
   updatePreviewSettingsUI() {

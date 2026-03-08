@@ -255,6 +255,32 @@
                   <span class="dropdown-item-label">Manual</span>
                   <span class="dropdown-item-shortcut">F1</span>
                 </button>
+                <div class="dropdown-submenu" id="mcpSubmenu">
+                  <button
+                    id="mcpMenuBtn"
+                    class="dropdown-item dropdown-item-submenu-toggle dropdown-item-mcp"
+                    type="button"
+                  >
+                    <span class="dropdown-item-label">MCP</span>
+                    <span class="dropdown-item-submenu-arrow">&rsaquo;</span>
+                  </button>
+                  <div class="dropdown-submenu-panel">
+                    <button
+                      id="mcpConnectBtn"
+                      class="dropdown-item dropdown-item-mcp"
+                      data-action="toggleMcp"
+                    >
+                      <span class="dropdown-item-label">Connect MCP</span>
+                    </button>
+                    <button
+                      id="mcpStatusBtn"
+                      class="dropdown-item"
+                      data-action="mcpStatus"
+                    >
+                      <span class="dropdown-item-label">MCP Status</span>
+                    </button>
+                  </div>
+                </div>
                 <div class="dropdown-separator"></div>
                 <button
                   id="reportIssueBtn"

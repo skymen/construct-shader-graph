@@ -219,6 +219,15 @@ body {
   color: #fff;
 }
 
+.dropdown-item-subtle {
+  color: #ddd;
+}
+
+.dropdown-item-subtle:hover:not(:disabled) {
+  background: rgba(106, 176, 255, 0.15);
+  color: #fff;
+}
+
 .dropdown-item:disabled {
   color: #666;
   cursor: not-allowed;
@@ -294,6 +303,64 @@ body {
 .dropdown-item-donate:hover:not(:disabled) {
   background: rgba(217, 4, 41, 0.25);
   color: #fff;
+}
+
+.dropdown-item-mcp {
+  color: #7ee0c3;
+}
+
+.dropdown-item-mcp:hover:not(:disabled) {
+  background: rgba(68, 196, 161, 0.18);
+  color: #b7ffea;
+}
+
+.dropdown-submenu {
+  position: relative;
+}
+
+.dropdown-item-submenu-toggle {
+  gap: 12px;
+}
+
+.dropdown-item-submenu-arrow {
+  flex-shrink: 0;
+  color: #7aa696;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.dropdown-submenu-panel {
+  position: absolute;
+  top: -4px;
+  left: calc(100% - 6px);
+  min-width: 220px;
+  background: #242424;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-6px);
+  transition: all 0.12s ease;
+  pointer-events: none;
+  z-index: 10003;
+}
+
+.dropdown-submenu.open .dropdown-submenu-panel,
+.dropdown-submenu:hover .dropdown-submenu-panel,
+.dropdown-submenu:focus-within .dropdown-submenu-panel {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.dropdown-submenu.open > .dropdown-item-submenu-toggle,
+.dropdown-submenu:hover > .dropdown-item-submenu-toggle,
+.dropdown-submenu:focus-within > .dropdown-item-submenu-toggle {
+  background: rgba(68, 196, 161, 0.18);
+  color: #b7ffea;
 }
 
 /* Donate heart particles */
@@ -385,7 +452,7 @@ body {
 .toolbar-dropdown-help {
   min-width: 280px;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .help-search-container {
@@ -465,6 +532,7 @@ body {
 
 .help-menu-items {
   padding: 4px;
+  overflow: visible;
 }
 
 /* Standalone toolbar buttons */
@@ -4236,4 +4304,3 @@ body {
   text-align: center;
   padding: 40px;
 }
-

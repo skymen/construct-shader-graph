@@ -1,30 +1,38 @@
 ---
 name: construct-shader-graph-console
-description: Use the Construct Shader Graph browser console API to inspect graphs, edit nodes and wires, control preview, and report AI work status safely.
+description: Use the Construct Shader Graph MCP bridge first, then fall back to the browser console API to inspect graphs, edit nodes and wires, control preview, and report AI work status safely.
 license: MIT
 compatibility: opencode
 metadata:
   audience: ai-agents
   domain: construct-shader-graph
-  interface: browser-console-api
+  interface: mcp-and-browser-console-api
 ---
 
-# Construct Shader Graph Console Skill
+# Construct Shader Graph MCP Skill
 
-Use this skill to control Construct Shader Graph from the browser console through `window.shaderGraphAPI` or `window.sg`.
+Use this skill to control Construct Shader Graph through its MCP bridge when available, and fall back to the browser console API only when MCP is unavailable.
 
 - Construct Shader Graph is a web page.
 - URL: `https://skymen.github.io/construct-shader-graph/`
 
 ## Purpose
 
+- Prefer the MCP tool surface when present: `list_projects`, `select_project`, `get_project_manifest`, and `call_project_method`.
 - Use this API to inspect the current graph, make targeted graph edits, validate the result, and report progress clearly.
-- Prefer this API over poking random internals directly.
+- Prefer MCP or the public console API over poking random internals directly.
 - Treat the graph as the source of truth for shader logic. Use preview controls only to inspect or demonstrate the result.
+
+## Interface priority
+
+1. MCP bridge tools.
+2. Browser console API via `window.shaderGraphAPI` or `window.sg`.
+3. Never use private app internals when a public MCP or console method exists.
 
 ## Operating contract
 
 - Preserve existing user work unless the task clearly requires replacing it.
+- If MCP is available, identify the right connected tab first and select it before mutating anything.
 - Inspect first, mutate second.
 - Make the smallest valid change that satisfies the request.
 - Verify after every structural edit such as creating nodes, deleting nodes, or wiring ports.
@@ -44,9 +52,11 @@ Use this skill to control Construct Shader Graph from the browser console throug
 
 ## Hard rules
 
-- Always call `sg.session.initAIWork()` when starting a task.
-- Always call `sg.session.endAIWork()` when finishing a task.
-- Use `sg.session.updateAIWork()` only for short phase updates.
+- If MCP is available, always begin by calling `list_projects` and selecting the correct project before using `call_project_method`.
+- Identify projects from `shader.getInfo()` data such as shader name and version, not page title or URL.
+- Always call `session.initAIWork()` when starting a task, whether through MCP or `sg`.
+- Always call `session.endAIWork()` when finishing a task, whether through MCP or `sg`.
+- Use `session.updateAIWork()` only for short phase updates.
 - Always inspect preview errors after meaningful shader edits.
 - Always use preview and screenshots for non-trivial visual validation.
 - Prefer setting editable input port values directly before adding constant/vector nodes.
@@ -61,14 +71,46 @@ Use this skill to control Construct Shader Graph from the browser console throug
 
 Use this loop for most tasks:
 
-1. Start the session.
-2. Inspect current graph state.
-3. Identify exact node ids, port refs, uniform ids, or settings keys.
-4. Apply one atomic edit or one tightly related batch.
-5. Re-read the affected nodes, ports, wires, or settings.
-6. Check preview or generated code if relevant.
-7. Repeat only if needed.
-8. End the session with a recap.
+1. If MCP is available, call `list_projects`.
+2. Select the correct project with `select_project`.
+3. Read `get_project_manifest` once per task or when capabilities are unclear.
+4. Start the session.
+5. Inspect current graph state.
+6. Identify exact node ids, port refs, uniform ids, or settings keys.
+7. Apply one atomic edit or one tightly related batch.
+8. Re-read the affected nodes, ports, wires, or settings.
+9. Check preview or generated code if relevant.
+10. Repeat only if needed.
+11. End the session with a recap.
+
+## MCP usage
+
+When MCP is available, treat it as the source of truth for execution and return values.
+
+- Use `list_projects` first.
+- Choose the project by shader metadata from `shader.getInfo()`, especially `name` and `version`.
+- Use `get_project_manifest` to discover supported methods and descriptions.
+- Use `call_project_method` for both reads and writes.
+- Use exact return values from `call_project_method`; do not guess what happened.
+- Only fall back to direct `sg.*` calls when MCP is not connected.
+
+Typical MCP flow:
+
+```text
+list_projects
+select_project(sessionId)
+get_project_manifest()
+call_project_method(method, args)
+```
+
+MCP example session skeleton:
+
+```json
+{ "tool": "call_project_method", "arguments": { "method": "session.initAIWork", "args": [{ "message": "Inspecting graph" }] } }
+{ "tool": "call_project_method", "arguments": { "method": "nodes.list", "args": [] } }
+{ "tool": "call_project_method", "arguments": { "method": "nodes.create", "args": [{ "typeKey": "multiply", "x": 420, "y": 180 }] } }
+{ "tool": "call_project_method", "arguments": { "method": "session.endAIWork", "args": [{ "title": "AI task complete", "summary": ["Added multiply node", "Verified node creation"] }] } }
+```
 
 Example session skeleton:
 
@@ -104,16 +146,29 @@ sg.session.endAIWork({
 
 ## Environment assumptions
 
-- API namespace: `window.shaderGraphAPI`
-- Short alias: `window.sg`
+- Preferred interface: local MCP server plus page bridge.
+- MCP tools: `list_projects`, `select_project`, `get_project_manifest`, `call_project_method`.
+- Console API namespace: `window.shaderGraphAPI`
+- Console short alias: `window.sg`
 - App location: `https://skymen.github.io/construct-shader-graph/`
 - The graph has nodes, ports, wires, uniforms, shader settings, preview settings, and camera state.
 - The tool compiles one graph to three targets: WebGL 1, WebGL 2, and WebGPU.
 - The preview normally uses the `Output` node unless node preview is enabled.
 
+## Method mapping
+
+When using MCP, map console calls like this:
+
+- `sg.shader.getInfo()` -> `call_project_method({ method: "shader.getInfo", args: [] })`
+- `sg.nodes.create({...})` -> `call_project_method({ method: "nodes.create", args: [{...}] })`
+- `sg.wires.create({...})` -> `call_project_method({ method: "wires.create", args: [{...}] })`
+- `sg.session.initAIWork({...})` -> `call_project_method({ method: "session.initAIWork", args: [{...}] })`
+
+The method names are the same; only the transport changes.
+
 ## Safe vs side-effecting calls
 
-Read-only calls:
+Read-only calls, whether through MCP or `sg`:
 
 - `sg.help()`
 - `sg.nodes.list()`
@@ -140,7 +195,7 @@ Read-only calls:
 - `sg.customNodes.get()`
 - `sg.ai.getWarnings()`
 
-Side-effecting calls:
+Side-effecting calls, whether through MCP or `sg`:
 
 - `sg.nodes.create()`
 - `sg.nodes.edit()`
@@ -371,6 +426,8 @@ shape3D.angleY += 15;
 
 Use the session API for start, progress, and finish.
 
+If MCP is available, invoke the same methods through `call_project_method`.
+
 ```js
 sg.session.initAIWork({ message: "Inspecting graph" })
 sg.session.updateAIWork("Opening example")
@@ -483,6 +540,11 @@ Bad:
 
 ## Troubleshooting
 
+- `MCP unavailable`
+  - Start the local MCP server.
+  - Make sure the page is connected to the MCP bridge.
+  - Use `list_projects` to confirm the tab registered.
+  - If needed, fall back to `window.sg` until MCP is connected.
 - `API unavailable`
   - Check that `window.sg` exists.
   - Refresh the page if the app just loaded incorrectly.
@@ -509,6 +571,24 @@ Bad:
   - Duplicate tiny leaf nodes when that is simpler and cleaner.
 
 ## API cheat sheet
+
+### MCP tools
+
+```text
+list_projects()
+select_project({ sessionId })
+get_project_manifest({ sessionId? })
+call_project_method({ sessionId?, method, args })
+```
+
+Recommended start sequence:
+
+```text
+list_projects()
+select_project({ sessionId: "..." })
+get_project_manifest()
+call_project_method({ method: "shader.getInfo", args: [] })
+```
 
 ### General
 
