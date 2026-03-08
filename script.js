@@ -5967,8 +5967,16 @@ class BlueprintSystem {
       return null;
     }
 
-    if (typeof structuredClone === "function") {
-      return structuredClone(data);
+    if (typeof data === "function") {
+      return undefined;
+    }
+
+    try {
+      if (typeof structuredClone === "function") {
+        return structuredClone(data);
+      }
+    } catch {
+      // Fall back to JSON serialization for values that cannot be structured-cloned.
     }
 
     return JSON.parse(JSON.stringify(data));
@@ -10699,30 +10707,36 @@ class BlueprintSystem {
     }
 
     return new Promise((resolve) => {
+      let resolved = false;
+      let timeout = null;
+
+      const cleanup = () => {
+        window.removeEventListener("message", screenshotHandler);
+        if (timeout != null) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+      };
+
       const screenshotHandler = (event) => {
         if (event.data && event.data.type === "screenshotData") {
-          // Remove the listener
-          window.removeEventListener("message", screenshotHandler);
+          cleanup();
+          resolved = true;
           resolve(event.data.dataUrl);
         }
       };
 
       // Set a timeout in case the preview doesn't respond
-      const timeout = setTimeout(() => {
-        window.removeEventListener("message", screenshotHandler);
+      timeout = setTimeout(() => {
+        cleanup();
+        if (resolved) {
+          return;
+        }
+        resolved = true;
         resolve(null);
       }, 5000);
 
       window.addEventListener("message", screenshotHandler);
-
-      // Clear timeout when we get a response
-      const originalHandler = screenshotHandler;
-      const wrappedHandler = (event) => {
-        clearTimeout(timeout);
-        originalHandler(event);
-      };
-      window.removeEventListener("message", screenshotHandler);
-      window.addEventListener("message", wrappedHandler);
 
       // Request screenshot from the preview iframe
       this.previewIframe.contentWindow.postMessage(

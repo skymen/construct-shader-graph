@@ -25,12 +25,20 @@ const PREVIEW_SETTING_KEYS = new Set([
 ]);
 
 function cloneValue(value) {
-  if (typeof structuredClone === "function") {
-    return structuredClone(value);
-  }
-
   if (value === undefined) {
     return undefined;
+  }
+
+  if (typeof value === "function") {
+    return undefined;
+  }
+
+  try {
+    if (typeof structuredClone === "function") {
+      return structuredClone(value);
+    }
+  } catch {
+    // Fall back to JSON serialization for values that cannot be structured-cloned.
   }
 
   return JSON.parse(JSON.stringify(value));
@@ -328,7 +336,7 @@ async function runAiDebugCheck(bp, api, options = {}) {
   const warnings = api.ai.getWarnings();
 
   let screenshot = null;
-  if (options.includeScreenshot) {
+  if (options.includeScreenshot || options.takeScreenshot) {
     screenshot = await api.preview.screenshot({ download: false });
   }
 
@@ -490,6 +498,20 @@ function maybeNormalizeGradient(bp, node, patch) {
   if (dataContainsStops || hasExplicitStops) {
     bp.normalizeGradientStopsForNode(node);
   }
+}
+
+function hasNodePatchChanges(patch = {}) {
+  return [
+    "x",
+    "y",
+    "position",
+    "operation",
+    "customInput",
+    "selectedVariable",
+    "data",
+    "inputValues",
+    "gradientStops",
+  ].some((key) => Object.prototype.hasOwnProperty.call(patch, key));
 }
 
 function applyNodePatch(bp, node, patch) {
@@ -1808,6 +1830,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
       edit(nodeId, patch = {}) {
         const node = getNodeById(blueprint, nodeId);
+        assert(hasNodePatchChanges(patch), `No supported patch fields provided for node ${nodeId}`);
         applyNodePatch(blueprint, node, patch);
         finalizeNodeChange(blueprint, `Edit node (${node.title})`);
         return serializeNode(blueprint, node);
@@ -1872,6 +1895,13 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         const endPort = resolvePortRef(blueprint, to, "input");
 
         assert(startPort.canConnectTo(endPort), "Ports are not compatible for connection");
+
+        const existingWire = blueprint.wires.find(
+          (wire) => wire.startPort === startPort && wire.endPort === endPort,
+        );
+        if (existingWire) {
+          return serializeWire(blueprint, existingWire);
+        }
 
         if (endPort.connections.length > 0) {
           blueprint.disconnectWire(endPort.connections[0]);
