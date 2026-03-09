@@ -765,6 +765,8 @@ class Node {
   }
 }
 
+globalThis.ShaderGraphNode = Node;
+
 class RerouteNode {
   constructor(x, y, wire, index) {
     this.x = x;
@@ -1162,6 +1164,7 @@ class BlueprintSystem {
     this.setupCustomNodeModal();
     this.setupOpenFilesModal();
     this.setupManualModal();
+    this.setupIrGraphModal();
     this.setupPreview();
     this.setupMinimap();
     this.setupNotifications();
@@ -8048,6 +8051,34 @@ class BlueprintSystem {
         action: "viewCode",
         handler: () => this.showViewCodeModal(),
       },
+      {
+        label: "Export Selection as IR",
+        menu: "Project",
+        action: "exportSelectionIr",
+        handler: () => this.showExportSelectionIrModal(),
+        isEnabled: () => this.nodes.length > 0,
+      },
+      {
+        label: "Import Graph from IR",
+        menu: "Project",
+        action: "importIr",
+        handler: () => this.showImportIrModal(),
+      },
+      {
+        label: "Delete Disconnected Nodes",
+        menu: "Project",
+        action: "deleteDanglingNodes",
+        handler: () => this.runDeleteDanglingNodes(),
+        isEnabled: () => this.nodes.some((node) => this.getNodeTypeKey(node.nodeType) !== "output"),
+      },
+      {
+        label: "Turn Into Variable",
+        menu: "Project",
+        action: "rewriteFanout",
+        shortcut: "V",
+        handler: () => this.runRewriteSelectedFanout(),
+        isEnabled: () => !!this.getSelectedFanoutCandidate(),
+      },
       // Help menu
       {
         label: "Manual",
@@ -8697,10 +8728,14 @@ class BlueprintSystem {
     this.render();
   }
 
-  autoArrange() {
+  autoArrange(options = {}) {
     // If there's a selection, arrange only selected nodes
     // Otherwise, arrange all nodes
     const selectedOnly = this.selectedNodes.size > 0;
+
+    if (options.normalizeFanout !== false) {
+      this.normalizeFanoutsForLayout(selectedOnly);
+    }
 
     if (selectedOnly) {
       console.log(`Auto-arranging ${this.selectedNodes.size} selected nodes`);
@@ -9285,6 +9320,13 @@ class BlueprintSystem {
     else if (!e.ctrlKey && !e.metaKey && (e.key === "r" || e.key === "R")) {
       e.preventDefault();
       this.updatePreview();
+    }
+    // V: Rewrite selected fan-out
+    else if (!e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "v" || e.key === "V")) {
+      if (this.getSelectedFanoutCandidate()) {
+        e.preventDefault();
+        this.runRewriteSelectedFanout();
+      }
     }
     // L: Toggle Preview Node
     else if (e.key === "l" || e.key === "L") {
@@ -9933,6 +9975,208 @@ class BlueprintSystem {
     };
 
     checkCodeMirror();
+  }
+
+  setupIrGraphModal() {
+    this.irGraphModal = document.getElementById("irGraphModal");
+    this.irGraphModalTitle = document.getElementById("irGraphModalTitle");
+    this.irGraphModalDescription = document.getElementById("irGraphModalDescription");
+    this.irGraphTextarea = document.getElementById("irGraphTextarea");
+    this.irGraphCopyBtn = document.getElementById("irGraphCopyBtn");
+    this.irGraphPasteBtn = document.getElementById("irGraphPasteBtn");
+    this.irGraphImportBtn = document.getElementById("irGraphImportBtn");
+
+    if (!this.irGraphModal) {
+      return;
+    }
+
+    document.getElementById("irGraphModalClose").addEventListener("click", () => {
+      this.irGraphModal.style.display = "none";
+    });
+    document.getElementById("irGraphModalOk").addEventListener("click", () => {
+      this.irGraphModal.style.display = "none";
+    });
+    this.irGraphModal.addEventListener("mousedown", (e) => {
+      if (e.target === this.irGraphModal) {
+        this.irGraphModal.style.display = "none";
+      }
+    });
+
+    this.irGraphCopyBtn.addEventListener("click", async () => {
+      await this.copyIrTextareaToClipboard();
+    });
+
+    this.irGraphPasteBtn.addEventListener("click", async () => {
+      await this.pasteClipboardIntoIrTextarea();
+    });
+
+    this.irGraphImportBtn.addEventListener("click", async () => {
+      await this.importIrFromTextarea();
+    });
+  }
+
+  configureIrGraphModal({ title, description, text = "", mode = "export" }) {
+    this.irGraphModalTitle.textContent = title;
+    this.irGraphModalDescription.textContent = description;
+    this.irGraphTextarea.value = text;
+    this.irGraphTextarea.readOnly = mode === "export";
+    this.irGraphCopyBtn.style.display = mode === "export" ? "" : "none";
+    this.irGraphPasteBtn.style.display = mode === "import" ? "" : "none";
+    this.irGraphImportBtn.style.display = mode === "import" ? "" : "none";
+    this.irGraphModal.style.display = "flex";
+    setTimeout(() => this.irGraphTextarea.focus(), 0);
+    if (mode === "export") {
+      this.irGraphTextarea.select();
+    }
+  }
+
+  async copyIrTextareaToClipboard() {
+    try {
+      await navigator.clipboard.writeText(this.irGraphTextarea.value);
+      this.showNotification({
+        type: "success",
+        title: "IR Copied",
+        message: "IR graph JSON copied to clipboard",
+        duration: 1800,
+      });
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "Clipboard Error",
+        message: error.message || "Failed to copy IR graph",
+        duration: 2200,
+      });
+    }
+  }
+
+  async pasteClipboardIntoIrTextarea() {
+    try {
+      const text = await navigator.clipboard.readText();
+      this.irGraphTextarea.value = text;
+      this.showNotification({
+        type: "success",
+        title: "IR Pasted",
+        message: "Clipboard contents pasted into import box",
+        duration: 1800,
+      });
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "Clipboard Error",
+        message: error.message || "Failed to read clipboard",
+        duration: 2200,
+      });
+    }
+  }
+
+  async showExportSelectionIrModal() {
+    try {
+      const selectedOnly = this.selectedNodes.size > 0;
+      const ir = this.exportGraphIR({ selectedOnly });
+      const text = JSON.stringify(ir, null, 2);
+      this.configureIrGraphModal({
+        title: selectedOnly ? "Export Selection as IR" : "Export Graph as IR",
+        description: selectedOnly
+          ? "This IR graph was generated from the current node selection and copied to your clipboard."
+          : "No nodes were selected, so the full graph was exported as IR and copied to your clipboard.",
+        text,
+        mode: "export",
+      });
+      await this.copyIrTextareaToClipboard();
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "IR Export Failed",
+        message: error.message,
+        duration: 2400,
+      });
+    }
+  }
+
+  showImportIrModal() {
+    this.configureIrGraphModal({
+      title: "Import Graph from IR",
+      description: "Paste IR graph JSON here, then import it into the current project.",
+      text: "",
+      mode: "import",
+    });
+  }
+
+  async importIrFromTextarea() {
+    try {
+      const text = this.irGraphTextarea.value.trim();
+      if (!text) {
+        throw new Error("Paste an IR graph JSON payload first");
+      }
+      const ir = JSON.parse(text);
+      const result = this.importGraphIR(ir, { autoLayout: true, historyLabel: "Import graph from IR" });
+      this.irGraphModal.style.display = "none";
+      this.showNotification({
+        type: "success",
+        title: "IR Imported",
+        message: `${result.imported.nodeCount} nodes imported`,
+        duration: 2200,
+      });
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "IR Import Failed",
+        message: error.message,
+        duration: 2600,
+      });
+    }
+  }
+
+  runDeleteDanglingNodes() {
+    try {
+      const result = this.deleteDanglingNodes({ autoLayout: true });
+      this.showNotification({
+        type: "success",
+        title: "Disconnected Nodes Deleted",
+        message: result.deletedCount
+          ? `${result.deletedCount} nodes removed`
+          : "No disconnected nodes found",
+        duration: 2200,
+      });
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "Cleanup Failed",
+        message: error.message,
+        duration: 2400,
+      });
+    }
+  }
+
+  runRewriteSelectedFanout() {
+    const candidate = this.getSelectedFanoutCandidate();
+    if (!candidate) {
+      return;
+    }
+
+    try {
+      const result = this.rewriteFanoutAsVariable({
+        nodeId: candidate.node.id,
+        outputName: candidate.port.name,
+        autoLayout: true,
+      });
+      this.showNotification({
+        type: "success",
+        title: result.mode === "duplicate" ? "Fan-Out Duplicated" : "Turned Into Variable",
+        message:
+          result.mode === "duplicate"
+            ? `${result.duplicatedNodeIds.length} duplicate nodes created`
+            : result.variableName,
+        duration: 2200,
+      });
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "Fan-Out Rewrite Failed",
+        message: error.message,
+        duration: 2400,
+      });
+    }
   }
 
   setupManualModal() {
@@ -11303,6 +11547,715 @@ class BlueprintSystem {
     return NODE_TYPES[key] || null;
   }
 
+  getWorldCenterPosition() {
+    return {
+      x: (-this.camera.x + (this.logicalWidth || this.canvas.width) / 2) /
+        this.camera.zoom,
+      y: (-this.camera.y + (this.logicalHeight || this.canvas.height) / 2) /
+        this.camera.zoom,
+    };
+  }
+
+  sanitizeGraphLocalId(value, fallback = "node") {
+    const normalized = String(value || "")
+      .trim()
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .replace(/[^a-zA-Z0-9_]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .toLowerCase();
+    return normalized || fallback;
+  }
+
+  getOutputNode() {
+    const outputNode = this.nodes.find(
+      (node) => this.getNodeTypeKey(node.nodeType) === "output",
+    );
+    if (!outputNode) {
+      throw new Error("Graph is missing its Output node");
+    }
+    return outputNode;
+  }
+
+  buildIrPortRef(localNodeId, portName) {
+    return `${localNodeId}.${portName}`;
+  }
+
+  parseIrPortRef(ref) {
+    if (typeof ref !== "string" || !ref.trim()) {
+      throw new Error("IR port ref must be a non-empty string");
+    }
+    const dotIndex = ref.indexOf(".");
+    if (dotIndex <= 0 || dotIndex >= ref.length - 1) {
+      throw new Error(`IR port ref '${ref}' must use '<nodeId>.<portName>' format`);
+    }
+    return {
+      nodeId: ref.slice(0, dotIndex),
+      portName: ref.slice(dotIndex + 1),
+    };
+  }
+
+  resolveUniformRefFromIr(uniformRef) {
+    if (Number.isInteger(Number(uniformRef))) {
+      const uniform = this.uniforms.find((entry) => entry.id === Number(uniformRef));
+      if (!uniform) {
+        throw new Error(`Uniform '${uniformRef}' not found`);
+      }
+      return uniform;
+    }
+
+    const ref = String(uniformRef || "").trim();
+    if (!ref) {
+      throw new Error("Uniform reference must be a non-empty string or integer id");
+    }
+
+    const uniform = this.uniforms.find(
+      (entry) => entry.name === ref || entry.variableName === ref,
+    );
+    if (!uniform) {
+      throw new Error(`Uniform '${ref}' not found`);
+    }
+    return uniform;
+  }
+
+  getIrNodeTypeInfo(irNode) {
+    const typeKey = irNode.typeKey ?? irNode.type;
+    if (!typeKey || typeof typeKey !== "string") {
+      throw new Error(`IR node '${irNode.id ?? "<unknown>"}' requires a type or typeKey`);
+    }
+
+    if (typeKey === "uniform") {
+      const uniformRef = irNode.uniform ?? irNode.uniformName ?? irNode.uniformId;
+      if (uniformRef === undefined || uniformRef === null) {
+        throw new Error(`IR node '${irNode.id}' requires a uniform reference`);
+      }
+      const uniform = this.resolveUniformRefFromIr(uniformRef);
+      const nodeType = this.getUniformNodeTypes()[`uniform_${uniform.id}`];
+      if (!nodeType) {
+        throw new Error(`Uniform node type for '${uniform.name}' not found`);
+      }
+      return { typeKey, uniform, nodeType };
+    }
+
+    if (typeKey === "output") {
+      return { typeKey, uniform: null, nodeType: NODE_TYPES.output };
+    }
+
+    const nodeType = this.getNodeTypeFromKey(typeKey);
+    if (!nodeType) {
+      throw new Error(`Unknown node type '${typeKey}'`);
+    }
+    return { typeKey, uniform: null, nodeType };
+  }
+
+  applyIrNodePatch(node, irNode) {
+    if (irNode.operation !== undefined) {
+      node.operation = irNode.operation;
+    }
+    if (irNode.customInput !== undefined) {
+      node.customInput = irNode.customInput;
+    }
+    if (irNode.selectedVariable !== undefined) {
+      node.selectedVariable = irNode.selectedVariable;
+    }
+    if (irNode.data !== undefined) {
+      node.data = this.cloneNodeData(irNode.data);
+    }
+    if (irNode.inputValues && typeof irNode.inputValues === "object") {
+      Object.entries(irNode.inputValues).forEach(([portName, value]) => {
+        const port = node.inputPorts.find((entry) => entry.name === portName);
+        if (port && port.connections.length === 0) {
+          port.value = this.cloneNodeData(value);
+        }
+      });
+    }
+
+    node.inputPorts.forEach((port) => port.updateEditability());
+    node.outputPorts.forEach((port) => port.updateEditability());
+    node.recalculateHeight();
+  }
+
+  validateGraphIR(ir) {
+    if (!ir || typeof ir !== "object") {
+      throw new Error("graph IR must be an object");
+    }
+
+    const nodes = Array.isArray(ir.nodes) ? ir.nodes : [];
+    const wires = ir.wires === undefined ? [] : ir.wires;
+    if (!nodes.length) {
+      return {
+        ok: false,
+        nodeCount: 0,
+        wireCount: Array.isArray(wires) ? wires.length : 0,
+        errors: [{ type: "graph", message: "graph IR requires a non-empty nodes array" }],
+      };
+    }
+    if (!Array.isArray(wires)) {
+      return {
+        ok: false,
+        nodeCount: nodes.length,
+        wireCount: 0,
+        errors: [{ type: "graph", message: "graph IR wires must be an array" }],
+      };
+    }
+
+    const nodeMap = new Map();
+    const errors = [];
+    let outputNodeCount = 0;
+
+    nodes.forEach((irNode, index) => {
+      if (!irNode || typeof irNode !== "object") {
+        errors.push({ type: "node", index, message: `IR node at index ${index} must be an object` });
+        return;
+      }
+
+      const localId = String(irNode.id || "").trim();
+      if (!localId) {
+        errors.push({ type: "node", index, message: `IR node at index ${index} requires a non-empty id` });
+        return;
+      }
+      if (nodeMap.has(localId)) {
+        errors.push({ type: "node", id: localId, message: `Duplicate IR node id '${localId}'` });
+        return;
+      }
+
+      try {
+        const info = this.getIrNodeTypeInfo(irNode);
+        if (info.typeKey === "output") {
+          outputNodeCount += 1;
+        }
+        nodeMap.set(localId, { irNode, ...info });
+      } catch (error) {
+        errors.push({ type: "node", id: localId, message: error.message });
+      }
+    });
+
+    if (outputNodeCount > 1) {
+      errors.push({ type: "graph", message: "IR may reference at most one output node" });
+    }
+
+    wires.forEach((wire, index) => {
+      try {
+        if (!wire || typeof wire !== "object") {
+          throw new Error(`IR wire at index ${index} must be an object`);
+        }
+        const fromRef = this.parseIrPortRef(wire.from);
+        const toRef = this.parseIrPortRef(wire.to);
+        const fromNode = nodeMap.get(fromRef.nodeId);
+        const toNode = nodeMap.get(toRef.nodeId);
+        if (!fromNode) throw new Error(`IR wire ${index} references missing from node '${fromRef.nodeId}'`);
+        if (!toNode) throw new Error(`IR wire ${index} references missing to node '${toRef.nodeId}'`);
+
+        const startNode = this.createDetachedNode(fromNode.nodeType, 0, 0, -100000 - index * 2);
+        const endNode = this.createDetachedNode(toNode.nodeType, 0, 0, -100001 - index * 2);
+        this.applyIrNodePatch(startNode, fromNode.irNode);
+        this.applyIrNodePatch(endNode, toNode.irNode);
+
+        const startPort = startNode.outputPorts.find((port) => port.name === fromRef.portName);
+        const endPort = endNode.inputPorts.find((port) => port.name === toRef.portName);
+        if (!startPort) throw new Error(`IR wire ${index} output '${wire.from}' does not exist`);
+        if (!endPort) throw new Error(`IR wire ${index} input '${wire.to}' does not exist`);
+        if (!startPort.canConnectTo(endPort)) {
+          throw new Error(
+            `Ports are not compatible for connection: from '${wire.from}' (${startPort.getResolvedType()}): to '${wire.to}' (${endPort.getResolvedType()})`,
+          );
+        }
+      } catch (error) {
+        errors.push({ type: "wire", index, wire: this.cloneNodeData(wire), message: error.message });
+      }
+    });
+
+    return {
+      ok: errors.length === 0,
+      nodeCount: nodes.length,
+      wireCount: wires.length,
+      errors,
+    };
+  }
+
+  exportGraphIR(options = {}) {
+    const selectedOnly = !!options.selectedOnly;
+    const nodesToExport = selectedOnly && this.selectedNodes.size > 0
+      ? Array.from(this.selectedNodes)
+      : [...this.nodes];
+    if (!nodesToExport.length) {
+      throw new Error("No nodes available for IR export");
+    }
+
+    const includedNodeIds = new Set(nodesToExport.map((node) => node.id));
+    const localIds = new Set();
+    const localIdByNodeId = new Map();
+
+    nodesToExport.forEach((node) => {
+      const baseLocalId = this.sanitizeGraphLocalId(
+        `${this.getNodeTypeKey(node.nodeType) || "node"}_${node.id}`,
+        `node_${node.id}`,
+      );
+      let localId = baseLocalId;
+      let counter = 2;
+      while (localIds.has(localId)) {
+        localId = `${baseLocalId}_${counter}`;
+        counter++;
+      }
+      localIds.add(localId);
+      localIdByNodeId.set(node.id, localId);
+    });
+
+    const nodes = nodesToExport.map((node) => {
+      const typeKey = this.getNodeTypeKey(node.nodeType);
+      const irNode = {
+        id: localIdByNodeId.get(node.id),
+        type: node.nodeType.isUniform ? "uniform" : typeKey,
+      };
+
+      if (node.nodeType.isUniform) {
+        irNode.uniform = node.uniformDisplayName || node.uniformName || node.uniformId;
+      }
+      if (node.operation !== undefined) irNode.operation = node.operation;
+      if (node.customInput !== undefined) irNode.customInput = node.customInput;
+      if (node.selectedVariable !== undefined) irNode.selectedVariable = node.selectedVariable;
+      if (node.data !== undefined) irNode.data = this.cloneNodeData(node.data);
+
+      const inputValues = {};
+      node.inputPorts.forEach((port) => {
+        if (port.isEditable && port.connections.length === 0 && port.value !== undefined) {
+          inputValues[port.name] = this.cloneNodeData(port.value);
+        }
+      });
+      if (Object.keys(inputValues).length > 0) {
+        irNode.inputValues = inputValues;
+      }
+
+      return irNode;
+    });
+
+    const wires = this.wires
+      .filter(
+        (wire) =>
+          includedNodeIds.has(wire.startPort.node.id) &&
+          includedNodeIds.has(wire.endPort.node.id),
+      )
+      .map((wire) => ({
+        from: this.buildIrPortRef(localIdByNodeId.get(wire.startPort.node.id), wire.startPort.name),
+        to: this.buildIrPortRef(localIdByNodeId.get(wire.endPort.node.id), wire.endPort.name),
+      }));
+
+    return {
+      version: 1,
+      autoLayout: true,
+      nodes,
+      wires,
+    };
+  }
+
+  importGraphIR(ir, options = {}) {
+    const validation = this.validateGraphIR(ir);
+    if (options.validateOnly) {
+      return validation;
+    }
+    if (!validation.ok) {
+      throw new Error(`graph.importIR validation failed: ${validation.errors[0]?.message || "unknown error"}`);
+    }
+
+    const nodes = Array.isArray(ir.nodes) ? ir.nodes : [];
+    const wires = Array.isArray(ir.wires) ? ir.wires : [];
+    const localToNodeId = new Map();
+    const createdNodes = [];
+    const createdWires = [];
+    const origin = options.position || this.getWorldCenterPosition();
+    let cursorX = Number.isFinite(origin.x) ? origin.x : this.getWorldCenterPosition().x;
+    let cursorY = Number.isFinite(origin.y) ? origin.y : this.getWorldCenterPosition().y;
+
+    nodes.forEach((irNode, index) => {
+      const info = this.getIrNodeTypeInfo(irNode);
+      let node;
+
+      if (info.typeKey === "output") {
+        node = this.getOutputNode();
+      } else if (info.typeKey === "uniform") {
+        node = this.createUniformNode(info.uniform, cursorX, cursorY);
+      } else {
+        node = this.addNode(cursorX, cursorY, info.nodeType);
+      }
+
+      this.applyIrNodePatch(node, irNode);
+      localToNodeId.set(irNode.id, node.id);
+      createdNodes.push(node);
+
+      if (info.typeKey !== "output") {
+        cursorX += 220;
+        if ((index + 1) % 6 === 0) {
+          cursorX = origin.x;
+          cursorY += 140;
+        }
+      }
+    });
+
+    wires.forEach((wire) => {
+      const fromRef = this.parseIrPortRef(wire.from);
+      const toRef = this.parseIrPortRef(wire.to);
+      const startNode = this.nodes.find((node) => node.id === localToNodeId.get(fromRef.nodeId));
+      const endNode = this.nodes.find((node) => node.id === localToNodeId.get(toRef.nodeId));
+      const startPort = startNode?.outputPorts.find((port) => port.name === fromRef.portName);
+      const endPort = endNode?.inputPorts.find((port) => port.name === toRef.portName);
+      if (!startPort || !endPort) {
+        throw new Error(`Unable to resolve imported wire '${wire.from}' -> '${wire.to}'`);
+      }
+      if (!startPort.canConnectTo(endPort)) {
+        throw new Error(`Imported wire is not type-compatible: '${wire.from}' -> '${wire.to}'`);
+      }
+
+      if (endPort.connections.length > 0) {
+        this.disconnectWire(endPort.connections[0]);
+      }
+
+      const wireInstance = new Wire(startPort, endPort);
+      this.wires.push(wireInstance);
+      startPort.connections.push(wireInstance);
+      endPort.connections.push(wireInstance);
+      this.resolveGenericsForConnection(startPort, endPort);
+      createdWires.push(wireInstance);
+    });
+
+    if (ir.autoLayout !== false && options.autoLayout !== false) {
+      this.clearSelection();
+      createdNodes.forEach((node) => {
+        if (this.getNodeTypeKey(node.nodeType) !== "output") {
+          node.isSelected = true;
+          this.selectedNodes.add(node);
+        }
+      });
+      this.autoArrange({ normalizeFanout: true });
+    }
+
+    this.updateDependencyList();
+    this.onShaderChanged();
+    this.render();
+    this.history.pushState(options.historyLabel || `Import graph IR (${createdNodes.length} nodes)`);
+
+    return {
+      ok: true,
+      imported: {
+        nodeCount: createdNodes.length,
+        wireCount: createdWires.length,
+        nodeIds: createdNodes.map((node) => node.id),
+        wireIds: createdWires.map((wire) => this.wires.indexOf(wire) + 1),
+        localToNodeId: Object.fromEntries(localToNodeId.entries()),
+      },
+      validation,
+    };
+  }
+
+  isSimpleFanoutDuplicationCandidate(node, outputPort) {
+    return (
+      !!node &&
+      !!outputPort &&
+      node.inputPorts.length === 0 &&
+      node.outputPorts.length === 1 &&
+      outputPort.connections.length > 1
+    );
+  }
+
+  duplicateNodeForFanout(node, x, y) {
+    let clone;
+    if (node.nodeType.isUniform && node.uniformId !== undefined) {
+      const uniform = this.uniforms.find((entry) => entry.id === node.uniformId);
+      if (!uniform) {
+        throw new Error(`Uniform ${node.uniformId} not found for duplication`);
+      }
+      clone = this.createUniformNode(uniform, x, y);
+    } else {
+      clone = this.addNode(x, y, node.nodeType);
+    }
+
+    this.applyIrNodePatch(clone, {
+      operation: node.operation,
+      customInput: node.customInput,
+      selectedVariable: node.selectedVariable,
+      data: node.data,
+      inputValues: Object.fromEntries(
+        node.inputPorts
+          .filter((port) => port.connections.length === 0 && port.value !== undefined)
+          .map((port) => [port.name, this.cloneNodeData(port.value)]),
+      ),
+    });
+
+    return clone;
+  }
+
+  duplicateFanoutNode(options = {}) {
+    const { nodeId, outputIndex = 0, outputName, autoLayout = true, recordHistory = true } = options;
+    const node = this.nodes.find((entry) => entry.id === Number(nodeId));
+    if (!node) {
+      throw new Error(`Node ${nodeId} not found`);
+    }
+    const outputPort = outputName != null
+      ? node.outputPorts.find((port) => port.name === outputName)
+      : node.outputPorts[Number(outputIndex) || 0];
+    if (!outputPort) {
+      throw new Error(`Output port not found on node ${node.id}`);
+    }
+    if (!this.isSimpleFanoutDuplicationCandidate(node, outputPort)) {
+      throw new Error(`Node ${node.id} output '${outputPort.name}' is not a simple duplication candidate`);
+    }
+
+    const connections = [...outputPort.connections];
+    const keptWire = connections.shift();
+    const createdNodeIds = [];
+
+    connections.forEach((wire, index) => {
+      const targetPort = wire.endPort;
+      this.disconnectWire(wire);
+      const duplicate = this.duplicateNodeForFanout(
+        node,
+        targetPort.node.x - 220,
+        targetPort.node.y + index * 40,
+      );
+      const duplicateOutput = duplicate.outputPorts[outputPort.index];
+      const replacementWire = new Wire(duplicateOutput, targetPort);
+      this.wires.push(replacementWire);
+      duplicateOutput.connections.push(replacementWire);
+      targetPort.connections.push(replacementWire);
+      this.resolveGenericsForConnection(duplicateOutput, targetPort);
+      createdNodeIds.push(duplicate.id);
+    });
+
+    if (autoLayout) {
+      this.clearSelection();
+      [node, ...createdNodeIds.map((id) => this.nodes.find((entry) => entry.id === id))]
+        .filter(Boolean)
+        .forEach((entry) => {
+          entry.isSelected = true;
+          this.selectedNodes.add(entry);
+        });
+      this.autoArrange({ normalizeFanout: false });
+    }
+
+    this.updateDependencyList();
+    this.onShaderChanged();
+    this.render();
+    if (recordHistory) {
+      this.history.pushState(`Duplicate fan-out node (${node.title})`);
+    }
+
+    return {
+      ok: true,
+      mode: "duplicate",
+      duplicatedNodeIds: createdNodeIds,
+      keptWireId: keptWire ? this.wires.indexOf(keptWire) + 1 : null,
+      replacedConnectionCount: createdNodeIds.length,
+    };
+  }
+
+  rewriteFanoutAsVariable(options = {}) {
+    const {
+      nodeId,
+      outputIndex = 0,
+      outputName,
+      variableName,
+      autoLayout = true,
+      recordHistory = true,
+    } = options;
+    const node = this.nodes.find((entry) => entry.id === Number(nodeId));
+    if (!node) {
+      throw new Error(`Node ${nodeId} not found`);
+    }
+    const outputPort = outputName != null
+      ? node.outputPorts.find((port) => port.name === outputName)
+      : node.outputPorts[Number(outputIndex) || 0];
+    if (!outputPort) {
+      throw new Error(`Output port not found on node ${node.id}`);
+    }
+    if (outputPort.connections.length <= 1) {
+      throw new Error(`Node ${node.id} output '${outputPort.name}' does not fan out`);
+    }
+
+    if (this.isSimpleFanoutDuplicationCandidate(node, outputPort)) {
+      return this.duplicateFanoutNode({ nodeId, outputIndex, outputName, autoLayout, recordHistory });
+    }
+
+    const connections = [...outputPort.connections];
+    const rootName = this.sanitizeGraphLocalId(variableName || `${node.title}_${outputPort.name}`, "graph_value");
+    let nextName = rootName;
+    let counter = 2;
+    while (this.nodes.some((entry) => this.getNodeTypeKey(entry.nodeType) === "setVariable" && entry.customInput === nextName)) {
+      nextName = `${rootName}_${counter}`;
+      counter++;
+    }
+
+    const setNode = this.addNode(node.x + 220, node.y, this.getNodeTypeFromKey("setVariable"));
+    setNode.customInput = nextName;
+    setNode.recalculateHeight();
+
+    const setWire = new Wire(outputPort, setNode.inputPorts[0]);
+    this.wires.push(setWire);
+    outputPort.connections.push(setWire);
+    setNode.inputPorts[0].connections.push(setWire);
+    this.resolveGenericsForConnection(outputPort, setNode.inputPorts[0]);
+
+    const createdGetNodes = [];
+    connections.forEach((wire, index) => {
+      const targetPort = wire.endPort;
+      const getNode = this.addNode(
+        targetPort.node.x - 220,
+        targetPort.node.y + index * 45,
+        this.getNodeTypeFromKey("getVariable"),
+      );
+      getNode.selectedVariable = nextName;
+      getNode.recalculateHeight();
+      createdGetNodes.push(getNode);
+
+      this.disconnectWire(wire);
+
+      const replacementWire = new Wire(getNode.outputPorts[0], targetPort);
+      this.wires.push(replacementWire);
+      getNode.outputPorts[0].connections.push(replacementWire);
+      targetPort.connections.push(replacementWire);
+      this.resolveGenericsForConnection(getNode.outputPorts[0], targetPort);
+    });
+
+    if (autoLayout) {
+      this.clearSelection();
+      [node, setNode, ...createdGetNodes].forEach((entry) => {
+        entry.isSelected = true;
+        this.selectedNodes.add(entry);
+      });
+      this.autoArrange({ normalizeFanout: false });
+    }
+
+    this.updateDependencyList();
+    this.onShaderChanged();
+    this.render();
+    if (recordHistory) {
+      this.history.pushState(`Rewrite fan-out as variable (${nextName})`);
+    }
+
+    return {
+      ok: true,
+      mode: "variable",
+      variableName: nextName,
+      setNodeId: setNode.id,
+      getNodeIds: createdGetNodes.map((entry) => entry.id),
+      replacedConnectionCount: connections.length,
+    };
+  }
+
+  deleteDanglingNodes(options = {}) {
+    const autoLayout = !!options.autoLayout;
+    const keepNodeIds = new Set();
+    const stack = [];
+
+    this.nodes.forEach((node) => {
+      const typeKey = this.getNodeTypeKey(node.nodeType);
+      if (typeKey === "output" || typeKey === "setVariable") {
+        keepNodeIds.add(node.id);
+        stack.push(node);
+      }
+    });
+
+    while (stack.length > 0) {
+      const node = stack.pop();
+      node.inputPorts.forEach((port) => {
+        port.connections.forEach((wire) => {
+          const upstreamNode = wire.startPort.node;
+          if (!keepNodeIds.has(upstreamNode.id)) {
+            keepNodeIds.add(upstreamNode.id);
+            stack.push(upstreamNode);
+          }
+        });
+      });
+    }
+
+    const danglingNodes = this.nodes.filter((node) => {
+      const typeKey = this.getNodeTypeKey(node.nodeType);
+      return typeKey !== "output" && !keepNodeIds.has(node.id);
+    });
+
+    if (!danglingNodes.length) {
+      return { ok: true, deletedCount: 0, deletedNodeIds: [], keptNodeIds: [...keepNodeIds] };
+    }
+
+    danglingNodes.forEach((node) => {
+      const connectedWires = [];
+      node.getAllPorts().forEach((port) => connectedWires.push(...port.connections));
+      connectedWires.forEach((wire) => this.disconnectWire(wire));
+      this.nodes = this.nodes.filter((entry) => entry !== node);
+      this.selectedNodes.delete(node);
+      if (this.previewNode === node) {
+        this.previewNode = null;
+      }
+    });
+
+    if (autoLayout) {
+      this.clearSelection();
+      this.nodes.forEach((node) => {
+        if (keepNodeIds.has(node.id)) {
+          node.isSelected = true;
+          this.selectedNodes.add(node);
+        }
+      });
+      this.autoArrange({ normalizeFanout: false });
+    }
+
+    this.updateDependencyList();
+    this.onShaderChanged();
+    this.render();
+    this.history.pushState(`Delete dangling nodes (${danglingNodes.length})`);
+
+    return {
+      ok: true,
+      deletedCount: danglingNodes.length,
+      deletedNodeIds: danglingNodes.map((node) => node.id),
+      keptNodeIds: [...keepNodeIds].filter((nodeId) => this.nodes.some((node) => node.id === nodeId)),
+    };
+  }
+
+  normalizeFanoutsForLayout(selectedOnly = false) {
+    const scope = selectedOnly ? Array.from(this.selectedNodes) : [...this.nodes];
+    const actions = [];
+
+    scope.forEach((node) => {
+      node.outputPorts.forEach((port) => {
+        const distinctTargets = new Set(port.connections.map((wire) => wire.endPort.node.id));
+        if (port.connections.length > 1 && distinctTargets.size > 1) {
+          actions.push({ nodeId: node.id, outputName: port.name });
+        }
+      });
+    });
+
+    const results = [];
+    actions.forEach((action) => {
+      const currentNode = this.nodes.find((node) => node.id === action.nodeId);
+      const currentPort = currentNode?.outputPorts.find((port) => port.name === action.outputName);
+      if (!currentPort || currentPort.connections.length <= 1) {
+        return;
+      }
+      results.push(
+        this.rewriteFanoutAsVariable({
+          nodeId: action.nodeId,
+          outputName: action.outputName,
+          autoLayout: false,
+          recordHistory: false,
+        }),
+      );
+    });
+
+    return results;
+  }
+
+  getSelectedFanoutCandidate() {
+    if (this.selectedNodes.size !== 1) {
+      return null;
+    }
+    const node = Array.from(this.selectedNodes)[0];
+    for (const port of node.outputPorts) {
+      const distinctTargets = new Set(port.connections.map((wire) => wire.endPort.node.id));
+      if (port.connections.length > 1 && distinctTargets.size > 1) {
+        return { node, port };
+      }
+    }
+    return null;
+  }
+
   /**
    * Export complete state snapshot for undo/redo
    */
@@ -11674,6 +12627,12 @@ class BlueprintSystem {
     node._blueprintSystem = this;
     this.nodes.push(node);
     this.render();
+    return node;
+  }
+
+  createDetachedNode(nodeType, x = 0, y = 0, id = -1) {
+    const node = new Node(x, y, id, nodeType);
+    node._blueprintSystem = this;
     return node;
   }
 

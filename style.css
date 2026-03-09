@@ -3840,6 +3840,58 @@ body {
   overflow: hidden;
 }
 
+#irGraphModal {
+  z-index: 1150;
+}
+
+.ir-graph-modal {
+  width: min(900px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
+
+.ir-graph-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.ir-graph-modal-description {
+  margin: 0;
+  color: #aab4c3;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#irGraphTextarea {
+  width: 100%;
+  min-height: 360px;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid #344055;
+  background: #121923;
+  color: #e6edf7;
+  padding: 14px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+#irGraphTextarea:focus {
+  outline: none;
+  border-color: #6ab0ff;
+  box-shadow: 0 0 0 3px rgba(106, 176, 255, 0.18);
+}
+
+.ir-graph-modal .modal-footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .manual-layout {
   display: flex;
   flex: 1;

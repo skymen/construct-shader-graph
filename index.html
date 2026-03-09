@@ -221,6 +221,36 @@
               >
                 <span class="dropdown-item-label">View Code</span>
               </button>
+              <div class="dropdown-separator"></div>
+              <button
+                id="exportSelectionIrBtn"
+                class="dropdown-item"
+                data-action="exportSelectionIr"
+              >
+                <span class="dropdown-item-label">Export Selection as IR</span>
+              </button>
+              <button
+                id="importIrBtn"
+                class="dropdown-item"
+                data-action="importIr"
+              >
+                <span class="dropdown-item-label">Import Graph from IR</span>
+              </button>
+              <button
+                id="deleteDanglingNodesBtn"
+                class="dropdown-item"
+                data-action="deleteDanglingNodes"
+              >
+                <span class="dropdown-item-label">Delete Disconnected Nodes</span>
+              </button>
+              <button
+                id="rewriteFanoutBtn"
+                class="dropdown-item"
+                data-action="rewriteFanout"
+              >
+                <span class="dropdown-item-label">Turn Into Variable</span>
+                <span class="dropdown-item-shortcut">V</span>
+              </button>
             </div>
           </div>
 
@@ -1380,6 +1410,25 @@
         <div class="modal-footer">
           <span id="manualNodeCount" class="manual-node-count"></span>
           <button id="manualModalClose2">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="irGraphModal" class="modal" style="display: none">
+      <div class="modal-content ir-graph-modal">
+        <div class="modal-header">
+          <h2 id="irGraphModalTitle">IR Graph</h2>
+          <button class="modal-close" id="irGraphModalClose">×</button>
+        </div>
+        <div class="modal-body">
+          <p id="irGraphModalDescription" class="ir-graph-modal-description"></p>
+          <textarea id="irGraphTextarea" spellcheck="false"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button id="irGraphPasteBtn">Paste</button>
+          <button id="irGraphCopyBtn">Copy</button>
+          <button id="irGraphImportBtn">Import</button>
+          <button id="irGraphModalOk">Close</button>
         </div>
       </div>
     </div>

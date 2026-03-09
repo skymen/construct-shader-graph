@@ -106,6 +106,14 @@ function assertOptionalArray(value, message) {
   assert(Array.isArray(value), message);
 }
 
+function assertOptionalStringOrArray(value, message) {
+  if (value === undefined) {
+    return;
+  }
+
+  assert(typeof value === "string" || Array.isArray(value), message);
+}
+
 function assertOneOf(value, allowed, message) {
   assert(allowed.includes(value), message);
 }
@@ -120,6 +128,33 @@ function assertOptionalOneOf(value, allowed, message) {
 
 function normalizeOptionalString(value) {
   return value === undefined ? undefined : value.trim();
+}
+
+function normalizeSummaryLines(value) {
+  if (value == null) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.filter((entry) => entry != null && String(entry).trim() !== "").map(String);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+
+  return [];
+}
+
+function sanitizeGraphLocalId(value, fallback = "node") {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^a-zA-Z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+  return normalized || fallback;
 }
 
 function worldCenter(bp) {
@@ -311,6 +346,56 @@ function serializeNodeSummary(bp, node) {
   };
 }
 
+function resolveNodeIdRef(nodeRef) {
+  if (Number.isInteger(Number(nodeRef))) {
+    return Number(nodeRef);
+  }
+
+  if (nodeRef && typeof nodeRef === "object") {
+    if (Number.isInteger(Number(nodeRef.nodeId))) {
+      return Number(nodeRef.nodeId);
+    }
+
+    if (Number.isInteger(Number(nodeRef.id))) {
+      return Number(nodeRef.id);
+    }
+  }
+
+  return null;
+}
+
+function deleteNodesInternal(bp, nodeRefs) {
+  const nodeIds = [...new Set(nodeRefs.map((nodeRef) => resolveNodeIdRef(nodeRef)))];
+  assert(nodeIds.length > 0, "At least one valid node reference is required");
+  assert(nodeIds.every((nodeId) => Number.isInteger(nodeId)), "All node references must resolve to valid node ids");
+
+  const nodes = nodeIds.map((nodeId) => getNodeById(bp, nodeId));
+  nodes.forEach((node) => {
+    assert(
+      bp.getNodeTypeKey(node.nodeType) !== "output",
+      "The Output node cannot be deleted",
+    );
+  });
+
+  const connectedWires = new Set();
+  nodes.forEach((node) => {
+    node.getAllPorts().forEach((port) => {
+      port.connections.forEach((wire) => connectedWires.add(wire));
+    });
+  });
+
+  connectedWires.forEach((wire) => bp.disconnectWire(wire));
+  bp.nodes = bp.nodes.filter((entry) => !nodes.includes(entry));
+  nodes.forEach((node) => {
+    bp.selectedNodes.delete(node);
+    if (bp.previewNode === node) {
+      bp.previewNode = null;
+    }
+  });
+
+  return nodes;
+}
+
 function serializeUniform(uniform, index) {
   return {
     id: uniform.id,
@@ -487,7 +572,10 @@ function resolvePortRef(bp, portRef, expectedKind = null) {
     port = ports.find((entry) => entry.name === portRef.name) || null;
   }
 
-  assert(port, `Port not found on node ${node.id}`);
+  assert(
+    port,
+    `Port not found on node ${node.id} (${bp.getNodeTypeKey(node.nodeType)}), requested ${kind} port ${portRef.name ?? portRef.index}`,
+  );
   return port;
 }
 
@@ -543,6 +631,532 @@ function finalizeNodeChange(bp, label) {
   bp.updateDependencyList();
   bp.onShaderChanged();
   pushHistory(bp, label);
+}
+
+function buildPortTypeErrorMessage(startPort, endPort) {
+  const startType = startPort.getResolvedType();
+  const endType = endPort.getResolvedType();
+  return [
+    "Ports are not compatible for connection",
+    `from node ${startPort.node.id} output '${startPort.name}' (${startType})`,
+    `to node ${endPort.node.id} input '${endPort.name}' (${endType})`,
+  ].join(": ");
+}
+
+function buildIrPortRef(localNodeId, portName) {
+  assertNonEmptyString(localNodeId, "IR wire node id must be a non-empty string");
+  assertNonEmptyString(portName, "IR wire port name must be a non-empty string");
+  return `${localNodeId}.${portName}`;
+}
+
+function parseIrPortRef(ref, fieldName = "port ref") {
+  assertNonEmptyString(ref, `${fieldName} must be a non-empty string`);
+  const dotIndex = ref.indexOf(".");
+  assert(dotIndex > 0 && dotIndex < ref.length - 1, `${fieldName} must use '<nodeId>.<portName>' format`);
+  return {
+    nodeId: ref.slice(0, dotIndex),
+    portName: ref.slice(dotIndex + 1),
+  };
+}
+
+function ensureIrNodesArray(ir) {
+  const nodes = Array.isArray(ir.nodes) ? ir.nodes : [];
+  assert(nodes.length > 0, "graph IR requires a non-empty nodes array");
+  return nodes;
+}
+
+function ensureIrWiresArray(ir) {
+  if (ir.wires === undefined) {
+    return [];
+  }
+  assert(Array.isArray(ir.wires), "graph IR wires must be an array");
+  return ir.wires;
+}
+
+function normalizeIrNodeTypeKey(irNode) {
+  const typeKey = irNode.typeKey ?? irNode.type;
+  assertNonEmptyString(typeKey, `IR node '${irNode.id ?? "<unknown>"}' requires a type or typeKey`);
+  if (typeKey === "uniform") {
+    const uniformRef = irNode.uniform ?? irNode.uniformName ?? irNode.uniformId;
+    assert(uniformRef !== undefined && uniformRef !== null, `IR node '${irNode.id}' requires a uniform reference`);
+    return { typeKey: "uniform", uniformRef };
+  }
+  return { typeKey, uniformRef: null };
+}
+
+function getOutputNode(bp) {
+  const outputNode = bp.nodes.find(
+    (node) => bp.getNodeTypeKey(node.nodeType) === "output",
+  );
+  assert(outputNode, "Graph is missing its Output node");
+  return outputNode;
+}
+
+function resolveUniformRefFromIr(bp, uniformRef) {
+  if (Number.isInteger(Number(uniformRef))) {
+    return getUniformById(bp, Number(uniformRef));
+  }
+  const ref = String(uniformRef).trim();
+  assert(ref, "Uniform reference must be a non-empty string or integer id");
+  const uniform = bp.uniforms.find(
+    (entry) => entry.name === ref || entry.variableName === ref,
+  );
+  assert(uniform, `Uniform '${ref}' not found`);
+  return uniform;
+}
+
+function exportGraphIR(bp) {
+  const nodeSummaries = bp.nodes.map((node) => ({
+    localId: sanitizeGraphLocalId(`${bp.getNodeTypeKey(node.nodeType) || "node"}_${node.id}`, `node_${node.id}`),
+    node,
+  }));
+  const usedLocalIds = new Set();
+  nodeSummaries.forEach((entry) => {
+    let candidate = entry.localId;
+    let counter = 2;
+    while (usedLocalIds.has(candidate)) {
+      candidate = `${entry.localId}_${counter}`;
+      counter++;
+    }
+    entry.localId = candidate;
+    usedLocalIds.add(candidate);
+  });
+
+  const localIdByNodeId = new Map(nodeSummaries.map((entry) => [entry.node.id, entry.localId]));
+
+  return {
+    version: 1,
+    autoLayout: true,
+    nodes: nodeSummaries.map(({ localId, node }) => {
+      const typeKey = bp.getNodeTypeKey(node.nodeType);
+      const irNode = {
+        id: localId,
+        type: node.nodeType.isUniform ? "uniform" : typeKey,
+      };
+
+      if (node.nodeType.isUniform) {
+        irNode.uniform = node.uniformDisplayName || node.uniformName || node.uniformId;
+      }
+
+      if (node.operation !== undefined) {
+        irNode.operation = node.operation;
+      }
+      if (node.customInput !== undefined) {
+        irNode.customInput = node.customInput;
+      }
+      if (node.selectedVariable !== undefined) {
+        irNode.selectedVariable = node.selectedVariable;
+      }
+      if (node.data !== undefined) {
+        irNode.data = cloneValue(node.data);
+      }
+
+      const inputValues = {};
+      node.inputPorts.forEach((port) => {
+        if (port.isEditable && port.connections.length === 0 && port.value !== undefined) {
+          inputValues[port.name] = cloneValue(port.value);
+        }
+      });
+      if (Object.keys(inputValues).length > 0) {
+        irNode.inputValues = inputValues;
+      }
+
+      return irNode;
+    }),
+    wires: bp.wires.map((wire) => ({
+      from: buildIrPortRef(localIdByNodeId.get(wire.startPort.node.id), wire.startPort.name),
+      to: buildIrPortRef(localIdByNodeId.get(wire.endPort.node.id), wire.endPort.name),
+    })),
+  };
+}
+
+function validateGraphIR(bp, ir) {
+  assertPlainObject(ir, "graph.validateIR requires an IR object");
+  const nodes = ensureIrNodesArray(ir);
+  const wires = ensureIrWiresArray(ir);
+  const nodeMap = new Map();
+  const errors = [];
+  let outputNodeCount = 0;
+
+  nodes.forEach((irNode, index) => {
+    if (!isPlainObject(irNode)) {
+      errors.push({ type: "node", index, message: `IR node at index ${index} must be an object` });
+      return;
+    }
+
+    const localId = String(irNode.id || "").trim();
+    if (!localId) {
+      errors.push({ type: "node", index, message: `IR node at index ${index} requires a non-empty id` });
+      return;
+    }
+    if (nodeMap.has(localId)) {
+      errors.push({ type: "node", id: localId, message: `Duplicate IR node id '${localId}'` });
+      return;
+    }
+
+    try {
+      const { typeKey, uniformRef } = normalizeIrNodeTypeKey(irNode);
+      let nodeType = null;
+      if (typeKey === "uniform") {
+        const uniform = resolveUniformRefFromIr(bp, uniformRef);
+        nodeType = bp.getUniformNodeTypes()[`uniform_${uniform.id}`] || null;
+      } else {
+        nodeType = bp.getNodeTypeFromKey(typeKey);
+      }
+      assert(nodeType, `Unknown node type '${typeKey}'`);
+
+      if (typeKey === "output") {
+        outputNodeCount += 1;
+      }
+
+      nodeMap.set(localId, {
+        id: localId,
+        typeKey,
+        uniformRef,
+        nodeType,
+        irNode,
+      });
+    } catch (error) {
+      errors.push({
+        type: "node",
+        id: localId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  if (outputNodeCount > 1) {
+    errors.push({
+      type: "graph",
+      message: "IR may reference at most one output node",
+    });
+  }
+
+  wires.forEach((wire, index) => {
+    try {
+      assertPlainObject(wire, `IR wire at index ${index} must be an object`);
+      const fromRef = parseIrPortRef(wire.from, `IR wire ${index} from`);
+      const toRef = parseIrPortRef(wire.to, `IR wire ${index} to`);
+      const fromNode = nodeMap.get(fromRef.nodeId);
+      const toNode = nodeMap.get(toRef.nodeId);
+      assert(fromNode, `IR wire ${index} references missing from node '${fromRef.nodeId}'`);
+      assert(toNode, `IR wire ${index} references missing to node '${toRef.nodeId}'`);
+
+      const fromPortDef = (fromNode.nodeType.outputs || []).find((port) => port.name === fromRef.portName);
+      const toPortDef = (toNode.nodeType.inputs || []).find((port) => port.name === toRef.portName);
+      assert(fromPortDef, `IR wire ${index} output '${wire.from}' does not exist`);
+      assert(toPortDef, `IR wire ${index} input '${wire.to}' does not exist`);
+
+      assert(typeof bp.createDetachedNode === "function", "Blueprint does not support detached node creation");
+      const startNode = bp.createDetachedNode(fromNode.nodeType, 0, 0, -100000 - index * 2);
+      const endNode = bp.createDetachedNode(toNode.nodeType, 0, 0, -100001 - index * 2);
+
+      if (fromNode.irNode.operation !== undefined) {
+        startNode.operation = fromNode.irNode.operation;
+      }
+      if (fromNode.irNode.customInput !== undefined) {
+        startNode.customInput = fromNode.irNode.customInput;
+      }
+      if (fromNode.irNode.selectedVariable !== undefined) {
+        startNode.selectedVariable = fromNode.irNode.selectedVariable;
+      }
+      if (toNode.irNode.operation !== undefined) {
+        endNode.operation = toNode.irNode.operation;
+      }
+      if (toNode.irNode.customInput !== undefined) {
+        endNode.customInput = toNode.irNode.customInput;
+      }
+      if (toNode.irNode.selectedVariable !== undefined) {
+        endNode.selectedVariable = toNode.irNode.selectedVariable;
+      }
+
+      const startPort = startNode.outputPorts.find((port) => port.name === fromRef.portName);
+      const endPort = endNode.inputPorts.find((port) => port.name === toRef.portName);
+      assert(startPort && endPort, `IR wire ${index} could not resolve ports`);
+      assert(startPort.canConnectTo(endPort), buildPortTypeErrorMessage(startPort, endPort));
+    } catch (error) {
+      errors.push({
+        type: "wire",
+        index,
+        wire: cloneValue(wire),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  return {
+    ok: errors.length === 0,
+    nodeCount: nodes.length,
+    wireCount: wires.length,
+    errors,
+  };
+}
+
+function importGraphIR(bp, ir, options = {}) {
+  const validation = validateGraphIR(bp, ir);
+  if (options.validateOnly) {
+    return validation;
+  }
+  assert(validation.ok, `graph.importIR validation failed: ${validation.errors[0]?.message || "unknown error"}`);
+
+  const createdNodes = [];
+  const localToNodeId = new Map();
+  const positions = [];
+  const defaultPosition = options.position && Number.isFinite(options.position.x) && Number.isFinite(options.position.y)
+    ? { x: Number(options.position.x), y: Number(options.position.y) }
+    : worldCenter(bp);
+  let cursorX = defaultPosition.x;
+  let cursorY = defaultPosition.y;
+
+  const nodes = ensureIrNodesArray(ir);
+  const wires = ensureIrWiresArray(ir);
+
+  nodes.forEach((irNode, index) => {
+    const { typeKey, uniformRef } = normalizeIrNodeTypeKey(irNode);
+    let node;
+    if (typeKey === "output") {
+      node = getOutputNode(bp);
+    } else if (typeKey === "uniform") {
+      const uniform = resolveUniformRefFromIr(bp, uniformRef);
+      node = bp.createUniformNode(uniform, cursorX, cursorY);
+    } else {
+      const nodeType = bp.getNodeTypeFromKey(typeKey);
+      node = bp.addNode(cursorX, cursorY, nodeType);
+    }
+
+    if (irNode.operation !== undefined) {
+      applyNodePatch(bp, node, { operation: irNode.operation });
+    }
+    if (irNode.customInput !== undefined) {
+      applyNodePatch(bp, node, { customInput: irNode.customInput });
+    }
+    if (irNode.selectedVariable !== undefined) {
+      applyNodePatch(bp, node, { selectedVariable: irNode.selectedVariable });
+    }
+    if (irNode.data !== undefined) {
+      applyNodePatch(bp, node, { data: irNode.data });
+    }
+    if (irNode.inputValues !== undefined) {
+      applyNodePatch(bp, node, { inputValues: irNode.inputValues });
+    }
+
+    createdNodes.push(node);
+    localToNodeId.set(irNode.id, node.id);
+    positions.push({ localId: irNode.id, nodeId: node.id, x: node.x, y: node.y });
+
+    if (typeKey !== "output") {
+      cursorX += 220;
+      if ((index + 1) % 6 === 0) {
+        cursorX = defaultPosition.x;
+        cursorY += 140;
+      }
+    }
+  });
+
+  const createdWires = [];
+  wires.forEach((wire) => {
+    const fromRef = parseIrPortRef(wire.from, "IR wire from");
+    const toRef = parseIrPortRef(wire.to, "IR wire to");
+    const startPort = resolvePortRef(bp, {
+      nodeId: localToNodeId.get(fromRef.nodeId),
+      kind: "output",
+      name: fromRef.portName,
+    }, "output");
+    const endPort = resolvePortRef(bp, {
+      nodeId: localToNodeId.get(toRef.nodeId),
+      kind: "input",
+      name: toRef.portName,
+    }, "input");
+    assert(startPort.canConnectTo(endPort), buildPortTypeErrorMessage(startPort, endPort));
+
+    if (endPort.connections.length > 0) {
+      bp.disconnectWire(endPort.connections[0]);
+    }
+
+    const wireInstance = new bp.WireClass(startPort, endPort);
+    getWireId(bp, wireInstance);
+    bp.wires.push(wireInstance);
+    startPort.connections.push(wireInstance);
+    endPort.connections.push(wireInstance);
+    bp.resolveGenericsForConnection(startPort, endPort);
+    endPort.updateEditability();
+    createdWires.push(wireInstance);
+  });
+
+  createdNodes.forEach((node) => {
+    node.inputPorts.forEach((port) => port.updateEditability());
+    node.outputPorts.forEach((port) => port.updateEditability());
+    node.recalculateHeight();
+  });
+
+  if (ir.autoLayout !== false && options.autoLayout !== false) {
+    bp.selectedNodes.clear();
+    createdNodes.forEach((node) => {
+      node.isSelected = true;
+      bp.selectedNodes.add(node);
+    });
+    bp.autoArrange();
+  }
+
+  finalizeNodeChange(bp, options.historyLabel || `Import graph IR (${createdNodes.length} nodes)`);
+
+  return {
+    ok: true,
+    imported: {
+      nodeCount: createdNodes.length,
+      wireCount: createdWires.length,
+      nodeIds: createdNodes.map((node) => node.id),
+      wireIds: createdWires.map((wire) => getWireId(bp, wire)),
+      localToNodeId: Object.fromEntries(localToNodeId.entries()),
+    },
+    validation,
+  };
+}
+
+function rewriteFanoutAsVariable(bp, { nodeId, outputIndex = 0, outputName, variableName, autoLayout = true } = {}) {
+  assert(Number.isInteger(Number(nodeId)), "graph.rewriteFanoutAsVariable requires a valid nodeId");
+  const node = getNodeById(bp, nodeId);
+  const outputPort = outputName != null
+    ? node.outputPorts.find((port) => port.name === outputName)
+    : node.outputPorts[Number(outputIndex) || 0];
+  assert(outputPort, `Output port not found on node ${node.id}`);
+  assert(outputPort.connections.length > 1, `Node ${node.id} output '${outputPort.name}' does not fan out`);
+
+  const connections = [...outputPort.connections];
+  const rootName = sanitizeGraphLocalId(variableName || `${node.title}_${outputPort.name}`, "graph_value");
+  let nextName = rootName;
+  let counter = 2;
+  while (bp.nodes.some((entry) => entry.nodeType.name === "Set Variable" && entry.customInput === nextName)) {
+    nextName = `${rootName}_${counter}`;
+    counter++;
+  }
+
+  const setNode = bp.addNode(node.x + 220, node.y, bp.getNodeTypeFromKey("setVariable"));
+  setNode._blueprintSystem = bp;
+  applyNodePatch(bp, setNode, { customInput: nextName });
+
+  const createdGetNodes = [];
+  const createdWires = [];
+  const selectedNodeIds = new Set([node.id, setNode.id]);
+
+  const setWire = new bp.WireClass(outputPort, setNode.inputPorts[0]);
+  getWireId(bp, setWire);
+  bp.wires.push(setWire);
+  outputPort.connections.push(setWire);
+  setNode.inputPorts[0].connections.push(setWire);
+  bp.resolveGenericsForConnection(outputPort, setNode.inputPorts[0]);
+  createdWires.push(setWire);
+
+  connections.forEach((wire, index) => {
+    const targetPort = wire.endPort;
+    const getNode = bp.addNode(targetPort.node.x - 220, targetPort.node.y + index * 45, bp.getNodeTypeFromKey("getVariable"));
+    getNode._blueprintSystem = bp;
+    applyNodePatch(bp, getNode, { selectedVariable: nextName });
+    selectedNodeIds.add(getNode.id);
+    createdGetNodes.push(getNode);
+
+    bp.disconnectWire(wire);
+
+    const replacementWire = new bp.WireClass(getNode.outputPorts[0], targetPort);
+    getWireId(bp, replacementWire);
+    bp.wires.push(replacementWire);
+    getNode.outputPorts[0].connections.push(replacementWire);
+    targetPort.connections.push(replacementWire);
+    bp.resolveGenericsForConnection(getNode.outputPorts[0], targetPort);
+    createdWires.push(replacementWire);
+  });
+
+  [setNode, ...createdGetNodes, node].forEach((entry) => {
+    entry.inputPorts.forEach((port) => port.updateEditability());
+    entry.outputPorts.forEach((port) => port.updateEditability());
+    entry.recalculateHeight();
+  });
+
+  if (autoLayout) {
+    bp.selectedNodes.clear();
+    bp.nodes.forEach((entry) => {
+      entry.isSelected = selectedNodeIds.has(entry.id);
+      if (entry.isSelected) {
+        bp.selectedNodes.add(entry);
+      }
+    });
+    bp.autoArrange();
+  }
+
+  finalizeNodeChange(bp, `Rewrite fan-out as variable (${nextName})`);
+
+  return {
+    ok: true,
+    variableName: nextName,
+    setNodeId: setNode.id,
+    getNodeIds: createdGetNodes.map((entry) => entry.id),
+    replacedConnectionCount: connections.length,
+  };
+}
+
+function deleteDanglingNodes(bp, { autoLayout = false } = {}) {
+  const keepNodeIds = new Set();
+  const stack = [];
+
+  bp.nodes.forEach((node) => {
+    const typeKey = bp.getNodeTypeKey(node.nodeType);
+    if (typeKey === "output" || typeKey === "setVariable") {
+      keepNodeIds.add(node.id);
+      stack.push(node);
+    }
+  });
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    node.inputPorts.forEach((port) => {
+      port.connections.forEach((wire) => {
+        const upstreamNode = wire.startPort.node;
+        if (!keepNodeIds.has(upstreamNode.id)) {
+          keepNodeIds.add(upstreamNode.id);
+          stack.push(upstreamNode);
+        }
+      });
+    });
+  }
+
+  const danglingNodes = bp.nodes.filter((node) => {
+    const typeKey = bp.getNodeTypeKey(node.nodeType);
+    if (typeKey === "output") {
+      return false;
+    }
+    return !keepNodeIds.has(node.id);
+  });
+
+  if (danglingNodes.length === 0) {
+    return {
+      ok: true,
+      deletedCount: 0,
+      deletedNodeIds: [],
+      keptNodeIds: [...keepNodeIds],
+    };
+  }
+
+  const deletedNodes = deleteNodesInternal(bp, danglingNodes.map((node) => node.id));
+
+  if (autoLayout) {
+    bp.selectedNodes.clear();
+    bp.nodes.forEach((node) => {
+      node.isSelected = keepNodeIds.has(node.id);
+      if (node.isSelected) {
+        bp.selectedNodes.add(node);
+      }
+    });
+    bp.autoArrange();
+  }
+
+  finalizeNodeChange(bp, `Delete dangling nodes (${deletedNodes.length})`);
+
+  return {
+    ok: true,
+    deletedCount: deletedNodes.length,
+    deletedNodeIds: deletedNodes.map((node) => node.id),
+    keptNodeIds: [...keepNodeIds].filter((nodeId) => bp.nodes.some((node) => node.id === nodeId)),
+  };
 }
 
 function normalizeUniformValue(type, value) {
@@ -839,6 +1453,10 @@ function getPreviewNodeState(bp) {
   };
 }
 
+function getCanvasContainer() {
+  return document.getElementById("canvas-container") || document.body;
+}
+
 function getStartupScriptInfo() {
   return {
     variables: [
@@ -861,9 +1479,9 @@ function ensureAiStatusElements() {
   if (!shell) {
     shell = document.createElement("div");
     shell.id = "ai-work-status";
-    shell.style.position = "fixed";
-    shell.style.right = "16px";
-    shell.style.bottom = "16px";
+    shell.style.position = "absolute";
+    shell.style.left = "16px";
+    shell.style.top = "16px";
     shell.style.zIndex = "10050";
     shell.style.display = "none";
     shell.style.maxWidth = "320px";
@@ -895,7 +1513,11 @@ function ensureAiStatusElements() {
 
     shell.appendChild(title);
     shell.appendChild(message);
-    document.body.appendChild(shell);
+  }
+
+  const host = getCanvasContainer();
+  if (shell.parentElement !== host) {
+    host.appendChild(shell);
   }
 
   return {
@@ -984,6 +1606,75 @@ const API_METHOD_DESCRIPTORS = [
       },
     ],
     returns: { type: "object", description: "Batch execution results." },
+  },
+  {
+    path: "graph.validateIR",
+    description: "Validate a declarative graph IR before mutating the graph.",
+    mutates: false,
+    args: [
+      {
+        name: "ir",
+        type: "object",
+        required: true,
+        description: "Declarative graph IR with nodes and wires.",
+      },
+    ],
+    returns: { type: "object", description: "Validation result with structured errors." },
+  },
+  {
+    path: "graph.importIR",
+    description: "Import a declarative graph IR and optionally auto-layout it.",
+    mutates: true,
+    args: [
+      {
+        name: "ir",
+        type: "object",
+        required: true,
+        description: "Declarative graph IR with nodes and wires.",
+      },
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional validateOnly, autoLayout, and placement settings.",
+      },
+    ],
+    returns: { type: "object", description: "Import result with created nodes and wires." },
+  },
+  {
+    path: "graph.exportIR",
+    description: "Export the current graph to a declarative IR for AI authoring.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Portable graph IR." },
+  },
+  {
+    path: "graph.rewriteFanoutAsVariable",
+    description: "Replace a fan-out output with a Set Variable and matching Get Variable nodes.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: true,
+        description: "Target node/output and optional variable name or autoLayout behavior.",
+      },
+    ],
+    returns: { type: "object", description: "Rewrite result summary." },
+  },
+  {
+    path: "graph.deleteDanglingNodes",
+    description: "Delete nodes that do not eventually feed an Output node or a Set Variable node.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional autoLayout flag for the remaining graph.",
+      },
+    ],
+    returns: { type: "object", description: "Deleted node ids and retained sink-connected nodes." },
   },
   {
     path: "session.initAIWork",
@@ -1126,6 +1817,27 @@ const API_METHOD_DESCRIPTORS = [
       { name: "nodeId", type: "number", required: true, description: "Node id to delete." },
     ],
     returns: { type: "object", description: "Deletion status and node id." },
+  },
+  {
+    path: "nodes.deleteNodes",
+    description: "Delete multiple non-output nodes and their connected wires.",
+    mutates: true,
+    args: [
+      {
+        name: "nodes",
+        type: "array",
+        required: true,
+        description: "Node ids or node objects containing id/nodeId fields.",
+      },
+    ],
+    returns: { type: "object", description: "Deletion status, count, and deleted node ids." },
+  },
+  {
+    path: "nodes.deleteAllNodes",
+    description: "Delete all non-output nodes and their connected wires.",
+    mutates: true,
+    args: [],
+    returns: { type: "object", description: "Deletion status, count, and deleted node ids." },
   },
   {
     path: "nodes.edit",
@@ -1625,6 +2337,7 @@ function getApiManifest(api) {
 export function installGlobalConsoleApi(blueprint, helpers = {}) {
   assignMissingWireIds(blueprint);
   const { Wire: WireClass, exampleFiles } = helpers;
+  blueprint.WireClass = WireClass;
 
   const originalPushState = blueprint.history.pushState.bind(blueprint.history);
   const batchState = {
@@ -1653,6 +2366,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "projects",
           "customNodes",
           "ai",
+          "graph",
           "nodes",
           "nodeTypes",
           "ports",
@@ -1699,6 +2413,27 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
       return api.batch(label, async () => {
         const results = [];
+        const refs = {};
+
+        const resolveArgRefs = (value) => {
+          if (Array.isArray(value)) {
+            return value.map((entry) => resolveArgRefs(entry));
+          }
+          if (!value || typeof value !== "object") {
+            return value;
+          }
+          if (Object.prototype.hasOwnProperty.call(value, "$ref")) {
+            const refPath = String(value.$ref || "").trim();
+            assert(refPath, "Command $ref path cannot be empty");
+            const [refName, ...segments] = refPath.split(".");
+            assert(refs[refName] !== undefined, `Unknown command ref '${refName}'`);
+            return segments.reduce((current, segment) => current?.[segment], refs[refName]);
+          }
+
+          return Object.fromEntries(
+            Object.entries(value).map(([key, entry]) => [key, resolveArgRefs(entry)]),
+          );
+        };
 
         for (const [index, command] of commands.entries()) {
           assert(command && typeof command === "object", `Command at index ${index} must be an object`);
@@ -1706,11 +2441,19 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           if (command.args !== undefined) {
             assert(Array.isArray(command.args), `Command '${command.method}' args must be an array`);
           }
+          if (command.ref !== undefined) {
+            assertNonEmptyString(command.ref, `Command '${command.method}' ref must be a non-empty string`);
+          }
 
-          const result = await api.call(command.method, command.args || []);
+          const resolvedArgs = resolveArgRefs(command.args || []);
+          const result = await api.call(command.method, resolvedArgs);
+          if (command.ref) {
+            refs[command.ref] = result;
+          }
           results.push({
             index,
             method: command.method,
+            ref: command.ref || null,
             result,
           });
         }
@@ -1718,6 +2461,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         return {
           ok: true,
           label,
+          refs,
           results,
         };
       });
@@ -1763,15 +2507,13 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       endAIWork(options = {}) {
         assertOptionalPlainObject(options, "session.endAIWork options must be an object");
         assertOptionalString(options.title, "session.endAIWork title must be a string");
-        assertOptionalArray(options.summary, "session.endAIWork summary must be an array");
+        assertOptionalStringOrArray(options.summary, "session.endAIWork summary must be a string or array");
         assertOptionalFiniteNumber(options.duration, "session.endAIWork duration must be a finite number");
 
         const status = ensureAiStatusElements();
         status.shell.style.display = "none";
 
-        const summary = Array.isArray(options.summary)
-          ? options.summary.filter(Boolean)
-          : [];
+        const summary = normalizeSummaryLines(options.summary);
         blueprint.showNotification({
           type: "success",
           title: options.title || "AI task complete",
@@ -1885,6 +2627,60 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "ai.runDebugCheck takeScreenshot must be a boolean",
         );
         return runAiDebugCheck(blueprint, api, options);
+      },
+    },
+
+    graph: {
+      validateIR(ir) {
+        if (typeof blueprint.validateGraphIR === "function") {
+          return blueprint.validateGraphIR(ir);
+        }
+        return validateGraphIR(blueprint, ir);
+      },
+
+      importIR(ir, options = {}) {
+        assertPlainObject(ir, "graph.importIR requires an IR object");
+        assertOptionalPlainObject(options, "graph.importIR options must be an object");
+        if (options.position !== undefined) {
+          assertPlainObject(options.position, "graph.importIR position must be an object");
+          assertOptionalFiniteNumber(options.position.x, "graph.importIR position.x must be a finite number");
+          assertOptionalFiniteNumber(options.position.y, "graph.importIR position.y must be a finite number");
+        }
+        assertOptionalBoolean(options.validateOnly, "graph.importIR validateOnly must be a boolean");
+        assertOptionalBoolean(options.autoLayout, "graph.importIR autoLayout must be a boolean");
+        assertOptionalString(options.historyLabel, "graph.importIR historyLabel must be a string");
+        if (typeof blueprint.importGraphIR === "function") {
+          return blueprint.importGraphIR(ir, options);
+        }
+        return importGraphIR(blueprint, ir, options);
+      },
+
+      exportIR() {
+        if (typeof blueprint.exportGraphIR === "function") {
+          return blueprint.exportGraphIR();
+        }
+        return exportGraphIR(blueprint);
+      },
+
+      rewriteFanoutAsVariable(options = {}) {
+        assertPlainObject(options, "graph.rewriteFanoutAsVariable requires an options object");
+        assertOptionalFiniteNumber(options.outputIndex, "graph.rewriteFanoutAsVariable outputIndex must be a finite number");
+        assertOptionalString(options.outputName, "graph.rewriteFanoutAsVariable outputName must be a string");
+        assertOptionalString(options.variableName, "graph.rewriteFanoutAsVariable variableName must be a string");
+        assertOptionalBoolean(options.autoLayout, "graph.rewriteFanoutAsVariable autoLayout must be a boolean");
+        if (typeof blueprint.rewriteFanoutAsVariable === "function") {
+          return blueprint.rewriteFanoutAsVariable(options);
+        }
+        return rewriteFanoutAsVariable(blueprint, options);
+      },
+
+      deleteDanglingNodes(options = {}) {
+        assertOptionalPlainObject(options, "graph.deleteDanglingNodes options must be an object");
+        assertOptionalBoolean(options.autoLayout, "graph.deleteDanglingNodes autoLayout must be a boolean");
+        if (typeof blueprint.deleteDanglingNodes === "function") {
+          return blueprint.deleteDanglingNodes(options);
+        }
+        return deleteDanglingNodes(blueprint, options);
       },
     },
 
@@ -2005,27 +2801,31 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
       delete(nodeId) {
         assert(Number.isInteger(Number(nodeId)), "nodes.delete requires a valid node id");
-        const node = getNodeById(blueprint, nodeId);
-        assert(
-          blueprint.getNodeTypeKey(node.nodeType) !== "output",
-          "The Output node cannot be deleted",
-        );
-
-        const connectedWires = new Set();
-        node.getAllPorts().forEach((port) => {
-          port.connections.forEach((wire) => connectedWires.add(wire));
-        });
-
-        connectedWires.forEach((wire) => blueprint.disconnectWire(wire));
-        blueprint.nodes = blueprint.nodes.filter((entry) => entry !== node);
-        blueprint.selectedNodes.delete(node);
-
-        if (blueprint.previewNode === node) {
-          blueprint.previewNode = null;
-        }
-
+        const [node] = deleteNodesInternal(blueprint, [nodeId]);
         finalizeNodeChange(blueprint, `Delete node (${node.title})`);
         return { ok: true, nodeId: node.id };
+      },
+
+      deleteNodes(nodes) {
+        assert(Array.isArray(nodes), "nodes.deleteNodes requires an array of node references");
+        const deletedNodes = deleteNodesInternal(blueprint, nodes);
+        const deletedNodeIds = deletedNodes.map((node) => node.id);
+        finalizeNodeChange(blueprint, `Delete ${deletedNodes.length} node${deletedNodes.length === 1 ? "" : "s"}`);
+        return { ok: true, count: deletedNodes.length, nodeIds: deletedNodeIds };
+      },
+
+      deleteAllNodes() {
+        const nodesToDelete = blueprint.nodes.filter(
+          (node) => blueprint.getNodeTypeKey(node.nodeType) !== "output",
+        );
+        if (!nodesToDelete.length) {
+          return { ok: true, count: 0, nodeIds: [] };
+        }
+
+        const deletedNodes = deleteNodesInternal(blueprint, nodesToDelete.map((node) => node.id));
+        const deletedNodeIds = deletedNodes.map((node) => node.id);
+        finalizeNodeChange(blueprint, `Delete all nodes (${deletedNodes.length})`);
+        return { ok: true, count: deletedNodes.length, nodeIds: deletedNodeIds };
       },
 
       edit(nodeId, patch = {}) {
@@ -2112,7 +2912,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         const startPort = resolvePortRef(blueprint, from, "output");
         const endPort = resolvePortRef(blueprint, to, "input");
 
-        assert(startPort.canConnectTo(endPort), "Ports are not compatible for connection");
+        assert(startPort.canConnectTo(endPort), buildPortTypeErrorMessage(startPort, endPort));
 
         const existingWire = blueprint.wires.find(
           (wire) => wire.startPort === startPort && wire.endPort === endPort,
