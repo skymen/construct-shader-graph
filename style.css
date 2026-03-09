@@ -3841,21 +3841,72 @@ body {
 }
 
 #irGraphModal {
-  z-index: 1150;
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 10000;
+  justify-content: center;
+  align-items: center;
 }
 
 .ir-graph-modal {
+  background: #2a2a2a;
+  border: 2px solid #4a4a4a;
+  border-radius: 8px;
   width: min(900px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.ir-graph-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 25px;
+  border-bottom: 1px solid #4a4a4a;
+  flex-shrink: 0;
+}
+
+.ir-graph-modal .modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #fff;
+}
+
+.ir-graph-modal .modal-close {
+  background: transparent;
+  border: none;
+  color: #aaa;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.ir-graph-modal .modal-close:hover {
+  background: #4a4a4a;
+  color: #fff;
 }
 
 .ir-graph-modal .modal-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 20px 25px;
   min-height: 0;
+  overflow: auto;
 }
 
 .ir-graph-modal-description {
@@ -3890,6 +3941,34 @@ body {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+  padding: 15px 25px;
+  border-top: 1px solid #4a4a4a;
+  background: #2a2a2a;
+  flex-shrink: 0;
+}
+
+.ir-graph-modal .modal-footer button {
+  padding: 10px 20px;
+  border-radius: 5px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+  background: #4a4a4a;
+  color: #fff;
+}
+
+.ir-graph-modal .modal-footer button:hover {
+  background: #5a5a5a;
+}
+
+#irGraphImportBtn {
+  background: #4a90e2;
+  color: #fff;
+}
+
+#irGraphImportBtn:hover {
+  background: #357abd;
 }
 
 .manual-layout {

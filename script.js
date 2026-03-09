@@ -9993,9 +9993,6 @@ class BlueprintSystem {
     document.getElementById("irGraphModalClose").addEventListener("click", () => {
       this.irGraphModal.style.display = "none";
     });
-    document.getElementById("irGraphModalOk").addEventListener("click", () => {
-      this.irGraphModal.style.display = "none";
-    });
     this.irGraphModal.addEventListener("mousedown", (e) => {
       if (e.target === this.irGraphModal) {
         this.irGraphModal.style.display = "none";
