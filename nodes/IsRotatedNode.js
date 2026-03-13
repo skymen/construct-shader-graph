@@ -10,12 +10,12 @@ export const IsRotatedNode = new NodeType(
     webgl1: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    bool ${outputs[0]} = srcOriginStart.y > srcOriginEnd.y;`,
+        `    bool ${outputs[0]} = srcOriginStart.x > srcOriginEnd.x;`,
     },
     webgl2: {
       dependency: "",
       execution: (inputs, outputs) =>
-        `    bool ${outputs[0]} = srcOriginStart.y > srcOriginEnd.y;`,
+        `    bool ${outputs[0]} = srcOriginStart.x > srcOriginEnd.x;`,
     },
     webgpu: {
       dependency: "",
@@ -24,5 +24,5 @@ export const IsRotatedNode = new NodeType(
     },
   },
   "Builtin",
-  ["is rotated", "rotated", "rotation", "rotation check"]
+  ["is rotated", "rotated", "rotation", "rotation check"],
 );
