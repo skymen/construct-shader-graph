@@ -2872,13 +2872,28 @@ Use this loop for most tasks:
 2. Select the correct project with \`select_project\`.
 3. Read \`get_project_manifest\` once per task or when capabilities are unclear.
 4. Start the session.
-5. Inspect current graph state.
+5. Read the graph structure first (see below).
 6. Identify exact node ids, port refs, uniform ids, or settings keys.
 7. Apply one atomic edit or one tightly related batch.
 8. Re-read the affected nodes, ports, wires, or settings.
 9. Check preview or generated code if relevant.
 10. Repeat only if needed.
 11. End the session with a recap.
+
+## Read the graph structure first
+
+Before making any edits, always read the full graph structure to build a mental model of what exists.
+
+Call \`graph.exportIR()\` at the start of every task. It returns a compact JSON representation of the entire graph including every node (with its type, operation, input values) and every wire (with human-readable port references like \`"add_3.Result"\`). This is the single cheapest call to understand the overall graph topology.
+
+Only after reading the IR should you drill into specific nodes with \`nodes.getInfo(nodeId)\` or \`nodes.getPorts(nodeId)\`.
+
+If the graph is non-trivial, reading the IR first prevents mistakes like:
+
+- duplicating nodes that already exist
+- wiring into the wrong port because you did not see an existing connection
+- missing helper or variable nodes that already solve part of the task
+- misunderstanding the signal flow through the graph
 
 ## Status update guidance
 
@@ -2949,6 +2964,8 @@ Read-only calls:
 - \`customNodes.get\`
 - \`ai.getWarnings\`
 - \`ai.runDebugCheck\`
+- \`graph.exportIR\`
+- \`graph.validateIR\`
 
 Side-effecting calls:
 
@@ -2985,6 +3002,9 @@ Side-effecting calls:
 - \`camera.setZoom\`
 - \`projects.openExample\`
 - \`projects.exportAddon\`
+- \`graph.importIR\`
+- \`graph.rewriteFanoutAsVariable\`
+- \`graph.deleteDanglingNodes\`
 
 ## Discovery guidance
 
@@ -3145,7 +3165,21 @@ Use the \`selection\` namespace to manage node selection programmatically.
 - \`selection.remove(nodeIds)\` removes nodes from the current selection.
 - \`selection.fitToView()\` fits the camera to the currently selected nodes, or all nodes if nothing is selected.
 
-Use selection to focus the user's view on specific nodes after edits, or to set up context for operations that depend on selection.
+### Showing parts of the graph to the user
+
+The primary way to direct the user's attention to specific nodes is to select them and then fit the view to that selection. This is a two-step pattern:
+
+1. \`selection.set(nodeIds)\` to highlight the relevant nodes.
+2. \`selection.fitToView()\` to pan and zoom the camera so those nodes fill the viewport.
+
+Use this pattern to:
+
+- Show the user which nodes you just created or edited.
+- Point out a problem area in the graph.
+- Highlight the nodes involved in a particular signal path or subgraph.
+- Focus on the relevant context when explaining or recapping work.
+
+After any non-trivial edit, select the affected nodes and fit them to view so the user can immediately see what changed. This is much better than expecting the user to manually scroll and find the changes.
 
 ## Existing custom nodes
 
@@ -3361,7 +3395,7 @@ Use MCP tools only.
 2. Select the correct project with select_project.
 3. Read get_project_manifest if methods or arguments are unclear.
 4. Start the task with session.initAIWork.
-5. Inspect before mutating.
+5. Read the graph IR with graph.exportIR() to understand the full structure before mutating.
 6. Make one small edit at a time.
 7. Re-read affected nodes, ports, wires, or settings.
 8. Validate with shader.getGeneratedCode, preview.getErrors, and screenshots when needed.
@@ -3379,10 +3413,11 @@ Use MCP tools only.
 ## Important method patterns
 
 - Discover node types: nodeTypes.search, nodeTypes.list, nodeTypes.get
-- Inspect graph: nodes.list, nodes.getInfo, nodes.getPorts, wires.getAll, uniforms.list
+- Inspect graph: graph.exportIR for full structure, then nodes.getInfo, nodes.getPorts for details
 - Edit node input values: nodes.edit(nodeId, { inputValues: { PortName: value } })
 - Wire nodes: wires.create({ from, to }) after inspecting both ports
 - Manage selection: selection.get, selection.set, selection.clear, selection.add, selection.remove, selection.fitToView
+- Show nodes to user: selection.set(nodeIds) then selection.fitToView() to highlight and focus
 - Validate: ai.runDebugCheck({ includeScreenshot: true })`;
 
   return { skill, quickstart };
