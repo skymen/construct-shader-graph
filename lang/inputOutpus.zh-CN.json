@@ -9,6 +9,8 @@
   "Bits": "位数",
   "Blend": "混合",
   "Center": "中心",
+  "Clamp End": "限制终点",
+  "Clamp Start": "限制起点",
   "Color": "颜色",
   "Color A": "颜色A",
   "Color B": "颜色B",

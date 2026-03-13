@@ -97,6 +97,7 @@ import { DepthUVNode } from "./DepthUVNode.js";
 import { OutputNode } from "./OutputNode.js";
 import { WrapUVNode } from "./WrapUVNode.js";
 import { ScaleUVNode } from "./ScaleUVNode.js";
+import { OffsetUVNode } from "./OffsetUVNode.js";
 import { TilingNode } from "./TilingNode.js";
 import { TwirlNode } from "./TwirlNode.js";
 import { BulgeNode } from "./BulgeNode.js";
@@ -405,6 +406,7 @@ export const NODE_TYPES = {
   output: OutputNode,
   wrapUV: WrapUVNode,
   scaleUV: ScaleUVNode,
+  offsetUV: OffsetUVNode,
   tiling: TilingNode,
   twirl: TwirlNode,
   bulge: BulgeNode,
