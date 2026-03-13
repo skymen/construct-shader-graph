@@ -1797,7 +1797,7 @@ const API_METHOD_DESCRIPTORS = [
     args: [],
     returns: {
       type: "object",
-      description: "Guidance object with skill, quickstart, and preamble text.",
+      description: "Guidance object with skill, and quickstart text.",
     },
   },
   {
@@ -3385,16 +3385,7 @@ Use MCP tools only.
 - Manage selection: selection.get, selection.set, selection.clear, selection.add, selection.remove, selection.fitToView
 - Validate: ai.runDebugCheck({ includeScreenshot: true })`;
 
-  const preamble = [
-    "Use Construct Shader Graph through MCP only.",
-    "Start with list_projects and select_project.",
-    "Use shader.getInfo metadata to identify the right project.",
-    "Use get_project_manifest when capabilities or argument shapes are unclear.",
-    "Use exact return values from call_project_method instead of guessing state.",
-    "Inspect first, mutate second, and verify after each meaningful edit.",
-  ].join("\\n");
-
-  return { skill, quickstart, preamble };
+  return { skill, quickstart };
 }
 
 export function installGlobalConsoleApi(blueprint, helpers = {}) {
