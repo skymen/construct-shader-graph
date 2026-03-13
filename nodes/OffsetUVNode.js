@@ -29,5 +29,14 @@ export const OffsetUVNode = new NodeType(
     },
   },
   "UV",
-  ["offset", "shift", "move", "uv", "coordinates", "transform", "clamp", "bounds"]
+  [
+    "offset",
+    "shift",
+    "move",
+    "uv",
+    "coordinates",
+    "transform",
+    "clamp",
+    "bounds",
+  ],
 );
