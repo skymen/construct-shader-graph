@@ -4632,6 +4632,56 @@ class BlueprintSystem {
     this.render();
   }
 
+  fitSelectedToView() {
+    if (this.selectedNodes.size === 0) {
+      this.zoomToFit();
+      return;
+    }
+
+    // Calculate bounding box of selected nodes
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    this.selectedNodes.forEach((node) => {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + node.width);
+      maxY = Math.max(maxY, node.y + node.height);
+    });
+
+    // Add padding
+    const padding = 100;
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+
+    const boundsWidth = maxX - minX;
+    const boundsHeight = maxY - minY;
+
+    const rect = this.canvas.getBoundingClientRect();
+    const viewWidth = rect.width;
+    const viewHeight = rect.height;
+
+    // Calculate zoom to fit
+    const zoomX = viewWidth / boundsWidth;
+    const zoomY = viewHeight / boundsHeight;
+    const newZoom = Math.min(zoomX, zoomY, 5); // Cap at max zoom
+
+    // Center the view on selected nodes
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    this.camera.zoom = newZoom;
+    this.camera.x = viewWidth / 2 - centerX * newZoom;
+    this.camera.y = viewHeight / 2 - centerY * newZoom;
+
+    this.updateZoomLevelDisplay();
+    this.render();
+  }
+
   updateZoomLevelDisplay() {
     if (this.zoomLevelDisplay) {
       const zoomPercent = Math.round(this.camera.zoom * 100);
@@ -8008,10 +8058,17 @@ class BlueprintSystem {
         handler: () => this.zoomToFit(),
       },
       {
+        label: "Fit Selected to View",
+        menu: "View",
+        action: "fitSelectedToView",
+        shortcut: "F",
+        handler: () => this.fitSelectedToView(),
+      },
+      {
         label: "Center View",
         menu: "View",
         action: "centerView",
-        shortcut: "F",
+        shortcut: "C",
         handler: () => this.centerView(),
       },
       {
@@ -9301,8 +9358,13 @@ class BlueprintSystem {
       e.preventDefault();
       this.zoomToFit();
     }
-    // F: Center View (without Shift)
+    // F: Fit Selected to View (without Shift)
     else if (!e.shiftKey && (e.key === "f" || e.key === "F")) {
+      e.preventDefault();
+      this.fitSelectedToView();
+    }
+    // C: Center View
+    else if (!e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "c" || e.key === "C")) {
       e.preventDefault();
       this.centerView();
     }
