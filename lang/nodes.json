@@ -196,6 +196,7 @@
   "srcToDest": "srcToDest",
   "srcToNorm": "srcToNorm",
   "texelSize": "texelSize",
+  "worldPos": "worldPos",
   "zFar": "zFar",
   "zNear": "zNear"
 }

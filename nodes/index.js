@@ -130,6 +130,7 @@ import { BuiltinDevicePixelRatioNode } from "./BuiltinDevicePixelRatioNode.js";
 import { BuiltinLayerScaleNode } from "./BuiltinLayerScaleNode.js";
 import { BuiltinLayerAngleNode } from "./BuiltinLayerAngleNode.js";
 import { BuiltinSecondsNode } from "./BuiltinSecondsNode.js";
+import { BuiltinWorldPosNode } from "./BuiltinWorldPosNode.js";
 import { BuiltinZNearNode } from "./BuiltinZNearNode.js";
 import { BuiltinZFarNode } from "./BuiltinZFarNode.js";
 import { BuiltinSrcSizeNode } from "./BuiltinSrcSizeNode.js";
@@ -444,6 +445,7 @@ export const NODE_TYPES = {
   builtinLayerScale: BuiltinLayerScaleNode,
   builtinLayerAngle: BuiltinLayerAngleNode,
   builtinSeconds: BuiltinSecondsNode,
+  builtinWorldPos: BuiltinWorldPosNode,
   builtinZNear: BuiltinZNearNode,
   builtinZFar: BuiltinZFarNode,
   texelSize: TexelSizeNode,
