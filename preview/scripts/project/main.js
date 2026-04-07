@@ -9,7 +9,7 @@ function sendErrorToParent(message, severity = "error") {
         message: message,
         severity: severity,
       },
-      "*"
+      "*",
     );
   }
 }
@@ -23,7 +23,7 @@ function sendConsoleLogToParent(message, level = "log") {
         message: message,
         level: level,
       },
-      "*"
+      "*",
     );
   }
 }
@@ -35,7 +35,7 @@ function setupWebGPUErrorCapture() {
 
   // Hook into GPUDevice creation to capture uncaptured errors
   const originalRequestAdapter = navigator.gpu.requestAdapter.bind(
-    navigator.gpu
+    navigator.gpu,
   );
   navigator.gpu.requestAdapter = async function (...args) {
     const adapter = await originalRequestAdapter(...args);
@@ -81,7 +81,7 @@ function setupWebGPUErrorCapture() {
                         : "";
                     sendErrorToParent(
                       `WGSL ${msg.type}${location}: ${msg.message}`,
-                      severity
+                      severity,
                     );
                   }
                 })
@@ -190,7 +190,7 @@ runOnStartup(async (runtime) => {
               width: baseObjectSize.sprite.w,
               height: baseObjectSize.sprite.h,
             },
-            "*"
+            "*",
           );
         }
       }
@@ -209,7 +209,7 @@ runOnStartup(async (runtime) => {
           type: "updatePreviewSpriteUrl",
           url: url,
         },
-        "*"
+        "*",
       );
     }
   };
@@ -220,7 +220,7 @@ runOnStartup(async (runtime) => {
           type: "updatePreviewShapeUrl",
           url: url,
         },
-        "*"
+        "*",
       );
     }
   };
@@ -231,13 +231,13 @@ runOnStartup(async (runtime) => {
           type: "updatePreviewBgUrl",
           url: url,
         },
-        "*"
+        "*",
       );
     }
   };
   await shaderDataPromise;
   runtime.addEventListener("beforeprojectstart", () =>
-    OnBeforeProjectStart(runtime)
+    OnBeforeProjectStart(runtime),
   );
 });
 
@@ -373,7 +373,7 @@ async function OnBeforeProjectStart(rt) {
                 type: "screenshotData",
                 dataUrl: reader.result, // This is a base64 data URL
               },
-              "*"
+              "*",
             );
           };
           reader.readAsDataURL(blob);
@@ -400,7 +400,7 @@ function runStartupScript(script) {
       "camera",
       "layout",
       "layer",
-      script
+      script,
     );
 
     // Execute the script with runtime context
@@ -412,7 +412,7 @@ function runStartupScript(script) {
       background3d,
       camera,
       layout,
-      layer
+      layer,
     );
 
     sendConsoleLogToParent("Startup script executed successfully", "log");
@@ -667,7 +667,7 @@ function setupCameraControls() {
       // Clamp polar angle to prevent flipping (0.1 to PI - 0.1)
       cameraPolar = Math.max(
         0.1,
-        Math.min(Math.PI - 0.1, dragStartPolar - deltaY * 0.005)
+        Math.min(Math.PI - 0.1, dragStartPolar - deltaY * 0.005),
       );
 
       lastDragTime = Date.now();
@@ -712,7 +712,7 @@ function setupCameraControls() {
             type: "zoomLevelChanged",
             zoomLevel: zoomLevel,
           },
-          "*"
+          "*",
         );
       }
     } else {
@@ -767,7 +767,7 @@ function updateCamera() {
     targetPosition.z,
     0,
     0,
-    1
+    1,
   );
 }
 
@@ -866,13 +866,13 @@ function setupShaderErrorCapture() {
 {
   self.C3.WorldInfo = class extends self.C3.WorldInfo {
     Init(t) {
-      t[12] = [
+      t[13] = [
         [
           true,
           ...self["C3_Shaders"]["skymen_Placeholdereffect"].parameters.map(
             (p) => {
               return p[2] === "color" ? [1, 1, 1] : 1;
-            }
+            },
           ),
         ],
       ];
@@ -890,7 +890,7 @@ function setupShaderErrorCapture() {
           ...self["C3_Shaders"]["skymen_Placeholdereffect"].parameters.map(
             (p) => {
               return p[2] === "color" ? [1, 1, 1] : 1;
-            }
+            },
           ),
         ];
       }
