@@ -8,11 +8,11 @@ export const BuiltinWorldPosNode = new NodeType(
   NODE_COLORS.colorVec3,
   {
     webgl1: {
-      dependency: "varying highp vec3 vWorldPos;",
+      dependency: "varying highmedp vec3 vWorldPos;",
       execution: (inputs, outputs) => `    vec3 ${outputs[0]} = vWorldPos;`,
     },
     webgl2: {
-      dependency: "in mediump vec2 highp vec3 vWorldPos;",
+      dependency: "in highmedp vec3 vWorldPos;",
       execution: (inputs, outputs) => `    vec3 ${outputs[0]} = vWorldPos;`,
     },
     webgpu: {
