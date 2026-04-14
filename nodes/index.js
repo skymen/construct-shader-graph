@@ -146,6 +146,7 @@ import { PixelSizeNode } from "./PixelSizeNode.js";
 import { LayoutPixelSizeNode } from "./LayoutPixelSizeNode.js";
 import { SrcOriginToNormNode } from "./SrcOriginToNormNode.js";
 import { GetLayoutPosNode } from "./GetLayoutPosNode.js";
+import { FromLayoutPosNode } from "./FromLayoutPosNode.js";
 import { UnpremultiplyNode } from "./UnpremultiplyNode.js";
 import { PremultiplyNode } from "./PremultiplyNode.js";
 import { LinearizeDepthNode } from "./LinearizeDepthNode.js";
@@ -453,6 +454,7 @@ export const NODE_TYPES = {
   layoutPixelSize: LayoutPixelSizeNode,
   srcOriginToNorm: SrcOriginToNormNode,
   getLayoutPos: GetLayoutPosNode,
+  fromLayoutPos: FromLayoutPosNode,
   unpremultiply: UnpremultiplyNode,
   premultiply: PremultiplyNode,
   linearizeDepth: LinearizeDepthNode,
