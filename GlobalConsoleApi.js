@@ -182,6 +182,14 @@ function getUniformById(bp, uniformId) {
   return uniform;
 }
 
+function getDeprecatedUniformById(bp, uniformId) {
+  const uniform = bp.deprecatedUniforms.find(
+    (entry) => entry.id === Number(uniformId),
+  );
+  assert(uniform, `Deprecated uniform ${uniformId} not found`);
+  return uniform;
+}
+
 function getWireId(bp, wire) {
   if (wire.id == null) {
     wire.id = bp.wireIdCounter++;
@@ -411,12 +419,14 @@ function serializeUniform(uniform, index) {
   return {
     id: uniform.id,
     index,
+    paramId: uniform.paramId,
     name: uniform.name,
     variableName: uniform.variableName,
     description: uniform.description,
     type: uniform.type,
     value: cloneValue(uniform.value),
     isPercent: !!uniform.isPercent,
+    isDeprecated: !!uniform.isDeprecated,
   };
 }
 
@@ -2388,7 +2398,7 @@ const API_METHOD_DESCRIPTORS = [
   },
   {
     path: "uniforms.delete",
-    description: "Delete an existing uniform.",
+    description: "Deprecate an existing uniform.",
     mutates: true,
     args: [
       {
@@ -2398,7 +2408,7 @@ const API_METHOD_DESCRIPTORS = [
         description: "Uniform id to delete.",
       },
     ],
-    returns: { type: "object", description: "Deletion status and uniform id." },
+    returns: { type: "object", description: "Deprecation status and uniform id." },
   },
   {
     path: "uniforms.reorder",
@@ -2440,6 +2450,41 @@ const API_METHOD_DESCRIPTORS = [
     mutates: false,
     args: [],
     returns: { type: "array", description: "Serialized uniforms." },
+  },
+  {
+    path: "uniforms.listDeprecated",
+    description: "List deprecated uniforms.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized deprecated uniforms." },
+  },
+  {
+    path: "uniforms.restore",
+    description: "Restore a deprecated uniform.",
+    mutates: true,
+    args: [
+      {
+        name: "uniformId",
+        type: "number",
+        required: true,
+        description: "Deprecated uniform id to restore.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized restored uniform." },
+  },
+  {
+    path: "uniforms.deleteForever",
+    description: "Permanently remove a deprecated uniform.",
+    mutates: true,
+    args: [
+      {
+        name: "uniformId",
+        type: "number",
+        required: true,
+        description: "Deprecated uniform id to permanently remove.",
+      },
+    ],
+    returns: { type: "object", description: "Deletion status and uniform id." },
   },
   {
     path: "shader.getInfo",
@@ -4300,6 +4345,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           input.isPercent,
           "uniforms.create isPercent must be a boolean",
         );
+        assertOptionalString(
+          input.paramId,
+          "uniforms.create paramId must be a string",
+        );
 
         const type = input.type || "float";
         assert(
@@ -4307,27 +4356,18 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "Uniform type must be 'float' or 'color'",
         );
 
-        let variableName = `uniform_${blueprint.sanitizeVariableName(name)}`;
-        let counter = 1;
-        const baseVariableName = variableName;
-        while (
-          blueprint.uniforms.some(
-            (entry) => entry.variableName === variableName,
-          ) ||
-          blueprint.uniforms.some((entry) => entry.name === variableName)
-        ) {
-          variableName = `${baseVariableName}_${counter}`;
-          counter++;
-        }
+        const variableName = blueprint.buildUniqueUniformVariableName(name);
 
         const uniform = {
           id: blueprint.uniformIdCounter++,
+          paramId: blueprint.buildUniqueUniformParamId(input.paramId || ""),
           name,
           variableName,
           description: String(input.description || ""),
           type,
           value: normalizeUniformValue(type, input.value),
           isPercent: !!input.isPercent,
+          isDeprecated: false,
         };
 
         blueprint.uniforms.push(uniform);
@@ -4409,26 +4449,30 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           assert(newName, "Uniform name cannot be empty");
           uniform.name = newName;
 
-          let nextVariableName = `uniform_${blueprint.sanitizeVariableName(newName)}`;
-          let counter = 1;
-          const baseVariableName = nextVariableName;
-          while (
-            blueprint.uniforms.some(
-              (entry) =>
-                entry.id !== uniform.id &&
-                entry.variableName === nextVariableName,
-            ) ||
-            blueprint.uniforms.some(
-              (entry) =>
-                entry.id !== uniform.id && entry.name === nextVariableName,
-            )
-          ) {
-            nextVariableName = `${baseVariableName}_${counter}`;
-            counter++;
-          }
+          const nextVariableName = blueprint.buildUniqueUniformVariableName(
+            newName,
+            uniform.id,
+          );
 
           uniform.variableName = nextVariableName;
           blueprint.updateUniformNodeNames(oldVariableName, nextVariableName);
+        }
+
+        if (patch.paramId !== undefined) {
+          const requestedParamId = blueprint.sanitizeUniformParamId(patch.paramId);
+          assert(requestedParamId, "Uniform paramId cannot be empty");
+          assert(
+            !blueprint.isUniformParamIdTaken(requestedParamId, uniform.id),
+            `Uniform paramId '${requestedParamId}' is already in use`,
+          );
+          if (requestedParamId !== uniform.paramId) {
+            blueprint.deprecatedUniforms.push(
+              blueprint.createDeprecatedUniformCopy(uniform, {
+                paramId: uniform.paramId,
+              }),
+            );
+            uniform.paramId = requestedParamId;
+          }
         }
 
         if (patch.description !== undefined) {
@@ -4462,6 +4506,36 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         );
         const uniform = getUniformById(blueprint, uniformId);
         blueprint.deleteUniform(uniform.id);
+        return { ok: true, uniformId: uniform.id };
+      },
+
+      listDeprecated() {
+        return blueprint.deprecatedUniforms.map((uniform, index) =>
+          serializeUniform(uniform, index),
+        );
+      },
+
+      restore(uniformId) {
+        assert(
+          Number.isInteger(Number(uniformId)),
+          "uniforms.restore requires a valid uniform id",
+        );
+        const uniform = getDeprecatedUniformById(blueprint, uniformId);
+        blueprint.restoreDeprecatedUniform(uniform.id);
+        const restoredUniform = getUniformById(blueprint, uniform.id);
+        return serializeUniform(
+          restoredUniform,
+          blueprint.uniforms.findIndex((entry) => entry.id === restoredUniform.id),
+        );
+      },
+
+      deleteForever(uniformId) {
+        assert(
+          Number.isInteger(Number(uniformId)),
+          "uniforms.deleteForever requires a valid uniform id",
+        );
+        const uniform = getDeprecatedUniformById(blueprint, uniformId);
+        blueprint.permanentlyDeleteDeprecatedUniform(uniform.id);
         return { ok: true, uniformId: uniform.id };
       },
 

@@ -1103,7 +1103,9 @@ class BlueprintSystem {
 
     // Uniforms
     this.uniforms = [];
+    this.deprecatedUniforms = [];
     this.uniformIdCounter = 1;
+    this.deprecatedUniformsExpanded = false;
 
     // Custom Nodes
     this.customNodes = [];
@@ -2680,6 +2682,242 @@ class BlueprintSystem {
     return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
   }
 
+  sanitizeUniformParamId(value) {
+    let sanitized = String(value || "").replace(/[^a-zA-Z0-9_]/g, "");
+
+    if (/^[0-9]/.test(sanitized)) {
+      sanitized = `p_${sanitized}`;
+    }
+
+    return sanitized || "param";
+  }
+
+  getUniformRandomInt(max) {
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      const values = new Uint32Array(1);
+      crypto.getRandomValues(values);
+      return values[0] % max;
+    }
+
+    return Math.floor(Math.random() * max);
+  }
+
+  isUniformParamIdTaken(paramId, excludeUniformId = null) {
+    return [...this.uniforms, ...this.deprecatedUniforms].some(
+      (uniform) => uniform.id !== excludeUniformId && uniform.paramId === paramId,
+    );
+  }
+
+  generateUniformParamId(length = 8) {
+    const firstChars = "abcdefghijklmnopqrstuvwxyz";
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+    let candidate = "";
+    do {
+      candidate = firstChars[this.getUniformRandomInt(firstChars.length)];
+      for (let i = 1; i < length; i++) {
+        candidate += chars[this.getUniformRandomInt(chars.length)];
+      }
+    } while (this.isUniformParamIdTaken(candidate));
+
+    return candidate;
+  }
+
+  buildUniqueUniformParamId(
+    preferredId = "",
+    excludeUniformId = null,
+    usedParamIds = null,
+  ) {
+    const baseId = this.sanitizeUniformParamId(preferredId);
+    const hasPreferredId = !!String(preferredId || "").trim();
+    const isTaken = (candidate) =>
+      usedParamIds
+        ? usedParamIds.has(candidate)
+        : this.isUniformParamIdTaken(candidate, excludeUniformId);
+
+    if (!hasPreferredId) {
+      let generatedId = this.generateUniformParamId();
+      while (isTaken(generatedId)) {
+        generatedId = this.generateUniformParamId();
+      }
+      if (usedParamIds) {
+        usedParamIds.add(generatedId);
+      }
+      return generatedId;
+    }
+
+    let candidate = baseId;
+    let counter = 1;
+    while (isTaken(candidate)) {
+      candidate = `${baseId}_${counter}`;
+      counter++;
+    }
+
+    if (usedParamIds) {
+      usedParamIds.add(candidate);
+    }
+
+    return candidate;
+  }
+
+  buildUniqueUniformVariableName(
+    name,
+    excludeUniformId = null,
+    usedVariableNames = null,
+  ) {
+    const baseVariableName = `uniform_${this.sanitizeVariableName(name)}`;
+    const isTaken = (candidate) =>
+      usedVariableNames
+        ? usedVariableNames.has(candidate)
+        : this.uniforms.some(
+            (uniform) =>
+              uniform.id !== excludeUniformId && uniform.variableName === candidate,
+          ) ||
+          this.uniforms.some(
+            (uniform) => uniform.id !== excludeUniformId && uniform.name === candidate,
+          );
+
+    let variableName = baseVariableName;
+    let counter = 1;
+    while (isTaken(variableName)) {
+      variableName = `${baseVariableName}_${counter}`;
+      counter++;
+    }
+
+    if (usedVariableNames) {
+      usedVariableNames.add(variableName);
+    }
+
+    return variableName;
+  }
+
+  cloneUniformRecord(uniform) {
+    return {
+      ...uniform,
+      value:
+        uniform.type === "color"
+          ? {
+              r: Number(uniform.value?.r ?? 1),
+              g: Number(uniform.value?.g ?? 1),
+              b: Number(uniform.value?.b ?? 1),
+            }
+          : Number(uniform.value ?? 0),
+    };
+  }
+
+  normalizeUniformCollections(activeUniforms = [], deprecatedUniforms = []) {
+    const usedParamIds = new Set();
+    const usedActiveVariableNames = new Set();
+    let nextGeneratedId = 1;
+    let maxUniformId = 0;
+
+    const normalizeColorValue = (value) => ({
+      r: Number(value?.r ?? 1),
+      g: Number(value?.g ?? 1),
+      b: Number(value?.b ?? 1),
+    });
+
+    const normalizeUniform = (uniformData, isDeprecated) => {
+      const rawId = Number(uniformData?.id);
+      const id = Number.isInteger(rawId) && rawId > 0 ? rawId : nextGeneratedId++;
+      maxUniformId = Math.max(maxUniformId, id);
+      nextGeneratedId = Math.max(nextGeneratedId, maxUniformId + 1);
+
+      const name = String(uniformData?.name || "Uniform").trim() || "Uniform";
+      const type = uniformData?.type === "color" ? "color" : "float";
+      const savedVariableName = String(uniformData?.variableName || "").trim();
+
+      let variableName = savedVariableName;
+      if (
+        !variableName ||
+        !this.isValidVariableName(variableName) ||
+        (!isDeprecated && usedActiveVariableNames.has(variableName))
+      ) {
+        variableName = this.buildUniqueUniformVariableName(name, id, usedActiveVariableNames);
+      } else if (!isDeprecated) {
+        usedActiveVariableNames.add(variableName);
+      }
+
+      const legacyParamId =
+        uniformData?.paramId !== undefined
+          ? uniformData.paramId
+          : this.sanitizeVariableName(name);
+
+      const paramId = this.buildUniqueUniformParamId(legacyParamId, id, usedParamIds);
+
+      return {
+        ...uniformData,
+        id,
+        paramId,
+        name,
+        variableName,
+        description: String(uniformData?.description || ""),
+        type,
+        value:
+          type === "color"
+            ? normalizeColorValue(uniformData?.value)
+            : Number(uniformData?.value ?? 0),
+        isPercent: type === "float" ? !!uniformData?.isPercent : false,
+        isDeprecated,
+      };
+    };
+
+    const normalizedUniforms = Array.isArray(activeUniforms)
+      ? activeUniforms.map((uniform) => normalizeUniform(uniform, false))
+      : [];
+    const normalizedDeprecatedUniforms = Array.isArray(deprecatedUniforms)
+      ? deprecatedUniforms.map((uniform) => normalizeUniform(uniform, true))
+      : [];
+
+    return {
+      uniforms: normalizedUniforms,
+      deprecatedUniforms: normalizedDeprecatedUniforms,
+      uniformIdCounter: Math.max(maxUniformId + 1, nextGeneratedId),
+    };
+  }
+
+  createDeprecatedUniformCopy(uniform, overrides = {}) {
+    return {
+      ...this.cloneUniformRecord(uniform),
+      ...overrides,
+      id: overrides.id ?? this.uniformIdCounter++,
+      isDeprecated: true,
+    };
+  }
+
+  getDeprecatedUniformShaderVariableName(uniform) {
+    const baseName = `${uniform.variableName}_deprecated`;
+    const duplicateCount = this.deprecatedUniforms.filter(
+      (entry) =>
+        entry.id !== uniform.id &&
+        entry.variableName === uniform.variableName,
+    ).length;
+
+    if (duplicateCount === 0) {
+      return baseName;
+    }
+
+    const suffix = this.sanitizeVariableName(String(uniform.paramId || uniform.id));
+    return `${baseName}_${suffix}`;
+  }
+
+  getExportableUniforms() {
+    return [
+      ...this.uniforms.map((uniform) => ({
+        uniform,
+        shaderVariableName: uniform.variableName,
+        exportName: uniform.name,
+        isDeprecated: false,
+      })),
+      ...this.deprecatedUniforms.map((uniform) => ({
+        uniform,
+        shaderVariableName: this.getDeprecatedUniformShaderVariableName(uniform),
+        exportName: `[DEPRECATED] ${uniform.name}`,
+        isDeprecated: true,
+      })),
+    ];
+  }
+
   setupUniformSidebar() {
     this.uniformModal = document.getElementById("uniformModal");
     this.uniformNameInput = document.getElementById("uniformNameInput");
@@ -2891,28 +3129,18 @@ class BlueprintSystem {
       return;
     }
 
-    // Generate variable name (sanitized version)
-    let variableName = `uniform_${this.sanitizeVariableName(name)}`;
-
-    // Ensure variable name is unique (check both name and variableName)
-    let counter = 1;
-    const baseVariableName = variableName;
-    while (
-      this.uniforms.some((u) => u.variableName === variableName) ||
-      this.uniforms.some((u) => u.name === variableName)
-    ) {
-      variableName = `${baseVariableName}_${counter}`;
-      counter++;
-    }
+    const variableName = this.buildUniqueUniformVariableName(name);
 
     const uniform = {
       id: this.uniformIdCounter++,
+      paramId: this.generateUniformParamId(),
       name: name, // Display name (can be anything)
       variableName: variableName, // Sanitized name for shader code
       description: description,
       type: type, // 'float' or 'color'
       value: type === "color" ? { r: 1, g: 1, b: 1 } : 0.0,
       isPercent: false, // Only for float type
+      isDeprecated: false,
     };
 
     this.uniforms.push(uniform);
@@ -2925,6 +3153,13 @@ class BlueprintSystem {
   }
 
   deleteUniform(id) {
+    const uniformIndex = this.uniforms.findIndex((uniform) => uniform.id === id);
+    if (uniformIndex === -1) {
+      return;
+    }
+
+    const uniform = this.uniforms[uniformIndex];
+
     // Find all nodes using this uniform
     const nodesToDelete = this.nodes.filter((node) => node.uniformId === id);
 
@@ -2942,8 +3177,12 @@ class BlueprintSystem {
     // Remove the nodes
     this.nodes = this.nodes.filter((node) => node.uniformId !== id);
 
-    // Remove the uniform
-    this.uniforms = this.uniforms.filter((u) => u.id !== id);
+    // Deprecate the uniform instead of deleting it forever
+    this.uniforms.splice(uniformIndex, 1);
+    this.deprecatedUniforms.push({
+      ...this.cloneUniformRecord(uniform),
+      isDeprecated: true,
+    });
 
     // Clear selection if any deleted nodes were selected
     nodesToDelete.forEach((node) => {
@@ -2956,7 +3195,52 @@ class BlueprintSystem {
     this.onShaderChanged();
 
     // Push state for undo/redo
-    this.history.pushState("Delete uniform");
+    this.history.pushState("Deprecate uniform");
+  }
+
+  restoreDeprecatedUniform(id) {
+    const deprecatedIndex = this.deprecatedUniforms.findIndex(
+      (uniform) => uniform.id === id,
+    );
+    if (deprecatedIndex === -1) {
+      return;
+    }
+
+    const restoredUniform = this.cloneUniformRecord(this.deprecatedUniforms[deprecatedIndex]);
+    restoredUniform.variableName = this.buildUniqueUniformVariableName(
+      restoredUniform.variableName?.startsWith("uniform_")
+        ? restoredUniform.variableName.replace(/^uniform_/, "")
+        : restoredUniform.name,
+      restoredUniform.id,
+    );
+    restoredUniform.isDeprecated = false;
+
+    if (this.isUniformParamIdTaken(restoredUniform.paramId, restoredUniform.id)) {
+      alert(
+        `Cannot restore uniform because the parameter ID '${restoredUniform.paramId}' is already in use.`,
+      );
+      return;
+    }
+
+    this.deprecatedUniforms.splice(deprecatedIndex, 1);
+    this.uniforms.push(restoredUniform);
+    this.renderUniformList();
+    this.onShaderChanged();
+    this.history.pushState("Restore uniform");
+  }
+
+  permanentlyDeleteDeprecatedUniform(id) {
+    const deprecatedIndex = this.deprecatedUniforms.findIndex(
+      (uniform) => uniform.id === id,
+    );
+    if (deprecatedIndex === -1) {
+      return;
+    }
+
+    this.deprecatedUniforms.splice(deprecatedIndex, 1);
+    this.renderUniformList();
+    this.onShaderChanged();
+    this.history.pushState("Delete deprecated uniform");
   }
 
   updateUniformValue(id, value) {
@@ -4721,7 +5005,7 @@ class BlueprintSystem {
 
   buildShaderData(shaders) {
     // Generate parameters array
-    const parameters = this.uniforms.map((uniform) => {
+    const parameters = this.getExportableUniforms().map(({ uniform, shaderVariableName }) => {
       let value = uniform.value;
       // Convert color values to array format [r, g, b]
       if (
@@ -4732,7 +5016,7 @@ class BlueprintSystem {
         value = [value.r, value.g, value.b];
       }
       return [
-        uniform.variableName,
+        shaderVariableName,
         0,
         uniform.type === "color"
           ? "color"
@@ -5700,36 +5984,92 @@ class BlueprintSystem {
       nameInput.addEventListener("change", (e) => {
         const newName = e.target.value.trim();
         if (newName && newName !== uniform.name) {
-          const oldName = uniform.name;
           const oldVariableName = uniform.variableName;
           uniform.name = newName;
 
-          // Regenerate variable name
-          let newVariableName = `uniform_${this.sanitizeVariableName(newName)}`;
-          let counter = 1;
-          const baseVariableName = newVariableName;
-          while (
-            this.uniforms.some(
-              (u) => u.id !== uniform.id && u.variableName === newVariableName,
-            ) ||
-            this.uniforms.some(
-              (u) => u.id !== uniform.id && u.name === newVariableName,
-            )
-          ) {
-            newVariableName = `${baseVariableName}_${counter}`;
-            counter++;
-          }
+          const newVariableName = this.buildUniqueUniformVariableName(
+            newName,
+            uniform.id,
+          );
           uniform.variableName = newVariableName;
 
           this.updateUniformNodeNames(oldVariableName, newVariableName);
+          this.onShaderChanged();
+          this.history.pushState("Rename uniform");
           this.renderUniformList(); // Re-render to show new variable name
         }
       });
       nameInput.addEventListener("click", (e) => e.stopPropagation());
 
+      const applyParamIdChange = (nextValue, inputEl) => {
+        const rawValue = nextValue.trim();
+        const requestedParamId = this.sanitizeUniformParamId(rawValue);
+        if (!rawValue) {
+          inputEl.value = uniform.paramId;
+          return;
+        }
+
+        if (requestedParamId === uniform.paramId) {
+          inputEl.value = uniform.paramId;
+          return;
+        }
+
+        if (this.isUniformParamIdTaken(requestedParamId, uniform.id)) {
+          alert(`Parameter ID '${requestedParamId}' is already in use.`);
+          inputEl.value = uniform.paramId;
+          return;
+        }
+
+        const deprecatedCopy = this.createDeprecatedUniformCopy(uniform, {
+          paramId: uniform.paramId,
+        });
+        this.deprecatedUniforms.push(deprecatedCopy);
+        uniform.paramId = requestedParamId;
+        inputEl.value = uniform.paramId;
+        this.onShaderChanged();
+        this.history.pushState("Change uniform parameter ID");
+        this.renderUniformList();
+      };
+
+      const paramIdInput = document.createElement("input");
+      paramIdInput.type = "text";
+      paramIdInput.className = "uniform-description-input uniform-param-id-inline";
+      paramIdInput.value = uniform.paramId;
+      paramIdInput.size = Math.max(uniform.paramId.length, 4);
+      paramIdInput.placeholder = "Parameter ID";
+      paramIdInput.title = "Stable Construct parameter ID";
+      paramIdInput.addEventListener("input", (e) => {
+        e.target.size = Math.max(e.target.value.length, 4);
+      });
+      paramIdInput.addEventListener("change", (e) => {
+        applyParamIdChange(e.target.value, e.target);
+      });
+      paramIdInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          applyParamIdChange(e.target.value, e.target);
+          e.target.blur();
+        }
+      });
+      paramIdInput.addEventListener("click", (e) => e.stopPropagation());
+      paramIdInput.addEventListener("mousedown", (e) => e.stopPropagation());
+
       // Info line (variable name + type)
       const infoLine = document.createElement("div");
       infoLine.className = "uniform-info-line";
+
+      const paramIdLabel = document.createElement("span");
+      paramIdLabel.className = "uniform-param-id-hint";
+      paramIdLabel.textContent = "ID:";
+      paramIdLabel.title = "Stable Construct parameter ID";
+      infoLine.appendChild(paramIdLabel);
+
+      infoLine.appendChild(paramIdInput);
+
+      const paramSeparator = document.createElement("span");
+      paramSeparator.textContent = " • ";
+      paramSeparator.style.color = "#666";
+      infoLine.appendChild(paramSeparator);
 
       // Show variable name if different from display name
       if (uniform.variableName !== uniform.name) {
@@ -5924,6 +6264,82 @@ class BlueprintSystem {
       item.appendChild(valueControl);
       this.uniformList.appendChild(item);
     });
+
+    if (this.deprecatedUniforms.length > 0) {
+      const deprecatedSection = document.createElement("div");
+      deprecatedSection.className = "deprecated-uniforms-section";
+
+      const deprecatedHeader = document.createElement("button");
+      deprecatedHeader.type = "button";
+      deprecatedHeader.className = "deprecated-uniforms-toggle";
+      deprecatedHeader.innerHTML = `<span>Deprecated Uniforms (${this.deprecatedUniforms.length})</span><span>${this.deprecatedUniformsExpanded ? "▼" : "▶"}</span>`;
+      deprecatedHeader.addEventListener("click", () => {
+        this.deprecatedUniformsExpanded = !this.deprecatedUniformsExpanded;
+        this.renderUniformList();
+      });
+      deprecatedSection.appendChild(deprecatedHeader);
+
+      if (this.deprecatedUniformsExpanded) {
+      const deprecatedList = document.createElement("div");
+      deprecatedList.className = "deprecated-uniforms-list";
+
+        this.deprecatedUniforms.forEach((uniform) => {
+          const deprecatedItem = document.createElement("div");
+          deprecatedItem.className = "uniform-item deprecated-uniform-item";
+
+          const deprecatedHeaderRow = document.createElement("div");
+          deprecatedHeaderRow.className = "uniform-item-header";
+
+          const deprecatedInfo = document.createElement("div");
+          deprecatedInfo.className = "uniform-name-container";
+
+          const deprecatedName = document.createElement("div");
+          deprecatedName.className = "uniform-item-name deprecated-uniform-name";
+          deprecatedName.textContent = uniform.name;
+
+          const deprecatedMeta = document.createElement("div");
+          deprecatedMeta.className = "uniform-info-line";
+          deprecatedMeta.textContent = `ID: ${uniform.paramId} • ${uniform.type === "color" ? "Color" : "Float"}`;
+
+          deprecatedInfo.appendChild(deprecatedName);
+          deprecatedInfo.appendChild(deprecatedMeta);
+
+          const deprecatedControls = document.createElement("div");
+          deprecatedControls.className = "uniform-item-controls";
+
+          const restoreBtn = document.createElement("button");
+          restoreBtn.className = "uniform-secondary-btn";
+          restoreBtn.textContent = "Restore";
+          restoreBtn.addEventListener("click", () =>
+            this.restoreDeprecatedUniform(uniform.id),
+          );
+
+          const deleteForeverBtn = document.createElement("button");
+          deleteForeverBtn.className = "uniform-delete-btn";
+          deleteForeverBtn.textContent = "Delete forever";
+          deleteForeverBtn.addEventListener("click", () => {
+            if (
+              confirm(
+                `Permanently delete deprecated uniform '${uniform.name}'? This cannot be undone after saving.`,
+              )
+            ) {
+              this.permanentlyDeleteDeprecatedUniform(uniform.id);
+            }
+          });
+
+          deprecatedControls.appendChild(restoreBtn);
+          deprecatedControls.appendChild(deleteForeverBtn);
+          deprecatedHeaderRow.appendChild(deprecatedInfo);
+          deprecatedHeaderRow.appendChild(deprecatedControls);
+          deprecatedItem.appendChild(deprecatedHeaderRow);
+          deprecatedList.appendChild(deprecatedItem);
+        });
+
+      deprecatedSection.appendChild(deprecatedList);
+      }
+
+      this.uniformList.appendChild(deprecatedSection);
+    }
   }
 
   createUniformNode(uniform, x, y) {
@@ -5953,6 +6369,7 @@ class BlueprintSystem {
       name: uniform.name,
       isUniform: true,
       uniformId: uniform.id,
+      paramId: uniform.paramId,
     };
     const node = new Node(posX, posY, this.nodeIdCounter++, nodeType);
     node._blueprintSystem = this;
@@ -5988,6 +6405,7 @@ class BlueprintSystem {
         node.nodeType = {
           ...node.nodeType,
           name: uniform.name,
+          paramId: uniform.paramId,
         };
       }
     });
@@ -6006,6 +6424,7 @@ class BlueprintSystem {
         isUniform: true,
         uniformId: uniform.id,
         uniformName: uniform.variableName,
+        paramId: uniform.paramId,
       };
     });
     return uniformNodeTypes;
@@ -9755,19 +10174,20 @@ class BlueprintSystem {
   }
 
   generateUniformDeclarations(target) {
-    if (this.uniforms.length === 0) return "";
+    const exportableUniforms = this.getExportableUniforms();
+    if (exportableUniforms.length === 0) return "";
 
     let declarations = "\n// Shader Parameters (Uniforms)\n";
 
     if (target === "webgpu") {
       // WebGPU uses a uniform struct
       declarations += "struct ShaderParams {\n";
-      this.uniforms.forEach((uniform) => {
+      exportableUniforms.forEach(({ uniform, shaderVariableName }) => {
         if (uniform.type === "color") {
-          declarations += `\t${uniform.variableName} : vec3<f32>,\n`;
+          declarations += `\t${shaderVariableName} : vec3<f32>,\n`;
         } else {
           // float type
-          declarations += `\t${uniform.variableName} : f32,\n`;
+          declarations += `\t${shaderVariableName} : f32,\n`;
         }
       });
       declarations += "};\n";
@@ -9775,11 +10195,11 @@ class BlueprintSystem {
         "%%SHADERPARAMS_BINDING%% var<uniform> shaderParams : ShaderParams;\n\n";
     } else {
       // WebGL 1 and 2 use individual uniform declarations
-      this.uniforms.forEach((uniform) => {
+      exportableUniforms.forEach(({ uniform, shaderVariableName }) => {
         if (uniform.type === "color") {
-          declarations += `uniform vec3 ${uniform.variableName};\n`;
+          declarations += `uniform vec3 ${shaderVariableName};\n`;
         } else {
-          declarations += `uniform float ${uniform.variableName};\n`;
+          declarations += `uniform float ${shaderVariableName};\n`;
         }
       });
       declarations += "\n";
@@ -10803,10 +11223,11 @@ class BlueprintSystem {
   }
 
   generateParametersJson() {
-    return this.uniforms.map((uniform) => {
+    return this.getExportableUniforms().map(
+      ({ uniform, shaderVariableName }) => {
       const param = {
-        id: this.sanitizeVariableName(uniform.name),
-        uniform: uniform.variableName,
+        id: uniform.paramId,
+        uniform: shaderVariableName,
         interpolatable: true,
         type:
           uniform.type === "color"
@@ -10828,7 +11249,8 @@ class BlueprintSystem {
       }
 
       return param;
-    });
+      },
+    );
   }
 
   generateLangJson() {
@@ -10853,11 +11275,12 @@ class BlueprintSystem {
     };
 
     // Add parameter strings if there are uniforms
-    if (this.uniforms.length > 0) {
+    const exportableUniforms = this.getExportableUniforms();
+    if (exportableUniforms.length > 0) {
       const params = {};
-      this.uniforms.forEach((uniform) => {
-        params[this.sanitizeVariableName(uniform.name)] = {
-          name: uniform.name,
+      exportableUniforms.forEach(({ uniform, exportName }) => {
+        params[uniform.paramId] = {
+          name: exportName,
           desc: uniform.description || "",
         };
       });
@@ -11109,6 +11532,7 @@ class BlueprintSystem {
 
     // Clear uniforms
     this.uniforms = [];
+    this.deprecatedUniforms = [];
     this.uniformIdCounter = 1;
     this.renderUniformList();
 
@@ -11153,6 +11577,7 @@ class BlueprintSystem {
       previewScreenshot: previewScreenshot, // Store screenshot data URL
       shaderSettings: this.shaderSettings,
       uniforms: this.uniforms,
+      deprecatedUniforms: this.deprecatedUniforms,
       customNodes: this.customNodes,
       previewSettings: this.previewSettings,
       camera: {
@@ -11327,34 +11752,17 @@ class BlueprintSystem {
       }
 
       // Restore uniforms
-      if (data.uniforms) {
-        this.uniforms = [];
-        for (const uniformData of data.uniforms) {
-          // Recalculate variableName from the uniform name
-          let variableName = `uniform_${this.sanitizeVariableName(
-            uniformData.name,
-          )}`;
-
-          // Ensure variable name is unique
-          let counter = 1;
-          const baseVariableName = variableName;
-          while (
-            this.uniforms.some((u) => u.variableName === variableName) ||
-            this.uniforms.some((u) => u.name === variableName)
-          ) {
-            variableName = `${baseVariableName}_${counter}`;
-            counter++;
-          }
-
-          this.uniforms.push({
-            ...uniformData,
-            variableName: variableName,
-          });
-        }
-        this.uniformIdCounter =
-          data.uniformIdCounter || this.uniforms.length + 1;
-        this.renderUniformList();
-      }
+      const normalizedUniformCollections = this.normalizeUniformCollections(
+        data.uniforms || [],
+        data.deprecatedUniforms || [],
+      );
+      this.uniforms = normalizedUniformCollections.uniforms;
+      this.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
+      this.uniformIdCounter = Math.max(
+        data.uniformIdCounter || 1,
+        normalizedUniformCollections.uniformIdCounter,
+      );
+      this.renderUniformList();
 
       // Restore custom nodes
       if (data.customNodes) {
@@ -11440,6 +11848,11 @@ class BlueprintSystem {
               node.uniformName = uniform.variableName;
               node.uniformDisplayName = uniform.name;
               node.uniformVariableName = uniform.variableName;
+              node.nodeType = {
+                ...node.nodeType,
+                name: uniform.name,
+                paramId: uniform.paramId,
+              };
             }
           }
           if (nodeData.isVariable !== undefined)
@@ -12362,6 +12775,7 @@ class BlueprintSystem {
         color: comment.color,
       })),
       uniforms: JSON.parse(JSON.stringify(this.uniforms)),
+      deprecatedUniforms: JSON.parse(JSON.stringify(this.deprecatedUniforms)),
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
       shaderSettings: { ...this.shaderSettings },
       counters: {
@@ -12400,7 +12814,16 @@ class BlueprintSystem {
     this.commentIdCounter = stateData.counters.commentIdCounter || 1;
 
     // Restore uniforms and custom nodes
-    this.uniforms = JSON.parse(JSON.stringify(stateData.uniforms));
+    const normalizedUniformCollections = this.normalizeUniformCollections(
+      JSON.parse(JSON.stringify(stateData.uniforms || [])),
+      JSON.parse(JSON.stringify(stateData.deprecatedUniforms || [])),
+    );
+    this.uniforms = normalizedUniformCollections.uniforms;
+    this.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
+    this.uniformIdCounter = Math.max(
+      this.uniformIdCounter,
+      normalizedUniformCollections.uniformIdCounter,
+    );
     this.customNodes = JSON.parse(JSON.stringify(stateData.customNodes));
     this.shaderSettings = { ...stateData.shaderSettings };
 

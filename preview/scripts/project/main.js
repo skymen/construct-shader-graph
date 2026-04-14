@@ -535,7 +535,7 @@ function applyShapeScale() {
   if (shape3D) {
     shape3D.width = baseObjectSize.shape * shapeScale;
     shape3D.height = baseObjectSize.shape * shapeScale;
-    shape3D.zHeight = baseObjectSize.shape * shapeScale;
+    shape3D.depth = baseObjectSize.shape * shapeScale;
   }
 }
 
@@ -570,7 +570,7 @@ function applyRoomScale() {
   if (background3d) {
     background3d.width = -1 * baseBackground3dSize * roomScale;
     background3d.height = baseBackground3dSize * roomScale;
-    background3d.zHeight = baseBackground3dSize * roomScale;
+    background3d.depth = baseBackground3dSize * roomScale;
   }
 
   // Scale 2D background (tiled)

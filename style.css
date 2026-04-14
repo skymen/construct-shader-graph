@@ -1467,6 +1467,12 @@ body {
   background: rgba(74, 144, 226, 0.2);
 }
 
+.uniform-param-id-inline {
+  min-width: 0 !important;
+  width: auto !important;
+  flex: 0 0 auto !important;
+}
+
 .uniform-item-type {
   font-size: 12px;
   color: #888;
@@ -1579,6 +1585,11 @@ body {
   font-size: 10px;
 }
 
+.uniform-param-id-hint {
+  color: #9aa6b2;
+  font-size: 10px;
+}
+
 .uniform-item-type-inline {
   color: #888;
   font-size: 10px;
@@ -1614,6 +1625,60 @@ body {
 .uniform-add-desc-btn:hover {
   border-color: #4a90e2;
   color: #4a90e2;
+}
+
+.deprecated-uniforms-section {
+  margin-top: 12px;
+  border-top: 1px solid #3f3f3f;
+  padding-top: 10px;
+}
+
+.deprecated-uniforms-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  color: #d0d0d0;
+  padding: 4px 0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.deprecated-uniforms-toggle:focus {
+  outline: none;
+}
+
+.deprecated-uniforms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.deprecated-uniform-item {
+  border-color: #484848;
+  background: #2f2f2f;
+  opacity: 0.72;
+}
+
+.deprecated-uniform-name {
+  color: #a8a8a8;
+}
+
+.uniform-secondary-btn {
+  background: #4a90e2;
+  color: #fff;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.uniform-secondary-btn:hover {
+  background: #357abd;
 }
 
 .uniform-float-compact {
