@@ -11551,10 +11551,10 @@ class BlueprintSystem {
     // Reset node ID counter
     this.nodeIdCounter = 1;
 
+    this.addDefaultNodes();
+
     // Reset preview settings
     this.resetPreviewSettings();
-
-    this.addDefaultNodes();
 
     // Center view on the default nodes
     this.autoArrange();
