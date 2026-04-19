@@ -1920,14 +1920,30 @@ class BlueprintSystem {
         configurable: true,
         enumerable: true,
         get() {
-          const g = this.activeGraph;
+          // _graphOverride lets `_withGraph(g, fn)` redirect every
+          // delegated read/write to a specific graph (used by code-gen
+          // and preview, which always operate on the main graph).
+          const g = this._graphOverride || this.activeGraph;
           return g ? g[field] : undefined;
         },
         set(value) {
-          const g = this.activeGraph;
+          const g = this._graphOverride || this.activeGraph;
           if (g) g[field] = value;
         },
       });
+    }
+  }
+
+  // Run `fn()` with all delegated per-graph reads/writes routed to `graph`
+  // instead of `activeGraph`. Used by code-gen + preview (always target
+  // the main graph).
+  _withGraph(graph, fn) {
+    const prev = this._graphOverride;
+    this._graphOverride = graph;
+    try {
+      return fn();
+    } finally {
+      this._graphOverride = prev;
     }
   }
 
@@ -5113,6 +5129,12 @@ class BlueprintSystem {
   updatePreview() {
     if (!this.previewIframe) return;
 
+    // Preview always reflects the MAIN graph, regardless of which graph
+    // the user is currently editing.
+    return this._withGraph(this.mainGraph, () => this._updatePreviewImpl());
+  }
+
+  _updatePreviewImpl() {
     // Reset error count for new shader compilation
     this.resetPreviewErrors();
 
@@ -5219,8 +5241,10 @@ class BlueprintSystem {
 
   sendUniformValuesToPreview() {
     if (!this.previewReady || !this.previewIframe) return;
+    // Preview reflects the main graph's uniforms.
+    const uniforms = this.mainGraph ? this.mainGraph.uniforms : this.uniforms;
 
-    this.uniforms.forEach((uniform, index) => {
+    uniforms.forEach((uniform, index) => {
       // Convert color values to array format [r, g, b]
       let value = uniform.value;
       if (
@@ -5243,6 +5267,12 @@ class BlueprintSystem {
   }
 
   generateAllShaders() {
+    // Code generation ALWAYS targets the main graph, even when a different
+    // graph is active in the editor.
+    return this._withGraph(this.mainGraph, () => this._generateAllShadersImpl());
+  }
+
+  _generateAllShadersImpl() {
     try {
       // Build dependency graph
       const graph = this.buildDependencyGraph();
@@ -6510,6 +6540,7 @@ class BlueprintSystem {
     };
     const node = new Node(posX, posY, this.nodeIdCounter++, nodeType);
     node._blueprintSystem = this;
+    node._graph = this.activeGraph;
     node.uniformName = uniform.variableName; // Use variable name for shader code
     node.uniformDisplayName = uniform.name; // Store display name
     node.uniformVariableName = uniform.variableName; // Store variable name
@@ -9662,6 +9693,7 @@ class BlueprintSystem {
         nodeType,
       );
       newNode._blueprintSystem = this;
+      newNode._graph = this.activeGraph;
 
       // Restore properties
       newNode.operation = nodeData.operation;
@@ -11963,6 +11995,7 @@ class BlueprintSystem {
 
           const node = new Node(nodeData.x, nodeData.y, nodeData.id, nodeType);
           node._blueprintSystem = this;
+          node._graph = this.activeGraph;
 
           // Restore node properties
           if (nodeData.title) node.title = nodeData.title;
@@ -13268,6 +13301,7 @@ class BlueprintSystem {
     const node = new Node(x, y, this.nodeIdCounter++, nodeType);
     // Store reference to blueprint system for nodes that need it (like Get Variable)
     node._blueprintSystem = this;
+    node._graph = this.activeGraph;
     this.nodes.push(node);
     this.render();
     return node;
@@ -13276,6 +13310,7 @@ class BlueprintSystem {
   createDetachedNode(nodeType, x = 0, y = 0, id = -1) {
     const node = new Node(x, y, id, nodeType);
     node._blueprintSystem = this;
+    node._graph = this.activeGraph;
     return node;
   }
 

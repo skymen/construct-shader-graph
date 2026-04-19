@@ -60,9 +60,11 @@ SetVariableNode.customInputConfig = {
       };
     }
 
-    // Check for duplicate variable names (excluding this node)
-    if (node && node._blueprintSystem) {
-      const existingVariable = node._blueprintSystem.nodes.find(
+    // Check for duplicate variable names within the owning graph
+    // (excluding this node). Names are scoped per-graph.
+    const owner = node && (node._graph || node._blueprintSystem);
+    if (owner) {
+      const existingVariable = owner.nodes.find(
         (n) =>
           n.nodeType.name === "Set Variable" &&
           n.id !== node.id &&

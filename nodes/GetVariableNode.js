@@ -46,15 +46,15 @@ GetVariableNode.getCustomType = (node, port) => {
   // Only the output port has custom type
   if (port.type !== "output") return port.portType;
 
-  // Find the corresponding Set Variable node
-  const blueprintSystem = node._blueprintSystem;
-  if (!blueprintSystem) return "float"; // Fallback
+  // Find the corresponding Set Variable node within this node's owning graph.
+  // Variables must NOT resolve across graphs.
+  const owner = node._graph || node._blueprintSystem;
+  if (!owner) return "float"; // Fallback
 
   const selectedVar = node.selectedVariable;
   if (!selectedVar) return "float"; // Fallback
 
-  // Find the Set Variable node with matching variable name
-  const setVarNode = blueprintSystem.nodes.find(
+  const setVarNode = owner.nodes.find(
     (n) => n.nodeType.name === "Set Variable" && n.customInput === selectedVar
   );
 
