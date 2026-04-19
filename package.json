@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.19.1",
@@ -22,7 +24,10 @@
     "jszip": "^3.10.1"
   },
   "devDependencies": {
+    "@vitest/ui": "^4.1.4",
+    "jsdom": "^29.0.2",
     "vite": "^5.0.0",
-    "vite-plugin-static-copy": "^3.1.4"
+    "vite-plugin-static-copy": "^3.1.4",
+    "vitest": "^4.1.4"
   }
 }

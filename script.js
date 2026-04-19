@@ -16376,6 +16376,14 @@ const canvas = document.getElementById("canvas");
 const blueprint = new BlueprintSystem(canvas);
 installGlobalConsoleApi(blueprint, { Wire, exampleFiles });
 
+// Expose internals for the test harness (tree-shaken in production builds via
+// dead-code elimination only if unused; harmless otherwise).
+if (typeof globalThis !== "undefined") {
+  globalThis.__bp = blueprint;
+  globalThis.__sgWire = Wire;
+  globalThis.__sgNodeTypes = NODE_TYPES;
+}
+
 // Initialize with default nodes
 
 blueprint.createNewFile();
