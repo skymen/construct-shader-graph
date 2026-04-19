@@ -135,4 +135,17 @@ export class Graph {
       this.host.updateUndoRedoButtons();
     }
   }
+
+  // Select every node in this graph. Mirrors the host method but always
+  // operates on this graph's own nodes/selection so callers can target a
+  // non-active graph explicitly.
+  selectAllNodes() {
+    this.nodes.forEach((node) => {
+      node.isSelected = true;
+      this.selectedNodes.add(node);
+    });
+    if (this.isActive() && this.host && typeof this.host.render === "function") {
+      this.host.render();
+    }
+  }
 }

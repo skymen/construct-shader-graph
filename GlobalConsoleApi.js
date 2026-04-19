@@ -3968,6 +3968,14 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
     nodes: {
       create(input = {}) {
         assertPlainObject(input, "nodes.create requires an input object");
+        // Multi-graph routing: { graphId } or { target: 'main' } selects a
+        // non-active graph as the write target. Defaults to active.
+        const targetGraph =
+          (blueprint._resolveTargetGraph &&
+            blueprint._resolveTargetGraph(input)) ||
+          blueprint.activeGraph ||
+          null;
+        const runCreate = () => {
         const typeKey = input.typeKey || input.type;
         assertNonEmptyString(
           typeKey,
@@ -4086,6 +4094,15 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
         pushHistory(blueprint, `Create node (${node.title})`);
         return serializeNode(blueprint, node);
+        };
+        if (
+          targetGraph &&
+          targetGraph !== blueprint.activeGraph &&
+          blueprint._withGraph
+        ) {
+          return blueprint._withGraph(targetGraph, runCreate);
+        }
+        return runCreate();
       },
 
       delete(nodeId) {

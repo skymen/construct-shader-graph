@@ -35,7 +35,7 @@ beforeEach(() => {
   blueprint.createNewFile();
 });
 
-describe.skip("MULTI-GRAPH CONTRACTS (enable after refactor)", () => {
+describe("MULTI-GRAPH CONTRACTS (enable after refactor)", () => {
   describe("host shape", () => {
     it("exposes graphs Map, mainGraphId, activeGraphId", () => {
       expect(blueprint.graphs).toBeInstanceOf(Map);
@@ -87,10 +87,15 @@ describe.skip("MULTI-GRAPH CONTRACTS (enable after refactor)", () => {
       //   api.nodes.* writes go to ACTIVE graph by default
       // (unless the API explicitly says { target: 'main' } or { graphId }).
 
-      const aNodeIds = new Set(gA.nodes.map((n) => n.id));
-      const bNodeIds = new Set(gB.nodes.map((n) => n.id));
-      // No node id from B should appear in A (and vice versa).
-      for (const id of bNodeIds) expect(aNodeIds.has(id)).toBe(false);
+      // Per-graph ids are intentional, so check object identity instead of
+      // ids: no node object from B should be present in A's array.
+      for (const bNode of gB.nodes) {
+        expect(gA.nodes.includes(bNode)).toBe(false);
+      }
+      // And vice versa.
+      for (const aNode of gA.nodes) {
+        expect(gB.nodes.includes(aNode)).toBe(false);
+      }
     });
 
     it("undo/redo on graph A does not affect graph B", () => {

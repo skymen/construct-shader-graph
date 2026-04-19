@@ -11671,6 +11671,13 @@ class BlueprintSystem {
   }
 
   createNewFile() {
+    // Drop any non-main graphs from the previous project, then reset main
+    // back to active.
+    for (const id of Array.from(this.graphs.keys())) {
+      if (id !== this.mainGraphId) this.graphs.delete(id);
+    }
+    this.activeGraphId = this.mainGraphId;
+
     // Clear file handle to start fresh
     this.fileHandle = null;
 
