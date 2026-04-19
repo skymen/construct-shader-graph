@@ -22,6 +22,7 @@ import { UniformColorNode } from "./nodes/UniformColorNode.js";
 import JSZip from "jszip";
 import { HistoryManager } from "./HistoryManager.js";
 import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
+import { Graph, makeDefaultShaderSettings } from "./Graph.js";
 import { languageManager } from "./LanguageManager.js";
 import { installGlobalConsoleApi } from "./GlobalConsoleApi.js";
 import {
@@ -1023,6 +1024,21 @@ class BlueprintSystem {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
+
+    // ---- Multi-graph host setup ----
+    // Must come BEFORE any per-graph field is initialized below, because the
+    // existing constructor body's `this.nodes = []`, `this.camera = {...}`,
+    // etc. assignments are intentionally re-routed through delegating
+    // setters that need `this.activeGraph` to already exist.
+    this.graphs = new Map();
+    this.customNodes = []; // host-level (shared across all graphs)
+    this.customNodeIdCounter = 1;
+    this._installGraphDelegation();
+    const __mainGraph = new Graph(this, { name: "Main" });
+    this.graphs.set(__mainGraph.id, __mainGraph);
+    this.mainGraphId = __mainGraph.id;
+    this.activeGraphId = __mainGraph.id;
+
     this.nodes = [];
     this.wires = [];
     this.comments = [];
@@ -1107,9 +1123,7 @@ class BlueprintSystem {
     this.uniformIdCounter = 1;
     this.deprecatedUniformsExpanded = false;
 
-    // Custom Nodes
-    this.customNodes = [];
-    this.customNodeIdCounter = 1;
+    // Custom Nodes (host-level: shared across graphs; declared above)
     this.editingCustomNode = null;
 
     // Preview
@@ -1142,8 +1156,8 @@ class BlueprintSystem {
       startupScript: "",
     };
 
-    // History Manager for undo/redo
-    this.history = new HistoryManager(this);
+    // History Manager: per-graph; the active Graph already owns its history,
+    // so reading `this.history` (delegated) returns activeGraph.history.
 
     // Auto Layout Engine
     this.autoLayoutEngine = new AutoLayoutEngine(this);
@@ -1849,6 +1863,129 @@ class BlueprintSystem {
       "openFilesModalCancel",
     );
     if (openFilesModalCancel) openFilesModalCancel.textContent = t("Cancel");
+  }
+
+  // ====================================================================
+  //  Multi-graph host plumbing
+  //
+  //  Per-graph state lives on Graph instances. The host exposes getter/
+  //  setter properties for each per-graph field that simply forward to
+  //  `this.activeGraph.<field>`. This keeps every existing method body
+  //  in BlueprintSystem (~16k lines) working unchanged: `this.nodes`,
+  //  `this.camera`, `this.history`, etc. transparently target the active
+  //  graph. Code that explicitly needs the main graph (code generation,
+  //  preview, dependency list, etc.) reads from `this.mainGraph` instead.
+  // ====================================================================
+
+  get mainGraph() {
+    return this.graphs ? this.graphs.get(this.mainGraphId) : null;
+  }
+
+  get activeGraph() {
+    return this.graphs ? this.graphs.get(this.activeGraphId) : null;
+  }
+
+  _installGraphDelegation() {
+    // Per-graph fields that should transparently route to activeGraph.
+    // Order matters only for documentation; install order is irrelevant.
+    const fields = [
+      // editable graph data
+      "nodes", "wires", "comments",
+      // counters
+      "nodeIdCounter", "commentIdCounter", "wireIdCounter", "uniformIdCounter",
+      // selection
+      "selectedNodes", "selectedRerouteNodes",
+      "isBoxSelecting", "boxSelectStart", "boxSelectEnd",
+      "boxSelectInitialNodes", "boxSelectInitialRerouteNodes",
+      // transient interaction
+      "draggedNode", "activeWire", "hoveredPort",
+      "draggedRerouteNode", "draggedComment", "resizingComment",
+      "lastClickTime", "lastClickPos",
+      "editingPort", "editingCustomEditor", "pendingCustomEditorClick",
+      "highlightedWire", "dragStartPositions",
+      // camera + pan
+      "camera", "isPanning", "panStart",
+      // file
+      "fileHandle",
+      // shader settings + uniforms
+      "shaderSettings", "uniforms", "deprecatedUniforms",
+      "deprecatedUniformsExpanded",
+      // preview pin
+      "previewNode", "previewAnimationTime",
+      // history
+      "history",
+    ];
+    for (const field of fields) {
+      Object.defineProperty(this, field, {
+        configurable: true,
+        enumerable: true,
+        get() {
+          const g = this.activeGraph;
+          return g ? g[field] : undefined;
+        },
+        set(value) {
+          const g = this.activeGraph;
+          if (g) g[field] = value;
+        },
+      });
+    }
+  }
+
+  // Create a new (additional) graph. Does NOT change the active graph.
+  createGraph(opts = {}) {
+    const g = new Graph(this, opts);
+    this.graphs.set(g.id, g);
+    return g;
+  }
+
+  // Switch the editor's active graph. Sidebars/UI are refreshed if available.
+  setActiveGraph(id) {
+    if (!this.graphs.has(id)) {
+      throw new Error(`setActiveGraph: unknown graph id '${id}'`);
+    }
+    if (id === this.activeGraphId) return;
+
+    // Cancel any in-flight auto-pan tied to the previous active graph.
+    if (this.autoPanInterval) {
+      clearInterval(this.autoPanInterval);
+      this.autoPanInterval = null;
+    }
+    this.activeGraphId = id;
+
+    // Refresh UI to reflect the newly active graph (best-effort; some
+    // sidebars may not exist in test environments).
+    try { this.renderUniformList && this.renderUniformList(); } catch {}
+    try { this.renderCustomNodesList && this.renderCustomNodesList(); } catch {}
+    try { this.updateShaderSettingsUI && this.updateShaderSettingsUI(); } catch {}
+    try { this.updateDependencyList && this.updateDependencyList(); } catch {}
+    try { this.updateUndoRedoButtons && this.updateUndoRedoButtons(); } catch {}
+    try { this.render && this.render(); } catch {}
+  }
+
+  // Delete a non-main graph. Throws if asked to delete the main graph.
+  deleteGraph(id) {
+    if (id === this.mainGraphId) {
+      throw new Error("deleteGraph: cannot delete the main graph");
+    }
+    if (!this.graphs.has(id)) {
+      throw new Error(`deleteGraph: unknown graph id '${id}'`);
+    }
+    if (this.activeGraphId === id) {
+      this.setActiveGraph(this.mainGraphId);
+    }
+    this.graphs.delete(id);
+  }
+
+  // Resolve a routing target from API options. Default = active graph;
+  // explicit `{ graphId }` selects that graph; `{ target: 'main' }` selects
+  // the main graph.
+  _resolveTargetGraph(opts) {
+    if (!opts) return this.activeGraph;
+    if (opts.graphId && this.graphs.has(opts.graphId)) {
+      return this.graphs.get(opts.graphId);
+    }
+    if (opts.target === "main") return this.mainGraph;
+    return this.activeGraph;
   }
 
   setupCanvas() {
@@ -12732,9 +12869,14 @@ class BlueprintSystem {
    * Export complete state snapshot for undo/redo
    */
   exportState() {
+    return this._exportGraphState(this.activeGraph);
+  }
+
+  // Snapshot a specific graph (used by per-graph HistoryManager).
+  _exportGraphState(graph) {
     return {
       version: "1.0.0",
-      nodes: this.nodes.map((node) => ({
+      nodes: graph.nodes.map((node) => ({
         id: node.id,
         x: node.x,
         y: node.y,
@@ -12757,14 +12899,14 @@ class BlueprintSystem {
           portType: port.portType,
         })),
       })),
-      wires: this.wires.map((wire) => ({
+      wires: graph.wires.map((wire) => ({
         startNodeId: wire.startPort.node.id,
         startPortIndex: wire.startPort.node.outputPorts.indexOf(wire.startPort),
         endNodeId: wire.endPort.node.id,
         endPortIndex: wire.endPort.node.inputPorts.indexOf(wire.endPort),
         rerouteNodes: wire.rerouteNodes.map((rn) => ({ x: rn.x, y: rn.y })),
       })),
-      comments: this.comments.map((comment) => ({
+      comments: graph.comments.map((comment) => ({
         id: comment.id,
         x: comment.x,
         y: comment.y,
@@ -12774,15 +12916,17 @@ class BlueprintSystem {
         description: comment.description,
         color: comment.color,
       })),
-      uniforms: JSON.parse(JSON.stringify(this.uniforms)),
-      deprecatedUniforms: JSON.parse(JSON.stringify(this.deprecatedUniforms)),
+      uniforms: JSON.parse(JSON.stringify(graph.uniforms)),
+      deprecatedUniforms: JSON.parse(JSON.stringify(graph.deprecatedUniforms)),
+      // customNodes is host-level (shared) but we still snapshot it here so
+      // that single-graph undo/redo restores the legacy library state.
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
-      shaderSettings: { ...this.shaderSettings },
+      shaderSettings: { ...graph.shaderSettings },
       counters: {
-        nodeIdCounter: this.nodeIdCounter,
-        uniformIdCounter: this.uniformIdCounter,
+        nodeIdCounter: graph.nodeIdCounter,
+        uniformIdCounter: graph.uniformIdCounter,
         customNodeIdCounter: this.customNodeIdCounter,
-        commentIdCounter: this.commentIdCounter,
+        commentIdCounter: graph.commentIdCounter,
       },
     };
   }
@@ -12800,32 +12944,41 @@ class BlueprintSystem {
    * Load state snapshot (for undo/redo)
    */
   loadState(stateData) {
+    return this._loadGraphState(this.activeGraph, stateData);
+  }
+
+  // Restore a snapshot into a specific graph (used by per-graph
+  // HistoryManager). UI side-effects only fire when targeting the active
+  // graph; the shader-changed pulse fires when targeting the main graph.
+  _loadGraphState(graph, stateData) {
     // Clear current state
-    this.nodes = [];
-    this.wires = [];
-    this.comments = [];
-    this.selectedNodes.clear();
-    this.selectedRerouteNodes.clear();
+    graph.nodes = [];
+    graph.wires = [];
+    graph.comments = [];
+    graph.selectedNodes.clear();
+    graph.selectedRerouteNodes.clear();
 
     // Restore counters
-    this.nodeIdCounter = stateData.counters.nodeIdCounter;
-    this.uniformIdCounter = stateData.counters.uniformIdCounter;
+    graph.nodeIdCounter = stateData.counters.nodeIdCounter;
+    graph.uniformIdCounter = stateData.counters.uniformIdCounter;
     this.customNodeIdCounter = stateData.counters.customNodeIdCounter;
-    this.commentIdCounter = stateData.counters.commentIdCounter || 1;
+    graph.commentIdCounter = stateData.counters.commentIdCounter || 1;
 
     // Restore uniforms and custom nodes
     const normalizedUniformCollections = this.normalizeUniformCollections(
       JSON.parse(JSON.stringify(stateData.uniforms || [])),
       JSON.parse(JSON.stringify(stateData.deprecatedUniforms || [])),
     );
-    this.uniforms = normalizedUniformCollections.uniforms;
-    this.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
-    this.uniformIdCounter = Math.max(
-      this.uniformIdCounter,
+    graph.uniforms = normalizedUniformCollections.uniforms;
+    graph.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
+    graph.uniformIdCounter = Math.max(
+      graph.uniformIdCounter,
       normalizedUniformCollections.uniformIdCounter,
     );
-    this.customNodes = JSON.parse(JSON.stringify(stateData.customNodes));
-    this.shaderSettings = { ...stateData.shaderSettings };
+    if (stateData.customNodes !== undefined) {
+      this.customNodes = JSON.parse(JSON.stringify(stateData.customNodes));
+    }
+    graph.shaderSettings = { ...stateData.shaderSettings };
 
     // Restore nodes
     const nodeMap = new Map();
@@ -12837,6 +12990,8 @@ class BlueprintSystem {
       }
 
       const node = new Node(nodeData.x, nodeData.y, nodeData.id, nodeType);
+      node._graph = graph;
+      // Backward-compat alias for code that hasn't been updated yet.
       node._blueprintSystem = this;
 
       node.operation = nodeData.operation;
@@ -12859,7 +13014,7 @@ class BlueprintSystem {
       });
 
       nodeMap.set(nodeData.id, node);
-      this.nodes.push(node);
+      graph.nodes.push(node);
     });
 
     // Restore wires
@@ -12877,7 +13032,7 @@ class BlueprintSystem {
             const rerouteNode = new RerouteNode(rnData.x, rnData.y, wire);
             wire.rerouteNodes.push(rerouteNode);
           });
-          this.wires.push(wire);
+          graph.wires.push(wire);
           startPort.connections.push(wire);
           endPort.connections.push(wire);
 
@@ -12903,12 +13058,12 @@ class BlueprintSystem {
         comment.title = commentData.title;
         comment.description = commentData.description;
         comment.color = commentData.color;
-        this.comments.push(comment);
+        graph.comments.push(comment);
       });
     }
 
     // After all wires are restored, update editability for all ports
-    this.nodes.forEach((node) => {
+    graph.nodes.forEach((node) => {
       node.inputPorts.forEach((port) => {
         port.updateEditability();
       });
@@ -12916,13 +13071,19 @@ class BlueprintSystem {
       node.recalculateHeight();
     });
 
-    // Update UI
-    this.renderUniformList();
-    this.renderCustomNodesList();
-    this.updateShaderSettingsUI();
-    this.render();
-    this.updateDependencyList();
-    this.onShaderChanged();
+    // UI side-effects: only when this graph is currently visible.
+    if (graph === this.activeGraph) {
+      this.renderUniformList();
+      this.renderCustomNodesList();
+      this.updateShaderSettingsUI();
+      this.render();
+      this.updateDependencyList();
+    }
+    // Shader-changed pulse: fires when the main graph state changed,
+    // because preview + codegen always read from the main graph.
+    if (graph === this.mainGraph) {
+      this.onShaderChanged();
+    }
   }
 
   updateShaderSettingsUI() {
