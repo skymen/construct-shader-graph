@@ -11736,25 +11736,18 @@ class BlueprintSystem {
     this.announceMcpProjectUpdate("create-new-file");
   }
 
-  async saveToJSON() {
-    // Capture preview screenshot
-    const previewScreenshot = await this.getPreviewScreenshot();
-
-    // Create a complete snapshot of the blueprint state
-    const data = {
-      version: "1.0.0",
-      previewScreenshot: previewScreenshot, // Store screenshot data URL
-      shaderSettings: this.shaderSettings,
-      uniforms: this.uniforms,
-      deprecatedUniforms: this.deprecatedUniforms,
-      customNodes: this.customNodes,
-      previewSettings: this.previewSettings,
-      camera: {
-        x: this.camera.x,
-        y: this.camera.y,
-        zoom: this.camera.zoom,
-      },
-      nodes: this.nodes.map((node) => ({
+  // Serialize all per-graph fields as they appear in a saved file. Used by
+  // both the legacy top-level form (main graph) and the nested
+  // _additionalGraphs entries (non-main graphs). Wraps in _withGraph so any
+  // helper that incidentally reads via the delegating getters resolves to
+  // the right graph.
+  _serializeGraphPayload(graph) {
+    return this._withGraph(graph, () => ({
+      shaderSettings: graph.shaderSettings,
+      uniforms: graph.uniforms,
+      deprecatedUniforms: graph.deprecatedUniforms,
+      camera: { x: graph.camera.x, y: graph.camera.y, zoom: graph.camera.zoom },
+      nodes: graph.nodes.map((node) => ({
         id: node.id,
         x: node.x,
         y: node.y,
@@ -11779,17 +11772,14 @@ class BlueprintSystem {
           portType: port.portType,
         })),
       })),
-      wires: this.wires.map((wire) => ({
+      wires: graph.wires.map((wire) => ({
         startNodeId: wire.startPort.node.id,
         startPortIndex: wire.startPort.node.outputPorts.indexOf(wire.startPort),
         endNodeId: wire.endPort.node.id,
         endPortIndex: wire.endPort.node.inputPorts.indexOf(wire.endPort),
-        rerouteNodes: wire.rerouteNodes.map((rn) => ({
-          x: rn.x,
-          y: rn.y,
-        })),
+        rerouteNodes: wire.rerouteNodes.map((rn) => ({ x: rn.x, y: rn.y })),
       })),
-      comments: this.comments.map((comment) => ({
+      comments: graph.comments.map((comment) => ({
         id: comment.id,
         x: comment.x,
         y: comment.y,
@@ -11799,12 +11789,52 @@ class BlueprintSystem {
         description: comment.description,
         color: comment.color,
       })),
-      nodeIdCounter: this.nodeIdCounter,
-      uniformIdCounter: this.uniformIdCounter,
-      customNodeIdCounter: this.customNodeIdCounter,
-      commentIdCounter: this.commentIdCounter,
-    };
+      nodeIdCounter: graph.nodeIdCounter,
+      uniformIdCounter: graph.uniformIdCounter,
+      commentIdCounter: graph.commentIdCounter,
+    }));
+  }
 
+  // Build the project save object. Main graph fields appear at the top level
+  // for legacy single-graph compatibility. Any additional graphs are nested
+  // under _additionalGraphs.
+  _buildSaveData({ previewScreenshot = null } = {}) {
+    const main = this._serializeGraphPayload(this.mainGraph);
+    const data = {
+      version: "1.0.0",
+      ...main,
+      // Host-level fields (shared across graphs)
+      customNodes: this.customNodes,
+      customNodeIdCounter: this.customNodeIdCounter,
+      previewSettings: this.previewSettings,
+    };
+    if (previewScreenshot) data.previewScreenshot = previewScreenshot;
+
+    const extras = [];
+    for (const graph of this.graphs.values()) {
+      if (graph === this.mainGraph) continue;
+      extras.push({
+        id: graph.id,
+        name: graph.name,
+        ...this._serializeGraphPayload(graph),
+      });
+    }
+    if (extras.length) data._additionalGraphs = extras;
+
+    return data;
+  }
+
+  // Return the project state as a JSON string (no file I/O, no screenshot).
+  // Used by tests and any code that wants the raw payload.
+  serializeProjectToJSON() {
+    return JSON.stringify(this._buildSaveData(), null, 2);
+  }
+
+  async saveToJSON() {
+    // Capture preview screenshot
+    const previewScreenshot = await this.getPreviewScreenshot();
+
+    const data = this._buildSaveData({ previewScreenshot });
     const json = JSON.stringify(data, null, 2);
 
     // Try to use File System Access API if available
@@ -11895,53 +11925,195 @@ class BlueprintSystem {
     });
   }
 
+  // Apply a serialized per-graph payload to the given Graph. Pure graph
+  // mutation: no UI side-effects, no notifications, no history reset. The
+  // caller is responsible for any post-load UI refresh.
+  _loadGraphPayload(graph, data) {
+    // Clear current state
+    graph.nodes = [];
+    graph.wires = [];
+    graph.comments = [];
+    graph.selectedNodes.clear();
+    graph.selectedRerouteNodes.clear();
+
+    // Restore shader settings
+    if (data.shaderSettings) {
+      graph.shaderSettings = {
+        ...graph.shaderSettings,
+        ...data.shaderSettings,
+      };
+    }
+
+    // Restore uniforms
+    const normalizedUniformCollections = this.normalizeUniformCollections(
+      data.uniforms || [],
+      data.deprecatedUniforms || [],
+    );
+    graph.uniforms = normalizedUniformCollections.uniforms;
+    graph.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
+    graph.uniformIdCounter = Math.max(
+      data.uniformIdCounter || 1,
+      normalizedUniformCollections.uniformIdCounter,
+    );
+
+    // Restore camera
+    if (data.camera) {
+      graph.camera = { ...data.camera };
+    }
+
+    // Restore nodes
+    const nodeMap = new Map();
+    if (data.nodes) {
+      for (const nodeData of data.nodes) {
+        let nodeType;
+        if (
+          nodeData.nodeTypeKey &&
+          nodeData.nodeTypeKey.startsWith("uniform_") &&
+          nodeData.uniformId !== undefined
+        ) {
+          const uniform = graph.uniforms.find(
+            (u) => u.id === nodeData.uniformId,
+          );
+          if (uniform) {
+            nodeType =
+              uniform.type === "color" ? UniformColorNode : UniformFloatNode;
+            nodeType = {
+              ...nodeType,
+              name: uniform.name,
+              isUniform: true,
+              uniformId: uniform.id,
+              uniformName: uniform.variableName,
+            };
+          } else {
+            console.warn(`Uniform with ID ${nodeData.uniformId} not found`);
+            continue;
+          }
+        } else {
+          nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
+          if (!nodeType) {
+            console.warn(`Unknown node type: ${nodeData.nodeTypeKey}`);
+            continue;
+          }
+        }
+
+        const node = new Node(nodeData.x, nodeData.y, nodeData.id, nodeType);
+        node._graph = graph;
+        node._blueprintSystem = this;
+
+        if (nodeData.title) node.title = nodeData.title;
+        if (nodeData.operation) node.operation = nodeData.operation;
+        if (nodeData.customInput !== undefined)
+          node.customInput = nodeData.customInput;
+        if (nodeData.data !== undefined) {
+          node.data = this.cloneNodeData(nodeData.data);
+        }
+        if (nodeData.selectedVariable !== undefined)
+          node.selectedVariable = nodeData.selectedVariable;
+
+        if (nodeData.uniformId !== undefined) {
+          node.uniformId = nodeData.uniformId;
+          const uniform = graph.uniforms.find(
+            (u) => u.id === nodeData.uniformId,
+          );
+          if (uniform) {
+            node.uniformName = uniform.variableName;
+            node.uniformDisplayName = uniform.name;
+            node.uniformVariableName = uniform.variableName;
+            node.nodeType = {
+              ...node.nodeType,
+              name: uniform.name,
+              paramId: uniform.paramId,
+            };
+          }
+        }
+        if (nodeData.isVariable !== undefined)
+          node.isVariable = nodeData.isVariable;
+
+        nodeData.inputPorts.forEach((portData, index) => {
+          if (node.inputPorts[index] && portData.value !== undefined) {
+            node.inputPorts[index].value = portData.value;
+          }
+        });
+
+        nodeMap.set(nodeData.id, node);
+        graph.nodes.push(node);
+      }
+    }
+
+    // Restore wires
+    if (data.wires) {
+      for (const wireData of data.wires) {
+        const startNode = nodeMap.get(wireData.startNodeId);
+        const endNode = nodeMap.get(wireData.endNodeId);
+        if (!startNode || !endNode) {
+          console.warn("Wire references missing nodes");
+          continue;
+        }
+        const startPort = startNode.outputPorts[wireData.startPortIndex];
+        const endPort = endNode.inputPorts[wireData.endPortIndex];
+        if (!startPort || !endPort) {
+          console.warn("Wire references missing ports");
+          continue;
+        }
+        const wire = new Wire(startPort, endPort);
+        if (wireData.rerouteNodes) {
+          wireData.rerouteNodes.forEach((rnData) => {
+            const rerouteNode = new RerouteNode(rnData.x, rnData.y, wire);
+            wire.rerouteNodes.push(rerouteNode);
+          });
+        }
+        graph.wires.push(wire);
+        startPort.connections.push(wire);
+        endPort.connections.push(wire);
+        this.resolveGenericsForConnection(startPort, endPort);
+      }
+    }
+
+    // Restore comments
+    if (data.comments) {
+      data.comments.forEach((commentData) => {
+        const comment = new Comment(
+          commentData.x,
+          commentData.y,
+          commentData.width,
+          commentData.height,
+          commentData.id,
+        );
+        comment.title = commentData.title || "Comment";
+        comment.description = commentData.description || "";
+        comment.color = commentData.color || "#4a90e2";
+        graph.comments.push(comment);
+      });
+    }
+
+    // Restore counters
+    if (data.nodeIdCounter) graph.nodeIdCounter = data.nodeIdCounter;
+    if (data.commentIdCounter) graph.commentIdCounter = data.commentIdCounter;
+  }
+
   async loadFromJSON(file) {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
 
-      // Validate version
       if (!data.version) {
         throw new Error("Invalid blueprint file: missing version");
       }
 
-      // Clear current state
-      this.nodes = [];
-      this.wires = [];
-      this.selectedNodes.clear();
-      this.selectedRerouteNodes.clear();
-
-      // Restore shader settings
-      if (data.shaderSettings) {
-        this.shaderSettings = {
-          ...this.shaderSettings,
-          ...data.shaderSettings,
-        };
-        this.updateShaderSettingsUI();
+      // Reset to single main graph; drop any other graphs from a prior project.
+      for (const id of Array.from(this.graphs.keys())) {
+        if (id !== this.mainGraphId) this.graphs.delete(id);
       }
+      this.activeGraphId = this.mainGraphId;
 
-      // Restore uniforms
-      const normalizedUniformCollections = this.normalizeUniformCollections(
-        data.uniforms || [],
-        data.deprecatedUniforms || [],
-      );
-      this.uniforms = normalizedUniformCollections.uniforms;
-      this.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
-      this.uniformIdCounter = Math.max(
-        data.uniformIdCounter || 1,
-        normalizedUniformCollections.uniformIdCounter,
-      );
-      this.renderUniformList();
-
-      // Restore custom nodes
+      // Restore host-level fields (shared across graphs) FIRST so any
+      // node-type lookups for custom nodes resolve while loading graphs.
       if (data.customNodes) {
         this.customNodes = data.customNodes;
         this.customNodeIdCounter =
           data.customNodeIdCounter || this.customNodes.length + 1;
         this.renderCustomNodesList();
       }
-
-      // Restore preview settings
       if (data.previewSettings) {
         this.previewSettings = {
           ...this.previewSettings,
@@ -11950,166 +12122,29 @@ class BlueprintSystem {
         this.updatePreviewSettingsUI();
       }
 
-      // Restore camera
-      if (data.camera) {
-        this.camera = data.camera;
-      }
+      // Load top-level into the main graph.
+      this._loadGraphPayload(this.mainGraph, data);
 
-      // Restore nodes
-      const nodeMap = new Map(); // Map old IDs to new node objects
-
-      if (data.nodes) {
-        for (const nodeData of data.nodes) {
-          // Special handling for uniform nodes - use the saved uniformId
-          let nodeType;
-          if (
-            nodeData.nodeTypeKey &&
-            nodeData.nodeTypeKey.startsWith("uniform_") &&
-            nodeData.uniformId !== undefined
-          ) {
-            const uniform = this.uniforms.find(
-              (u) => u.id === nodeData.uniformId,
-            );
-            if (uniform) {
-              nodeType =
-                uniform.type === "color" ? UniformColorNode : UniformFloatNode;
-              // Add uniform metadata to nodeType
-              nodeType = {
-                ...nodeType,
-                name: uniform.name,
-                isUniform: true,
-                uniformId: uniform.id,
-                uniformName: uniform.variableName,
-              };
-            } else {
-              console.warn(`Uniform with ID ${nodeData.uniformId} not found`);
-              continue;
-            }
-          } else {
-            nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
-            if (!nodeType) {
-              console.warn(`Unknown node type: ${nodeData.nodeTypeKey}`);
-              continue;
-            }
-          }
-
-          const node = new Node(nodeData.x, nodeData.y, nodeData.id, nodeType);
-          node._blueprintSystem = this;
-          node._graph = this.activeGraph;
-
-          // Restore node properties
-          if (nodeData.title) node.title = nodeData.title;
-          if (nodeData.operation) node.operation = nodeData.operation;
-          if (nodeData.customInput !== undefined)
-            node.customInput = nodeData.customInput;
-          if (nodeData.data !== undefined) {
-            node.data = this.cloneNodeData(nodeData.data);
-          }
-          if (nodeData.selectedVariable !== undefined)
-            node.selectedVariable = nodeData.selectedVariable;
-
-          // For uniform nodes, recalculate uniformName and uniformVariableName from the uniform
-          if (nodeData.uniformId !== undefined) {
-            node.uniformId = nodeData.uniformId;
-            const uniform = this.uniforms.find(
-              (u) => u.id === nodeData.uniformId,
-            );
-            if (uniform) {
-              node.uniformName = uniform.variableName;
-              node.uniformDisplayName = uniform.name;
-              node.uniformVariableName = uniform.variableName;
-              node.nodeType = {
-                ...node.nodeType,
-                name: uniform.name,
-                paramId: uniform.paramId,
-              };
-            }
-          }
-          if (nodeData.isVariable !== undefined)
-            node.isVariable = nodeData.isVariable;
-
-          // Restore port values
-          nodeData.inputPorts.forEach((portData, index) => {
-            if (node.inputPorts[index] && portData.value !== undefined) {
-              node.inputPorts[index].value = portData.value;
-            }
-          });
-
-          nodeMap.set(nodeData.id, node);
-          this.nodes.push(node);
+      // Load any additional graphs.
+      if (Array.isArray(data._additionalGraphs)) {
+        for (const extra of data._additionalGraphs) {
+          const g = this.createGraph({ id: extra.id, name: extra.name });
+          this._loadGraphPayload(g, extra);
         }
       }
 
-      // Restore wires
-      if (data.wires) {
-        for (const wireData of data.wires) {
-          const startNode = nodeMap.get(wireData.startNodeId);
-          const endNode = nodeMap.get(wireData.endNodeId);
-
-          if (!startNode || !endNode) {
-            console.warn("Wire references missing nodes");
-            continue;
-          }
-
-          const startPort = startNode.outputPorts[wireData.startPortIndex];
-          const endPort = endNode.inputPorts[wireData.endPortIndex];
-
-          if (!startPort || !endPort) {
-            console.warn("Wire references missing ports");
-            continue;
-          }
-
-          const wire = new Wire(startPort, endPort);
-
-          // Restore reroute nodes
-          if (wireData.rerouteNodes) {
-            wireData.rerouteNodes.forEach((rnData) => {
-              const rerouteNode = new RerouteNode(rnData.x, rnData.y, wire);
-              wire.rerouteNodes.push(rerouteNode);
-            });
-          }
-
-          this.wires.push(wire);
-          startPort.connections.push(wire);
-          endPort.connections.push(wire);
-
-          // Resolve generic types for this connection
-          this.resolveGenericsForConnection(startPort, endPort);
-        }
-      }
-
-      // Restore comments
-      this.comments = [];
-      if (data.comments) {
-        data.comments.forEach((commentData) => {
-          const comment = new Comment(
-            commentData.x,
-            commentData.y,
-            commentData.width,
-            commentData.height,
-            commentData.id,
-          );
-          comment.title = commentData.title || "Comment";
-          comment.description = commentData.description || "";
-          comment.color = commentData.color || "#4a90e2";
-          this.comments.push(comment);
-        });
-      }
-
-      // Restore counters
-      if (data.nodeIdCounter) {
-        this.nodeIdCounter = data.nodeIdCounter;
-      }
-      if (data.commentIdCounter) {
-        this.commentIdCounter = data.commentIdCounter;
-      }
-
+      // Post-load UI refresh (active graph is mainGraph at this point).
+      this.updateShaderSettingsUI();
+      this.renderUniformList();
+      this.mainGraph.nodes.forEach((node) => {
+        node.inputPorts.forEach((port) => port.updateEditability());
+        node.recalculateHeight();
+      });
       this.render();
       this.updateDependencyList();
 
       console.log("Blueprint loaded successfully");
 
-      // Show load notification
       const fileName = file.name || "Project";
       this.showNotification({
         type: "success",
@@ -12123,12 +12158,13 @@ class BlueprintSystem {
         this.onShaderChanged();
       }, 100);
 
-      // Clear and reinitialize history
-      this.history.clear();
-      this.history.currentState = this.exportState();
+      // Clear and reinitialize history (per-graph).
+      for (const g of this.graphs.values()) {
+        g.history.clear();
+        g.history.currentState = this._exportGraphState(g);
+      }
       this.announceMcpProjectUpdate("load-project");
 
-      // Add to recent files if we have a file handle
       if (this.fileHandle && data.previewScreenshot) {
         await this.addRecentFile(this.fileHandle, data.previewScreenshot);
       }
