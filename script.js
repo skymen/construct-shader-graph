@@ -1117,7 +1117,7 @@ class BlueprintSystem {
       extendBoxV: 0,
     };
 
-    // Uniforms
+    // Uniforms (host-level: shared across all graphs, not per-graph)
     this.uniforms = [];
     this.deprecatedUniforms = [];
     this.uniformIdCounter = 1;
@@ -1219,7 +1219,12 @@ class BlueprintSystem {
       onStatusChange: () => {
         this.updateMenuItemStates();
       },
-      onNotification: ({ type = "info", title, message = "", duration = 3000 }) => {
+      onNotification: ({
+        type = "info",
+        title,
+        message = "",
+        duration = 3000,
+      }) => {
         this.showNotification({ type, title, message, duration });
       },
     });
@@ -1319,7 +1324,10 @@ class BlueprintSystem {
 
   showMcpStatus() {
     const status = this.mcpBridge.getStatus();
-    const project = status.project || { name: "Untitled Shader", version: "0.0.0.0" };
+    const project = status.project || {
+      name: "Untitled Shader",
+      version: "0.0.0.0",
+    };
     const parts = [
       `Project: ${project.name}`,
       `Version: ${project.version || "0.0.0.0"}`,
@@ -1888,30 +1896,49 @@ class BlueprintSystem {
   _installGraphDelegation() {
     // Per-graph fields that should transparently route to activeGraph.
     // Order matters only for documentation; install order is irrelevant.
+    // NOTE: uniforms live on host (shared across all graphs), NOT delegated.
     const fields = [
       // editable graph data
-      "nodes", "wires", "comments",
+      "nodes",
+      "wires",
+      "comments",
       // counters
-      "nodeIdCounter", "commentIdCounter", "wireIdCounter", "uniformIdCounter",
+      "nodeIdCounter",
+      "commentIdCounter",
+      "wireIdCounter",
       // selection
-      "selectedNodes", "selectedRerouteNodes",
-      "isBoxSelecting", "boxSelectStart", "boxSelectEnd",
-      "boxSelectInitialNodes", "boxSelectInitialRerouteNodes",
+      "selectedNodes",
+      "selectedRerouteNodes",
+      "isBoxSelecting",
+      "boxSelectStart",
+      "boxSelectEnd",
+      "boxSelectInitialNodes",
+      "boxSelectInitialRerouteNodes",
       // transient interaction
-      "draggedNode", "activeWire", "hoveredPort",
-      "draggedRerouteNode", "draggedComment", "resizingComment",
-      "lastClickTime", "lastClickPos",
-      "editingPort", "editingCustomEditor", "pendingCustomEditorClick",
-      "highlightedWire", "dragStartPositions",
+      "draggedNode",
+      "activeWire",
+      "hoveredPort",
+      "draggedRerouteNode",
+      "draggedComment",
+      "resizingComment",
+      "lastClickTime",
+      "lastClickPos",
+      "editingPort",
+      "editingCustomEditor",
+      "pendingCustomEditorClick",
+      "highlightedWire",
+      "dragStartPositions",
       // camera + pan
-      "camera", "isPanning", "panStart",
+      "camera",
+      "isPanning",
+      "panStart",
       // file
       "fileHandle",
-      // shader settings + uniforms
-      "shaderSettings", "uniforms", "deprecatedUniforms",
-      "deprecatedUniformsExpanded",
+      // shader settings (uniforms are host-level, not delegated)
+      "shaderSettings",
       // preview pin
-      "previewNode", "previewAnimationTime",
+      "previewNode",
+      "previewAnimationTime",
       // history
       "history",
     ];
@@ -1970,12 +1997,24 @@ class BlueprintSystem {
 
     // Refresh UI to reflect the newly active graph (best-effort; some
     // sidebars may not exist in test environments).
-    try { this.renderUniformList && this.renderUniformList(); } catch {}
-    try { this.renderCustomNodesList && this.renderCustomNodesList(); } catch {}
-    try { this.updateShaderSettingsUI && this.updateShaderSettingsUI(); } catch {}
-    try { this.updateDependencyList && this.updateDependencyList(); } catch {}
-    try { this.updateUndoRedoButtons && this.updateUndoRedoButtons(); } catch {}
-    try { this.render && this.render(); } catch {}
+    try {
+      this.renderUniformList && this.renderUniformList();
+    } catch {}
+    try {
+      this.renderCustomNodesList && this.renderCustomNodesList();
+    } catch {}
+    try {
+      this.updateShaderSettingsUI && this.updateShaderSettingsUI();
+    } catch {}
+    try {
+      this.updateDependencyList && this.updateDependencyList();
+    } catch {}
+    try {
+      this.updateUndoRedoButtons && this.updateUndoRedoButtons();
+    } catch {}
+    try {
+      this.render && this.render();
+    } catch {}
   }
 
   // Delete a non-main graph. Throws if asked to delete the main graph.
@@ -2846,7 +2885,10 @@ class BlueprintSystem {
   }
 
   getUniformRandomInt(max) {
-    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.getRandomValues === "function"
+    ) {
       const values = new Uint32Array(1);
       crypto.getRandomValues(values);
       return values[0] % max;
@@ -2857,7 +2899,8 @@ class BlueprintSystem {
 
   isUniformParamIdTaken(paramId, excludeUniformId = null) {
     return [...this.uniforms, ...this.deprecatedUniforms].some(
-      (uniform) => uniform.id !== excludeUniformId && uniform.paramId === paramId,
+      (uniform) =>
+        uniform.id !== excludeUniformId && uniform.paramId === paramId,
     );
   }
 
@@ -2924,10 +2967,12 @@ class BlueprintSystem {
         ? usedVariableNames.has(candidate)
         : this.uniforms.some(
             (uniform) =>
-              uniform.id !== excludeUniformId && uniform.variableName === candidate,
+              uniform.id !== excludeUniformId &&
+              uniform.variableName === candidate,
           ) ||
           this.uniforms.some(
-            (uniform) => uniform.id !== excludeUniformId && uniform.name === candidate,
+            (uniform) =>
+              uniform.id !== excludeUniformId && uniform.name === candidate,
           );
 
     let variableName = baseVariableName;
@@ -2972,7 +3017,8 @@ class BlueprintSystem {
 
     const normalizeUniform = (uniformData, isDeprecated) => {
       const rawId = Number(uniformData?.id);
-      const id = Number.isInteger(rawId) && rawId > 0 ? rawId : nextGeneratedId++;
+      const id =
+        Number.isInteger(rawId) && rawId > 0 ? rawId : nextGeneratedId++;
       maxUniformId = Math.max(maxUniformId, id);
       nextGeneratedId = Math.max(nextGeneratedId, maxUniformId + 1);
 
@@ -2986,7 +3032,11 @@ class BlueprintSystem {
         !this.isValidVariableName(variableName) ||
         (!isDeprecated && usedActiveVariableNames.has(variableName))
       ) {
-        variableName = this.buildUniqueUniformVariableName(name, id, usedActiveVariableNames);
+        variableName = this.buildUniqueUniformVariableName(
+          name,
+          id,
+          usedActiveVariableNames,
+        );
       } else if (!isDeprecated) {
         usedActiveVariableNames.add(variableName);
       }
@@ -2996,7 +3046,11 @@ class BlueprintSystem {
           ? uniformData.paramId
           : this.sanitizeVariableName(name);
 
-      const paramId = this.buildUniqueUniformParamId(legacyParamId, id, usedParamIds);
+      const paramId = this.buildUniqueUniformParamId(
+        legacyParamId,
+        id,
+        usedParamIds,
+      );
 
       return {
         ...uniformData,
@@ -3042,15 +3096,16 @@ class BlueprintSystem {
     const baseName = `${uniform.variableName}_deprecated`;
     const duplicateCount = this.deprecatedUniforms.filter(
       (entry) =>
-        entry.id !== uniform.id &&
-        entry.variableName === uniform.variableName,
+        entry.id !== uniform.id && entry.variableName === uniform.variableName,
     ).length;
 
     if (duplicateCount === 0) {
       return baseName;
     }
 
-    const suffix = this.sanitizeVariableName(String(uniform.paramId || uniform.id));
+    const suffix = this.sanitizeVariableName(
+      String(uniform.paramId || uniform.id),
+    );
     return `${baseName}_${suffix}`;
   }
 
@@ -3064,7 +3119,8 @@ class BlueprintSystem {
       })),
       ...this.deprecatedUniforms.map((uniform) => ({
         uniform,
-        shaderVariableName: this.getDeprecatedUniformShaderVariableName(uniform),
+        shaderVariableName:
+          this.getDeprecatedUniformShaderVariableName(uniform),
         exportName: `[DEPRECATED] ${uniform.name}`,
         isDeprecated: true,
       })),
@@ -3306,7 +3362,9 @@ class BlueprintSystem {
   }
 
   deleteUniform(id) {
-    const uniformIndex = this.uniforms.findIndex((uniform) => uniform.id === id);
+    const uniformIndex = this.uniforms.findIndex(
+      (uniform) => uniform.id === id,
+    );
     if (uniformIndex === -1) {
       return;
     }
@@ -3359,7 +3417,9 @@ class BlueprintSystem {
       return;
     }
 
-    const restoredUniform = this.cloneUniformRecord(this.deprecatedUniforms[deprecatedIndex]);
+    const restoredUniform = this.cloneUniformRecord(
+      this.deprecatedUniforms[deprecatedIndex],
+    );
     restoredUniform.variableName = this.buildUniqueUniformVariableName(
       restoredUniform.variableName?.startsWith("uniform_")
         ? restoredUniform.variableName.replace(/^uniform_/, "")
@@ -3368,7 +3428,9 @@ class BlueprintSystem {
     );
     restoredUniform.isDeprecated = false;
 
-    if (this.isUniformParamIdTaken(restoredUniform.paramId, restoredUniform.id)) {
+    if (
+      this.isUniformParamIdTaken(restoredUniform.paramId, restoredUniform.id)
+    ) {
       alert(
         `Cannot restore uniform because the parameter ID '${restoredUniform.paramId}' is already in use.`,
       );
@@ -5164,26 +5226,28 @@ class BlueprintSystem {
 
   buildShaderData(shaders) {
     // Generate parameters array
-    const parameters = this.getExportableUniforms().map(({ uniform, shaderVariableName }) => {
-      let value = uniform.value;
-      // Convert color values to array format [r, g, b]
-      if (
-        uniform.type === "color" &&
-        typeof value === "object" &&
-        value.r !== undefined
-      ) {
-        value = [value.r, value.g, value.b];
-      }
-      return [
-        shaderVariableName,
-        0,
-        uniform.type === "color"
-          ? "color"
-          : uniform.isPercent
-            ? "percent"
-            : "float",
-      ];
-    });
+    const parameters = this.getExportableUniforms().map(
+      ({ uniform, shaderVariableName }) => {
+        let value = uniform.value;
+        // Convert color values to array format [r, g, b]
+        if (
+          uniform.type === "color" &&
+          typeof value === "object" &&
+          value.r !== undefined
+        ) {
+          value = [value.r, value.g, value.b];
+        }
+        return [
+          shaderVariableName,
+          0,
+          uniform.type === "color"
+            ? "color"
+            : uniform.isPercent
+              ? "percent"
+              : "float",
+        ];
+      },
+    );
 
     return {
       glsl: shaders.webgl1,
@@ -5242,7 +5306,7 @@ class BlueprintSystem {
   sendUniformValuesToPreview() {
     if (!this.previewReady || !this.previewIframe) return;
     // Preview reflects the main graph's uniforms.
-    const uniforms = this.mainGraph ? this.mainGraph.uniforms : this.uniforms;
+    const uniforms = this.uniforms;
 
     uniforms.forEach((uniform, index) => {
       // Convert color values to array format [r, g, b]
@@ -5269,7 +5333,9 @@ class BlueprintSystem {
   generateAllShaders() {
     // Code generation ALWAYS targets the main graph, even when a different
     // graph is active in the editor.
-    return this._withGraph(this.mainGraph, () => this._generateAllShadersImpl());
+    return this._withGraph(this.mainGraph, () =>
+      this._generateAllShadersImpl(),
+    );
   }
 
   _generateAllShadersImpl() {
@@ -6200,7 +6266,8 @@ class BlueprintSystem {
 
       const paramIdInput = document.createElement("input");
       paramIdInput.type = "text";
-      paramIdInput.className = "uniform-description-input uniform-param-id-inline";
+      paramIdInput.className =
+        "uniform-description-input uniform-param-id-inline";
       paramIdInput.value = uniform.paramId;
       paramIdInput.size = Math.max(uniform.paramId.length, 4);
       paramIdInput.placeholder = "Parameter ID";
@@ -6447,8 +6514,8 @@ class BlueprintSystem {
       deprecatedSection.appendChild(deprecatedHeader);
 
       if (this.deprecatedUniformsExpanded) {
-      const deprecatedList = document.createElement("div");
-      deprecatedList.className = "deprecated-uniforms-list";
+        const deprecatedList = document.createElement("div");
+        deprecatedList.className = "deprecated-uniforms-list";
 
         this.deprecatedUniforms.forEach((uniform) => {
           const deprecatedItem = document.createElement("div");
@@ -6461,7 +6528,8 @@ class BlueprintSystem {
           deprecatedInfo.className = "uniform-name-container";
 
           const deprecatedName = document.createElement("div");
-          deprecatedName.className = "uniform-item-name deprecated-uniform-name";
+          deprecatedName.className =
+            "uniform-item-name deprecated-uniform-name";
           deprecatedName.textContent = uniform.name;
 
           const deprecatedMeta = document.createElement("div");
@@ -6502,7 +6570,7 @@ class BlueprintSystem {
           deprecatedList.appendChild(deprecatedItem);
         });
 
-      deprecatedSection.appendChild(deprecatedList);
+        deprecatedSection.appendChild(deprecatedList);
       }
 
       this.uniformList.appendChild(deprecatedSection);
@@ -8713,7 +8781,10 @@ class BlueprintSystem {
         menu: "Project",
         action: "deleteDanglingNodes",
         handler: () => this.runDeleteDanglingNodes(),
-        isEnabled: () => this.nodes.some((node) => this.getNodeTypeKey(node.nodeType) !== "output"),
+        isEnabled: () =>
+          this.nodes.some(
+            (node) => this.getNodeTypeKey(node.nodeType) !== "output",
+          ),
       },
       {
         label: "Turn Into Variable",
@@ -9952,7 +10023,12 @@ class BlueprintSystem {
       this.fitSelectedToView();
     }
     // C: Center View
-    else if (!e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "c" || e.key === "C")) {
+    else if (
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      (e.key === "c" || e.key === "C")
+    ) {
       e.preventDefault();
       this.centerView();
     }
@@ -9972,7 +10048,12 @@ class BlueprintSystem {
       this.updatePreview();
     }
     // V: Rewrite selected fan-out
-    else if (!e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "v" || e.key === "V")) {
+    else if (
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      (e.key === "v" || e.key === "V")
+    ) {
       if (this.getSelectedFanoutCandidate()) {
         e.preventDefault();
         this.runRewriteSelectedFanout();
@@ -10631,7 +10712,9 @@ class BlueprintSystem {
   setupIrGraphModal() {
     this.irGraphModal = document.getElementById("irGraphModal");
     this.irGraphModalTitle = document.getElementById("irGraphModalTitle");
-    this.irGraphModalDescription = document.getElementById("irGraphModalDescription");
+    this.irGraphModalDescription = document.getElementById(
+      "irGraphModalDescription",
+    );
     this.irGraphTextarea = document.getElementById("irGraphTextarea");
     this.irGraphCopyBtn = document.getElementById("irGraphCopyBtn");
     this.irGraphPasteBtn = document.getElementById("irGraphPasteBtn");
@@ -10641,9 +10724,11 @@ class BlueprintSystem {
       return;
     }
 
-    document.getElementById("irGraphModalClose").addEventListener("click", () => {
-      this.irGraphModal.style.display = "none";
-    });
+    document
+      .getElementById("irGraphModalClose")
+      .addEventListener("click", () => {
+        this.irGraphModal.style.display = "none";
+      });
     this.irGraphModal.addEventListener("mousedown", (e) => {
       if (e.target === this.irGraphModal) {
         this.irGraphModal.style.display = "none";
@@ -10744,7 +10829,8 @@ class BlueprintSystem {
   showImportIrModal() {
     this.configureIrGraphModal({
       title: "Import Graph from IR",
-      description: "Paste IR graph JSON here, then import it into the current project.",
+      description:
+        "Paste IR graph JSON here, then import it into the current project.",
       text: "",
       mode: "import",
     });
@@ -10757,7 +10843,10 @@ class BlueprintSystem {
         throw new Error("Paste an IR graph JSON payload first");
       }
       const ir = JSON.parse(text);
-      const result = this.importGraphIR(ir, { autoLayout: true, historyLabel: "Import graph from IR" });
+      const result = this.importGraphIR(ir, {
+        autoLayout: true,
+        historyLabel: "Import graph from IR",
+      });
       this.irGraphModal.style.display = "none";
       this.showNotification({
         type: "success",
@@ -10810,7 +10899,10 @@ class BlueprintSystem {
       });
       this.showNotification({
         type: "success",
-        title: result.mode === "duplicate" ? "Fan-Out Duplicated" : "Turned Into Variable",
+        title:
+          result.mode === "duplicate"
+            ? "Fan-Out Duplicated"
+            : "Turned Into Variable",
         message:
           result.mode === "duplicate"
             ? `${result.duplicatedNodeIds.length} duplicate nodes created`
@@ -11394,30 +11486,30 @@ class BlueprintSystem {
   generateParametersJson() {
     return this.getExportableUniforms().map(
       ({ uniform, shaderVariableName }) => {
-      const param = {
-        id: uniform.paramId,
-        uniform: shaderVariableName,
-        interpolatable: true,
-        type:
-          uniform.type === "color"
-            ? "color"
-            : uniform.isPercent
-              ? "percent"
-              : "float",
-      };
+        const param = {
+          id: uniform.paramId,
+          uniform: shaderVariableName,
+          interpolatable: true,
+          type:
+            uniform.type === "color"
+              ? "color"
+              : uniform.isPercent
+                ? "percent"
+                : "float",
+        };
 
-      // Add initial value
-      if (uniform.type === "color") {
-        param["initial-value"] = [
-          uniform.value.r,
-          uniform.value.g,
-          uniform.value.b,
-        ];
-      } else {
-        param["initial-value"] = uniform.value;
-      }
+        // Add initial value
+        if (uniform.type === "color") {
+          param["initial-value"] = [
+            uniform.value.r,
+            uniform.value.g,
+            uniform.value.b,
+          ];
+        } else {
+          param["initial-value"] = uniform.value;
+        }
 
-      return param;
+        return param;
       },
     );
   }
@@ -11748,11 +11840,11 @@ class BlueprintSystem {
   // _additionalGraphs entries (non-main graphs). Wraps in _withGraph so any
   // helper that incidentally reads via the delegating getters resolves to
   // the right graph.
+  // NOTE: Uniforms are host-level; they're added in _buildSaveData, not here.
   _serializeGraphPayload(graph) {
     return this._withGraph(graph, () => ({
       shaderSettings: graph.shaderSettings,
-      uniforms: graph.uniforms,
-      deprecatedUniforms: graph.deprecatedUniforms,
+      // Uniforms are host-level (not per-graph); saved at top level by _buildSaveData
       camera: { x: graph.camera.x, y: graph.camera.y, zoom: graph.camera.zoom },
       nodes: graph.nodes.map((node) => ({
         id: node.id,
@@ -11797,7 +11889,6 @@ class BlueprintSystem {
         color: comment.color,
       })),
       nodeIdCounter: graph.nodeIdCounter,
-      uniformIdCounter: graph.uniformIdCounter,
       commentIdCounter: graph.commentIdCounter,
     }));
   }
@@ -11811,6 +11902,9 @@ class BlueprintSystem {
       version: "1.0.0",
       ...main,
       // Host-level fields (shared across graphs)
+      uniforms: this.uniforms,
+      deprecatedUniforms: this.deprecatedUniforms,
+      uniformIdCounter: this.uniformIdCounter,
       customNodes: this.customNodes,
       customNodeIdCounter: this.customNodeIdCounter,
       previewSettings: this.previewSettings,
@@ -11823,6 +11917,10 @@ class BlueprintSystem {
       extras.push({
         id: graph.id,
         name: graph.name,
+        kind: graph.kind,
+        color: graph.color,
+        data: graph.data,
+        contractVersion: graph.contractVersion,
         ...this._serializeGraphPayload(graph),
       });
     }
@@ -11935,6 +12033,7 @@ class BlueprintSystem {
   // Apply a serialized per-graph payload to the given Graph. Pure graph
   // mutation: no UI side-effects, no notifications, no history reset. The
   // caller is responsible for any post-load UI refresh.
+  // NOTE: Uniforms are host-level (not per-graph) and are loaded separately.
   _loadGraphPayload(graph, data) {
     // Clear current state
     graph.nodes = [];
@@ -11951,17 +12050,8 @@ class BlueprintSystem {
       };
     }
 
-    // Restore uniforms
-    const normalizedUniformCollections = this.normalizeUniformCollections(
-      data.uniforms || [],
-      data.deprecatedUniforms || [],
-    );
-    graph.uniforms = normalizedUniformCollections.uniforms;
-    graph.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
-    graph.uniformIdCounter = Math.max(
-      data.uniformIdCounter || 1,
-      normalizedUniformCollections.uniformIdCounter,
-    );
+    // Uniforms are now host-level, not per-graph.
+    // They are loaded in loadFromJSON before this method is called.
 
     // Restore camera
     if (data.camera) {
@@ -11978,7 +12068,8 @@ class BlueprintSystem {
           nodeData.nodeTypeKey.startsWith("uniform_") &&
           nodeData.uniformId !== undefined
         ) {
-          const uniform = graph.uniforms.find(
+          // Uniforms are host-level; look them up from this (host)
+          const uniform = this.uniforms.find(
             (u) => u.id === nodeData.uniformId,
           );
           if (uniform) {
@@ -12019,7 +12110,8 @@ class BlueprintSystem {
 
         if (nodeData.uniformId !== undefined) {
           node.uniformId = nodeData.uniformId;
-          const uniform = graph.uniforms.find(
+          // Uniforms are host-level; look them up from this (host)
+          const uniform = this.uniforms.find(
             (u) => u.id === nodeData.uniformId,
           );
           if (uniform) {
@@ -12129,13 +12221,63 @@ class BlueprintSystem {
         this.updatePreviewSettingsUI();
       }
 
+      // Restore host-level uniforms (migration support for old per-graph format)
+      // Priority: top-level uniforms > mainGraph payload uniforms > empty
+      if (data.uniforms !== undefined) {
+        // New format: uniforms at top level
+        const normalizedUniformCollections = this.normalizeUniformCollections(
+          data.uniforms || [],
+          data.deprecatedUniforms || [],
+        );
+        this.uniforms = normalizedUniformCollections.uniforms;
+        this.deprecatedUniforms =
+          normalizedUniformCollections.deprecatedUniforms;
+        this.uniformIdCounter = Math.max(
+          data.uniformIdCounter || 1,
+          normalizedUniformCollections.uniformIdCounter,
+        );
+      } else if (
+        data.uniforms === undefined &&
+        (data.nodes || data.shaderSettings)
+      ) {
+        // Old format: uniforms might be in mainGraph payload (top-level data IS mainGraph)
+        // This is the migration path from old files
+        const normalizedUniformCollections = this.normalizeUniformCollections(
+          data.uniforms || [],
+          data.deprecatedUniforms || [],
+        );
+        this.uniforms = normalizedUniformCollections.uniforms;
+        this.deprecatedUniforms =
+          normalizedUniformCollections.deprecatedUniforms;
+        this.uniformIdCounter = Math.max(
+          data.uniformIdCounter || 1,
+          normalizedUniformCollections.uniformIdCounter,
+        );
+      } else {
+        // No uniforms found, reset to empty
+        this.uniforms = [];
+        this.deprecatedUniforms = [];
+        this.uniformIdCounter = 1;
+      }
+      this.deprecatedUniformsExpanded = false;
+
       // Load top-level into the main graph.
       this._loadGraphPayload(this.mainGraph, data);
 
       // Load any additional graphs.
       if (Array.isArray(data._additionalGraphs)) {
         for (const extra of data._additionalGraphs) {
-          const g = this.createGraph({ id: extra.id, name: extra.name });
+          const g = this.createGraph({
+            id: extra.id,
+            name: extra.name,
+            kind: extra.kind || "function", // default to 'function' for backward compat
+            color: extra.color || null,
+            data: extra.data || {
+              contract: { inputs: [], outputs: [] },
+              notes: "",
+            },
+            contractVersion: extra.contractVersion || 0,
+          });
           this._loadGraphPayload(g, extra);
         }
       }
@@ -12234,9 +12376,11 @@ class BlueprintSystem {
 
   getWorldCenterPosition() {
     return {
-      x: (-this.camera.x + (this.logicalWidth || this.canvas.width) / 2) /
+      x:
+        (-this.camera.x + (this.logicalWidth || this.canvas.width) / 2) /
         this.camera.zoom,
-      y: (-this.camera.y + (this.logicalHeight || this.canvas.height) / 2) /
+      y:
+        (-this.camera.y + (this.logicalHeight || this.canvas.height) / 2) /
         this.camera.zoom,
     };
   }
@@ -12271,7 +12415,9 @@ class BlueprintSystem {
     }
     const dotIndex = ref.indexOf(".");
     if (dotIndex <= 0 || dotIndex >= ref.length - 1) {
-      throw new Error(`IR port ref '${ref}' must use '<nodeId>.<portName>' format`);
+      throw new Error(
+        `IR port ref '${ref}' must use '<nodeId>.<portName>' format`,
+      );
     }
     return {
       nodeId: ref.slice(0, dotIndex),
@@ -12281,7 +12427,9 @@ class BlueprintSystem {
 
   resolveUniformRefFromIr(uniformRef) {
     if (Number.isInteger(Number(uniformRef))) {
-      const uniform = this.uniforms.find((entry) => entry.id === Number(uniformRef));
+      const uniform = this.uniforms.find(
+        (entry) => entry.id === Number(uniformRef),
+      );
       if (!uniform) {
         throw new Error(`Uniform '${uniformRef}' not found`);
       }
@@ -12290,7 +12438,9 @@ class BlueprintSystem {
 
     const ref = String(uniformRef || "").trim();
     if (!ref) {
-      throw new Error("Uniform reference must be a non-empty string or integer id");
+      throw new Error(
+        "Uniform reference must be a non-empty string or integer id",
+      );
     }
 
     const uniform = this.uniforms.find(
@@ -12305,11 +12455,14 @@ class BlueprintSystem {
   getIrNodeTypeInfo(irNode) {
     const typeKey = irNode.typeKey ?? irNode.type;
     if (!typeKey || typeof typeKey !== "string") {
-      throw new Error(`IR node '${irNode.id ?? "<unknown>"}' requires a type or typeKey`);
+      throw new Error(
+        `IR node '${irNode.id ?? "<unknown>"}' requires a type or typeKey`,
+      );
     }
 
     if (typeKey === "uniform") {
-      const uniformRef = irNode.uniform ?? irNode.uniformName ?? irNode.uniformId;
+      const uniformRef =
+        irNode.uniform ?? irNode.uniformName ?? irNode.uniformId;
       if (uniformRef === undefined || uniformRef === null) {
         throw new Error(`IR node '${irNode.id}' requires a uniform reference`);
       }
@@ -12371,7 +12524,12 @@ class BlueprintSystem {
         ok: false,
         nodeCount: 0,
         wireCount: Array.isArray(wires) ? wires.length : 0,
-        errors: [{ type: "graph", message: "graph IR requires a non-empty nodes array" }],
+        errors: [
+          {
+            type: "graph",
+            message: "graph IR requires a non-empty nodes array",
+          },
+        ],
       };
     }
     if (!Array.isArray(wires)) {
@@ -12389,17 +12547,29 @@ class BlueprintSystem {
 
     nodes.forEach((irNode, index) => {
       if (!irNode || typeof irNode !== "object") {
-        errors.push({ type: "node", index, message: `IR node at index ${index} must be an object` });
+        errors.push({
+          type: "node",
+          index,
+          message: `IR node at index ${index} must be an object`,
+        });
         return;
       }
 
       const localId = String(irNode.id || "").trim();
       if (!localId) {
-        errors.push({ type: "node", index, message: `IR node at index ${index} requires a non-empty id` });
+        errors.push({
+          type: "node",
+          index,
+          message: `IR node at index ${index} requires a non-empty id`,
+        });
         return;
       }
       if (nodeMap.has(localId)) {
-        errors.push({ type: "node", id: localId, message: `Duplicate IR node id '${localId}'` });
+        errors.push({
+          type: "node",
+          id: localId,
+          message: `Duplicate IR node id '${localId}'`,
+        });
         return;
       }
 
@@ -12415,7 +12585,10 @@ class BlueprintSystem {
     });
 
     if (outputNodeCount > 1) {
-      errors.push({ type: "graph", message: "IR may reference at most one output node" });
+      errors.push({
+        type: "graph",
+        message: "IR may reference at most one output node",
+      });
     }
 
     wires.forEach((wire, index) => {
@@ -12427,25 +12600,54 @@ class BlueprintSystem {
         const toRef = this.parseIrPortRef(wire.to);
         const fromNode = nodeMap.get(fromRef.nodeId);
         const toNode = nodeMap.get(toRef.nodeId);
-        if (!fromNode) throw new Error(`IR wire ${index} references missing from node '${fromRef.nodeId}'`);
-        if (!toNode) throw new Error(`IR wire ${index} references missing to node '${toRef.nodeId}'`);
+        if (!fromNode)
+          throw new Error(
+            `IR wire ${index} references missing from node '${fromRef.nodeId}'`,
+          );
+        if (!toNode)
+          throw new Error(
+            `IR wire ${index} references missing to node '${toRef.nodeId}'`,
+          );
 
-        const startNode = this.createDetachedNode(fromNode.nodeType, 0, 0, -100000 - index * 2);
-        const endNode = this.createDetachedNode(toNode.nodeType, 0, 0, -100001 - index * 2);
+        const startNode = this.createDetachedNode(
+          fromNode.nodeType,
+          0,
+          0,
+          -100000 - index * 2,
+        );
+        const endNode = this.createDetachedNode(
+          toNode.nodeType,
+          0,
+          0,
+          -100001 - index * 2,
+        );
         this.applyIrNodePatch(startNode, fromNode.irNode);
         this.applyIrNodePatch(endNode, toNode.irNode);
 
-        const startPort = startNode.outputPorts.find((port) => port.name === fromRef.portName);
-        const endPort = endNode.inputPorts.find((port) => port.name === toRef.portName);
-        if (!startPort) throw new Error(`IR wire ${index} output '${wire.from}' does not exist`);
-        if (!endPort) throw new Error(`IR wire ${index} input '${wire.to}' does not exist`);
+        const startPort = startNode.outputPorts.find(
+          (port) => port.name === fromRef.portName,
+        );
+        const endPort = endNode.inputPorts.find(
+          (port) => port.name === toRef.portName,
+        );
+        if (!startPort)
+          throw new Error(
+            `IR wire ${index} output '${wire.from}' does not exist`,
+          );
+        if (!endPort)
+          throw new Error(`IR wire ${index} input '${wire.to}' does not exist`);
         if (!startPort.canConnectTo(endPort)) {
           throw new Error(
             `Ports are not compatible for connection: from '${wire.from}' (${startPort.getResolvedType()}): to '${wire.to}' (${endPort.getResolvedType()})`,
           );
         }
       } catch (error) {
-        errors.push({ type: "wire", index, wire: this.cloneNodeData(wire), message: error.message });
+        errors.push({
+          type: "wire",
+          index,
+          wire: this.cloneNodeData(wire),
+          message: error.message,
+        });
       }
     });
 
@@ -12459,9 +12661,10 @@ class BlueprintSystem {
 
   exportGraphIR(options = {}) {
     const selectedOnly = !!options.selectedOnly;
-    const nodesToExport = selectedOnly && this.selectedNodes.size > 0
-      ? Array.from(this.selectedNodes)
-      : [...this.nodes];
+    const nodesToExport =
+      selectedOnly && this.selectedNodes.size > 0
+        ? Array.from(this.selectedNodes)
+        : [...this.nodes];
     if (!nodesToExport.length) {
       throw new Error("No nodes available for IR export");
     }
@@ -12493,16 +12696,22 @@ class BlueprintSystem {
       };
 
       if (node.nodeType.isUniform) {
-        irNode.uniform = node.uniformDisplayName || node.uniformName || node.uniformId;
+        irNode.uniform =
+          node.uniformDisplayName || node.uniformName || node.uniformId;
       }
       if (node.operation !== undefined) irNode.operation = node.operation;
       if (node.customInput !== undefined) irNode.customInput = node.customInput;
-      if (node.selectedVariable !== undefined) irNode.selectedVariable = node.selectedVariable;
+      if (node.selectedVariable !== undefined)
+        irNode.selectedVariable = node.selectedVariable;
       if (node.data !== undefined) irNode.data = this.cloneNodeData(node.data);
 
       const inputValues = {};
       node.inputPorts.forEach((port) => {
-        if (port.isEditable && port.connections.length === 0 && port.value !== undefined) {
+        if (
+          port.isEditable &&
+          port.connections.length === 0 &&
+          port.value !== undefined
+        ) {
           inputValues[port.name] = this.cloneNodeData(port.value);
         }
       });
@@ -12520,8 +12729,14 @@ class BlueprintSystem {
           includedNodeIds.has(wire.endPort.node.id),
       )
       .map((wire) => ({
-        from: this.buildIrPortRef(localIdByNodeId.get(wire.startPort.node.id), wire.startPort.name),
-        to: this.buildIrPortRef(localIdByNodeId.get(wire.endPort.node.id), wire.endPort.name),
+        from: this.buildIrPortRef(
+          localIdByNodeId.get(wire.startPort.node.id),
+          wire.startPort.name,
+        ),
+        to: this.buildIrPortRef(
+          localIdByNodeId.get(wire.endPort.node.id),
+          wire.endPort.name,
+        ),
       }));
 
     return {
@@ -12538,7 +12753,9 @@ class BlueprintSystem {
       return validation;
     }
     if (!validation.ok) {
-      throw new Error(`graph.importIR validation failed: ${validation.errors[0]?.message || "unknown error"}`);
+      throw new Error(
+        `graph.importIR validation failed: ${validation.errors[0]?.message || "unknown error"}`,
+      );
     }
 
     const nodes = Array.isArray(ir.nodes) ? ir.nodes : [];
@@ -12547,8 +12764,12 @@ class BlueprintSystem {
     const createdNodes = [];
     const createdWires = [];
     const origin = options.position || this.getWorldCenterPosition();
-    let cursorX = Number.isFinite(origin.x) ? origin.x : this.getWorldCenterPosition().x;
-    let cursorY = Number.isFinite(origin.y) ? origin.y : this.getWorldCenterPosition().y;
+    let cursorX = Number.isFinite(origin.x)
+      ? origin.x
+      : this.getWorldCenterPosition().x;
+    let cursorY = Number.isFinite(origin.y)
+      ? origin.y
+      : this.getWorldCenterPosition().y;
 
     nodes.forEach((irNode, index) => {
       const info = this.getIrNodeTypeInfo(irNode);
@@ -12578,15 +12799,27 @@ class BlueprintSystem {
     wires.forEach((wire) => {
       const fromRef = this.parseIrPortRef(wire.from);
       const toRef = this.parseIrPortRef(wire.to);
-      const startNode = this.nodes.find((node) => node.id === localToNodeId.get(fromRef.nodeId));
-      const endNode = this.nodes.find((node) => node.id === localToNodeId.get(toRef.nodeId));
-      const startPort = startNode?.outputPorts.find((port) => port.name === fromRef.portName);
-      const endPort = endNode?.inputPorts.find((port) => port.name === toRef.portName);
+      const startNode = this.nodes.find(
+        (node) => node.id === localToNodeId.get(fromRef.nodeId),
+      );
+      const endNode = this.nodes.find(
+        (node) => node.id === localToNodeId.get(toRef.nodeId),
+      );
+      const startPort = startNode?.outputPorts.find(
+        (port) => port.name === fromRef.portName,
+      );
+      const endPort = endNode?.inputPorts.find(
+        (port) => port.name === toRef.portName,
+      );
       if (!startPort || !endPort) {
-        throw new Error(`Unable to resolve imported wire '${wire.from}' -> '${wire.to}'`);
+        throw new Error(
+          `Unable to resolve imported wire '${wire.from}' -> '${wire.to}'`,
+        );
       }
       if (!startPort.canConnectTo(endPort)) {
-        throw new Error(`Imported wire is not type-compatible: '${wire.from}' -> '${wire.to}'`);
+        throw new Error(
+          `Imported wire is not type-compatible: '${wire.from}' -> '${wire.to}'`,
+        );
       }
 
       if (endPort.connections.length > 0) {
@@ -12615,7 +12848,9 @@ class BlueprintSystem {
     this.updateDependencyList();
     this.onShaderChanged();
     this.render();
-    this.history.pushState(options.historyLabel || `Import graph IR (${createdNodes.length} nodes)`);
+    this.history.pushState(
+      options.historyLabel || `Import graph IR (${createdNodes.length} nodes)`,
+    );
 
     return {
       ok: true,
@@ -12643,7 +12878,9 @@ class BlueprintSystem {
   duplicateNodeForFanout(node, x, y) {
     let clone;
     if (node.nodeType.isUniform && node.uniformId !== undefined) {
-      const uniform = this.uniforms.find((entry) => entry.id === node.uniformId);
+      const uniform = this.uniforms.find(
+        (entry) => entry.id === node.uniformId,
+      );
       if (!uniform) {
         throw new Error(`Uniform ${node.uniformId} not found for duplication`);
       }
@@ -12659,7 +12896,9 @@ class BlueprintSystem {
       data: node.data,
       inputValues: Object.fromEntries(
         node.inputPorts
-          .filter((port) => port.connections.length === 0 && port.value !== undefined)
+          .filter(
+            (port) => port.connections.length === 0 && port.value !== undefined,
+          )
           .map((port) => [port.name, this.cloneNodeData(port.value)]),
       ),
     });
@@ -12668,19 +12907,28 @@ class BlueprintSystem {
   }
 
   duplicateFanoutNode(options = {}) {
-    const { nodeId, outputIndex = 0, outputName, autoLayout = true, recordHistory = true } = options;
+    const {
+      nodeId,
+      outputIndex = 0,
+      outputName,
+      autoLayout = true,
+      recordHistory = true,
+    } = options;
     const node = this.nodes.find((entry) => entry.id === Number(nodeId));
     if (!node) {
       throw new Error(`Node ${nodeId} not found`);
     }
-    const outputPort = outputName != null
-      ? node.outputPorts.find((port) => port.name === outputName)
-      : node.outputPorts[Number(outputIndex) || 0];
+    const outputPort =
+      outputName != null
+        ? node.outputPorts.find((port) => port.name === outputName)
+        : node.outputPorts[Number(outputIndex) || 0];
     if (!outputPort) {
       throw new Error(`Output port not found on node ${node.id}`);
     }
     if (!this.isSimpleFanoutDuplicationCandidate(node, outputPort)) {
-      throw new Error(`Node ${node.id} output '${outputPort.name}' is not a simple duplication candidate`);
+      throw new Error(
+        `Node ${node.id} output '${outputPort.name}' is not a simple duplication candidate`,
+      );
     }
 
     const connections = [...outputPort.connections];
@@ -12706,7 +12954,12 @@ class BlueprintSystem {
 
     if (autoLayout) {
       this.clearSelection();
-      [node, ...createdNodeIds.map((id) => this.nodes.find((entry) => entry.id === id))]
+      [
+        node,
+        ...createdNodeIds.map((id) =>
+          this.nodes.find((entry) => entry.id === id),
+        ),
+      ]
         .filter(Boolean)
         .forEach((entry) => {
           entry.isSelected = true;
@@ -12744,30 +12997,52 @@ class BlueprintSystem {
     if (!node) {
       throw new Error(`Node ${nodeId} not found`);
     }
-    const outputPort = outputName != null
-      ? node.outputPorts.find((port) => port.name === outputName)
-      : node.outputPorts[Number(outputIndex) || 0];
+    const outputPort =
+      outputName != null
+        ? node.outputPorts.find((port) => port.name === outputName)
+        : node.outputPorts[Number(outputIndex) || 0];
     if (!outputPort) {
       throw new Error(`Output port not found on node ${node.id}`);
     }
     if (outputPort.connections.length <= 1) {
-      throw new Error(`Node ${node.id} output '${outputPort.name}' does not fan out`);
+      throw new Error(
+        `Node ${node.id} output '${outputPort.name}' does not fan out`,
+      );
     }
 
     if (this.isSimpleFanoutDuplicationCandidate(node, outputPort)) {
-      return this.duplicateFanoutNode({ nodeId, outputIndex, outputName, autoLayout, recordHistory });
+      return this.duplicateFanoutNode({
+        nodeId,
+        outputIndex,
+        outputName,
+        autoLayout,
+        recordHistory,
+      });
     }
 
     const connections = [...outputPort.connections];
-    const rootName = this.sanitizeGraphLocalId(variableName || `${node.title}_${outputPort.name}`, "graph_value");
+    const rootName = this.sanitizeGraphLocalId(
+      variableName || `${node.title}_${outputPort.name}`,
+      "graph_value",
+    );
     let nextName = rootName;
     let counter = 2;
-    while (this.nodes.some((entry) => this.getNodeTypeKey(entry.nodeType) === "setVariable" && entry.customInput === nextName)) {
+    while (
+      this.nodes.some(
+        (entry) =>
+          this.getNodeTypeKey(entry.nodeType) === "setVariable" &&
+          entry.customInput === nextName,
+      )
+    ) {
       nextName = `${rootName}_${counter}`;
       counter++;
     }
 
-    const setNode = this.addNode(node.x + 220, node.y, this.getNodeTypeFromKey("setVariable"));
+    const setNode = this.addNode(
+      node.x + 220,
+      node.y,
+      this.getNodeTypeFromKey("setVariable"),
+    );
     setNode.customInput = nextName;
     setNode.recalculateHeight();
 
@@ -12856,12 +13131,19 @@ class BlueprintSystem {
     });
 
     if (!danglingNodes.length) {
-      return { ok: true, deletedCount: 0, deletedNodeIds: [], keptNodeIds: [...keepNodeIds] };
+      return {
+        ok: true,
+        deletedCount: 0,
+        deletedNodeIds: [],
+        keptNodeIds: [...keepNodeIds],
+      };
     }
 
     danglingNodes.forEach((node) => {
       const connectedWires = [];
-      node.getAllPorts().forEach((port) => connectedWires.push(...port.connections));
+      node
+        .getAllPorts()
+        .forEach((port) => connectedWires.push(...port.connections));
       connectedWires.forEach((wire) => this.disconnectWire(wire));
       this.nodes = this.nodes.filter((entry) => entry !== node);
       this.selectedNodes.delete(node);
@@ -12890,17 +13172,23 @@ class BlueprintSystem {
       ok: true,
       deletedCount: danglingNodes.length,
       deletedNodeIds: danglingNodes.map((node) => node.id),
-      keptNodeIds: [...keepNodeIds].filter((nodeId) => this.nodes.some((node) => node.id === nodeId)),
+      keptNodeIds: [...keepNodeIds].filter((nodeId) =>
+        this.nodes.some((node) => node.id === nodeId),
+      ),
     };
   }
 
   normalizeFanoutsForLayout(selectedOnly = false) {
-    const scope = selectedOnly ? Array.from(this.selectedNodes) : [...this.nodes];
+    const scope = selectedOnly
+      ? Array.from(this.selectedNodes)
+      : [...this.nodes];
     const actions = [];
 
     scope.forEach((node) => {
       node.outputPorts.forEach((port) => {
-        const distinctTargets = new Set(port.connections.map((wire) => wire.endPort.node.id));
+        const distinctTargets = new Set(
+          port.connections.map((wire) => wire.endPort.node.id),
+        );
         if (port.connections.length > 1 && distinctTargets.size > 1) {
           actions.push({ nodeId: node.id, outputName: port.name });
         }
@@ -12910,7 +13198,9 @@ class BlueprintSystem {
     const results = [];
     actions.forEach((action) => {
       const currentNode = this.nodes.find((node) => node.id === action.nodeId);
-      const currentPort = currentNode?.outputPorts.find((port) => port.name === action.outputName);
+      const currentPort = currentNode?.outputPorts.find(
+        (port) => port.name === action.outputName,
+      );
       if (!currentPort || currentPort.connections.length <= 1) {
         return;
       }
@@ -12933,7 +13223,9 @@ class BlueprintSystem {
     }
     const node = Array.from(this.selectedNodes)[0];
     for (const port of node.outputPorts) {
-      const distinctTargets = new Set(port.connections.map((wire) => wire.endPort.node.id));
+      const distinctTargets = new Set(
+        port.connections.map((wire) => wire.endPort.node.id),
+      );
       if (port.connections.length > 1 && distinctTargets.size > 1) {
         return { node, port };
       }
@@ -12949,6 +13241,8 @@ class BlueprintSystem {
   }
 
   // Snapshot a specific graph (used by per-graph HistoryManager).
+  // NOTE: Uniforms are host-level (shared), but we snapshot them here so that
+  // undo/redo restores them along with the graph state.
   _exportGraphState(graph) {
     return {
       version: "1.0.0",
@@ -12992,15 +13286,16 @@ class BlueprintSystem {
         description: comment.description,
         color: comment.color,
       })),
-      uniforms: JSON.parse(JSON.stringify(graph.uniforms)),
-      deprecatedUniforms: JSON.parse(JSON.stringify(graph.deprecatedUniforms)),
+      // Uniforms are host-level (shared across graphs)
+      uniforms: JSON.parse(JSON.stringify(this.uniforms)),
+      deprecatedUniforms: JSON.parse(JSON.stringify(this.deprecatedUniforms)),
       // customNodes is host-level (shared) but we still snapshot it here so
       // that single-graph undo/redo restores the legacy library state.
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
       shaderSettings: { ...graph.shaderSettings },
       counters: {
         nodeIdCounter: graph.nodeIdCounter,
-        uniformIdCounter: graph.uniformIdCounter,
+        uniformIdCounter: this.uniformIdCounter, // host-level
         customNodeIdCounter: this.customNodeIdCounter,
         commentIdCounter: graph.commentIdCounter,
       },
@@ -13026,6 +13321,7 @@ class BlueprintSystem {
   // Restore a snapshot into a specific graph (used by per-graph
   // HistoryManager). UI side-effects only fire when targeting the active
   // graph; the shader-changed pulse fires when targeting the main graph.
+  // NOTE: Uniforms are host-level (shared), but restored here for undo/redo.
   _loadGraphState(graph, stateData) {
     // Clear current state
     graph.nodes = [];
@@ -13036,19 +13332,19 @@ class BlueprintSystem {
 
     // Restore counters
     graph.nodeIdCounter = stateData.counters.nodeIdCounter;
-    graph.uniformIdCounter = stateData.counters.uniformIdCounter;
+    this.uniformIdCounter = stateData.counters.uniformIdCounter; // host-level
     this.customNodeIdCounter = stateData.counters.customNodeIdCounter;
     graph.commentIdCounter = stateData.counters.commentIdCounter || 1;
 
-    // Restore uniforms and custom nodes
+    // Restore uniforms (host-level) and custom nodes
     const normalizedUniformCollections = this.normalizeUniformCollections(
       JSON.parse(JSON.stringify(stateData.uniforms || [])),
       JSON.parse(JSON.stringify(stateData.deprecatedUniforms || [])),
     );
-    graph.uniforms = normalizedUniformCollections.uniforms;
-    graph.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
-    graph.uniformIdCounter = Math.max(
-      graph.uniformIdCounter,
+    this.uniforms = normalizedUniformCollections.uniforms;
+    this.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
+    this.uniformIdCounter = Math.max(
+      this.uniformIdCounter,
       normalizedUniformCollections.uniformIdCounter,
     );
     if (stateData.customNodes !== undefined) {

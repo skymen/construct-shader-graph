@@ -1,7 +1,7 @@
 // Graph.js
 //
 // A Graph owns all per-graph editor state: nodes, wires, comments, selection,
-// camera, history, uniforms, shader settings, preview pin, and the transient
+// camera, history, shader settings, preview pin, and the transient
 // interaction state machine. The BlueprintSystem (host) owns one or more
 // Graphs and delegates per-graph reads/writes to the active graph through
 // property getters/setters defined on the host instance.
@@ -13,7 +13,7 @@
 //
 // Things that are NOT per-graph (live on host): canvas/DOM, customNodes
 // library, clipboard, preview iframe + previewSettings, mcpBridge,
-// NODE_TYPES, pressedKeys, autoPanInterval.
+// NODE_TYPES, pressedKeys, autoPanInterval, uniforms.
 
 import { HistoryManager } from "./HistoryManager.js";
 
@@ -47,6 +47,15 @@ export class Graph {
     this.id = opts.id || `g_${__graphIdCounter++}`;
     this.name = opts.name || "Untitled";
 
+    // Graph kind: 'main' | 'function' | 'loopBody'
+    this.kind = opts.kind || "main";
+    // Optional color tint for sidebar/tab display
+    this.color = opts.color || null;
+    // Per-kind freeform data bag (e.g., contract for function/loopBody kinds)
+    this.data = opts.data || {};
+    // Increments on any contract edit; used by callers to detect drift
+    this.contractVersion = opts.contractVersion || 0;
+
     // Editable graph data
     this.nodes = [];
     this.wires = [];
@@ -56,8 +65,7 @@ export class Graph {
     this.nodeIdCounter = 1;
     this.commentIdCounter = 1;
     this.wireIdCounter = 1;
-    this.uniformIdCounter = 1;
-    // customNodeIdCounter is host-level (custom node library is shared)
+    // customNodeIdCounter and uniformIdCounter are host-level (shared)
 
     // Selection
     this.selectedNodes = new Set();
@@ -93,11 +101,6 @@ export class Graph {
 
     // Shader settings (per-graph; each graph is its own shader)
     this.shaderSettings = makeDefaultShaderSettings();
-
-    // Uniforms (per-graph)
-    this.uniforms = [];
-    this.deprecatedUniforms = [];
-    this.deprecatedUniformsExpanded = false;
 
     // Preview pin (only mainGraph's previewNode drives codegen + preview)
     this.previewNode = null;
