@@ -272,6 +272,7 @@ export const NODE_COLORS = {
   output: "#3a3a4a", // Dark neutral - terminal node
   variable: "#9b59b6", // Purple - storage/memory
   debug: "#777777", // Grey - debug visualization
+  functionBoundary: "#2a6a5a", // Teal-green - function/loop boundary nodes
 
   // === Port Types: Color ===
   colorInt: PORT_TYPES.int.color,

@@ -194,6 +194,10 @@ import { DrawFloatNode } from "./DrawFloatNode.js";
 import { SetVariableNode } from "./SetVariableNode.js";
 import { GetVariableNode } from "./GetVariableNode.js";
 
+// Import function boundary nodes
+import { FunctionInputNode } from "./FunctionInputNode.js";
+import { FunctionOutputNode } from "./FunctionOutputNode.js";
+
 // Import input nodes
 import { FloatInputNode } from "./FloatInputNode.js";
 import { IntInputNode } from "./IntInputNode.js";
@@ -502,6 +506,10 @@ export const NODE_TYPES = {
   // Variable nodes
   setVariable: SetVariableNode,
   getVariable: GetVariableNode,
+
+  // Function boundary nodes (visible only inside function/loopBody graphs)
+  functionInput: FunctionInputNode,
+  functionOutput: FunctionOutputNode,
 
   // Input nodes
   floatInput: FloatInputNode,

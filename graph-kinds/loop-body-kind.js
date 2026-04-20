@@ -3,9 +3,15 @@
 // Handler for 'loopBody' kind graphs.
 // Implements the handler interface defined in the plan (§5.1).
 
+import { FunctionInputNode } from "../nodes/FunctionInputNode.js";
+import { FunctionOutputNode } from "../nodes/FunctionOutputNode.js";
+
+// The Index port is always prepended to the FunctionInput outputs of a loop body.
+// It is not stored in the contract; it is injected by enforceBoundaryRules.
+const INDEX_PORT_DEF = { name: "Index", type: "int" };
+
 /**
  * Loop body kind handler.
- * Full implementation comes in Phase 5; this is a minimal stub for Phase 1.
  */
 export const loopBodyKindHandler = {
   kind: "loopBody",
@@ -60,22 +66,40 @@ export const loopBodyKindHandler = {
 
   /**
    * Add Function Input and Function Output nodes to a newly created graph.
-   * Also injects the Index : int input.
+   * Also injects the immutable Index : int output on the input boundary node.
    * @param {Graph} graph - The loop body graph
    * @param {object} host - The BlueprintSystem host
    */
   bootstrapGraph(graph, host) {
-    // TODO: Implement in Phase 5
+    host._withGraph(graph, () => {
+      host.addNode(-150, 100, FunctionInputNode);
+      host.addNode(150, 100, FunctionOutputNode);
+    });
+    this.enforceBoundaryRules(graph, host);
   },
 
   /**
-   * Rebuild boundary node ports from contract, enforce rules.
-   * Re-injects Index for loopBody, prevents deletion of boundary nodes.
+   * Rebuild boundary node ports from contract.
+   * Always prepends the immutable Index : int output on the input node.
    * @param {Graph} graph - The loop body graph
    * @param {object} host - The BlueprintSystem host
    */
   enforceBoundaryRules(graph, host) {
-    // TODO: Implement in Phase 5
+    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+    const inputNode = graph.nodes.find((n) => n.nodeType === FunctionInputNode);
+    const outputNode = graph.nodes.find((n) => n.nodeType === FunctionOutputNode);
+
+    if (!inputNode || !outputNode) return;
+
+    // Index is always first; then acc/arg contract inputs
+    const inputOutputDefs = [
+      INDEX_PORT_DEF,
+      ...contract.inputs.map((p) => ({ name: p.name, type: p.type })),
+    ];
+    const outputInputDefs = contract.outputs.map((p) => ({ name: p.name, type: p.type }));
+
+    host._rebuildBoundaryNodePorts(inputNode, [], inputOutputDefs);
+    host._rebuildBoundaryNodePorts(outputNode, outputInputDefs, []);
   },
 
   // ---- Caller node-type factory ----

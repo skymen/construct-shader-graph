@@ -3,9 +3,11 @@
 // Handler for 'function' kind graphs.
 // Implements the handler interface defined in the plan (§5.1).
 
+import { FunctionInputNode } from "../nodes/FunctionInputNode.js";
+import { FunctionOutputNode } from "../nodes/FunctionOutputNode.js";
+
 /**
  * Function kind handler.
- * Full implementation comes in Phase 3; this is a minimal stub for Phase 1.
  */
 export const functionKindHandler = {
   kind: "function",
@@ -64,7 +66,11 @@ export const functionKindHandler = {
    * @param {object} host - The BlueprintSystem host
    */
   bootstrapGraph(graph, host) {
-    // TODO: Implement in Phase 2
+    host._withGraph(graph, () => {
+      host.addNode(-150, 100, FunctionInputNode);
+      host.addNode(150, 100, FunctionOutputNode);
+    });
+    this.enforceBoundaryRules(graph, host);
   },
 
   /**
@@ -73,7 +79,19 @@ export const functionKindHandler = {
    * @param {object} host - The BlueprintSystem host
    */
   enforceBoundaryRules(graph, host) {
-    // TODO: Implement in Phase 2
+    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+    const inputNode = graph.nodes.find((n) => n.nodeType === FunctionInputNode);
+    const outputNode = graph.nodes.find((n) => n.nodeType === FunctionOutputNode);
+
+    if (!inputNode || !outputNode) return;
+
+    // FunctionInput outputs ← contract inputs (the params enter the body as outputs)
+    const inputOutputDefs = contract.inputs.map((p) => ({ name: p.name, type: p.type }));
+    // FunctionOutput inputs ← contract outputs (the results leave via its inputs)
+    const outputInputDefs = contract.outputs.map((p) => ({ name: p.name, type: p.type }));
+
+    host._rebuildBoundaryNodePorts(inputNode, [], inputOutputDefs);
+    host._rebuildBoundaryNodePorts(outputNode, outputInputDefs, []);
   },
 
   // ---- Caller node-type factory ----

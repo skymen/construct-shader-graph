@@ -7,6 +7,7 @@ import {
   getAllowedTypesForGeneric,
   toShaderValue,
 } from "./nodes/index.js";
+import { getHandler } from "./graph-kinds/index.js";
 
 // Debug mode detection
 function isDebugMode() {
@@ -1979,6 +1980,55 @@ class BlueprintSystem {
     const g = new Graph(this, opts);
     this.graphs.set(g.id, g);
     return g;
+  }
+
+  // Create a function-kind graph and bootstrap its boundary nodes.
+  createFunctionGraph(opts = {}) {
+    const g = this.createGraph({
+      kind: "function",
+      data: { contract: { inputs: [], outputs: [] }, notes: "" },
+      ...opts,
+    });
+    const handler = getHandler("function");
+    if (handler) handler.bootstrapGraph(g, this);
+    return g;
+  }
+
+  // Create a loopBody-kind graph and bootstrap its boundary nodes.
+  createLoopBodyGraph(opts = {}) {
+    const g = this.createGraph({
+      kind: "loopBody",
+      data: { contract: { inputs: [], outputs: [] }, notes: "" },
+      ...opts,
+    });
+    const handler = getHandler("loopBody");
+    if (handler) handler.bootstrapGraph(g, this);
+    return g;
+  }
+
+  // All callable (function + loopBody) graphs on this host.
+  getCallableGraphs() {
+    return [...this.graphs.values()].filter(
+      (g) => g.kind === "function" || g.kind === "loopBody"
+    );
+  }
+
+  // Rebuild a boundary node's ports from arrays of port definitions.
+  // Disconnects all existing wires first to keep graph state consistent.
+  // inputDefs / outputDefs: [{ name, type }]
+  _rebuildBoundaryNodePorts(node, inputDefs, outputDefs) {
+    for (const port of [...node.inputPorts, ...node.outputPorts]) {
+      for (const wire of [...port.connections]) {
+        this.disconnectWire(wire);
+      }
+    }
+    node.inputPorts = inputDefs.map(
+      (def, i) => new Port(node, "input", i, def)
+    );
+    node.outputPorts = outputDefs.map(
+      (def, i) => new Port(node, "output", i, def)
+    );
+    node.recalculateHeight();
   }
 
   // Switch the editor's active graph. Sidebars/UI are refreshed if available.
@@ -7788,6 +7838,13 @@ class BlueprintSystem {
     if (hasOutputNode) {
       nodeTypes = nodeTypes.filter(
         ([key, nodeType]) => nodeType !== NODE_TYPES.output,
+      );
+    }
+
+    // Hide nodes that require a function/loopBody context when editing main graph
+    if (this.activeGraph?.kind === "main") {
+      nodeTypes = nodeTypes.filter(
+        ([key, nodeType]) => !nodeType.requiresFunctionContext,
       );
     }
 
