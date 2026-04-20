@@ -9,6 +9,13 @@ import {
 } from "./nodes/index.js";
 import { getHandler } from "./graph-kinds/index.js";
 
+// Convert an arbitrary string to a valid GLSL/WGSL identifier.
+function _sanitizeId(str) {
+  return String(str)
+    .replace(/[^a-zA-Z0-9_]/g, "_")
+    .replace(/^([^a-zA-Z_])/, "_$1");
+}
+
 // Debug mode detection
 function isDebugMode() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -116,6 +123,9 @@ class Port {
     this.displayName = node.nodeType.noTranslation?.ports
       ? portDef.name
       : languageManager.getPortDisplayName(portDef.name); // Translated name for display
+
+    // Stable contract port id, used when rebuilding caller nodes after contract edits.
+    this.contractPortId = portDef.contractPortId || null;
 
     // Store value for editable input ports
     // Custom types are never editable as their type can change dynamically
@@ -2029,6 +2039,256 @@ class BlueprintSystem {
       (def, i) => new Port(node, "output", i, def)
     );
     node.recalculateHeight();
+  }
+
+  // Compile a function graph's body into shader code and collect helper deps.
+  // signature must include { resolvedInputTypes, resolvedOutputTypes, fnName, bindings }.
+  // Returns { bodyCode: string, deps: Map<string, Set<string>> }.
+  _compileFunctionBody(graph, signature, target) {
+    const { resolvedInputTypes, resolvedOutputTypes, fnName } = signature;
+    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+
+    const inputNode = graph.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+    const outputNode = graph.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+    if (!inputNode || !outputNode) {
+      return { bodyCode: "    // missing boundary nodes\n", deps: new Map() };
+    }
+
+    // BFS from FunctionOutput backwards to build levels for this body.
+    const visited = new Set();
+    const dependencies = new Map();
+    const queue = [outputNode];
+    visited.add(outputNode);
+    while (queue.length > 0) {
+      const node = queue.shift();
+      const nodeDeps = new Set();
+      for (const port of node.inputPorts) {
+        for (const wire of port.connections) {
+          if (wire.startPort?.node) {
+            const dep = wire.startPort.node;
+            nodeDeps.add(dep);
+            if (!visited.has(dep)) { visited.add(dep); queue.push(dep); }
+          }
+        }
+      }
+      // Variable nodes: depend on their Set Variable counterpart (graph-local).
+      if (node.nodeType.name === "Get Variable" && node.selectedVariable) {
+        const setVarNode = graph.nodes.find(
+          (n) => n.nodeType.name === "Set Variable" && n.customInput === node.selectedVariable
+        );
+        if (setVarNode) {
+          nodeDeps.add(setVarNode);
+          if (!visited.has(setVarNode)) { visited.add(setVarNode); queue.push(setVarNode); }
+        }
+      }
+      dependencies.set(node, nodeDeps);
+    }
+
+    const levels = this.topologicalSort(dependencies, visited);
+
+    // Build portToVarName: FunctionInput outputs -> parameter names; rest -> fv_N.
+    const portToVarName = new Map();
+    let varCounter = 0;
+    inputNode.outputPorts.forEach((port, i) => {
+      const paramName = contract.inputs[i]
+        ? _sanitizeId(contract.inputs[i].name)
+        : `p${i}`;
+      portToVarName.set(port, paramName);
+    });
+
+    for (const level of levels) {
+      for (const node of level) {
+        if (node.nodeType === NODE_TYPES.functionInput || node.nodeType === NODE_TYPES.functionOutput) continue;
+        for (const port of node.inputPorts) {
+          if (port.connections.length > 0) {
+            const src = port.connections[0].startPort;
+            if (portToVarName.has(src)) portToVarName.set(port, portToVarName.get(src));
+          } else if (port.isEditable && port.value !== undefined) {
+            portToVarName.set(port, toShaderValue(port.value, port.getResolvedType(), target));
+          } else {
+            portToVarName.set(port, `fv_${varCounter++}`);
+          }
+        }
+        for (const port of node.outputPorts) {
+          if (!portToVarName.has(port)) portToVarName.set(port, `fv_${varCounter++}`);
+        }
+      }
+    }
+
+    // Generate body code and collect helper deps.
+    const deps = new Map();
+    let bodyCode = "";
+
+    for (const level of levels) {
+      for (const node of level) {
+        if (node.nodeType === NODE_TYPES.functionInput || node.nodeType === NODE_TYPES.functionOutput) continue;
+
+        if (typeof node.nodeType.getDependency === "function") {
+          const dep = node.nodeType.getDependency(target);
+          if (dep) {
+            if (!deps.has(dep)) deps.set(dep, new Set());
+            deps.get(dep).add(node.nodeType.name);
+          }
+        }
+
+        const execution = typeof node.nodeType.getExecution === "function"
+          ? node.nodeType.getExecution(target)
+          : node.nodeType.shaderCode?.[target]?.execution || null;
+
+        if (execution) {
+          const inputVars = node.inputPorts.map((p) => portToVarName.get(p) || "0.0");
+          const outputVars = node.outputPorts.map((p) => portToVarName.get(p));
+          const inputTypes = node.inputPorts.map((p) => p.getResolvedType());
+          const outputTypes = node.outputPorts.map((p) => p.getResolvedType());
+          bodyCode += `\n    // ${node.nodeType.name}\n`;
+          bodyCode += execution(inputVars, outputVars, node, inputTypes, outputTypes) + "\n";
+        }
+      }
+    }
+
+    // Emit return / output assignments.
+    const isWebGPU = target === "webgpu";
+    if (resolvedOutputTypes.length === 1) {
+      const retVar = portToVarName.get(outputNode.inputPorts[0]) || "0.0";
+      bodyCode += `    return ${retVar};\n`;
+    } else if (resolvedOutputTypes.length > 1) {
+      if (isWebGPU) {
+        const structName = `${fnName}_Out`;
+        const fields = outputNode.inputPorts.map((p) => portToVarName.get(p) || "0.0").join(", ");
+        bodyCode += `    return ${structName}(${fields});\n`;
+      } else {
+        contract.outputs.forEach((op, i) => {
+          const src = portToVarName.get(outputNode.inputPorts[i]) || "0.0";
+          bodyCode += `    out_${_sanitizeId(op.name)} = ${src};\n`;
+        });
+      }
+    }
+
+    return { bodyCode, deps };
+  }
+
+  // Collect all function declarations reachable from the current levels.
+  // Also caches the computed signature on each FunctionCall node for use in
+  // emitCallSite during the main generateShader pass.
+  // Returns { declStr: string, extraDeps: Map<string, Set<string>> }.
+  _generateFunctionDeclarations(target, levels, portToVarName) {
+    const seen = new Set();
+    const variants = []; // { graph, signature, handler }
+    const extraDeps = new Map();
+
+    for (const level of levels) {
+      for (const node of level) {
+        if (!node.nodeType.isFunctionCall) continue;
+        const handler = getHandler(node.nodeType.callerKind || "function");
+        if (!handler) continue;
+        const sig = handler.computeCallSiteSignature(node, this);
+        node._computedSignature = sig; // cache for emitCallSite
+        const key = `${node.nodeType.targetGraphId}_${sig.sigHash}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          const graph = this.graphs.get(node.nodeType.targetGraphId);
+          if (graph) variants.push({ graph, signature: sig, handler });
+        }
+      }
+    }
+
+    if (variants.length === 0) return { declStr: "", extraDeps };
+
+    let declStr = "\n// --- Function declarations ---\n";
+    for (const { graph, signature, handler } of variants) {
+      const { declaration, deps } = handler.emitFunctionDeclaration(graph, signature, target, this);
+      declStr += declaration + "\n";
+      for (const [dep, names] of deps) {
+        if (!extraDeps.has(dep)) extraDeps.set(dep, new Set());
+        for (const n of names) extraDeps.get(dep).add(n);
+      }
+    }
+
+    return { declStr, extraDeps };
+  }
+
+  // Update all caller nodes in every graph whose targetGraphId matches `graph.id`.
+  // Preserves wires by contractPortId. Surfaces a notification listing changes.
+  syncContractCallers(graph) {
+    graph.contractVersion = (graph.contractVersion || 0) + 1;
+    const handler = getHandler(graph.kind);
+    if (!handler) return;
+
+    // Rebuild boundary nodes in the function graph itself.
+    handler.enforceBoundaryRules(graph, this);
+
+    const newType = handler.createCallerNodeType(graph, this);
+    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+
+    let affectedCount = 0;
+    const droppedWires = [];
+
+    for (const g of this.graphs.values()) {
+      for (const node of g.nodes) {
+        if (!node.nodeType.isFunctionCall) continue;
+        if (node.nodeType.targetGraphId !== graph.id) continue;
+
+        // Save wires keyed by contractPortId so we can reconnect after rebuilding.
+        const savedInputWires = new Map(); // contractPortId -> wire
+        for (const port of node.inputPorts) {
+          if (port.contractPortId && port.connections.length > 0) {
+            savedInputWires.set(port.contractPortId, port.connections[0]);
+          }
+        }
+        const savedOutputWires = new Map();
+        for (const port of node.outputPorts) {
+          if (port.contractPortId && port.connections.length > 0) {
+            savedOutputWires.set(port.contractPortId, port.connections[0]);
+          }
+        }
+
+        // Update the node type.
+        node.nodeType = newType;
+
+        // Rebuild ports from new contract.
+        this._rebuildBoundaryNodePorts(
+          node,
+          contract.inputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id })),
+          contract.outputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id }))
+        );
+
+        // Reconnect wires where contractPortId still exists and types are compatible.
+        for (const port of node.inputPorts) {
+          const wire = savedInputWires.get(port.contractPortId);
+          if (!wire) continue;
+          const srcPort = wire.startPort;
+          if (srcPort && port.canConnectTo(srcPort)) {
+            port.connections.push(wire);
+            wire.endPort = port;
+            srcPort.connections = srcPort.connections.filter((w) => w !== wire);
+            srcPort.connections.push(wire);
+          } else if (wire) {
+            droppedWires.push(wire);
+          }
+        }
+        for (const port of node.outputPorts) {
+          const wire = savedOutputWires.get(port.contractPortId);
+          if (!wire) continue;
+          const dstPort = wire.endPort;
+          if (dstPort && dstPort.canConnectTo(port)) {
+            port.connections.push(wire);
+            wire.startPort = port;
+          } else if (wire) {
+            droppedWires.push(wire);
+          }
+        }
+
+        affectedCount++;
+      }
+    }
+
+    if (affectedCount > 0 || droppedWires.length > 0) {
+      const msg = droppedWires.length > 0
+        ? `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt, ${droppedWires.length} incompatible wire(s) removed.`
+        : `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt.`;
+      try { this.showNotification && this.showNotification(msg); } catch {}
+      try { this.onShaderChanged && this.onShaderChanged(); } catch {}
+    }
   }
 
   // Switch the editor's active graph. Sidebars/UI are refreshed if available.
@@ -5403,38 +5663,37 @@ class BlueprintSystem {
         graph.connectedNodes,
       );
 
-      // Generate shaders for all targets (each needs its own variable names for proper value formatting)
-      const webgl1PortToVarName = this.generateVariableNames(levels, "webgl1");
-      const webgl1Boilerplate = this.getBoilerplate("webgl1");
-      const webgl1Uniforms = this.generateUniformDeclarations("webgl1");
-      const webgl1Code = this.generateShader(
-        "webgl1",
-        levels,
-        webgl1PortToVarName,
-      );
-      const webgl1 = webgl1Boilerplate + webgl1Uniforms + webgl1Code;
+      const result = {};
+      for (const target of ["webgl1", "webgl2", "webgpu"]) {
+        const portToVarName = this.generateVariableNames(levels, target);
 
-      const webgl2PortToVarName = this.generateVariableNames(levels, "webgl2");
-      const webgl2Boilerplate = this.getBoilerplate("webgl2");
-      const webgl2Uniforms = this.generateUniformDeclarations("webgl2");
-      const webgl2Code = this.generateShader(
-        "webgl2",
-        levels,
-        webgl2PortToVarName,
-      );
-      const webgl2 = webgl2Boilerplate + webgl2Uniforms + webgl2Code;
+        // Compile all reachable function declarations for this target.
+        // Also caches signatures on FunctionCall nodes for use in generateShader.
+        const { declStr, extraDeps } = this._generateFunctionDeclarations(target, levels, portToVarName);
 
-      const webgpuPortToVarName = this.generateVariableNames(levels, "webgpu");
-      const webgpuBoilerplate = this.getBoilerplate("webgpu");
-      const webgpuUniforms = this.generateUniformDeclarations("webgpu");
-      const webgpuCode = this.generateShader(
-        "webgpu",
-        levels,
-        webgpuPortToVarName,
-      );
-      const webgpu = webgpuBoilerplate + webgpuUniforms + webgpuCode;
+        const boilerplate = this.getBoilerplate(target);
+        const uniforms = this.generateUniformDeclarations(target);
+        // Pass extraDeps so function body helpers appear in the dep block.
+        const shaderCode = this.generateShader(target, levels, portToVarName, extraDeps);
 
-      return { webgl1, webgl2, webgpu };
+        // Order: boilerplate → uniforms → function body helper deps (inside shaderCode dep block) → function declarations → main()
+        // generateShader emits the dep block then main(). We insert declStr between them.
+        const depBlockEnd = shaderCode.indexOf("\nvoid main") !== -1
+          ? shaderCode.indexOf("\nvoid main")
+          : shaderCode.indexOf("\n@fragment");
+        let fullShader;
+        if (depBlockEnd !== -1) {
+          fullShader = boilerplate + uniforms
+            + shaderCode.slice(0, depBlockEnd)
+            + declStr
+            + shaderCode.slice(depBlockEnd);
+        } else {
+          fullShader = boilerplate + uniforms + declStr + shaderCode;
+        }
+        result[target] = fullShader;
+      }
+
+      return result;
     } catch (error) {
       console.error("Error generating shaders:", error);
       return null;
@@ -7831,6 +8090,10 @@ class BlueprintSystem {
     const customNodeTypes = this.getCustomNodeTypes();
     nodeTypes = [...nodeTypes, ...Object.entries(customNodeTypes)];
 
+    // Add callable function/loop-body graph types (FunctionCall / ForLoop nodes)
+    const callableTypes = this.getCallableFunctionNodeTypes();
+    nodeTypes = [...nodeTypes, ...Object.entries(callableTypes)];
+
     // Filter out output node if one already exists
     const hasOutputNode = this.nodes.some(
       (node) => node.nodeType === NODE_TYPES.output,
@@ -7878,6 +8141,20 @@ class BlueprintSystem {
       customNodeTypes[key] = this.createNodeTypeFromCustomNode(customNode);
     });
     return customNodeTypes;
+  }
+
+  getCallableFunctionNodeTypes() {
+    const types = {};
+    for (const g of this.getCallableGraphs()) {
+      const handler = getHandler(g.kind);
+      if (!handler) continue;
+      const nodeType = handler.createCallerNodeType(g, this);
+      if (nodeType) {
+        const key = `${handler.callerSearchPrefix}_${g.id}`;
+        types[key] = nodeType;
+      }
+    }
+    return types;
   }
 
   createNodeTypeFromCustomNode(customNode) {
@@ -10515,11 +10792,12 @@ class BlueprintSystem {
     return declarations;
   }
 
-  generateShader(target, levels, portToVarName) {
+  generateShader(target, levels, portToVarName, extraDeps = new Map()) {
     let shader = "";
 
-    // Collect unique dependencies for this target with their node sources
-    const dependencyMap = new Map(); // Map from dependency string to Set of node names
+    // Collect unique dependencies for this target with their node sources.
+    // extraDeps carries helper functions needed by compiled function bodies.
+    const dependencyMap = new Map(extraDeps); // start with function-body deps
     for (const level of levels) {
       for (const node of level) {
         // Check if getDependency exists (some dynamically created nodes might not have it)
@@ -10614,6 +10892,28 @@ class BlueprintSystem {
             outputTypes,
           );
           shader += code + "\n";
+        } else if (node.nodeType.isFunctionCall) {
+          // Emit the call site for a FunctionCall node.
+          const handler = getHandler(node.nodeType.callerKind || "function");
+          if (handler) {
+            const sig = node._computedSignature
+              || handler.computeCallSiteSignature(node, this);
+            node._computedSignature = sig;
+
+            const contract = this.graphs.get(node.nodeType.targetGraphId)?.data?.contract;
+            const hasGenerics = contract?.inputs.some((p) => p.type && p.type.length === 1);
+            const fnName = hasGenerics
+              ? `fn_${_sanitizeId(node.nodeType.targetGraphId)}_${sig.sigHash}`
+              : `fn_${_sanitizeId(node.nodeType.targetGraphId)}`;
+
+            shader += `\n    // ${node.nodeType.name}\n`;
+            shader += handler.emitCallSite(node, sig, {
+              target,
+              portToVarName,
+              fnName,
+              host: this,
+            }) + "\n";
+          }
         }
       }
     }
@@ -12318,25 +12618,29 @@ class BlueprintSystem {
       }
       this.deprecatedUniformsExpanded = false;
 
-      // Load top-level into the main graph.
-      this._loadGraphPayload(this.mainGraph, data);
-
-      // Load any additional graphs.
+      // Register additional graph shells BEFORE loading the main graph's nodes,
+      // so that function_call_<id> keys resolve during main-graph node loading.
+      const additionalGraphEntries = [];
       if (Array.isArray(data._additionalGraphs)) {
         for (const extra of data._additionalGraphs) {
           const g = this.createGraph({
             id: extra.id,
             name: extra.name,
-            kind: extra.kind || "function", // default to 'function' for backward compat
+            kind: extra.kind || "function",
             color: extra.color || null,
-            data: extra.data || {
-              contract: { inputs: [], outputs: [] },
-              notes: "",
-            },
+            data: extra.data || { contract: { inputs: [], outputs: [] }, notes: "" },
             contractVersion: extra.contractVersion || 0,
           });
-          this._loadGraphPayload(g, extra);
+          additionalGraphEntries.push({ g, extra });
         }
+      }
+
+      // Load top-level into the main graph.
+      this._loadGraphPayload(this.mainGraph, data);
+
+      // Now load node payloads for additional graphs.
+      for (const { g, extra } of additionalGraphEntries) {
+        this._loadGraphPayload(g, extra);
       }
 
       // Post-load UI refresh (active graph is mainGraph at this point).
@@ -12396,6 +12700,11 @@ class BlueprintSystem {
       return `uniform_${nodeType.uniformId}`;
     }
 
+    // Check if it's a function-call caller node
+    if (nodeType.isFunctionCall && nodeType.targetGraphId) {
+      return `function_call_${nodeType.targetGraphId}`;
+    }
+
     // Find the key for this node type in NODE_TYPES
     for (const [key, type] of Object.entries(NODE_TYPES)) {
       if (type === nodeType) {
@@ -12421,6 +12730,16 @@ class BlueprintSystem {
       }
     }
 
+    // Check if it's a function-call caller node
+    if (key.startsWith("function_call_")) {
+      const graphId = key.slice("function_call_".length);
+      const g = this.graphs.get(graphId);
+      if (g) {
+        const handler = getHandler(g.kind);
+        if (handler) return handler.createCallerNodeType(g, this);
+      }
+    }
+
     // Check uniform nodes
     const uniformNodeTypes = this.getUniformNodeTypes();
     if (uniformNodeTypes[key]) {
@@ -12443,6 +12762,7 @@ class BlueprintSystem {
   }
 
   sanitizeGraphLocalId(value, fallback = "node") {
+    // (see module-level _sanitizeId for the shader identifier version)
     const normalized = String(value || "")
       .trim()
       .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
