@@ -2142,6 +2142,19 @@ class BlueprintSystem {
           const outputTypes = node.outputPorts.map((p) => p.getResolvedType());
           bodyCode += `\n    // ${node.nodeType.name}\n`;
           bodyCode += execution(inputVars, outputVars, node, inputTypes, outputTypes) + "\n";
+        } else if (node.nodeType.isFunctionCall) {
+          // Nested FunctionCall inside a function body. Compute its signature
+          // and emit the call site; the nested declaration is collected by
+          // _generateFunctionDeclarations in a separate pass.
+          const callerHandler = getHandler(node.nodeType.callerKind || "function");
+          if (callerHandler) {
+            const nestedSig = callerHandler.computeCallSiteSignature(node, this);
+            node._computedSignature = nestedSig;
+            bodyCode += `\n    // ${node.nodeType.name}\n`;
+            bodyCode += callerHandler.emitCallSite(node, nestedSig, {
+              target, portToVarName, fnName: nestedSig.fnName, host: this,
+            }) + "\n";
+          }
         }
       }
     }
@@ -2172,36 +2185,78 @@ class BlueprintSystem {
   // emitCallSite during the main generateShader pass.
   // Returns { declStr: string, extraDeps: Map<string, Set<string>> }.
   _generateFunctionDeclarations(target, levels, portToVarName) {
-    const seen = new Set();
-    const variants = []; // { graph, signature, handler }
+    // Collect variants in discovery order: main's call sites first, then any
+    // nested call sites reached by compiling a function body. Emit in
+    // callee-first order (reverse-topological) so forward declarations aren't
+    // needed in GLSL. Deduped by (targetGraphId, sigHash).
+    const variantByKey = new Map(); // key → { graph, signature, handler, declaration, deps, callees: Set<key> }
     const extraDeps = new Map();
+    const worklist = [];
 
-    for (const level of levels) {
-      for (const node of level) {
-        if (!node.nodeType.isFunctionCall) continue;
-        const handler = getHandler(node.nodeType.callerKind || "function");
-        if (!handler) continue;
-        const sig = handler.computeCallSiteSignature(node, this);
-        node._computedSignature = sig; // cache for emitCallSite
-        const key = `${node.nodeType.targetGraphId}_${sig.sigHash}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          const graph = this.graphs.get(node.nodeType.targetGraphId);
-          if (graph) variants.push({ graph, signature: sig, handler });
-        }
+    const enqueue = (node) => {
+      if (!node.nodeType.isFunctionCall) return null;
+      const handler = getHandler(node.nodeType.callerKind || "function");
+      if (!handler) return null;
+      const sig = handler.computeCallSiteSignature(node, this);
+      node._computedSignature = sig;
+      const key = `${node.nodeType.targetGraphId}_${sig.sigHash}`;
+      if (!variantByKey.has(key)) {
+        const graph = this.graphs.get(node.nodeType.targetGraphId);
+        if (!graph) return null;
+        variantByKey.set(key, { graph, signature: sig, handler, declaration: "", deps: new Map(), callees: new Set() });
+        worklist.push(key);
       }
+      return key;
+    };
+
+    // Seed: every FunctionCall reachable at the top level (inside main()).
+    for (const level of levels) {
+      for (const node of level) enqueue(node);
     }
 
-    if (variants.length === 0) return { declStr: "", extraDeps };
-
-    let declStr = "\n// --- Function declarations ---\n";
-    for (const { graph, signature, handler } of variants) {
-      const { declaration, deps } = handler.emitFunctionDeclaration(graph, signature, target, this);
-      declStr += declaration + "\n";
+    // Expand: compile each variant's body; during that compilation, the body
+    // walks its own FunctionCall nodes and caches their signatures on them.
+    // After compilation we scan the body for nested callers and enqueue them.
+    while (worklist.length > 0) {
+      const key = worklist.shift();
+      const entry = variantByKey.get(key);
+      const { declaration, deps } = entry.handler.emitFunctionDeclaration(
+        entry.graph, entry.signature, target, this,
+      );
+      entry.declaration = declaration;
+      entry.deps = deps;
       for (const [dep, names] of deps) {
         if (!extraDeps.has(dep)) extraDeps.set(dep, new Set());
         for (const n of names) extraDeps.get(dep).add(n);
       }
+      // Discover nested callees.
+      for (const n of entry.graph.nodes) {
+        const calleeKey = enqueue(n);
+        if (calleeKey) entry.callees.add(calleeKey);
+      }
+    }
+
+    if (variantByKey.size === 0) return { declStr: "", extraDeps };
+
+    // DFS postorder to emit callees before their callers.
+    const emitted = new Set();
+    const ordered = [];
+    const stack = new Set(); // for cycle guard (shouldn't happen; Phase 6 prevents)
+    const visit = (key) => {
+      if (emitted.has(key)) return;
+      if (stack.has(key)) return; // cycle fallback
+      stack.add(key);
+      const entry = variantByKey.get(key);
+      for (const ck of entry.callees) visit(ck);
+      stack.delete(key);
+      emitted.add(key);
+      ordered.push(key);
+    };
+    for (const key of variantByKey.keys()) visit(key);
+
+    let declStr = "\n// --- Function declarations ---\n";
+    for (const key of ordered) {
+      declStr += variantByKey.get(key).declaration + "\n";
     }
 
     return { declStr, extraDeps };
@@ -10900,17 +10955,11 @@ class BlueprintSystem {
               || handler.computeCallSiteSignature(node, this);
             node._computedSignature = sig;
 
-            const contract = this.graphs.get(node.nodeType.targetGraphId)?.data?.contract;
-            const hasGenerics = contract?.inputs.some((p) => p.type && p.type.length === 1);
-            const fnName = hasGenerics
-              ? `fn_${_sanitizeId(node.nodeType.targetGraphId)}_${sig.sigHash}`
-              : `fn_${_sanitizeId(node.nodeType.targetGraphId)}`;
-
             shader += `\n    // ${node.nodeType.name}\n`;
             shader += handler.emitCallSite(node, sig, {
               target,
               portToVarName,
-              fnName,
+              fnName: sig.fnName,
               host: this,
             }) + "\n";
           }

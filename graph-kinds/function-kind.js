@@ -146,36 +146,43 @@ export const functionKindHandler = {
     const sigStr = inputTypes.join(",") + "->" + outputTypes.join(",");
     const sigHash = shortHash(sigStr);
 
-    const hasGenerics = contract.inputs.some((p) => !isConcreteType(p.type));
+    const hasGenerics =
+      contract.inputs.some((p) => !isConcreteType(p.type)) ||
+      contract.outputs.some((p) => !isConcreteType(p.type));
 
-    return { sigHash, inputTypes, outputTypes, bindings, sigStr, hasGenerics };
+    const fnName = hasGenerics
+      ? `fn_${sanitizeId(targetGraph?.id || "")}_${sigHash}`
+      : `fn_${sanitizeId(targetGraph?.id || "")}`;
+
+    // Resolve concrete types from bindings (used by emitFunctionDeclaration)
+    const resolvedInputTypes = contract.inputs.map((p, i) =>
+      isConcreteType(p.type) ? p.type : (bindings[p.type] || inputTypes[i] || "float")
+    );
+    const resolvedOutputTypes = contract.outputs.map((p, i) =>
+      isConcreteType(p.type) ? p.type : (bindings[p.type] || outputTypes[i] || "float")
+    );
+
+    return {
+      sigHash, sigStr, hasGenerics, fnName,
+      inputTypes, outputTypes, bindings,
+      resolvedInputTypes, resolvedOutputTypes,
+    };
   },
 
   // Returns { declaration: string, deps: Map<string,Set<string>> }
   emitFunctionDeclaration(graph, signature, target, host) {
     const contract = graph.data?.contract || { inputs: [], outputs: [] };
-    const { sigHash, inputTypes, outputTypes, bindings, hasGenerics } = signature;
+    const { outputTypes, fnName } = signature;
 
     if (outputTypes.length === 0) return { declaration: "", deps: new Map() };
 
-    // Resolve concrete types from bindings
-    const resolvedIn = contract.inputs.map((p, i) =>
-      isConcreteType(p.type) ? p.type : (bindings[p.type] || inputTypes[i] || "float")
-    );
-    const resolvedOut = contract.outputs.map((p, i) =>
-      isConcreteType(p.type) ? p.type : (bindings[p.type] || outputTypes[i] || "float")
-    );
+    // Signatures built by computeCallSiteSignature carry resolvedInputTypes /
+    // resolvedOutputTypes. Older test fixtures pass them in directly, so fall
+    // back to the signature fields if present.
+    const resolvedIn = signature.resolvedInputTypes || [];
+    const resolvedOut = signature.resolvedOutputTypes || [];
 
-    const fnName = hasGenerics
-      ? `fn_${sanitizeId(graph.id)}_${sigHash}`
-      : `fn_${sanitizeId(graph.id)}`;
-
-    const { bodyCode, deps } = host._compileFunctionBody(graph, {
-      ...signature,
-      resolvedInputTypes: resolvedIn,
-      resolvedOutputTypes: resolvedOut,
-      fnName,
-    }, target);
+    const { bodyCode, deps } = host._compileFunctionBody(graph, signature, target);
 
     const isWebGPU = target === "webgpu";
     const singleOut = resolvedOut.length === 1;
