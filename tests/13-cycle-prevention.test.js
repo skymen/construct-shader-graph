@@ -233,6 +233,8 @@ describe("Cycle / recursion prevention — Phase 6", () => {
       const cycle = detectCycleInDAG(blueprint);
       expect(cycle).not.toBeNull();
       expect(cycle.length).toBeGreaterThanOrEqual(2);
+      expect(cycle).toContain(fnA.id);
+      expect(cycle).toContain(fnB.id);
     });
   });
 

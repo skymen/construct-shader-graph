@@ -47,14 +47,15 @@ describe("generateAllShaders", () => {
   });
 
   it("REFACTOR CONTRACT: code-gen depends on this.nodes only (no DOM/UI)", () => {
-    // After the refactor, generateAllShaders will move onto the Graph class
-    // and run against `mainGraph.nodes`. This test pins that the current
-    // implementation reads only from the blueprint's node/wire/uniform arrays
-    // — we verify it does NOT need the active selection or camera.
+    const shadersBefore = blueprint.generateAllShaders();
+    expect(shadersBefore).toBeTruthy();
+
     blueprint.selectedNodes.clear();
     blueprint.camera = { x: -9999, y: -9999, zoom: 0.001 };
-    const shaders = blueprint.generateAllShaders();
-    expect(shaders).toBeTruthy();
-    expect(shaders.webgl2.length).toBeGreaterThan(0);
+    const shadersAfter = blueprint.generateAllShaders();
+
+    expect(shadersAfter.webgl1).toBe(shadersBefore.webgl1);
+    expect(shadersAfter.webgl2).toBe(shadersBefore.webgl2);
+    expect(shadersAfter.webgpu).toBe(shadersBefore.webgpu);
   });
 });

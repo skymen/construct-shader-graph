@@ -171,13 +171,19 @@ describe("Save/load round-trip with function graphs", () => {
 
       await blueprint.loadFromJSON(fakeFile(payload));
 
-      // The caller node should have been loaded; its nodeType should resolve via getNodeTypeFromKey
       const callerNode = blueprint.mainGraph.nodes.find((n) =>
         blueprint.getNodeTypeKey(n.nodeType) === "function_call_fn_xyz"
       );
       expect(callerNode).toBeDefined();
       expect(callerNode.nodeType.isFunctionCall).toBe(true);
       expect(callerNode.nodeType.targetGraphId).toBe("fn_xyz");
+      // Ports must match the contract after rebuild
+      expect(callerNode.inputPorts.length).toBe(1);
+      expect(callerNode.inputPorts[0].name).toBe("a");
+      expect(callerNode.inputPorts[0].portType).toBe("float");
+      expect(callerNode.outputPorts.length).toBe(1);
+      expect(callerNode.outputPorts[0].name).toBe("b");
+      expect(callerNode.outputPorts[0].portType).toBe("vec3");
     });
 
     it("round-trip preserves body wires (boundary ports get rebuilt from contract)", async () => {
@@ -367,16 +373,13 @@ describe("Save/load round-trip with function graphs", () => {
       blueprint.syncContractCallers(g);
 
       blueprint.setActiveGraph(g.id);
-      // Re-snapshot so the history knows the current state
       g.history.currentState = blueprint.exportState();
 
-      // Edit the contract
       g.data.contract.inputs[0].name = "modified";
       blueprint.syncContractCallers(g);
 
       expect(g.data.contract.inputs[0].name).toBe("modified");
 
-      // Undo should restore the original name
       const result = g.history.undo();
       expect(result).toBeTruthy();
       expect(g.data.contract.inputs[0].name).toBe("original");

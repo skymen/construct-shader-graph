@@ -34,7 +34,7 @@ function setupMainWithOutput() {
 
 describe("Function codegen — Phase 3", () => {
   describe("function declaration appears in shader before main()", () => {
-    it("emitFunctionDeclaration returns a non-empty string for a concrete-typed function", () => {
+    it("emitFunctionDeclaration returns a non-empty string for a concrete-typed function", async () => {
       const g = blueprint.createFunctionGraph({ name: "Double" });
       g.data.contract = {
         inputs: [{ id: 1, name: "x", type: "float" }],
@@ -42,36 +42,22 @@ describe("Function codegen — Phase 3", () => {
       };
       blueprint.syncContractCallers(g);
 
-      const { getHandler } = globalThis.__sgGetHandlerModule || {};
-      if (!getHandler) {
-        // Access via blueprint internals
-        const handler = blueprint._getHandlerForKind
-          ? blueprint._getHandlerForKind("function")
-          : null;
-        if (!handler) {
-          // Verify via full shader generation instead
-          return;
-        }
-      }
-
-      // Use handler via import from the module
-      import("../graph-kinds/function-kind.js").then(({ functionKindHandler }) => {
-        const sig = {
-          sigHash: "abc123",
-          inputTypes: ["float"],
-          outputTypes: ["float"],
-          bindings: {},
-          hasGenerics: false,
-          resolvedInputTypes: ["float"],
-          resolvedOutputTypes: ["float"],
-          fnName: "fn_test",
-        };
-        const { declaration } = functionKindHandler.emitFunctionDeclaration(g, sig, "webgl2", blueprint);
-        expect(declaration).toContain("fn_test");
-        expect(declaration).toContain("float");
-        expect(declaration).toContain("{");
-        expect(declaration).toContain("}");
-      });
+      const { functionKindHandler } = await import("../graph-kinds/function-kind.js");
+      const sig = {
+        sigHash: "abc123",
+        inputTypes: ["float"],
+        outputTypes: ["float"],
+        bindings: {},
+        hasGenerics: false,
+        resolvedInputTypes: ["float"],
+        resolvedOutputTypes: ["float"],
+        fnName: "fn_test",
+      };
+      const { declaration } = functionKindHandler.emitFunctionDeclaration(g, sig, "webgl2", blueprint);
+      expect(declaration).toContain("fn_test");
+      expect(declaration).toContain("float");
+      expect(declaration).toContain("{");
+      expect(declaration).toContain("}");
     });
 
     it("generated shader contains 'fn_' declaration before 'void main'", () => {
