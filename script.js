@@ -7,7 +7,7 @@ import {
   getAllowedTypesForGeneric,
   toShaderValue,
 } from "./nodes/index.js";
-import { getHandler } from "./graph-kinds/index.js";
+import { getHandler, wouldCreateCycle, getCyclePath, detectCycleInDAG } from "./graph-kinds/index.js";
 
 // Convert an arbitrary string to a valid GLSL/WGSL identifier.
 function _sanitizeId(str) {
@@ -6059,8 +6059,49 @@ class BlueprintSystem {
     );
   }
 
+  _validateCallDAG() {
+    const errors = [];
+    const cycle = detectCycleInDAG(this);
+    if (cycle) {
+      const names = cycle.map((id) => this.graphs.get(id)?.name || id).join(" → ");
+      errors.push({ message: `Cycle detected in call graph: ${names}`, graphId: cycle[0] });
+    }
+
+    for (const graph of this.graphs.values()) {
+      if (graph.kind !== "function" && graph.kind !== "loopBody") continue;
+      const handler = getHandler(graph.kind);
+      if (!handler) continue;
+
+      const inputNodes = graph.nodes.filter((n) => n.nodeType.name === "Function Input");
+      const outputNodes = graph.nodes.filter((n) => n.nodeType.name === "Function Output");
+
+      if (inputNodes.length === 0) {
+        errors.push({ message: `"${graph.name}" is missing a Function Input node`, graphId: graph.id });
+      } else if (inputNodes.length > 1) {
+        errors.push({ message: `"${graph.name}" has duplicate Function Input nodes`, graphId: graph.id });
+      }
+      if (outputNodes.length === 0) {
+        errors.push({ message: `"${graph.name}" is missing a Function Output node`, graphId: graph.id });
+      } else if (outputNodes.length > 1) {
+        errors.push({ message: `"${graph.name}" has duplicate Function Output nodes`, graphId: graph.id });
+      }
+
+      const contractErrors = handler.validateContract(graph.data?.contract || { inputs: [], outputs: [] });
+      for (const msg of contractErrors) {
+        errors.push({ message: `"${graph.name}": ${msg}`, graphId: graph.id });
+      }
+    }
+    return errors;
+  }
+
   _generateAllShadersImpl() {
     try {
+      const validationErrors = this._validateCallDAG();
+      if (validationErrors.length > 0) {
+        console.warn("Pre-codegen validation failed:", validationErrors.map((e) => e.message).join("; "));
+        return null;
+      }
+
       // Build dependency graph
       const graph = this.buildDependencyGraph();
 
@@ -8815,9 +8856,14 @@ class BlueprintSystem {
     const customNodeTypes = this.getCustomNodeTypes();
     nodeTypes = [...nodeTypes, ...Object.entries(customNodeTypes)];
 
-    // Add callable function/loop-body graph types (FunctionCall / ForLoop nodes)
+    // Add callable function/loop-body graph types (FunctionCall / ForLoop nodes),
+    // excluding any that would create a cycle from the active graph.
     const callableTypes = this.getCallableFunctionNodeTypes();
-    nodeTypes = [...nodeTypes, ...Object.entries(callableTypes)];
+    for (const [key, nodeType] of Object.entries(callableTypes)) {
+      if (!wouldCreateCycle(this, this.activeGraphId, nodeType.targetGraphId)) {
+        nodeTypes.push([key, nodeType]);
+      }
+    }
 
     const activeKind = this.activeGraph?.kind || "main";
     const inSubgraph = activeKind === "function" || activeKind === "loopBody";
@@ -9373,6 +9419,13 @@ class BlueprintSystem {
         newNode = this.createUniformNode(uniform, worldX, worldY);
       }
     } else {
+      if (nodeType.isFunctionCall && nodeType.targetGraphId) {
+        if (wouldCreateCycle(this, this.activeGraphId, nodeType.targetGraphId)) {
+          const cyclePath = getCyclePath(this, this.activeGraphId, nodeType.targetGraphId);
+          try { this.showNotification && this.showNotification({ type: "error", title: "Cycle detected", message: `Adding this would create a cycle: ${cyclePath}` }); } catch {}
+          return;
+        }
+      }
       newNode = this.addNode(worldX, worldY, nodeType);
     }
 
@@ -9555,8 +9608,9 @@ class BlueprintSystem {
       if (callerGraphId) {
         const targetGraph = this.graphs.get(callerGraphId);
         if (!targetGraph) return;
-        if (targetGraph.id === this.activeGraphId) {
-          try { this.showNotification && this.showNotification({ type: "warning", title: "Cannot call the current graph from itself." }); } catch {}
+        if (wouldCreateCycle(this, this.activeGraphId, callerGraphId)) {
+          const cyclePath = getCyclePath(this, this.activeGraphId, callerGraphId);
+          try { this.showNotification && this.showNotification({ type: "error", title: "Cycle detected", message: `Adding this would create a cycle: ${cyclePath}` }); } catch {}
           return;
         }
         const handler = getHandler(targetGraph.kind);
