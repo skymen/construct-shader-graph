@@ -359,4 +359,128 @@ describe("Function codegen — Phase 3", () => {
       blueprint.setActiveGraph(blueprint.mainGraphId);
     });
   });
+
+  // ==================== WGSL FragmentInput threading ====================
+
+  describe("WGSL FragmentInput parameter threading", () => {
+    function buildFnAndMainGraph(fnName, contract, buildBody) {
+      blueprint.setActiveGraph(blueprint.mainGraphId);
+      blueprint.nodes = [];
+      blueprint.wires = [];
+
+      const g = blueprint.createFunctionGraph({ name: fnName });
+      g.data.contract = contract;
+      blueprint.syncContractCallers(g);
+
+      blueprint.setActiveGraph(g.id);
+      const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+      const outp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+      buildBody(inp, outp);
+
+      blueprint.setActiveGraph(blueprint.mainGraphId);
+      const types = blueprint.getCallableFunctionNodeTypes();
+      const callerType = types[`function_call_${g.id}`];
+      const caller = blueprint.addNode(0, 0, callerType);
+      const toVec4 = blueprint.addNode(0, 0, NODE_TYPES.toVec4);
+      const outputNode = blueprint.addNode(400, 200, NODE_TYPES.output);
+      connect(blueprint, caller.outputPorts[0], toVec4.inputPorts[0]);
+      connect(blueprint, toVec4.outputPorts[0], outputNode.inputPorts[0]);
+      return g;
+    }
+
+    it("function declaration includes input: FragmentInput as first param in WGSL", () => {
+      const g = buildFnAndMainGraph(
+        "InputThread",
+        { inputs: [{ id: 1, name: "x", type: "float" }], outputs: [{ id: 2, name: "result", type: "float" }] },
+        (inp, outp) => {
+          const math = blueprint.addNode(0, 0, NODE_TYPES.math);
+          connect(blueprint, inp.outputPorts[0], math.inputPorts[0]);
+          connect(blueprint, math.outputPorts[0], outp.inputPorts[0]);
+        }
+      );
+
+      const shaders = blueprint.generateAllShaders();
+      const wgsl = shaders.webgpu;
+      const declRe = /fn\s+(fn_\w+)\(([^)]+)\)/;
+      const declMatch = wgsl.match(declRe);
+      expect(declMatch).not.toBeNull();
+      expect(declMatch[2]).toMatch(/^input:\s*FragmentInput/);
+    });
+
+    it("function call site passes input as first argument in WGSL", () => {
+      const g = buildFnAndMainGraph(
+        "InputCall",
+        { inputs: [{ id: 1, name: "x", type: "float" }], outputs: [{ id: 2, name: "result", type: "float" }] },
+        (inp, outp) => {
+          const math = blueprint.addNode(0, 0, NODE_TYPES.math);
+          connect(blueprint, inp.outputPorts[0], math.inputPorts[0]);
+          connect(blueprint, math.outputPorts[0], outp.inputPorts[0]);
+        }
+      );
+
+      const shaders = blueprint.generateAllShaders();
+      const wgsl = shaders.webgpu;
+      const mainSection = wgsl.slice(wgsl.indexOf("@fragment"));
+      const callRe = /fn_\w+\(([^)]+)\)/;
+      const callMatch = mainSection.match(callRe);
+      expect(callMatch).not.toBeNull();
+      expect(callMatch[1]).toMatch(/^input\b/);
+    });
+
+    it("GLSL does NOT include input param (varyings are global)", () => {
+      const g = buildFnAndMainGraph(
+        "NoInputGLSL",
+        { inputs: [{ id: 1, name: "x", type: "float" }], outputs: [{ id: 2, name: "result", type: "float" }] },
+        (inp, outp) => {
+          const math = blueprint.addNode(0, 0, NODE_TYPES.math);
+          connect(blueprint, inp.outputPorts[0], math.inputPorts[0]);
+          connect(blueprint, math.outputPorts[0], outp.inputPorts[0]);
+        }
+      );
+
+      const shaders = blueprint.generateAllShaders();
+      for (const target of ["webgl1", "webgl2"]) {
+        const src = shaders[target];
+        const declRe = /\w+\s+fn_\w+\(([^)]+)\)/;
+        const declMatch = src.match(declRe);
+        expect(declMatch).not.toBeNull();
+        expect(declMatch[1]).not.toMatch(/FragmentInput/);
+        expect(declMatch[1]).not.toMatch(/^input/);
+      }
+    });
+
+    it("FrontUV inside a function body emits input.fragUV in WGSL and function receives input param", () => {
+      const g = buildFnAndMainGraph(
+        "WithUV",
+        { inputs: [], outputs: [{ id: 1, name: "uv", type: "vec2" }] },
+        (inp, outp) => {
+          const frontUV = blueprint.addNode(0, 0, NODE_TYPES.frontUV);
+          connect(blueprint, frontUV.outputPorts[0], outp.inputPorts[0]);
+        }
+      );
+
+      const shaders = blueprint.generateAllShaders();
+      const wgsl = shaders.webgpu;
+      const safe = g.id.replace(/[^a-zA-Z0-9_]/g, "_");
+
+      const declRe = new RegExp(`fn\\s+fn_${safe}[^(]*\\(([^)]+)\\)`);
+      const declMatch = wgsl.match(declRe);
+      expect(declMatch).not.toBeNull();
+      expect(declMatch[1]).toMatch(/input:\s*FragmentInput/);
+
+      const fnBodyStart = wgsl.indexOf(declMatch[0]);
+      const fnBodyEnd = wgsl.indexOf("\n}\n", fnBodyStart);
+      const fnBody = wgsl.slice(fnBodyStart, fnBodyEnd);
+      expect(fnBody).toContain("input.fragUV");
+
+      const mainSection = wgsl.slice(wgsl.indexOf("@fragment"));
+      const callRe = new RegExp(`fn_${safe}[^(]*\\(([^)]+)\\)`);
+      const callMatch = mainSection.match(callRe);
+      expect(callMatch).not.toBeNull();
+      expect(callMatch[1]).toMatch(/^input\b/);
+
+      const glsl = shaders.webgl2;
+      expect(glsl).toContain("vTex");
+    });
+  });
 });

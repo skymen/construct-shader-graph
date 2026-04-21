@@ -2202,16 +2202,18 @@ class BlueprintSystem {
     const levels = this.topologicalSort(dependencies, visited);
 
     // Build portToVarName: FunctionInput outputs -> parameter names; rest -> fv_N.
-    // For loop bodies, outputPorts[0] is the injected Index port (not in the
-    // contract), so contract indices are offset by 1.
+    // For loop bodies, outputPorts[0..1] are the injected Index and Count ports
+    // (not in the contract), so contract indices are offset by 2.
     const portToVarName = new Map();
     let varCounter = 0;
-    const indexOffset = graph.kind === "loopBody" ? 1 : 0;
+    const injectedCount = graph.kind === "loopBody" ? 2 : 0;
     inputNode.outputPorts.forEach((port, i) => {
-      if (i === 0 && indexOffset === 1) {
-        portToVarName.set(port, "i");
+      if (graph.kind === "loopBody" && i === 0) {
+        portToVarName.set(port, "i"); // Index
+      } else if (graph.kind === "loopBody" && i === 1) {
+        portToVarName.set(port, "n"); // Count
       } else {
-        const ci = i - indexOffset;
+        const ci = i - injectedCount;
         const paramName = contract.inputs[ci]
           ? _sanitizeId(contract.inputs[ci].name)
           : `p${i}`;
@@ -2483,12 +2485,20 @@ class BlueprintSystem {
     const handler = getHandler(graph.kind);
     if (!handler) return null;
     // Fake a caller node with unconnected input ports so the handler's
-    // computeCallSiteSignature path walks the same code.
-    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+    // computeCallSiteSignature path walks the same code.  Use the caller
+    // node type's port layout (which differs from the raw contract for
+    // ForLoop callers: Count + Initial accs + args).
+    const fakeCallerType = handler.createCallerNodeType(graph, this);
+    const fakeInputs = fakeCallerType
+      ? fakeCallerType.inputs.map(() => ({ connections: [] }))
+      : [];
+    const fakeOutputs = fakeCallerType
+      ? fakeCallerType.outputs.map(() => ({ connections: [] }))
+      : [];
     const fakeNode = {
       nodeType: { targetGraphId: graph.id, callerKind: graph.kind },
-      inputPorts: contract.inputs.map(() => ({ connections: [] })),
-      outputPorts: contract.outputs.map(() => ({ connections: [] })),
+      inputPorts: fakeInputs,
+      outputPorts: fakeOutputs,
     };
     try {
       return handler.computeCallSiteSignature(fakeNode, this);

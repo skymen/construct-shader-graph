@@ -202,9 +202,12 @@ export const functionKindHandler = {
     let declaration = "";
 
     if (isWebGPU) {
-      const params = contract.inputs
+      const userParams = contract.inputs
         .map((p, i) => `${sanitizeId(p.name)}: ${toWGSLType(resolvedIn[i])}`)
         .join(", ");
+      // Prepend implicit input: FragmentInput so nodes that read varyings
+      // (e.g. FrontUV → input.fragUV) work inside function bodies.
+      const params = userParams ? `input: FragmentInput, ${userParams}` : "input: FragmentInput";
       if (singleOut) {
         declaration = `fn ${fnName}(${params}) -> ${toWGSLType(resolvedOut[0])} {\n${bodyCode}}\n`;
       } else {
@@ -244,20 +247,23 @@ export const functionKindHandler = {
     const inputVars = callerNode.inputPorts.map((p) => portToVarName.get(p) || "0.0");
     const outputVars = callerNode.outputPorts.map((p) => portToVarName.get(p));
 
+    // WGSL: thread `input` (FragmentInput) through so varying-reading nodes work.
+    const allArgs = isWebGPU ? ["input", ...inputVars] : inputVars;
+
     let code = "";
 
     if (singleOut) {
       const outType = resolvedOutputTypes[0];
       const outVar = outputVars[0];
       if (isWebGPU) {
-        code = `    let ${outVar} = ${fnName}(${inputVars.join(", ")});`;
+        code = `    let ${outVar} = ${fnName}(${allArgs.join(", ")});`;
       } else {
-        code = `    ${outType} ${outVar} = ${fnName}(${inputVars.join(", ")});`;
+        code = `    ${outType} ${outVar} = ${fnName}(${allArgs.join(", ")});`;
       }
     } else if (resolvedOutputTypes.length > 1) {
       if (isWebGPU) {
         const tmp = `_tmp_${outputVars[0] || "r"}`;
-        code = `    let ${tmp} = ${fnName}(${inputVars.join(", ")});\n`;
+        code = `    let ${tmp} = ${fnName}(${allArgs.join(", ")});\n`;
         outputVars.forEach((v, i) => { code += `    let ${v} = ${tmp}.o${i};\n`; });
         code = code.trimEnd();
       } else {

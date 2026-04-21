@@ -8,17 +8,17 @@
 %%SAMPLERFRONT_BINDING%% var samplerFront : sampler;
 %%TEXTUREFRONT_BINDING%% var textureFront : texture_2d<f32>;
 // --- Function declarations ---
-fn fn_fnB(x: f32) -> f32 {
+fn fn_fnB(input: FragmentInput, x: f32) -> f32 {
 
     // Math
     var fv_0: f32 = x + 0.0;
     return fv_0;
 }
 
-fn fn_fnA(x: f32) -> f32 {
+fn fn_fnA(input: FragmentInput, x: f32) -> f32 {
 
     // FnB
-    let fv_0 = fn_fnB(x);
+    let fv_0 = fn_fnB(input, x);
     return fv_0;
 }
 
@@ -27,7 +27,7 @@ fn fn_fnA(x: f32) -> f32 {
 fn main(input : FragmentInput) -> FragmentOutput {
     var output : FragmentOutput;
     // FnA
-    let var_0 = fn_fnA(0.0);
+    let var_0 = fn_fnA(input, 0.0);
 
     // To Vec4
     var var_1: vec4<f32> = vec4<f32>(var_0);

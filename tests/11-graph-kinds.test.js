@@ -104,12 +104,14 @@ describe("Graph kinds — Phase 2 scaffolding", () => {
       expect(outputs.length).toBe(1);
     });
 
-    it("Function Input always has Index as the first output port", () => {
+    it("Function Input always has Index as the first output port and Count as the second", () => {
       const g = blueprint.createLoopBodyGraph({ name: "Loop" });
       const inputNode = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
-      expect(inputNode.outputPorts.length).toBeGreaterThanOrEqual(1);
+      expect(inputNode.outputPorts.length).toBeGreaterThanOrEqual(2);
       expect(inputNode.outputPorts[0].portType).toBe("int");
       expect(inputNode.outputPorts[0].name).toBe("Index");
+      expect(inputNode.outputPorts[1].portType).toBe("int");
+      expect(inputNode.outputPorts[1].name).toBe("Count");
     });
   });
 
@@ -148,21 +150,24 @@ describe("Graph kinds — Phase 2 scaffolding", () => {
       expect(outputNode.inputPorts[0].name).toBe("result");
     });
 
-    it("loopBody: Index stays first after adding contract inputs", () => {
+    it("loopBody: Index and Count stay first after adding contract inputs", () => {
       const g = blueprint.createLoopBodyGraph({ name: "Sum" });
       g.data.contract.inputs.push({ id: 1, name: "acc", type: "float", role: "acc" });
 
       const inputNode = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
-      // Re-enforce: Index + contract inputs
+      // Re-enforce: Index + Count + contract inputs
       blueprint._rebuildBoundaryNodePorts(inputNode, [], [
         { name: "Index", type: "int" },
+        { name: "Count", type: "int" },
         { name: "acc", type: "float" },
       ]);
 
       expect(inputNode.outputPorts[0].name).toBe("Index");
       expect(inputNode.outputPorts[0].portType).toBe("int");
-      expect(inputNode.outputPorts[1].name).toBe("acc");
-      expect(inputNode.outputPorts[1].portType).toBe("float");
+      expect(inputNode.outputPorts[1].name).toBe("Count");
+      expect(inputNode.outputPorts[1].portType).toBe("int");
+      expect(inputNode.outputPorts[2].name).toBe("acc");
+      expect(inputNode.outputPorts[2].portType).toBe("float");
     });
   });
 

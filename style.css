@@ -4742,6 +4742,17 @@ body {
   text-align: center;
 }
 
+.contract-port-role-select {
+  flex: 0 0 auto;
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  height: 32px;
+}
+
 .contract-port-resolved-hint {
   font-size: 11px;
   color: #888;

@@ -70,10 +70,10 @@ function buildSimpleSumLoop(name) {
   blueprint.setActiveGraph(g.id);
   const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
   const outp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
-  // FunctionInput outputs: [Index(int), acc(float)]
+  // FunctionInput outputs: [Index(int), Count(int), acc(float)]
   // Wire acc → math(add) → FunctionOutput.acc
   const math = blueprint.addNode(0, 0, NODE_TYPES.math);
-  connect(blueprint, inp.outputPorts[1], math.inputPorts[0]); // acc → A
+  connect(blueprint, inp.outputPorts[2], math.inputPorts[0]); // acc → A
   connect(blueprint, math.outputPorts[0], outp.inputPorts[0]); // result → output.acc
   blueprint.setActiveGraph(blueprint.mainGraphId);
   return g;
@@ -99,12 +99,12 @@ function buildDualAccLoop(name) {
   blueprint.setActiveGraph(g.id);
   const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
   const outp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
-  // Outputs: [Index, sum, prod]
+  // Outputs: [Index, Count, sum, prod]
   // Wire sum → math(add) → output.sum, prod → output.prod (pass-through)
   const math = blueprint.addNode(0, 0, NODE_TYPES.math);
-  connect(blueprint, inp.outputPorts[1], math.inputPorts[0]); // sum → math.A
+  connect(blueprint, inp.outputPorts[2], math.inputPorts[0]); // sum → math.A
   connect(blueprint, math.outputPorts[0], outp.inputPorts[0]); // math.result → output.sum
-  connect(blueprint, inp.outputPorts[2], outp.inputPorts[1]); // prod → output.prod (pass-through)
+  connect(blueprint, inp.outputPorts[3], outp.inputPorts[1]); // prod → output.prod (pass-through)
   blueprint.setActiveGraph(blueprint.mainGraphId);
   return g;
 }
@@ -127,11 +127,11 @@ function buildAccArgLoop(name) {
   blueprint.setActiveGraph(g.id);
   const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
   const outp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
-  // Outputs: [Index, total, step]
+  // Outputs: [Index, Count, total, step]
   // Wire total + step → output.total
   const math = blueprint.addNode(0, 0, NODE_TYPES.math);
-  connect(blueprint, inp.outputPorts[1], math.inputPorts[0]); // total → A
-  connect(blueprint, inp.outputPorts[2], math.inputPorts[1]); // step → B
+  connect(blueprint, inp.outputPorts[2], math.inputPorts[0]); // total → A
+  connect(blueprint, inp.outputPorts[3], math.inputPorts[1]); // step → B
   connect(blueprint, math.outputPorts[0], outp.inputPorts[0]); // result → output.total
   blueprint.setActiveGraph(blueprint.mainGraphId);
   return g;
@@ -260,7 +260,7 @@ describe("Loop body codegen — Phase 5", () => {
   // ==================== GLSL single-output (single acc) ====================
 
   describe("GLSL single-acc loop", () => {
-    it("emits a function declaration with int i as first param", () => {
+    it("emits a function declaration with int i, int n as first params", () => {
       const g = buildSimpleSumLoop("GLSLSingle");
       blueprint.setActiveGraph(blueprint.mainGraphId);
       const caller = addCaller(g);
@@ -271,11 +271,11 @@ describe("Loop body codegen — Phase 5", () => {
 
       // Function declaration should exist
       expect(src).toMatch(fnDeclRegex(g.id));
-      // Should have int i as first parameter
+      // Should have int i, int n as first parameters
       const declMatch = src.match(new RegExp(`(float|void)\\s+fn_[^(]+\\(([^)]+)\\)`));
       expect(declMatch).not.toBeNull();
       const params = declMatch[2];
-      expect(params).toMatch(/^int i/);
+      expect(params).toMatch(/^int i,\s*int n/);
     });
 
     it("emits a for loop at the call site with accumulator init", () => {
@@ -420,8 +420,9 @@ describe("Loop body codegen — Phase 5", () => {
       const match = src.match(declRegex);
       expect(match).not.toBeNull();
       const params = match[1];
-      // Should have: int i, float total, float step
+      // Should have: int i, int n, float total, float step
       expect(params).toContain("int i");
+      expect(params).toContain("int n");
       expect(params).toContain("float total");
       expect(params).toContain("float step");
       // step should NOT be an out parameter
@@ -441,9 +442,10 @@ describe("Loop body codegen — Phase 5", () => {
       const shaders = blueprint.generateAllShaders();
       const src = shaders.webgpu;
 
-      // fn fn_id(i: i32, acc: f32) -> f32
+      // fn fn_id(i: i32, n: i32, acc: f32) -> f32
       const safe = g.id.replace(/[^a-zA-Z0-9_]/g, "_");
       expect(src).toMatch(new RegExp(`fn\\s+fn_${safe}[^(]*\\([^)]*i:\\s*i32`));
+      expect(src).toMatch(new RegExp(`fn\\s+fn_${safe}[^(]*\\([^)]*n:\\s*i32`));
       expect(src).toMatch(new RegExp(`fn\\s+fn_${safe}[^(]*\\([^)]+\\)\\s*->\\s*f32`));
     });
 
@@ -517,6 +519,7 @@ describe("Loop body codegen — Phase 5", () => {
       expect(match).not.toBeNull();
       const params = match[1];
       expect(params).toContain("i: i32");
+      expect(params).toContain("n: i32");
       expect(params).toContain("total: f32");
       expect(params).toContain("step: f32");
     });
@@ -560,17 +563,19 @@ describe("Loop body codegen — Phase 5", () => {
     });
   });
 
-  // ==================== Index parameter ====================
+  // ==================== Index and Count parameters ====================
 
-  describe("Index parameter", () => {
-    it("boundary node has Index as first output with type int", () => {
+  describe("Index and Count parameters", () => {
+    it("boundary node has Index as first output and Count as second", () => {
       const g = buildSimpleSumLoop("IndexPort");
       const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
       expect(inp.outputPorts[0].name).toBe("Index");
       expect(inp.outputPorts[0].portType).toBe("int");
+      expect(inp.outputPorts[1].name).toBe("Count");
+      expect(inp.outputPorts[1].portType).toBe("int");
     });
 
-    it("Index is the first parameter (int i) in all GLSL declarations", () => {
+    it("Index is the first parameter and Count is the second in GLSL declarations", () => {
       const g = buildSimpleSumLoop("IndexGLSL");
       blueprint.setActiveGraph(blueprint.mainGraphId);
       const caller = addCaller(g);
@@ -583,11 +588,11 @@ describe("Loop body codegen — Phase 5", () => {
         const declRegex = new RegExp(`(?:float|void)\\s+fn_${safe}[^(]*\\(([^)]+)\\)`);
         const match = src.match(declRegex);
         expect(match).not.toBeNull();
-        expect(match[1]).toMatch(/^int i/);
+        expect(match[1]).toMatch(/^int i,\s*int n/);
       }
     });
 
-    it("Index is the first parameter (i: i32) in WGSL declarations", () => {
+    it("WGSL declaration starts with input: FragmentInput, then i: i32, n: i32", () => {
       const g = buildSimpleSumLoop("IndexWGSL");
       blueprint.setActiveGraph(blueprint.mainGraphId);
       const caller = addCaller(g);
@@ -599,10 +604,10 @@ describe("Loop body codegen — Phase 5", () => {
       const declRegex = new RegExp(`fn\\s+fn_${safe}[^(]*\\(([^)]+)\\)`);
       const match = src.match(declRegex);
       expect(match).not.toBeNull();
-      expect(match[1]).toMatch(/^i:\s*i32/);
+      expect(match[1]).toMatch(/^input:\s*FragmentInput,\s*i:\s*i32,\s*n:\s*i32/);
     });
 
-    it("for loop passes _i as the first argument", () => {
+    it("for loop passes _i and count as the first two arguments", () => {
       const g = buildSimpleSumLoop("IndexCall");
       blueprint.setActiveGraph(blueprint.mainGraphId);
       const caller = addCaller(g);
@@ -612,11 +617,21 @@ describe("Loop body codegen — Phase 5", () => {
       const src = shaders.webgl2;
       const mainSrc = src.slice(src.indexOf("void main"));
 
-      // Inside the for loop, the function call should start with _i
+      // Inside the for loop, the function call should start with _i, <countVar>
       const callMatch = mainSrc.match(new RegExp(`fn_[^(]+\\(([^)]+)\\)`, "g"));
       expect(callMatch).not.toBeNull();
       const insideLoop = callMatch.find((c) => c.includes("_i"));
       expect(insideLoop).toBeDefined();
+    });
+
+    it("Count is accessible inside the loop body graph", () => {
+      const g = buildSimpleSumLoop("CountInBody");
+      const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+      // Count is the second output port — verify it can be wired
+      expect(inp.outputPorts[1].name).toBe("Count");
+      expect(inp.outputPorts[1].portType).toBe("int");
+      // The body should be able to connect Count to nodes just like Index
+      expect(inp.outputPorts[1].connections).toBeDefined();
     });
   });
 
@@ -694,7 +709,7 @@ describe("Loop body codegen — Phase 5", () => {
       const loopInp = loop.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
       const loopOutp = loop.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
       const fnCaller = addFunctionCaller(fn);
-      connect(blueprint, loopInp.outputPorts[1], fnCaller.inputPorts[0]); // acc → fn input
+      connect(blueprint, loopInp.outputPorts[2], fnCaller.inputPorts[0]); // acc → fn input
       connect(blueprint, fnCaller.outputPorts[0], loopOutp.inputPorts[0]); // fn output → acc
 
       // main: use the loop
@@ -773,7 +788,7 @@ describe("Loop body codegen — Phase 5", () => {
       blueprint.setActiveGraph(g.id);
       const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
       const outp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
-      connect(blueprint, inp.outputPorts[1], outp.inputPorts[0]); // passthrough
+      connect(blueprint, inp.outputPorts[2], outp.inputPorts[0]); // passthrough
       blueprint.setActiveGraph(blueprint.mainGraphId);
 
       const caller = addCaller(g);
@@ -829,8 +844,8 @@ describe("Loop body codegen — Phase 5", () => {
       blueprint.setActiveGraph(g.id);
       const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
       const outp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
-      connect(blueprint, inp.outputPorts[1], outp.inputPorts[0]); // sum → sum
-      connect(blueprint, inp.outputPorts[2], outp.inputPorts[1]); // color → color
+      connect(blueprint, inp.outputPorts[2], outp.inputPorts[0]); // sum → sum
+      connect(blueprint, inp.outputPorts[3], outp.inputPorts[1]); // color → color
       blueprint.setActiveGraph(blueprint.mainGraphId);
 
       const caller = addCaller(g);
@@ -978,7 +993,7 @@ describe("Loop body codegen — Phase 5", () => {
       blueprint.setActiveGraph(g.id);
       const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
       const outp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
-      connect(blueprint, inp.outputPorts[1], outp.inputPorts[0]);
+      connect(blueprint, inp.outputPorts[2], outp.inputPorts[0]); // skip Index+Count
 
       blueprint.setActiveGraph(blueprint.mainGraphId);
       const caller = addCaller(g);
@@ -1041,6 +1056,7 @@ describe("Loop body codegen — Phase 5", () => {
       const preview = blueprint._generateCallableGraphPreview(g, "webgl2");
       expect(preview).toContain("fn_");
       expect(preview).toContain("int i");
+      expect(preview).toContain("int n");
     });
 
     it("preview for unused loop body still compiles speculatively", () => {
@@ -1050,6 +1066,85 @@ describe("Loop body codegen — Phase 5", () => {
       const preview = blueprint._generateCallableGraphPreview(g, "webgl2");
       expect(preview).toContain("fn_");
       expect(preview).toContain("int i");
+      expect(preview).toContain("int n");
+    });
+  });
+
+  // ==================== WGSL FragmentInput threading for loops ====================
+
+  describe("WGSL FragmentInput parameter threading in loop bodies", () => {
+    it("WGSL for-loop call site passes input as first argument to body function", () => {
+      const g = buildSimpleSumLoop("InputCallLoop");
+      blueprint.setActiveGraph(blueprint.mainGraphId);
+      const caller = addCaller(g);
+      wireCallerToMainOutput(caller);
+
+      const shaders = blueprint.generateAllShaders();
+      const wgsl = shaders.webgpu;
+      const safe = g.id.replace(/[^a-zA-Z0-9_]/g, "_");
+      // Inside the for loop, the body call should start with input
+      const forSection = wgsl.slice(wgsl.indexOf("for"));
+      const callRe = new RegExp(`fn_${safe}[^(]*\\(([^)]+)\\)`);
+      const callMatch = forSection.match(callRe);
+      expect(callMatch).not.toBeNull();
+      expect(callMatch[1]).toMatch(/^input\b/);
+    });
+
+    it("GLSL for-loop call site does NOT pass input", () => {
+      const g = buildSimpleSumLoop("NoInputGLSLLoop");
+      blueprint.setActiveGraph(blueprint.mainGraphId);
+      const caller = addCaller(g);
+      wireCallerToMainOutput(caller);
+
+      const shaders = blueprint.generateAllShaders();
+      for (const target of ["webgl1", "webgl2"]) {
+        const src = shaders[target];
+        const safe = g.id.replace(/[^a-zA-Z0-9_]/g, "_");
+        const forSection = src.slice(src.indexOf("for"));
+        const callRe = new RegExp(`fn_${safe}[^(]*\\(([^)]+)\\)`);
+        const callMatch = forSection.match(callRe);
+        expect(callMatch).not.toBeNull();
+        expect(callMatch[1]).not.toMatch(/^input\b/);
+      }
+    });
+
+    it("FrontUV inside a loop body emits input.fragUV in WGSL", () => {
+      // Build a loop body that uses FrontUV inside
+      const g = blueprint.createLoopBodyGraph({ name: "UVLoop" });
+      const accId = "uvloop_acc";
+      g.data.contract = {
+        inputs: [{ id: accId, name: "acc", type: "vec2", role: "acc" }],
+        outputs: [{ id: accId, name: "acc", type: "vec2" }],
+      };
+      blueprint.syncContractCallers(g);
+
+      blueprint.setActiveGraph(g.id);
+      const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+      const outp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+      // Place FrontUV and add it to acc via math
+      const frontUV = blueprint.addNode(0, 0, NODE_TYPES.frontUV);
+      // Wire FrontUV → output (overwrite acc with UV each iteration)
+      connect(blueprint, frontUV.outputPorts[0], outp.inputPorts[0]);
+      blueprint.setActiveGraph(blueprint.mainGraphId);
+
+      const caller = addCaller(g);
+      wireCallerToMainOutput(caller);
+
+      const shaders = blueprint.generateAllShaders();
+      const wgsl = shaders.webgpu;
+      const safe = g.id.replace(/[^a-zA-Z0-9_]/g, "_");
+
+      // Declaration should have input: FragmentInput as first param
+      const declRe = new RegExp(`fn\\s+fn_${safe}[^(]*\\(([^)]+)\\)`);
+      const declMatch = wgsl.match(declRe);
+      expect(declMatch).not.toBeNull();
+      expect(declMatch[1]).toMatch(/^input:\s*FragmentInput/);
+
+      // Body should contain input.fragUV
+      const fnBodyStart = wgsl.indexOf(declMatch[0]);
+      const fnBodyEnd = wgsl.indexOf("\n}\n", fnBodyStart);
+      const fnBody = wgsl.slice(fnBodyStart, fnBodyEnd);
+      expect(fnBody).toContain("input.fragUV");
     });
   });
 });

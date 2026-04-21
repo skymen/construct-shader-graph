@@ -34,9 +34,11 @@ function shortHash(str) {
   return (h >>> 0).toString(16).slice(0, 6).padStart(6, "0");
 }
 
-// The Index port is always prepended to the FunctionInput outputs of a loop body.
-// It is not stored in the contract; it is injected by enforceBoundaryRules.
+// Index and Count are always prepended to the FunctionInput outputs of a loop body.
+// They are not stored in the contract; they are injected by enforceBoundaryRules.
 const INDEX_PORT_DEF = { name: "Index", type: "int" };
+const COUNT_PORT_DEF = { name: "Count", type: "int" };
+const INJECTED_PORT_COUNT = 2; // Index + Count
 
 /**
  * Loop body kind handler.
@@ -126,9 +128,10 @@ export const loopBodyKindHandler = {
 
     if (!inputNode || !outputNode) return;
 
-    // Index is always first; then acc/arg contract inputs
+    // Index and Count are always first; then acc/arg contract inputs
     const inputOutputDefs = [
       INDEX_PORT_DEF,
+      COUNT_PORT_DEF,
       ...contract.inputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id })),
     ];
     const outputInputDefs = contract.outputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id }));
@@ -220,9 +223,9 @@ export const loopBodyKindHandler = {
       return bindings[p.type] || "float";
     });
 
-    // Full function signature: int (Index), then acc types, then arg types
+    // Full function signature: int (Index), int (Count), then acc types, then arg types
     // This is the parameter list of the emitted function
-    const allInputTypes = ["int", ...accTypes, ...argTypes];
+    const allInputTypes = ["int", "int", ...accTypes, ...argTypes];
     const sigStr = allInputTypes.join(",") + "->" + outputTypes.join(",");
     const sigHash = shortHash(sigStr);
 
@@ -234,7 +237,7 @@ export const loopBodyKindHandler = {
       ? `fn_${sanitizeId(targetGraph?.id || "")}_${sigHash}`
       : `fn_${sanitizeId(targetGraph?.id || "")}`;
 
-    // resolvedInputTypes = for the emitted function params: int, acc..., arg...
+    // resolvedInputTypes = for the emitted function params: int(Index), int(Count), acc..., arg...
     const resolvedInputTypes = allInputTypes;
     // resolvedOutputTypes = acc outputs
     const resolvedOutputTypes = outputTypes;
@@ -261,11 +264,11 @@ export const loopBodyKindHandler = {
 
     // _compileFunctionBody expects a signature with resolvedInputTypes matching
     // how the FunctionInput output ports are laid out.
-    // For loop bodies, FunctionInput outputs = [Index, ...contract.inputs]
-    // So resolvedInputTypes for the body compiler = [int, acc0Type, ..., arg0Type, ...]
+    // For loop bodies, FunctionInput outputs = [Index, Count, ...contract.inputs]
+    // So resolvedInputTypes for the body compiler = [int, int, acc0Type, ..., arg0Type, ...]
     const bodySignature = {
       ...signature,
-      resolvedInputTypes: ["int", ...accTypes, ...argTypes],
+      resolvedInputTypes: ["int", "int", ...accTypes, ...argTypes],
       resolvedOutputTypes: resolvedOut,
     };
 
@@ -274,18 +277,20 @@ export const loopBodyKindHandler = {
     const isWebGPU = target === "webgpu";
     const singleOut = resolvedOut.length === 1;
 
-    // Build parameter list: Index first, then accs, then args
+    // Build parameter list: Index first, then Count, then accs, then args
     const paramEntries = [];
     paramEntries.push({ name: "i", type: "int" }); // Index
+    paramEntries.push({ name: "n", type: "int" }); // Count
     accInputs.forEach((p, idx) => paramEntries.push({ name: sanitizeId(p.name), type: accTypes[idx] }));
     argInputs.forEach((p, idx) => paramEntries.push({ name: sanitizeId(p.name), type: argTypes[idx] }));
 
     let declaration = "";
 
     if (isWebGPU) {
-      const params = paramEntries
+      const userParams = paramEntries
         .map((e) => `${e.name}: ${toWGSLType(e.type)}`)
         .join(", ");
+      const params = `input: FragmentInput, ${userParams}`;
       if (singleOut) {
         declaration = `fn ${fnName}(${params}) -> ${toWGSLType(resolvedOut[0])} {\n${bodyCode}}\n`;
       } else {
@@ -341,6 +346,13 @@ export const loopBodyKindHandler = {
 
     let code = "";
 
+    // Function args: _i (Index), countVar (Count), then accumulators, then args.
+    // WGSL: prepend `input` (FragmentInput) so varying-reading nodes work.
+    const bodyArgs = (vars) => {
+      const base = ["_i", countVar, ...vars];
+      return (isWebGPU ? ["input", ...base] : base).join(", ");
+    };
+
     if (isWebGPU) {
       // Initialize accumulators
       accVars.forEach((v, i) => {
@@ -351,12 +363,10 @@ export const loopBodyKindHandler = {
       code += `    for (var _i: i32 = 0; _i < ${countVar}; _i = _i + 1) {\n`;
 
       if (singleOut) {
-        // Single acc output: call returns the value, reassign
-        code += `        ${accVars[0]} = ${fnName}(_i, ${[...accVars, ...argVars].join(", ")});\n`;
+        code += `        ${accVars[0]} = ${fnName}(${bodyArgs([...accVars, ...argVars])});\n`;
       } else {
-        // Multi-output: struct return
         const tmp = `_loop_tmp_${accVars[0] || "r"}`;
-        code += `        let ${tmp} = ${fnName}(_i, ${[...accVars, ...argVars].join(", ")});\n`;
+        code += `        let ${tmp} = ${fnName}(${bodyArgs([...accVars, ...argVars])});\n`;
         accVars.forEach((v, i) => {
           code += `        ${v} = ${tmp}.o${i};\n`;
         });
@@ -373,11 +383,10 @@ export const loopBodyKindHandler = {
       code += `    for (int _i = 0; _i < ${countVar}; _i++) {\n`;
 
       if (singleOut) {
-        // Single acc: single return value
-        code += `        ${accVars[0]} = ${fnName}(_i, ${[...accVars, ...argVars].join(", ")});\n`;
+        code += `        ${accVars[0]} = ${fnName}(${bodyArgs([...accVars, ...argVars])});\n`;
       } else {
         // Multi-output GLSL: out params write back into acc vars directly
-        code += `        ${fnName}(_i, ${[...accVars, ...argVars, ...accVars].join(", ")});\n`;
+        code += `        ${fnName}(${bodyArgs([...accVars, ...argVars, ...accVars])});\n`;
       }
 
       code += `    }`;
