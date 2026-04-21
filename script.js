@@ -2038,22 +2038,78 @@ class BlueprintSystem {
     );
   }
 
-  // Rebuild a boundary node's ports from arrays of port definitions.
-  // Disconnects all existing wires first to keep graph state consistent.
-  // inputDefs / outputDefs: [{ name, type }]
+  // Reconcile a boundary/caller node's ports against the new contract defs.
+  // Matches old ports to new defs by `contractPortId` and preserves wires
+  // whenever name + type are unchanged. When type changes, tries to carry
+  // the wire over if still compatible; otherwise the wire is dropped.
+  // Ports present before but missing from the new defs have their wires
+  // disconnected. Defs without a contractPortId always become fresh ports.
+  //
+  // inputDefs / outputDefs: [{ name, type, contractPortId? }]
   _rebuildBoundaryNodePorts(node, inputDefs, outputDefs) {
-    for (const port of [...node.inputPorts, ...node.outputPorts]) {
-      for (const wire of [...port.connections]) {
-        this.disconnectWire(wire);
+    let droppedWires = 0;
+    const reconcile = (oldPorts, defs, portKind) => {
+      const oldById = new Map();
+      for (const p of oldPorts) {
+        if (p.contractPortId) oldById.set(p.contractPortId, p);
       }
-    }
-    node.inputPorts = inputDefs.map(
-      (def, i) => new Port(node, "input", i, def)
-    );
-    node.outputPorts = outputDefs.map(
-      (def, i) => new Port(node, "output", i, def)
-    );
+      const adopted = new Set();
+
+      const newPorts = defs.map((def, i) => {
+        const existing = def.contractPortId ? oldById.get(def.contractPortId) : null;
+        if (existing && !adopted.has(existing)) {
+          adopted.add(existing);
+          if (existing.portType === def.type && existing.name === def.name) {
+            // Unchanged: reuse the Port instance so wires stay intact.
+            existing.index = i;
+            return existing;
+          }
+          // Type or name changed. Try to preserve the single connected wire if the
+          // new port can still accept it; otherwise drop it cleanly.
+          const saved = existing.connections[0] || null;
+          if (saved) existing.connections.length = 0;
+          const fresh = new Port(node, portKind, i, def);
+          if (saved) {
+            const other = saved.startPort === existing ? saved.endPort : saved.startPort;
+            const compatible = other && (portKind === "input"
+              ? fresh.canConnectTo(other)
+              : other.canConnectTo(fresh));
+            if (compatible) {
+              fresh.connections.push(saved);
+              if (saved.startPort === existing) saved.startPort = fresh;
+              else saved.endPort = fresh;
+            } else {
+              // Drop the wire on both sides and the global list.
+              if (other) {
+                const ix = other.connections.indexOf(saved);
+                if (ix > -1) other.connections.splice(ix, 1);
+              }
+              const wx = this.wires.indexOf(saved);
+              if (wx > -1) this.wires.splice(wx, 1);
+              droppedWires++;
+            }
+          }
+          return fresh;
+        }
+        return new Port(node, portKind, i, def);
+      });
+
+      // Any old port not adopted → no longer in the contract. Disconnect cleanly.
+      for (const p of oldPorts) {
+        if (!adopted.has(p)) {
+          for (const w of [...p.connections]) {
+            this.disconnectWire(w);
+            droppedWires++;
+          }
+        }
+      }
+      return newPorts;
+    };
+
+    node.inputPorts = reconcile(node.inputPorts, inputDefs, "input");
+    node.outputPorts = reconcile(node.outputPorts, outputDefs, "output");
     node.recalculateHeight();
+    return { droppedWires };
   }
 
   // Compile a function graph's body into shader code and collect helper deps.
@@ -2389,6 +2445,65 @@ class BlueprintSystem {
     }
   }
 
+  // Propagate resolved generics from a function graph's boundary nodes down to
+  // every caller. If the body collapses `T` to `vec2` (e.g. by wiring a vec2
+  // node to the FunctionInput's T port), callers should display and enforce
+  // `vec2` instead of the generic letter.
+  _syncCallersBodyGenerics(graph) {
+    if (!graph || (graph.kind !== "function" && graph.kind !== "loopBody")) return;
+    const inputNode = graph.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+    const outputNode = graph.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+    const resolved = {};
+    if (inputNode?.resolvedGenerics) Object.assign(resolved, inputNode.resolvedGenerics);
+    if (outputNode?.resolvedGenerics) Object.assign(resolved, outputNode.resolvedGenerics);
+
+    for (const g of this.graphs.values()) {
+      for (const caller of g.nodes) {
+        if (!caller.nodeType.isFunctionCall) continue;
+        if (caller.nodeType.targetGraphId !== graph.id) continue;
+        let changed = false;
+        // Gather which generic letters the caller actually uses on its ports.
+        const callerGenerics = new Set();
+        for (const p of caller.getAllPorts()) {
+          if (isGenericType(p.portType)) callerGenerics.add(p.portType);
+        }
+        // Apply the body's resolutions. A missing entry (body no longer
+        // constrains that letter) clears any prior body-driven resolution.
+        for (const gen of callerGenerics) {
+          const next = resolved[gen];
+          const curr = caller.resolvedGenerics[gen];
+          if (next && curr !== next) {
+            caller.resolvedGenerics[gen] = next;
+            changed = true;
+          } else if (!next && curr !== undefined) {
+            // Only clear if no local wire is forcing the same resolution.
+            const localWireForces = caller.getAllPorts().some(
+              (p) => p.portType === gen && p.connections.length > 0
+            );
+            if (!localWireForces) {
+              delete caller.resolvedGenerics[gen];
+              changed = true;
+            }
+          }
+        }
+        if (changed) {
+          caller.inputPorts.forEach((p) => p.updateEditability());
+          caller.recalculateHeight();
+        }
+      }
+    }
+  }
+
+  // Refresh caller generics for every callable graph. Cheap enough to run
+  // after any wire op — the hot path is only O(graphs × callers).
+  _syncAllCallerBodyGenerics() {
+    for (const g of this.graphs.values()) {
+      if (g.kind === "function" || g.kind === "loopBody") {
+        this._syncCallersBodyGenerics(g);
+      }
+    }
+  }
+
   // Update all caller nodes in every graph whose targetGraphId matches `graph.id`.
   // Preserves wires by contractPortId. Surfaces a notification listing changes.
   syncContractCallers(graph) {
@@ -2403,71 +2518,33 @@ class BlueprintSystem {
     const contract = graph.data?.contract || { inputs: [], outputs: [] };
 
     let affectedCount = 0;
-    const droppedWires = [];
+    let totalDropped = 0;
 
     for (const g of this.graphs.values()) {
       for (const node of g.nodes) {
         if (!node.nodeType.isFunctionCall) continue;
         if (node.nodeType.targetGraphId !== graph.id) continue;
 
-        // Save wires keyed by contractPortId so we can reconnect after rebuilding.
-        const savedInputWires = new Map(); // contractPortId -> wire
-        for (const port of node.inputPorts) {
-          if (port.contractPortId && port.connections.length > 0) {
-            savedInputWires.set(port.contractPortId, port.connections[0]);
-          }
-        }
-        const savedOutputWires = new Map();
-        for (const port of node.outputPorts) {
-          if (port.contractPortId && port.connections.length > 0) {
-            savedOutputWires.set(port.contractPortId, port.connections[0]);
-          }
-        }
-
         // Update the node type (and the cached header color).
         node.nodeType = newType;
         node.headerColor = newType.color;
 
-        // Rebuild ports from new contract.
-        this._rebuildBoundaryNodePorts(
+        // Reconcile ports against the new contract — wires survive for ports
+        // whose (contractPortId, name, type) are unchanged, and are carried
+        // over on type change when still compatible.
+        const { droppedWires } = this._rebuildBoundaryNodePorts(
           node,
           contract.inputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id })),
           contract.outputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id }))
         );
-
-        // Reconnect wires where contractPortId still exists and types are compatible.
-        for (const port of node.inputPorts) {
-          const wire = savedInputWires.get(port.contractPortId);
-          if (!wire) continue;
-          const srcPort = wire.startPort;
-          if (srcPort && port.canConnectTo(srcPort)) {
-            port.connections.push(wire);
-            wire.endPort = port;
-            srcPort.connections = srcPort.connections.filter((w) => w !== wire);
-            srcPort.connections.push(wire);
-          } else if (wire) {
-            droppedWires.push(wire);
-          }
-        }
-        for (const port of node.outputPorts) {
-          const wire = savedOutputWires.get(port.contractPortId);
-          if (!wire) continue;
-          const dstPort = wire.endPort;
-          if (dstPort && dstPort.canConnectTo(port)) {
-            port.connections.push(wire);
-            wire.startPort = port;
-          } else if (wire) {
-            droppedWires.push(wire);
-          }
-        }
-
+        totalDropped += droppedWires;
         affectedCount++;
       }
     }
 
-    if (affectedCount > 0 || droppedWires.length > 0) {
-      const msg = droppedWires.length > 0
-        ? `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt, ${droppedWires.length} incompatible wire(s) removed.`
+    if (affectedCount > 0 || totalDropped > 0) {
+      const msg = totalDropped > 0
+        ? `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt, ${totalDropped} incompatible wire(s) removed.`
         : `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt.`;
       try { this.showNotification && this.showNotification({ type: "info", title: "Contract updated", message: msg }); } catch {}
       try { this.onShaderChanged && this.onShaderChanged(); } catch {}
@@ -14795,6 +14872,8 @@ class BlueprintSystem {
     // Remove from wires array
     const wireIndex = this.wires.indexOf(wire);
     if (wireIndex > -1) this.wires.splice(wireIndex, 1);
+    // Body-side generic resolution may have shifted; push to callers.
+    this._syncAllCallerBodyGenerics();
     this.onShaderChanged();
   }
 
@@ -15021,6 +15100,9 @@ class BlueprintSystem {
         port.updateEditability();
       });
     }
+
+    // Body-side generic resolution may have shifted; push to callers.
+    this._syncAllCallerBodyGenerics();
   }
 
   propagateGenericResolution(node, genericType, concreteType) {

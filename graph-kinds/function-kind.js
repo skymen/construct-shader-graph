@@ -414,9 +414,14 @@ function buildPortRow(handler, graph, host, port, index, which) {
     const sel = typeSelect.value;
     if (sel === "__generic__") {
       if (!isConcreteType(port.type)) return; // already generic
-      port.type = pickFreeGenericLetter(graph);
+      // Prefer the letter this port used before going concrete, so a
+      // concrete→generic round-trip restores the original shared generic.
+      port.type = port._previousGeneric || pickFreeGenericLetter(graph);
+      delete port._previousGeneric;
     } else {
       if (port.type === sel) return;
+      // Remember the current generic letter so we can restore it on revert.
+      if (!isConcreteType(port.type)) port._previousGeneric = port.type;
       port.type = sel;
     }
     host.syncContractCallers(graph);
