@@ -180,6 +180,40 @@ describe("Save/load round-trip with function graphs", () => {
       expect(callerNode.nodeType.targetGraphId).toBe("fn_xyz");
     });
 
+    it("round-trip preserves body wires (boundary ports get rebuilt from contract)", async () => {
+      // Build a function with a body wire: FunctionInput.value -> FunctionOutput.result
+      const g = blueprint.createFunctionGraph({ name: "Body" });
+      g.data.contract = {
+        inputs: [{ id: "b_in", name: "x", type: "float" }],
+        outputs: [{ id: "b_out", name: "y", type: "float" }],
+      };
+      blueprint.syncContractCallers(g);
+      blueprint.setActiveGraph(g.id);
+      const inp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+      const outp = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+      const Wire = globalThis.__sgWire;
+      const w = new Wire(inp.outputPorts[0], outp.inputPorts[0]);
+      inp.outputPorts[0].connections.push(w);
+      outp.inputPorts[0].connections.push(w);
+      g.wires.push(w);
+
+      const json = blueprint.serializeProjectToJSON();
+      blueprint.createNewFile();
+      await blueprint.loadFromJSON(fakeFile(JSON.parse(json)));
+
+      const reloaded = [...blueprint.graphs.values()].find((gr) => gr.name === "Body");
+      expect(reloaded).toBeDefined();
+      // Boundary nodes must have their contract-driven ports back.
+      const rInp = reloaded.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+      const rOutp = reloaded.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+      expect(rInp.outputPorts.length).toBe(1);
+      expect(rOutp.inputPorts.length).toBe(1);
+      // And the body wire must have survived load.
+      expect(reloaded.wires.length).toBe(1);
+      expect(rInp.outputPorts[0].connections.length).toBe(1);
+      expect(rOutp.inputPorts[0].connections.length).toBe(1);
+    });
+
     it("round-trip preserves contract intact", async () => {
       // Create, serialize, reload, verify.
       const g = blueprint.createFunctionGraph({ name: "RT" });

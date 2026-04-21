@@ -6654,6 +6654,11 @@ class BlueprintSystem {
       if (id !== this.mainGraphId && this.graphs.has(id)) ordered.push(id);
     }
 
+    // Hide the whole bar when only main is open — a single orphan tab is noise.
+    const bar = document.getElementById("graph-tab-bar");
+    if (bar) bar.style.display = ordered.length <= 1 ? "none" : "";
+    if (ordered.length <= 1) return;
+
     for (const id of ordered) {
       const g = this.graphs.get(id);
       const tab = document.createElement("div");
@@ -9379,8 +9384,8 @@ class BlueprintSystem {
     const selectedItem = this.searchResults.querySelector(".search-selected");
     if (selectedItem && selectedItem.dataset.nodeTypeKey) {
       const key = selectedItem.dataset.nodeTypeKey;
-      const nodeType = NODE_TYPES[key];
-      this.selectNodeType(key, nodeType);
+      const nodeType = this.getNodeTypeFromKey(key);
+      if (nodeType) this.selectNodeType(key, nodeType);
       return;
     }
 
@@ -9391,8 +9396,8 @@ class BlueprintSystem {
     const firstItem = items[0];
     if (firstItem.dataset.nodeTypeKey) {
       const key = firstItem.dataset.nodeTypeKey;
-      const nodeType = NODE_TYPES[key];
-      this.selectNodeType(key, nodeType);
+      const nodeType = this.getNodeTypeFromKey(key);
+      if (nodeType) this.selectNodeType(key, nodeType);
     } else if (firstItem.classList.contains("create-custom-node-btn")) {
       // Handle Create Custom Node button
       this.pendingCustomNodePosition = { ...this.searchMenuPosition };
@@ -13122,6 +13127,17 @@ class BlueprintSystem {
       }
     }
 
+    // Rebuild boundary-node ports from the contract. FunctionInput/Output
+    // store no ports in their NodeType (they're contract-driven), so without
+    // this step their ports would be empty after load and wires referencing
+    // them would be dropped as "missing ports".
+    if (graph.kind === "function" || graph.kind === "loopBody") {
+      const handler = getHandler(graph.kind);
+      if (handler && typeof handler.enforceBoundaryRules === "function") {
+        handler.enforceBoundaryRules(graph, this);
+      }
+    }
+
     // Restore wires
     if (data.wires) {
       for (const wireData of data.wires) {
@@ -13272,6 +13288,8 @@ class BlueprintSystem {
       // Post-load UI refresh (active graph is mainGraph at this point).
       this.updateShaderSettingsUI();
       this.renderUniformList();
+      this.renderFunctionsList && this.renderFunctionsList();
+      this.renderGraphTabBar && this.renderGraphTabBar();
       this.mainGraph.nodes.forEach((node) => {
         node.inputPorts.forEach((port) => port.updateEditability());
         node.recalculateHeight();
@@ -14645,6 +14663,13 @@ class BlueprintSystem {
     node._blueprintSystem = this;
     node._graph = this.activeGraph;
     this.nodes.push(node);
+    // If this is a function caller, seed its resolvedGenerics from the
+    // body so newly-placed callers display collapsed types immediately
+    // (otherwise the UI would only catch up after the next wire op).
+    if (nodeType.isFunctionCall && nodeType.targetGraphId) {
+      const target = this.graphs.get(nodeType.targetGraphId);
+      if (target) this._syncCallersBodyGenerics(target);
+    }
     this.render();
     return node;
   }

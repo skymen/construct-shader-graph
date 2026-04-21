@@ -1028,19 +1028,6 @@
               </div>
             </div>
           </div>
-          <div id="functions-section" class="collapsible-section">
-            <div class="sidebar-section-header">
-              <h2>Functions</h2>
-              <button class="collapse-btn">▼</button>
-            </div>
-            <div class="sidebar-section-content">
-              <div class="functions-add-row">
-                <button id="addFunctionBtn" class="add-uniform-btn">+ Function</button>
-                <button id="addLoopBodyBtn" class="add-uniform-btn">+ Loop Body</button>
-              </div>
-              <div id="functions-list" class="custom-nodes-list"></div>
-            </div>
-          </div>
           <div id="function-info-section" class="collapsible-section" style="display: none">
             <div class="sidebar-section-header">
               <h2>Function Info</h2>
@@ -1082,6 +1069,19 @@
               <div id="uniform-list"></div>
             </div>
           </div>
+          <div id="functions-section" class="collapsible-section">
+            <div class="sidebar-section-header">
+              <h2>Functions</h2>
+              <button class="collapse-btn">▼</button>
+            </div>
+            <div class="sidebar-section-content">
+              <div class="functions-add-row">
+                <button id="addFunctionBtn" class="add-uniform-btn">+ Function</button>
+                <button id="addLoopBodyBtn" class="add-uniform-btn">+ Loop Body</button>
+              </div>
+              <div id="functions-list" class="custom-nodes-list"></div>
+            </div>
+          </div>
           <div id="custom-nodes-section" class="collapsible-section">
             <div class="sidebar-section-header">
               <h2>Custom Nodes</h2>
@@ -1096,7 +1096,7 @@
           </div>
         </div>
         <div id="canvas-container">
-          <div id="graph-tab-bar">
+          <div id="graph-tab-bar" style="display: none;">
             <div id="graph-tabs"></div>
           </div>
           <canvas id="canvas"></canvas>

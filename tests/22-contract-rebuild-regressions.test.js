@@ -224,3 +224,55 @@ describe("Bug 4: contract rebuild leaves no phantom wires", () => {
     expect(blueprint.wires.length).toBe(2);
   });
 });
+
+describe("Bug 5: type change drops incompatible wires, keeps compatible ones", () => {
+  it("incompatible type change on a contract output drops the wire cleanly", () => {
+    const g = blueprint.createFunctionGraph({ name: "Fn" });
+    g.data.contract = {
+      inputs: [{ id: "p_in", name: "x", type: "float" }],
+      outputs: [{ id: "p_out", name: "r", type: "float" }],
+    };
+    blueprint.syncContractCallers(g);
+
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const caller = addCaller(g);
+    // toVec4's first input is a float-accepting port. Once we flip the caller
+    // output to mat3, that float port can no longer accept it.
+    const toVec4 = blueprint.addNode(0, 0, NODE_TYPES.toVec4);
+    connect(caller.outputPorts[0], toVec4.inputPorts[0]);
+    expect(blueprint.wires.length).toBe(1);
+
+    // Flip the caller output to mat3 (incompatible with toVec4's float input).
+    g.data.contract.outputs[0].type = "mat3";
+    blueprint.syncContractCallers(g);
+
+    // The wire must be removed from the global list AND from both ports.
+    expect(blueprint.wires.length).toBe(0);
+    expect(caller.outputPorts[0].connections.length).toBe(0);
+    expect(toVec4.inputPorts[0].connections.length).toBe(0);
+    expect(caller.outputPorts[0].portType).toBe("mat3");
+  });
+
+  it("incompatible type change on a contract input drops the inbound wire", () => {
+    const g = blueprint.createFunctionGraph({ name: "Fn" });
+    g.data.contract = {
+      inputs: [{ id: "p_in", name: "x", type: "float" }],
+      outputs: [{ id: "p_out", name: "r", type: "float" }],
+    };
+    blueprint.syncContractCallers(g);
+
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const caller = addCaller(g);
+    // Feed the caller input from a Vec2 node (concrete vec2 output).
+    const vec2 = blueprint.addNode(0, 0, NODE_TYPES.vec2);
+    connect(vec2.outputPorts[0], caller.inputPorts[0]);
+
+    // Flip input type to bool: vec2 → bool is not a compatible assignment.
+    g.data.contract.inputs[0].type = "bool";
+    blueprint.syncContractCallers(g);
+
+    expect(caller.inputPorts[0].connections.length).toBe(0);
+    expect(blueprint.wires.length).toBe(0);
+    expect(caller.inputPorts[0].portType).toBe("bool");
+  });
+});
