@@ -2079,13 +2079,27 @@ class BlueprintSystem {
               if (saved.startPort === existing) saved.startPort = fresh;
               else saved.endPort = fresh;
             } else {
-              // Drop the wire on both sides and the global list.
+              // Drop the wire on both sides and the owning graph's list.
+              // Use the node's own graph — `this.wires` delegates to the
+              // active graph, which may not own this wire.
               if (other) {
                 const ix = other.connections.indexOf(saved);
                 if (ix > -1) other.connections.splice(ix, 1);
+                // Refresh the other side so it goes back to using its default
+                // value (editability is driven by connections.length).
+                if (isGenericType(other.portType)) {
+                  this.reevaluateGenericType(other.node, other.portType);
+                }
+                other.updateEditability();
+                other.node.inputPorts.forEach((p) => p.updateEditability());
+                other.node.recalculateHeight();
               }
-              const wx = this.wires.indexOf(saved);
-              if (wx > -1) this.wires.splice(wx, 1);
+              const ownerGraph = node._graph || this.activeGraph;
+              const ownerWires = ownerGraph?.wires;
+              if (ownerWires) {
+                const wx = ownerWires.indexOf(saved);
+                if (wx > -1) ownerWires.splice(wx, 1);
+              }
               droppedWires++;
             }
           }
@@ -14661,7 +14675,10 @@ class BlueprintSystem {
     const node = new Node(x, y, this.nodeIdCounter++, nodeType);
     // Store reference to blueprint system for nodes that need it (like Get Variable)
     node._blueprintSystem = this;
-    node._graph = this.activeGraph;
+    // Use the same graph `this.nodes.push` will target — `_graphOverride`
+    // (set by `_withGraph`) redirects pushes to a non-active graph, and the
+    // node's `_graph` must agree with where it's actually stored.
+    node._graph = this._graphOverride || this.activeGraph;
     this.nodes.push(node);
     // If this is a function caller, seed its resolvedGenerics from the
     // body so newly-placed callers display collapsed types immediately
@@ -14894,9 +14911,23 @@ class BlueprintSystem {
       // Recalculate node height
       wire.endPort.node.recalculateHeight();
     }
-    // Remove from wires array
-    const wireIndex = this.wires.indexOf(wire);
-    if (wireIndex > -1) this.wires.splice(wireIndex, 1);
+    // Remove from the OWNING graph's wires array. `this.wires` delegates to
+    // the active graph, but a wire can live on any graph (e.g., contract
+    // syncs walk all graphs). Find the wire's home via its endpoint node's
+    // `_graph` pointer; fall back to scanning all graphs if that's missing.
+    const ownerGraph =
+      wire.startPort?.node?._graph ||
+      wire.endPort?.node?._graph ||
+      (() => {
+        for (const g of this.graphs.values()) {
+          if (g.wires.includes(wire)) return g;
+        }
+        return null;
+      })();
+    if (ownerGraph) {
+      const idx = ownerGraph.wires.indexOf(wire);
+      if (idx > -1) ownerGraph.wires.splice(idx, 1);
+    }
     // Body-side generic resolution may have shifted; push to callers.
     this._syncAllCallerBodyGenerics();
     this.onShaderChanged();

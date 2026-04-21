@@ -275,4 +275,87 @@ describe("Bug 5: type change drops incompatible wires, keeps compatible ones", (
     expect(blueprint.wires.length).toBe(0);
     expect(caller.inputPorts[0].portType).toBe("bool");
   });
+
+  it("incompatible type change disconnects wires on a non-active graph cleanly", () => {
+    // This exercises the cross-graph disconnect path: the graph that owns the
+    // caller + its broken wire is NOT the active graph when syncContractCallers
+    // walks every graph. Previously, disconnectWire removed the wire from
+    // `this.wires` (active graph) instead of the wire's owning graph, leaving
+    // a phantom wire in the non-active graph's `wires` list.
+    const target = blueprint.createFunctionGraph({ name: "Target" });
+    target.data.contract = {
+      inputs: [{ id: "t_in", name: "x", type: "float" }],
+      outputs: [{ id: "t_out", name: "r", type: "float" }],
+    };
+    blueprint.syncContractCallers(target);
+
+    // Build `Host`: a second function graph that contains a caller of `Target`
+    // wired into a toVec4 sink. That wire will later go incompatible.
+    const host = blueprint.createFunctionGraph({ name: "Host" });
+    host.data.contract = {
+      inputs: [{ id: "h_in", name: "x", type: "float" }],
+      outputs: [{ id: "h_out", name: "r", type: "vec4" }],
+    };
+    blueprint.syncContractCallers(host);
+
+    blueprint.setActiveGraph(host.id);
+    const callerInHost = addCaller(target);
+    const toVec4 = blueprint.addNode(0, 0, NODE_TYPES.toVec4);
+    connect(callerInHost.outputPorts[0], toVec4.inputPorts[0]);
+    const hostOut = host.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+    connect(toVec4.outputPorts[0], hostOut.inputPorts[0]);
+    expect(host.wires.length).toBe(2);
+
+    // Switch active away from `host` to prove the bug is about wire ownership,
+    // not about being the currently edited graph.
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+
+    // Flip Target's output to mat3 — toVec4's float input can no longer accept it.
+    target.data.contract.outputs[0].type = "mat3";
+    blueprint.syncContractCallers(target);
+
+    // The callerInHost's output wire must be fully removed: from the host
+    // graph's wires list, AND from both endpoint ports' connections.
+    expect(callerInHost.outputPorts[0].portType).toBe("mat3");
+    expect(callerInHost.outputPorts[0].connections.length).toBe(0);
+    expect(toVec4.inputPorts[0].connections.length).toBe(0);
+    // The toVec4 → hostOut wire should still exist (unaffected).
+    expect(host.wires.length).toBe(1);
+    expect(host.wires[0].startPort.node).toBe(toVec4);
+    // The global afterEach in setup.js will also assert no phantom wires in
+    // any graph — that's the real belt-and-suspenders check.
+  });
+
+  it("dropped-wire endpoint becomes editable again (falls back to default value)", () => {
+    // When a contract change drops an incompatible wire, the *other* end
+    // (the still-existing port that was reading through the wire) must
+    // refresh its editability so the UI shows its default-value input again
+    // instead of behaving as if it were still wired.
+    const g = blueprint.createFunctionGraph({ name: "Fn" });
+    g.data.contract = {
+      inputs: [{ id: "p_in", name: "x", type: "float" }],
+      outputs: [{ id: "p_out", name: "r", type: "float" }],
+    };
+    blueprint.syncContractCallers(g);
+
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const caller = addCaller(g);
+    // Feed the caller input from a vec2 constant so the vec2→float wire exists.
+    const vec2 = blueprint.addNode(0, 0, NODE_TYPES.vec2);
+    connect(vec2.outputPorts[0], caller.inputPorts[0]);
+    // Sanity: while connected, the caller input is NOT editable.
+    expect(caller.inputPorts[0].isEditable).toBe(false);
+
+    // Flip the contract input type to bool — vec2 → bool is incompatible, so
+    // the wire is dropped.
+    g.data.contract.inputs[0].type = "bool";
+    blueprint.syncContractCallers(g);
+
+    // After drop, the caller's (new) input port must be editable again and
+    // carry a default value — otherwise the UI would still render it as if
+    // a wire were feeding it.
+    expect(caller.inputPorts[0].connections.length).toBe(0);
+    expect(caller.inputPorts[0].isEditable).toBe(true);
+    expect(caller.inputPorts[0].value).not.toBeUndefined();
+  });
 });
