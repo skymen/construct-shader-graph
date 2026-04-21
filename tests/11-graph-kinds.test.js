@@ -52,9 +52,16 @@ describe("Graph kinds — Phase 2 scaffolding", () => {
       expect(g.kind).toBe("loopBody");
     });
 
-    it("initialises data with empty contract and notes", () => {
+    it("initialises data with a seeded accumulator contract and notes", () => {
       const g = blueprint.createLoopBodyGraph({ name: "LoopData" });
-      expect(g.data).toEqual({ contract: { inputs: [], outputs: [] }, notes: "" });
+      expect(g.data.notes).toBe("");
+      expect(g.data.contract.inputs).toHaveLength(1);
+      expect(g.data.contract.outputs).toHaveLength(1);
+      const inp = g.data.contract.inputs[0];
+      const out = g.data.contract.outputs[0];
+      expect(inp.role).toBe("acc");
+      expect(inp.type).toBe("T");
+      expect(inp.id).toBe(out.id); // paired by id
     });
   });
 

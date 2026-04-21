@@ -2018,9 +2018,13 @@ class BlueprintSystem {
 
   // Create a loopBody-kind graph and bootstrap its boundary nodes.
   createLoopBodyGraph(opts = {}) {
+    const mkId = (suffix) => `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const accId = mkId("acc");
+    const seedInputs = [{ id: accId, name: "value", type: "T", role: "acc" }];
+    const seedOutputs = [{ id: accId, name: "value", type: "T" }];
     const g = this.createGraph({
       kind: "loopBody",
-      data: { contract: { inputs: [], outputs: [] }, notes: "" },
+      data: { contract: { inputs: seedInputs, outputs: seedOutputs }, notes: "" },
       ...opts,
     });
     const handler = getHandler("loopBody");
@@ -2198,13 +2202,21 @@ class BlueprintSystem {
     const levels = this.topologicalSort(dependencies, visited);
 
     // Build portToVarName: FunctionInput outputs -> parameter names; rest -> fv_N.
+    // For loop bodies, outputPorts[0] is the injected Index port (not in the
+    // contract), so contract indices are offset by 1.
     const portToVarName = new Map();
     let varCounter = 0;
+    const indexOffset = graph.kind === "loopBody" ? 1 : 0;
     inputNode.outputPorts.forEach((port, i) => {
-      const paramName = contract.inputs[i]
-        ? _sanitizeId(contract.inputs[i].name)
-        : `p${i}`;
-      portToVarName.set(port, paramName);
+      if (i === 0 && indexOffset === 1) {
+        portToVarName.set(port, "i");
+      } else {
+        const ci = i - indexOffset;
+        const paramName = contract.inputs[ci]
+          ? _sanitizeId(contract.inputs[ci].name)
+          : `p${i}`;
+        portToVarName.set(port, paramName);
+      }
     });
 
     for (const level of levels) {
@@ -2599,13 +2611,14 @@ class BlueprintSystem {
         node.nodeType = newType;
         node.headerColor = newType.color;
 
-        // Reconcile ports against the new contract — wires survive for ports
-        // whose (contractPortId, name, type) are unchanged, and are carried
-        // over on type change when still compatible.
+        // Reconcile ports against the new caller node type — wires survive for
+        // ports whose (contractPortId, name, type) are unchanged.  Use the
+        // newType's ports (not the raw contract) because ForLoop callers have
+        // a transformed layout (Count + Initial acc + args → acc outputs).
         const { droppedWires } = this._rebuildBoundaryNodePorts(
           node,
-          contract.inputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id })),
-          contract.outputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id }))
+          newType.inputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.contractPortId || p.id })),
+          newType.outputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.contractPortId || p.id }))
         );
         totalDropped += droppedWires;
         affectedCount++;
