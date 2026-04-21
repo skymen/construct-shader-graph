@@ -1049,6 +1049,9 @@ class BlueprintSystem {
     this.graphs.set(__mainGraph.id, __mainGraph);
     this.mainGraphId = __mainGraph.id;
     this.activeGraphId = __mainGraph.id;
+    // Tabs currently shown in the tab bar. Session-only; not persisted.
+    // Main's tab is always present.
+    this.openTabs = new Set([__mainGraph.id]);
 
     this.nodes = [];
     this.wires = [];
@@ -1570,13 +1573,15 @@ class BlueprintSystem {
     updateTexturePreview("shapeTexturePreview");
 
     // Sidebar sections
-    const shaderInfoHeaders = document.querySelectorAll(
+    const shaderInfoHeader = document.querySelector(
+      "#shader-info-section .sidebar-section-header h2",
+    );
+    if (shaderInfoHeader) shaderInfoHeader.textContent = t("Shader Info");
+    const shaderSettingsHeader = document.querySelector(
       "#shader-settings-section .sidebar-section-header h2",
     );
-    if (shaderInfoHeaders[0])
-      shaderInfoHeaders[0].textContent = t("Shader Info");
-    if (shaderInfoHeaders[1])
-      shaderInfoHeaders[1].textContent = t("Shader Settings");
+    if (shaderSettingsHeader)
+      shaderSettingsHeader.textContent = t("Shader Settings");
 
     const uniformsHeader = document.querySelector(
       "#uniforms-section .sidebar-section-header h2",
@@ -2001,6 +2006,9 @@ class BlueprintSystem {
     });
     const handler = getHandler("function");
     if (handler) handler.bootstrapGraph(g, this);
+    this.openTabs && this.openTabs.add(g.id);
+    try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
+    try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
     return g;
   }
 
@@ -2013,6 +2021,9 @@ class BlueprintSystem {
     });
     const handler = getHandler("loopBody");
     if (handler) handler.bootstrapGraph(g, this);
+    this.openTabs && this.openTabs.add(g.id);
+    try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
+    try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
     return g;
   }
 
@@ -2262,6 +2273,115 @@ class BlueprintSystem {
     return { declStr, extraDeps };
   }
 
+  // Build a standalone preview of a callable graph's declarations. Used by
+  // the View Code modal when the active graph is a function/loopBody.
+  _generateCallableGraphPreview(graph, target) {
+    const handler = getHandler(graph.kind);
+    if (!handler) return "// (no handler for this graph kind)\n";
+
+    // Collect existing caller signatures across all graphs.
+    const variantByKey = new Map();
+    const worklist = [];
+    const enqueueFromCaller = (node) => {
+      if (!node.nodeType.isFunctionCall) return null;
+      const h = getHandler(node.nodeType.callerKind || "function");
+      if (!h) return null;
+      const sig = h.computeCallSiteSignature(node, this);
+      node._computedSignature = sig;
+      const g = this.graphs.get(node.nodeType.targetGraphId);
+      if (!g) return null;
+      const key = `${g.id}_${sig.sigHash}`;
+      if (!variantByKey.has(key)) {
+        variantByKey.set(key, { graph: g, signature: sig, handler: h, declaration: "", callees: new Set() });
+        worklist.push(key);
+      }
+      return key;
+    };
+
+    for (const g of this.graphs.values()) {
+      for (const n of g.nodes) {
+        if (n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id) {
+          enqueueFromCaller(n);
+        }
+      }
+    }
+
+    // If no callers exist, synthesize a default signature from the contract.
+    if (variantByKey.size === 0) {
+      const sig = this._synthesizeDefaultSignature(graph);
+      if (sig) {
+        const key = `${graph.id}_${sig.sigHash}`;
+        variantByKey.set(key, { graph, signature: sig, handler, declaration: "", callees: new Set() });
+        worklist.push(key);
+      }
+    }
+
+    // Expand: emit each variant's declaration and discover nested callees.
+    while (worklist.length > 0) {
+      const key = worklist.shift();
+      const entry = variantByKey.get(key);
+      const { declaration } = entry.handler.emitFunctionDeclaration(
+        entry.graph, entry.signature, target, this,
+      );
+      entry.declaration = declaration;
+      for (const n of entry.graph.nodes) {
+        const calleeKey = enqueueFromCaller(n);
+        if (calleeKey) entry.callees.add(calleeKey);
+      }
+    }
+
+    if (variantByKey.size === 0) return "// (no declarations to show)\n";
+
+    // DFS postorder so callees come before callers.
+    const emitted = new Set();
+    const ordered = [];
+    const stack = new Set();
+    const visit = (key) => {
+      if (emitted.has(key)) return;
+      if (stack.has(key)) return;
+      stack.add(key);
+      const entry = variantByKey.get(key);
+      for (const ck of entry.callees) visit(ck);
+      stack.delete(key);
+      emitted.add(key);
+      ordered.push(key);
+    };
+    for (const key of variantByKey.keys()) visit(key);
+
+    const hdr = `// ${graph.kind} "${graph.name}" — ${target}\n`;
+    const ownKey = `${graph.id}_`;
+    let own = "";
+    let nested = "";
+    for (const key of ordered) {
+      const entry = variantByKey.get(key);
+      const label = `// ${entry.signature.fnName} (${entry.signature.sigStr})\n`;
+      const block = label + entry.declaration + "\n";
+      if (key.startsWith(ownKey)) own += block;
+      else nested += block;
+    }
+    return hdr + own + (nested ? "\n// --- transitive callees ---\n" + nested : "");
+  }
+
+  // Build a synthetic "default" call-site signature by treating generic
+  // letters as float, mirroring the fallback in computeCallSiteSignature.
+  _synthesizeDefaultSignature(graph) {
+    const handler = getHandler(graph.kind);
+    if (!handler) return null;
+    // Fake a caller node with unconnected input ports so the handler's
+    // computeCallSiteSignature path walks the same code.
+    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+    const fakeNode = {
+      nodeType: { targetGraphId: graph.id, callerKind: graph.kind },
+      inputPorts: contract.inputs.map(() => ({ connections: [] })),
+      outputPorts: contract.outputs.map(() => ({ connections: [] })),
+    };
+    try {
+      return handler.computeCallSiteSignature(fakeNode, this);
+    } catch {
+      return null;
+    }
+  }
+
   // Update all caller nodes in every graph whose targetGraphId matches `graph.id`.
   // Preserves wires by contractPortId. Surfaces a notification listing changes.
   syncContractCallers(graph) {
@@ -2359,27 +2479,20 @@ class BlueprintSystem {
       this.autoPanInterval = null;
     }
     this.activeGraphId = id;
+    this.openTabs.add(id);
 
     // Refresh UI to reflect the newly active graph (best-effort; some
     // sidebars may not exist in test environments).
-    try {
-      this.renderUniformList && this.renderUniformList();
-    } catch {}
-    try {
-      this.renderCustomNodesList && this.renderCustomNodesList();
-    } catch {}
-    try {
-      this.updateShaderSettingsUI && this.updateShaderSettingsUI();
-    } catch {}
-    try {
-      this.updateDependencyList && this.updateDependencyList();
-    } catch {}
-    try {
-      this.updateUndoRedoButtons && this.updateUndoRedoButtons();
-    } catch {}
-    try {
-      this.render && this.render();
-    } catch {}
+    try { this.renderUniformList && this.renderUniformList(); } catch {}
+    try { this.renderCustomNodesList && this.renderCustomNodesList(); } catch {}
+    try { this.updateShaderSettingsUI && this.updateShaderSettingsUI(); } catch {}
+    try { this.updateDependencyList && this.updateDependencyList(); } catch {}
+    try { this.updateUndoRedoButtons && this.updateUndoRedoButtons(); } catch {}
+    try { this._applyKindSidebarVisibility && this._applyKindSidebarVisibility(); } catch {}
+    try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
+    try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
+    try { this.renderContractEditor && this.renderContractEditor(); } catch {}
+    try { this.render && this.render(); } catch {}
   }
 
   // Delete a non-main graph. Throws if asked to delete the main graph.
@@ -3844,6 +3957,18 @@ class BlueprintSystem {
       document.getElementById("customNodeOutputs");
     this.customNodesList = document.getElementById("custom-nodes-list");
 
+    // Phase 4: graph tab bar + Functions sidebar + contract editor containers
+    this.graphTabsEl = document.getElementById("graph-tabs");
+    this.functionsListEl = document.getElementById("functions-list");
+    this.functionInfoSection = document.getElementById("function-info-section");
+    this.functionInputsSection = document.getElementById("function-inputs-section");
+    this.functionOutputsSection = document.getElementById("function-outputs-section");
+    this.functionInfoForm = document.getElementById("function-info-form");
+    this.functionInputsList = document.getElementById("function-inputs-list");
+    this.functionOutputsList = document.getElementById("function-outputs-list");
+    this.shaderInfoSection = document.getElementById("shader-info-section");
+    this.shaderSettingsSection = document.getElementById("shader-settings-section");
+
     // Code editor container
     this.customNodeCodeEditorContainer = document.getElementById(
       "customNodeCodeEditor",
@@ -4014,6 +4139,59 @@ class BlueprintSystem {
       .addEventListener("click", () => {
         this.showCustomNodeModal();
       });
+
+    // Phase 4: Functions sidebar — add buttons
+    const addFunctionBtn = document.getElementById("addFunctionBtn");
+    if (addFunctionBtn) {
+      addFunctionBtn.addEventListener("click", () => {
+        const name = this._pickNewCallableName("Function");
+        const g = this.createFunctionGraph({ name });
+        this.setActiveGraph(g.id);
+      });
+    }
+    const addLoopBodyBtn = document.getElementById("addLoopBodyBtn");
+    if (addLoopBodyBtn) {
+      addLoopBodyBtn.addEventListener("click", () => {
+        const name = this._pickNewCallableName("LoopBody");
+        const g = this.createLoopBodyGraph({ name });
+        this.setActiveGraph(g.id);
+      });
+    }
+
+    // Phase 4: Contract editor — add input/output buttons
+    const addContractInputBtn = document.getElementById("addContractInputBtn");
+    if (addContractInputBtn) {
+      addContractInputBtn.addEventListener("click", () => {
+        this._addContractPort("inputs");
+      });
+    }
+    const addContractOutputBtn = document.getElementById("addContractOutputBtn");
+    if (addContractOutputBtn) {
+      addContractOutputBtn.addEventListener("click", () => {
+        this._addContractPort("outputs");
+      });
+    }
+  }
+
+  _pickNewCallableName(base) {
+    const existing = new Set(this.getCallableGraphs().map((g) => g.name));
+    let n = 1;
+    while (existing.has(`${base}${n}`)) n++;
+    return `${base}${n}`;
+  }
+
+  _addContractPort(which) {
+    const g = this.activeGraph;
+    if (!g || g.kind === "main") return;
+    const handler = getHandler(g.kind);
+    if (!handler) return;
+    const contract = g.data.contract || { inputs: [], outputs: [] };
+    const section = which === "inputs" ? contract.inputs : contract.outputs;
+    const port = handler.defaultPort(section);
+    section.push(port);
+    this.syncContractCallers(g);
+    this.renderContractEditor();
+    this.renderFunctionsList();
   }
 
   showCustomNodeModal(customNode = null) {
@@ -6358,6 +6536,315 @@ class BlueprintSystem {
 
     this.render();
     this.updateDependencyList();
+  }
+
+  // ---------- Phase 4: graph tab bar ----------
+
+  // Open a tab for a graph and switch to it. Creates the tab entry if missing.
+  openGraphTab(graphId) {
+    if (!this.graphs.has(graphId)) return;
+    this.openTabs.add(graphId);
+    this.setActiveGraph(graphId);
+  }
+
+  // Close a tab (does NOT delete the graph). Main tab can't be closed.
+  closeGraphTab(graphId) {
+    if (graphId === this.mainGraphId) return;
+    this.openTabs.delete(graphId);
+    if (this.activeGraphId === graphId) {
+      this.setActiveGraph(this.mainGraphId);
+    } else {
+      this.renderGraphTabBar && this.renderGraphTabBar();
+    }
+  }
+
+  renderGraphTabBar() {
+    if (!this.graphTabsEl) return;
+    this.graphTabsEl.innerHTML = "";
+
+    // Render in insertion order: main first, then others that are open.
+    const ordered = [];
+    if (this.graphs.has(this.mainGraphId)) ordered.push(this.mainGraphId);
+    for (const id of this.openTabs) {
+      if (id !== this.mainGraphId && this.graphs.has(id)) ordered.push(id);
+    }
+
+    for (const id of ordered) {
+      const g = this.graphs.get(id);
+      const tab = document.createElement("div");
+      tab.className = "graph-tab" + (id === this.activeGraphId ? " active" : "");
+      tab.dataset.graphId = id;
+
+      // Color stripe for non-main tabs
+      if (g.kind !== "main") {
+        const stripe = document.createElement("div");
+        stripe.className = "graph-tab-color-stripe";
+        const handler = getHandler(g.kind);
+        stripe.style.background = g.color || handler?.defaultColor || "#4a9eff";
+        tab.appendChild(stripe);
+
+        const badge = document.createElement("span");
+        badge.className = "graph-tab-badge";
+        badge.textContent = g.kind === "function" ? "fn" : "loop";
+        tab.appendChild(badge);
+      }
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "graph-tab-name";
+      nameEl.textContent = g.name || "Untitled";
+      nameEl.title = g.name || "Untitled";
+      tab.appendChild(nameEl);
+
+      // Click to switch
+      tab.addEventListener("mousedown", (e) => {
+        if (e.button === 1) {
+          // middle-click closes
+          e.preventDefault();
+          this.closeGraphTab(id);
+          return;
+        }
+        if (e.target === closeBtn) return;
+        if (e.target === nameEl && e.detail >= 2) return;
+        this.setActiveGraph(id);
+      });
+
+      // Double-click the name to rename (non-main only)
+      if (g.kind !== "main") {
+        nameEl.addEventListener("dblclick", (e) => {
+          e.stopPropagation();
+          this._startTabRename(g, nameEl);
+        });
+      }
+
+      // Close button (non-main)
+      let closeBtn = null;
+      if (g.kind !== "main") {
+        closeBtn = document.createElement("button");
+        closeBtn.className = "graph-tab-close";
+        closeBtn.textContent = "×";
+        closeBtn.title = "Close tab";
+        closeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.closeGraphTab(id);
+        });
+        tab.appendChild(closeBtn);
+      }
+
+      this.graphTabsEl.appendChild(tab);
+    }
+  }
+
+  _startTabRename(graph, nameEl) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "graph-tab-name-input";
+    input.value = graph.name || "";
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+      const newName = input.value.trim() || graph.name || "Untitled";
+      graph.name = newName;
+      this.renderGraphTabBar();
+      this.renderFunctionsList && this.renderFunctionsList();
+      // Caller node types display the graph's name; refresh instances.
+      if (graph.kind === "function" || graph.kind === "loopBody") {
+        this.syncContractCallers(graph);
+      }
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { input.blur(); }
+      else if (e.key === "Escape") {
+        input.value = graph.name;
+        input.blur();
+      }
+    });
+  }
+
+  // Show/hide sidebar sections based on the active graph's kind.
+  _applyKindSidebarVisibility() {
+    const kind = this.activeGraph?.kind || "main";
+    const isSub = kind === "function" || kind === "loopBody";
+    if (this.shaderInfoSection)
+      this.shaderInfoSection.style.display = isSub ? "none" : "";
+    if (this.shaderSettingsSection)
+      this.shaderSettingsSection.style.display = isSub ? "none" : "";
+    if (this.functionInfoSection)
+      this.functionInfoSection.style.display = isSub ? "" : "none";
+    if (this.functionInputsSection)
+      this.functionInputsSection.style.display = isSub ? "" : "none";
+    if (this.functionOutputsSection)
+      this.functionOutputsSection.style.display = isSub ? "" : "none";
+  }
+
+  // ---------- Phase 4: Functions sidebar section ----------
+
+  renderFunctionsList() {
+    if (!this.functionsListEl) return;
+    this.functionsListEl.innerHTML = "";
+
+    for (const g of this.getCallableGraphs()) {
+      const handler = getHandler(g.kind);
+      const item = document.createElement("div");
+      item.className = "uniform-item";
+      const tint = g.color || handler?.defaultColor || "#4a9eff";
+      item.style.borderLeft = `4px solid ${tint}`;
+
+      const header = document.createElement("div");
+      header.className = "uniform-item-header";
+      header.style.paddingLeft = "24px";
+
+      // Drag handle to drop a caller node onto the canvas
+      const dragHandle = document.createElement("div");
+      dragHandle.className = "custom-node-drag-handle";
+      dragHandle.style.position = "absolute";
+      dragHandle.style.left = "0";
+      dragHandle.style.top = "0";
+      dragHandle.style.bottom = "0";
+      dragHandle.style.width = "20px";
+      dragHandle.style.background = tint;
+      dragHandle.style.cursor = "grab";
+      dragHandle.style.display = "flex";
+      dragHandle.style.alignItems = "center";
+      dragHandle.style.justifyContent = "center";
+      dragHandle.style.color = "rgba(255,255,255,0.6)";
+      dragHandle.style.fontSize = "14px";
+      dragHandle.style.userSelect = "none";
+      dragHandle.textContent = "⋮⋮";
+      dragHandle.title = "Drag to canvas to create caller node";
+
+      let draggingFromHandle = false;
+      dragHandle.addEventListener("mousedown", () => {
+        draggingFromHandle = true;
+        item.draggable = true;
+        dragHandle.style.cursor = "grabbing";
+      });
+      item.addEventListener("dragstart", (e) => {
+        if (draggingFromHandle) {
+          e.dataTransfer.setData("callerGraphId", g.id);
+          e.dataTransfer.effectAllowed = "copy";
+        } else {
+          e.preventDefault();
+        }
+      });
+      item.addEventListener("dragend", () => {
+        item.draggable = false;
+        draggingFromHandle = false;
+        dragHandle.style.cursor = "grab";
+        this.renderFunctionsList();
+      });
+
+      const badge = document.createElement("span");
+      badge.className = "function-entry-badge " + (g.kind === "function" ? "fn" : "loop");
+      badge.textContent = g.kind === "function" ? "fn" : "loop";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = g.name || "Untitled";
+      nameSpan.style.fontWeight = "bold";
+      nameSpan.style.color = "#ddd";
+      nameSpan.style.flex = "1";
+
+      const contract = g.data?.contract || { inputs: [], outputs: [] };
+      const infoSpan = document.createElement("span");
+      infoSpan.textContent = `${contract.inputs.length}→${contract.outputs.length}`;
+      infoSpan.style.fontSize = "11px";
+      infoSpan.style.color = "#888";
+      infoSpan.style.marginLeft = "8px";
+
+      const controls = document.createElement("div");
+      controls.className = "uniform-item-controls";
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "uniform-delete-btn";
+      editBtn.textContent = "✎";
+      editBtn.title = "Open graph";
+      editBtn.style.background = "#4a90e2";
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.openGraphTab(g.id);
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "uniform-delete-btn";
+      delBtn.textContent = "×";
+      delBtn.title = "Delete graph";
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this._deleteCallableGraph(g);
+      });
+
+      controls.appendChild(editBtn);
+      controls.appendChild(delBtn);
+
+      item.appendChild(dragHandle);
+      header.appendChild(badge);
+      header.appendChild(nameSpan);
+      header.appendChild(infoSpan);
+      header.appendChild(controls);
+      item.appendChild(header);
+
+      this.functionsListEl.appendChild(item);
+    }
+  }
+
+  _deleteCallableGraph(graph) {
+    // Count callers across all graphs.
+    let callers = 0;
+    for (const g of this.graphs.values()) {
+      for (const n of g.nodes) {
+        if (n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id) callers++;
+      }
+    }
+    const msg = callers > 0
+      ? `Delete "${graph.name}"? ${callers} caller node(s) will be removed.`
+      : `Delete "${graph.name}"?`;
+    if (!confirm(msg)) return;
+
+    // Remove caller nodes and their wires from every graph.
+    for (const g of this.graphs.values()) {
+      const toRemove = g.nodes.filter(
+        (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id,
+      );
+      for (const n of toRemove) {
+        for (const port of [...n.inputPorts, ...n.outputPorts]) {
+          for (const w of [...port.connections]) this.disconnectWire(w);
+        }
+      }
+      g.nodes = g.nodes.filter(
+        (n) => !(n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id),
+      );
+    }
+
+    this.openTabs.delete(graph.id);
+    this.deleteGraph(graph.id);
+    this.renderGraphTabBar();
+    this.renderFunctionsList();
+    this.render && this.render();
+    this.onShaderChanged && this.onShaderChanged();
+  }
+
+  // ---------- Phase 4: Function Info / Inputs / Outputs contract editor ----------
+
+  renderContractEditor() {
+    if (!this.functionInfoForm) return;
+    const g = this.activeGraph;
+    if (!g || g.kind === "main") {
+      this.functionInfoForm.innerHTML = "";
+      if (this.functionInputsList) this.functionInputsList.innerHTML = "";
+      if (this.functionOutputsList) this.functionOutputsList.innerHTML = "";
+      return;
+    }
+    const handler = getHandler(g.kind);
+    if (!handler) return;
+
+    // Delegate to the kind handler to populate panels.
+    handler.renderContractEditor(g, this, {
+      infoForm: this.functionInfoForm,
+      inputsList: this.functionInputsList,
+      outputsList: this.functionOutputsList,
+    });
   }
 
   renderCustomNodesList() {
@@ -8869,6 +9356,24 @@ class BlueprintSystem {
         }
         return;
       }
+
+      // Phase 4: caller-node drop (function / loop body)
+      const callerGraphId = e.dataTransfer.getData("callerGraphId");
+      if (callerGraphId) {
+        const targetGraph = this.graphs.get(callerGraphId);
+        if (!targetGraph) return;
+        if (targetGraph.id === this.activeGraphId) {
+          try { this.showNotification && this.showNotification("Cannot call the current graph from itself."); } catch {}
+          return;
+        }
+        const handler = getHandler(targetGraph.kind);
+        if (!handler) return;
+        const nodeType = handler.createCallerNodeType(targetGraph, this);
+        if (!nodeType) return;
+        this.addNode(x, y, nodeType);
+        this.history.pushState("Create caller node");
+        return;
+      }
     });
 
     // Keyboard events
@@ -11040,29 +11545,32 @@ class BlueprintSystem {
   }
 
   showViewCodeModal() {
-    const graph = this.buildDependencyGraph();
-
-    if (!graph) {
-      alert("No output node found. Cannot generate shader.");
-      return;
-    }
-
-    const levels = this.topologicalSort(
-      graph.dependencies,
-      graph.connectedNodes,
-    );
-
-    // Generate shaders for all targets
     const targets = ["webgl1", "webgl2", "webgpu"];
     const shaders = {};
 
-    for (const target of targets) {
-      const portToVarName = this.generateVariableNames(levels, target);
-      const boilerplate = this.getBoilerplate(target);
-      const uniformDeclarations = this.generateUniformDeclarations(target);
-      const shaderCode = this.generateShader(target, levels, portToVarName);
-      const fullShader = boilerplate + uniformDeclarations + shaderCode;
-      shaders[target] = fullShader;
+    const activeKind = this.activeGraph?.kind || "main";
+    if (activeKind !== "main") {
+      for (const target of targets) {
+        shaders[target] = this._generateCallableGraphPreview(this.activeGraph, target);
+      }
+    } else {
+      const graph = this.buildDependencyGraph();
+      if (!graph) {
+        alert("No output node found. Cannot generate shader.");
+        return;
+      }
+      const levels = this.topologicalSort(
+        graph.dependencies,
+        graph.connectedNodes,
+      );
+      for (const target of targets) {
+        const portToVarName = this.generateVariableNames(levels, target);
+        const boilerplate = this.getBoilerplate(target);
+        const uniformDeclarations = this.generateUniformDeclarations(target);
+        const shaderCode = this.generateShader(target, levels, portToVarName);
+        const fullShader = boilerplate + uniformDeclarations + shaderCode;
+        shaders[target] = fullShader;
+      }
     }
 
     // Initialize CodeMirror editors for each panel if not already done

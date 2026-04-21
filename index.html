@@ -898,7 +898,7 @@
           </div>
         </div>
         <div id="uniform-sidebar">
-          <div id="shader-settings-section" class="collapsible-section">
+          <div id="shader-info-section" class="collapsible-section">
             <div class="sidebar-section-header">
               <h2>Shader Info</h2>
               <button class="collapse-btn">▼</button>
@@ -1052,8 +1052,53 @@
               <div id="custom-nodes-list" class="custom-nodes-list"></div>
             </div>
           </div>
+          <div id="functions-section" class="collapsible-section">
+            <div class="sidebar-section-header">
+              <h2>Functions</h2>
+              <button class="collapse-btn">▼</button>
+            </div>
+            <div class="sidebar-section-content">
+              <div class="functions-add-row">
+                <button id="addFunctionBtn" class="add-uniform-btn">+ Function</button>
+                <button id="addLoopBodyBtn" class="add-uniform-btn">+ Loop Body</button>
+              </div>
+              <div id="functions-list" class="custom-nodes-list"></div>
+            </div>
+          </div>
+          <div id="function-info-section" class="collapsible-section" style="display: none">
+            <div class="sidebar-section-header">
+              <h2>Function Info</h2>
+              <button class="collapse-btn">▼</button>
+            </div>
+            <div class="sidebar-section-content">
+              <div id="function-info-form" class="settings-form"></div>
+            </div>
+          </div>
+          <div id="function-inputs-section" class="collapsible-section" style="display: none">
+            <div class="sidebar-section-header">
+              <h2>Inputs</h2>
+              <button class="collapse-btn">▼</button>
+            </div>
+            <div class="sidebar-section-content">
+              <button id="addContractInputBtn" class="add-uniform-btn">+ Add Input</button>
+              <div id="function-inputs-list" class="contract-port-list"></div>
+            </div>
+          </div>
+          <div id="function-outputs-section" class="collapsible-section" style="display: none">
+            <div class="sidebar-section-header">
+              <h2>Outputs</h2>
+              <button class="collapse-btn">▼</button>
+            </div>
+            <div class="sidebar-section-content">
+              <button id="addContractOutputBtn" class="add-uniform-btn">+ Add Output</button>
+              <div id="function-outputs-list" class="contract-port-list"></div>
+            </div>
+          </div>
         </div>
         <div id="canvas-container">
+          <div id="graph-tab-bar">
+            <div id="graph-tabs"></div>
+          </div>
           <canvas id="canvas"></canvas>
           <div id="minimap-container">
             <canvas id="minimap"></canvas>
