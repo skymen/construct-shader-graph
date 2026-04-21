@@ -392,6 +392,39 @@ describe("Bug 5: type change drops incompatible wires, keeps compatible ones", (
     expect(math.outputPorts[0].getResolvedType()).toBe("vec3");
   });
 
+  it("body-driven resolution change on a caller's output drops incompatible outgoing wires", () => {
+    // Function graph: input T passthrough to output T. Body wire links them.
+    const g = blueprint.createFunctionGraph({ name: "Fn" });
+    g.data.contract = {
+      inputs: [{ id: "p_in", name: "x", type: "T" }],
+      outputs: [{ id: "p_out", name: "r", type: "T" }],
+    };
+    blueprint.syncContractCallers(g);
+    blueprint.setActiveGraph(g.id);
+    const fnIn = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+    const fnOut = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+    connect(fnIn.outputPorts[0], fnOut.inputPorts[0]);
+
+    // Main graph: caller's output (T) feeds a vec4.X (float) input. This
+    // pins T → float for the caller.
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const caller = addCaller(g);
+    const vec4 = blueprint.addNode(0, 0, NODE_TYPES.vec4);
+    connect(caller.outputPorts[0], vec4.inputPorts[0]);
+    expect(caller.outputPorts[0].getResolvedType()).toBe("float");
+
+    // Flip contract input T → vec3. The body's passthrough wire makes the
+    // output also resolve to vec3 — so caller.output's resolved type changes
+    // from float to vec3, and the main-graph wire to vec4.X (float) is no
+    // longer compatible.
+    g.data.contract.inputs[0].type = "vec3";
+    blueprint.syncContractCallers(g);
+
+    expect(caller.outputPorts[0].getResolvedType()).toBe("vec3");
+    expect(caller.outputPorts[0].connections.length).toBe(0);
+    expect(vec4.inputPorts[0].connections.length).toBe(0);
+  });
+
   it("dropped-wire endpoint becomes editable again (falls back to default value)", () => {
     // When a contract change drops an incompatible wire, the *other* end
     // (the still-existing port that was reading through the wire) must

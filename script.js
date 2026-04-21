@@ -2502,6 +2502,9 @@ class BlueprintSystem {
         if (!caller.nodeType.isFunctionCall) continue;
         if (caller.nodeType.targetGraphId !== graph.id) continue;
         let changed = false;
+        // Letters whose concrete resolution on the caller actually changed —
+        // wires on those ports may no longer be compatible.
+        const changedLetters = new Set();
         // Gather which generic letters the caller actually uses on its ports.
         const callerGenerics = new Set();
         for (const p of caller.getAllPorts()) {
@@ -2515,6 +2518,7 @@ class BlueprintSystem {
           if (next && curr !== next) {
             caller.resolvedGenerics[gen] = next;
             changed = true;
+            changedLetters.add(gen);
           } else if (!next && curr !== undefined) {
             // Only clear if no local wire is forcing the same resolution.
             const localWireForces = caller.getAllPorts().some(
@@ -2523,12 +2527,38 @@ class BlueprintSystem {
             if (!localWireForces) {
               delete caller.resolvedGenerics[gen];
               changed = true;
+              changedLetters.add(gen);
             }
           }
         }
         if (changed) {
           caller.inputPorts.forEach((p) => p.updateEditability());
           caller.recalculateHeight();
+        }
+        // A body-driven resolution shift can make existing wires on the
+        // caller's same-letter ports incompatible (e.g. caller.output[T]
+        // was float, body now says vec3 — an outgoing wire to a float input
+        // must drop). Re-check and disconnect.
+        if (changedLetters.size > 0) {
+          const wiresToDrop = [];
+          for (const port of caller.getAllPorts()) {
+            if (!changedLetters.has(port.portType)) continue;
+            for (const wire of port.connections) {
+              const other = wire.startPort === port ? wire.endPort : wire.startPort;
+              if (!other) continue;
+              const outputPort = port.type === "output" ? port : other;
+              const inputPort = port.type === "input" ? port : other;
+              if (!areTypesCompatible(
+                outputPort.portType,
+                inputPort.portType,
+                outputPort.getResolvedType(),
+                inputPort.getResolvedType(),
+              )) {
+                wiresToDrop.push(wire);
+              }
+            }
+          }
+          for (const wire of wiresToDrop) this.disconnectWire(wire);
         }
       }
     }
