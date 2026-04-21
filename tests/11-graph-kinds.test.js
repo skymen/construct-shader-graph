@@ -32,9 +32,11 @@ describe("Graph kinds — Phase 2 scaffolding", () => {
       expect(g.color).toBe("#ff0000");
     });
 
-    it("initialises data with empty contract and notes", () => {
+    it("seeds data.contract with one default input and one default output", () => {
       const g = blueprint.createFunctionGraph({ name: "DataCheck" });
-      expect(g.data).toEqual({ contract: { inputs: [], outputs: [] }, notes: "" });
+      expect(g.data.notes).toBe("");
+      expect(g.data.contract.inputs).toHaveLength(1);
+      expect(g.data.contract.outputs).toHaveLength(1);
     });
 
     it("does not switch the active graph", () => {
@@ -69,16 +71,16 @@ describe("Graph kinds — Phase 2 scaffolding", () => {
       expect(outputs.length).toBe(1);
     });
 
-    it("Function Input has no output ports for empty contract", () => {
+    it("Function Input has one output port for default-seeded contract", () => {
       const g = blueprint.createFunctionGraph({ name: "Fn" });
       const inputNode = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
-      expect(inputNode.outputPorts.length).toBe(0);
+      expect(inputNode.outputPorts.length).toBe(1);
     });
 
-    it("Function Output has no input ports for empty contract", () => {
+    it("Function Output has one input port for default-seeded contract", () => {
       const g = blueprint.createFunctionGraph({ name: "Fn" });
       const outputNode = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
-      expect(outputNode.inputPorts.length).toBe(0);
+      expect(outputNode.inputPorts.length).toBe(1);
     });
   });
 
@@ -167,19 +169,21 @@ describe("Graph kinds — Phase 2 scaffolding", () => {
       expect(hasOutput).toBe(false);
     });
 
-    it("functionInput is present when active graph is a function", () => {
+    it("functionInput/Output are hidden in a fresh function graph (already placed by bootstrap)", () => {
       const g = blueprint.createFunctionGraph({ name: "Fn" });
       blueprint.setActiveGraph(g.id);
       const types = blueprint.getFilteredNodeTypes();
       const hasInput = types.some(([key]) => key === "functionInput");
       const hasOutput = types.some(([key]) => key === "functionOutput");
       blueprint.setActiveGraph(blueprint.mainGraphId);
-      expect(hasInput).toBe(true);
-      expect(hasOutput).toBe(true);
+      expect(hasInput).toBe(false);
+      expect(hasOutput).toBe(false);
     });
 
-    it("functionInput is present when active graph is a loopBody", () => {
-      const g = blueprint.createLoopBodyGraph({ name: "Loop" });
+    it("functionInput becomes available in a subgraph after removing the existing boundary node", () => {
+      const g = blueprint.createFunctionGraph({ name: "Fn" });
+      // Simulate removing the bootstrapped FunctionInput node directly.
+      g.nodes = g.nodes.filter((n) => n.nodeType !== NODE_TYPES.functionInput);
       blueprint.setActiveGraph(g.id);
       const types = blueprint.getFilteredNodeTypes();
       const hasInput = types.some(([key]) => key === "functionInput");

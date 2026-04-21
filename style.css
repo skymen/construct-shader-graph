@@ -4622,21 +4622,20 @@ body {
 
 .functions-add-row {
   display: flex;
-  gap: 4px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
 .functions-add-row .add-uniform-btn {
   flex: 1;
-  font-size: 11px;
-  padding: 4px 6px;
+  margin-bottom: 0;
 }
 
 .function-entry-badge {
-  font-size: 9px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 1px 4px;
+  padding: 2px 6px;
   border-radius: 3px;
   background: #3a3a3a;
   color: #ccc;
@@ -4659,17 +4658,17 @@ body {
 .contract-port-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .contract-port-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
+  gap: 6px;
+  padding: 8px 10px 8px 24px;
+  background: #333333;
+  border: 1px solid #4a4a4a;
   border-radius: 4px;
   position: relative;
 }
@@ -4687,11 +4686,20 @@ body {
 }
 
 .contract-port-drag-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 18px;
   cursor: grab;
-  color: #666;
+  color: rgba(255, 255, 255, 0.6);
   user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 12px;
-  padding: 0 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border-right: 1px solid #4a4a4a;
 }
 
 .contract-port-drag-handle:active {
@@ -4700,37 +4708,42 @@ body {
 
 .contract-port-name {
   flex: 1 1 auto;
-  min-width: 50px;
+  min-width: 60px;
   background: #1a1a1a;
-  border: 1px solid #3a3a3a;
-  color: #ddd;
-  font-size: 11px;
-  padding: 2px 4px;
-  border-radius: 3px;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  height: 32px;
 }
 
 .contract-port-type {
   flex: 0 0 auto;
   background: #1a1a1a;
-  border: 1px solid #3a3a3a;
-  color: #ddd;
-  font-size: 11px;
-  padding: 2px 4px;
-  border-radius: 3px;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  height: 32px;
 }
 
 .contract-port-role {
   flex: 0 0 auto;
-  background: #1a1a1a;
-  border: 1px solid #3a3a3a;
-  color: #ddd;
-  font-size: 11px;
-  padding: 2px 4px;
-  border-radius: 3px;
+  background: #2a2a2a;
+  border: 1px solid #4a4a4a;
+  color: #c084fc;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  min-width: 24px;
+  text-align: center;
 }
 
 .contract-port-resolved-hint {
-  font-size: 10px;
+  font-size: 11px;
   color: #888;
   font-style: italic;
 }
@@ -4739,11 +4752,17 @@ body {
   background: #c0392b;
   color: #fff;
   border: none;
-  border-radius: 3px;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 16px;
   line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
 }
 
 .contract-port-delete:hover {

@@ -1999,12 +1999,16 @@ class BlueprintSystem {
 
   // Create a function-kind graph and bootstrap its boundary nodes.
   createFunctionGraph(opts = {}) {
+    const handler = getHandler("function");
+    // Seed with one input + one output, both sharing generic T.
+    const mkId = (suffix) => `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const seedInputs = [{ id: mkId("in"), name: "value", type: "T" }];
+    const seedOutputs = [{ id: mkId("out"), name: "result", type: "T" }];
     const g = this.createGraph({
       kind: "function",
-      data: { contract: { inputs: [], outputs: [] }, notes: "" },
+      data: { contract: { inputs: seedInputs, outputs: seedOutputs }, notes: "" },
       ...opts,
     });
-    const handler = getHandler("function");
     if (handler) handler.bootstrapGraph(g, this);
     this.openTabs && this.openTabs.add(g.id);
     try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
@@ -2109,14 +2113,17 @@ class BlueprintSystem {
 
     for (const level of levels) {
       for (const node of level) {
-        if (node.nodeType === NODE_TYPES.functionInput || node.nodeType === NODE_TYPES.functionOutput) continue;
+        // FunctionInput's output ports were pre-seeded as parameter names; skip.
+        if (node.nodeType === NODE_TYPES.functionInput) continue;
+        const isOutputNode = node.nodeType === NODE_TYPES.functionOutput;
         for (const port of node.inputPorts) {
           if (port.connections.length > 0) {
             const src = port.connections[0].startPort;
             if (portToVarName.has(src)) portToVarName.set(port, portToVarName.get(src));
           } else if (port.isEditable && port.value !== undefined) {
             portToVarName.set(port, toShaderValue(port.value, port.getResolvedType(), target));
-          } else {
+          } else if (!isOutputNode) {
+            // Unbound FunctionOutput inputs fall back to "0.0" at emission; no need to allocate fv_.
             portToVarName.set(port, `fv_${varCounter++}`);
           }
         }
@@ -2417,8 +2424,9 @@ class BlueprintSystem {
           }
         }
 
-        // Update the node type.
+        // Update the node type (and the cached header color).
         node.nodeType = newType;
+        node.headerColor = newType.color;
 
         // Rebuild ports from new contract.
         this._rebuildBoundaryNodePorts(
@@ -2461,7 +2469,7 @@ class BlueprintSystem {
       const msg = droppedWires.length > 0
         ? `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt, ${droppedWires.length} incompatible wire(s) removed.`
         : `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt.`;
-      try { this.showNotification && this.showNotification(msg); } catch {}
+      try { this.showNotification && this.showNotification({ type: "info", title: "Contract updated", message: msg }); } catch {}
       try { this.onShaderChanged && this.onShaderChanged(); } catch {}
     }
   }
@@ -8636,21 +8644,31 @@ class BlueprintSystem {
     const callableTypes = this.getCallableFunctionNodeTypes();
     nodeTypes = [...nodeTypes, ...Object.entries(callableTypes)];
 
-    // Filter out output node if one already exists
+    const activeKind = this.activeGraph?.kind || "main";
+    const inSubgraph = activeKind === "function" || activeKind === "loopBody";
+
+    // Shader Output: only valid in main. Hide in subgraphs entirely; in main,
+    // hide if one is already placed.
     const hasOutputNode = this.nodes.some(
       (node) => node.nodeType === NODE_TYPES.output,
     );
-    if (hasOutputNode) {
+    if (inSubgraph || hasOutputNode) {
       nodeTypes = nodeTypes.filter(
         ([key, nodeType]) => nodeType !== NODE_TYPES.output,
       );
     }
 
-    // Hide nodes that require a function/loopBody context when editing main graph
-    if (this.activeGraph?.kind === "main") {
+    // Nodes that require a function/loopBody context are hidden in main.
+    if (!inSubgraph) {
       nodeTypes = nodeTypes.filter(
         ([key, nodeType]) => !nodeType.requiresFunctionContext,
       );
+    } else {
+      // In a subgraph, hide uniqueWithinGraph types that are already placed.
+      nodeTypes = nodeTypes.filter(([key, nodeType]) => {
+        if (!nodeType.uniqueWithinGraph) return true;
+        return !this.nodes.some((n) => n.nodeType === nodeType);
+      });
     }
 
     // If we're filtering by port type
@@ -9363,7 +9381,7 @@ class BlueprintSystem {
         const targetGraph = this.graphs.get(callerGraphId);
         if (!targetGraph) return;
         if (targetGraph.id === this.activeGraphId) {
-          try { this.showNotification && this.showNotification("Cannot call the current graph from itself."); } catch {}
+          try { this.showNotification && this.showNotification({ type: "warning", title: "Cannot call the current graph from itself." }); } catch {}
           return;
         }
         const handler = getHandler(targetGraph.kind);
@@ -10251,10 +10269,14 @@ class BlueprintSystem {
     const deletingPreviewNode =
       this.previewNode && this.selectedNodes.has(this.previewNode);
 
-    // Delete selected nodes and their wires (except output node)
+    // Delete selected nodes and their wires (except undeleteable ones)
     this.selectedNodes.forEach((node) => {
       // Don't delete the output node
       if (node.nodeType === NODE_TYPES.output) {
+        return;
+      }
+      // Respect NodeType.undeleteable (function/loop-body boundary nodes).
+      if (node.nodeType.undeleteable) {
         return;
       }
 
@@ -11554,23 +11576,12 @@ class BlueprintSystem {
         shaders[target] = this._generateCallableGraphPreview(this.activeGraph, target);
       }
     } else {
-      const graph = this.buildDependencyGraph();
-      if (!graph) {
+      const all = this.generateAllShaders();
+      if (!all) {
         alert("No output node found. Cannot generate shader.");
         return;
       }
-      const levels = this.topologicalSort(
-        graph.dependencies,
-        graph.connectedNodes,
-      );
-      for (const target of targets) {
-        const portToVarName = this.generateVariableNames(levels, target);
-        const boilerplate = this.getBoilerplate(target);
-        const uniformDeclarations = this.generateUniformDeclarations(target);
-        const shaderCode = this.generateShader(target, levels, portToVarName);
-        const fullShader = boilerplate + uniformDeclarations + shaderCode;
-        shaders[target] = fullShader;
-      }
+      for (const target of targets) shaders[target] = all[target];
     }
 
     // Initialize CodeMirror editors for each panel if not already done
@@ -12232,37 +12243,18 @@ class BlueprintSystem {
   }
 
   async exportGLSL() {
-    const graph = this.buildDependencyGraph();
-
-    if (!graph) {
+    const shaders = this.generateAllShaders();
+    if (!shaders) {
       alert("No output node found. Cannot generate shader.");
       return;
     }
 
-    const levels = this.topologicalSort(
-      graph.dependencies,
-      graph.connectedNodes,
-    );
-
     // Create ZIP file
     const zip = new JSZip();
 
-    // Generate shaders for all targets
-    const targets = ["webgl1", "webgl2", "webgpu"];
-    const shaders = {};
-
-    for (const target of targets) {
-      // Generate variable names for this specific target
-      const portToVarName = this.generateVariableNames(levels, target);
-      const boilerplate = this.getBoilerplate(target);
-      const uniformDeclarations = this.generateUniformDeclarations(target);
-      const shaderCode = this.generateShader(target, levels, portToVarName);
-      const fullShader = boilerplate + uniformDeclarations + shaderCode;
-      shaders[target] = fullShader;
-
-      // Log to console
+    for (const target of ["webgl1", "webgl2", "webgpu"]) {
       console.log(`Generated ${target.toUpperCase()} Shader:`);
-      console.log(fullShader);
+      console.log(shaders[target]);
       console.log("---");
     }
 

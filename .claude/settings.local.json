@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npm run *)",
       "Bash(npm test *)",
-      "Bash(npx vitest *)"
+      "Bash(npx vitest *)",
+      "Bash(UPDATE_GOLDEN=1 npx vitest run tests/21-golden-codegen.test.js)"
     ]
   }
 }
