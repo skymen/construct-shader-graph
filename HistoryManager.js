@@ -116,6 +116,7 @@ export class HistoryManager {
       commentsModified: [],
       uniformsChanged: false,
       customNodesChanged: false,
+      contractChanged: false,
       settingsChanged: false,
       changedProperties: new Set(),
     };
@@ -230,6 +231,12 @@ export class HistoryManager {
       diff.changedProperties.add("settings:changed");
     }
 
+    // Compare contract (function/loopBody graphs)
+    if (!this.deepEqual(oldState.data, newState.data)) {
+      diff.contractChanged = true;
+      diff.changedProperties.add("contract:changed");
+    }
+
     return diff;
   }
 
@@ -255,16 +262,42 @@ export class HistoryManager {
       }
     });
 
-    // Compare input port values
+    // Compare input port values and detect port count/type changes
+    if (oldNode.inputPorts.length !== newNode.inputPorts.length) {
+      diff.hasChanges = true;
+      diff.changes["inputPorts:count"] = {
+        oldValue: oldNode.inputPorts.length,
+        newValue: newNode.inputPorts.length,
+      };
+      diff.changedKeys.push("inputPorts:count");
+    }
+    if (oldNode.outputPorts && newNode.outputPorts && oldNode.outputPorts.length !== newNode.outputPorts.length) {
+      diff.hasChanges = true;
+      diff.changes["outputPorts:count"] = {
+        oldValue: oldNode.outputPorts.length,
+        newValue: newNode.outputPorts.length,
+      };
+      diff.changedKeys.push("outputPorts:count");
+    }
+
     oldNode.inputPorts.forEach((oldPort, i) => {
       const newPort = newNode.inputPorts[i];
-      if (newPort && !this.deepEqual(oldPort.value, newPort.value)) {
+      if (!newPort) return;
+      if (!this.deepEqual(oldPort.value, newPort.value)) {
         diff.hasChanges = true;
         diff.changes[`inputPort:${i}:value`] = {
           oldValue: oldPort.value,
           newValue: newPort.value,
         };
         diff.changedKeys.push(`inputPort:${i}:value`);
+      }
+      if (oldPort.name !== newPort.name || oldPort.portType !== newPort.portType) {
+        diff.hasChanges = true;
+        diff.changes[`inputPort:${i}:meta`] = {
+          oldValue: { name: oldPort.name, type: oldPort.portType },
+          newValue: { name: newPort.name, type: newPort.portType },
+        };
+        diff.changedKeys.push(`inputPort:${i}:meta`);
       }
     });
 
@@ -375,6 +408,8 @@ export class HistoryManager {
       existingDiff.uniformsChanged || newDiff.uniformsChanged;
     existingDiff.customNodesChanged =
       existingDiff.customNodesChanged || newDiff.customNodesChanged;
+    existingDiff.contractChanged =
+      existingDiff.contractChanged || newDiff.contractChanged;
     existingDiff.settingsChanged =
       existingDiff.settingsChanged || newDiff.settingsChanged;
   }
@@ -430,8 +465,34 @@ export class HistoryManager {
     // Apply before state
     this.isApplyingUndoRedo = true;
     try {
+      // If this entry is part of a multi-graph transaction, undo sibling
+      // graphs FIRST so that node type lookups (e.g., function_call_ types)
+      // resolve against the restored contract.
+      const host = this.blueprint.host || this.blueprint;
+      if (undoEntry.transactionId && host.graphs) {
+        for (const g of host.graphs.values()) {
+          if (g.history === this) continue;
+          const siblingStack = g.history.undoStack;
+          const idx = siblingStack.findIndex(
+            (e) => e.transactionId === undoEntry.transactionId
+          );
+          if (idx !== -1) {
+            const siblingEntry = siblingStack.splice(idx, 1)[0];
+            g.history.redoStack.push(siblingEntry);
+            g.history.isApplyingUndoRedo = true;
+            try {
+              host._loadGraphState(g, siblingEntry.beforeState);
+              g.history.currentState = siblingEntry.beforeState;
+            } finally {
+              g.history.isApplyingUndoRedo = false;
+            }
+          }
+        }
+      }
+
       this.blueprint.loadState(undoEntry.beforeState);
       this.currentState = undoEntry.beforeState;
+
       console.log(`Undid: ${undoEntry.description}`);
       return { success: true, description: undoEntry.description };
     } catch (error) {
@@ -462,6 +523,31 @@ export class HistoryManager {
     try {
       this.blueprint.loadState(redoEntry.afterState);
       this.currentState = redoEntry.afterState;
+
+      // If this entry is part of a multi-graph transaction, also redo
+      // the matching entries on sibling graphs.
+      const host = this.blueprint.host || this.blueprint;
+      if (redoEntry.transactionId && host.graphs) {
+        for (const g of host.graphs.values()) {
+          if (g.history === this) continue;
+          const siblingStack = g.history.redoStack;
+          const idx = siblingStack.findIndex(
+            (e) => e.transactionId === redoEntry.transactionId
+          );
+          if (idx !== -1) {
+            const siblingEntry = siblingStack.splice(idx, 1)[0];
+            g.history.undoStack.push(siblingEntry);
+            g.history.isApplyingUndoRedo = true;
+            try {
+              host._loadGraphState(g, siblingEntry.afterState);
+              g.history.currentState = siblingEntry.afterState;
+            } finally {
+              g.history.isApplyingUndoRedo = false;
+            }
+          }
+        }
+      }
+
       console.log(`Redid: ${redoEntry.description}`);
       return { success: true, description: redoEntry.description };
     } catch (error) {

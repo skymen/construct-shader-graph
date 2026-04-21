@@ -277,4 +277,211 @@ describe("Save/load round-trip with function graphs", () => {
       expect(callable.some((g) => g.id === "callable_1")).toBe(true);
     });
   });
+
+  describe("loop body round-trip", () => {
+    it("preserves loopBody kind, color, contract roles, and notes", async () => {
+      const g = blueprint.createLoopBodyGraph({
+        name: "SumLoop",
+        color: "#e67e22",
+      });
+      g.data.contract = {
+        inputs: [{ id: "a1", name: "acc", type: "float", role: "acc" }, { id: "a2", name: "step", type: "float", role: "arg" }],
+        outputs: [{ id: "a1", name: "acc", type: "float" }],
+      };
+      g.data.notes = "sums values";
+      blueprint.syncContractCallers(g);
+
+      const json = blueprint.serializeProjectToJSON();
+      blueprint.createNewFile();
+      await blueprint.loadFromJSON(fakeFile(JSON.parse(json)));
+
+      const reloaded = [...blueprint.graphs.values()].find((gr) => gr.name === "SumLoop");
+      expect(reloaded).toBeDefined();
+      expect(reloaded.kind).toBe("loopBody");
+      expect(reloaded.color).toBe("#e67e22");
+      expect(reloaded.data.contract.inputs[0].role).toBe("acc");
+      expect(reloaded.data.contract.inputs[1].role).toBe("arg");
+      expect(reloaded.data.contract.outputs[0].id).toBe("a1");
+      expect(reloaded.data.notes).toBe("sums values");
+    });
+  });
+
+  describe("mixed function + loopBody round-trip", () => {
+    it("preserves both kinds in the same project", async () => {
+      const fn = blueprint.createFunctionGraph({ name: "FnA", color: "#ff0000" });
+      fn.data.contract = {
+        inputs: [{ id: "f1", name: "x", type: "float" }],
+        outputs: [{ id: "f2", name: "y", type: "float" }],
+      };
+      blueprint.syncContractCallers(fn);
+
+      const loop = blueprint.createLoopBodyGraph({ name: "LoopB", color: "#00ff00" });
+      loop.data.contract = {
+        inputs: [{ id: "l1", name: "sum", type: "vec3", role: "acc" }],
+        outputs: [{ id: "l1", name: "sum", type: "vec3" }],
+      };
+      blueprint.syncContractCallers(loop);
+
+      const json = blueprint.serializeProjectToJSON();
+      blueprint.createNewFile();
+      await blueprint.loadFromJSON(fakeFile(JSON.parse(json)));
+
+      expect(blueprint.graphs.size).toBe(3); // main + fn + loop
+
+      const reFn = [...blueprint.graphs.values()].find((g) => g.name === "FnA");
+      const reLoop = [...blueprint.graphs.values()].find((g) => g.name === "LoopB");
+      expect(reFn).toBeDefined();
+      expect(reFn.kind).toBe("function");
+      expect(reFn.color).toBe("#ff0000");
+      expect(reLoop).toBeDefined();
+      expect(reLoop.kind).toBe("loopBody");
+      expect(reLoop.color).toBe("#00ff00");
+
+      const callable = blueprint.getCallableGraphs();
+      expect(callable.length).toBe(2);
+    });
+  });
+
+  describe("undo/redo for contract edits", () => {
+    it("exportState includes contract data for function graphs", () => {
+      const g = blueprint.createFunctionGraph({ name: "UndoFn" });
+      g.data.contract = {
+        inputs: [{ id: "u1", name: "a", type: "float" }],
+        outputs: [{ id: "u2", name: "b", type: "float" }],
+      };
+      blueprint.syncContractCallers(g);
+
+      blueprint.setActiveGraph(g.id);
+      const state = blueprint.exportState();
+      expect(state.data).toBeDefined();
+      expect(state.data.contract.inputs[0].name).toBe("a");
+      expect(state.contractVersion).toBeGreaterThan(0);
+    });
+
+    it("undo restores previous contract state on the function graph", () => {
+      const g = blueprint.createFunctionGraph({ name: "UndoTest" });
+      g.data.contract = {
+        inputs: [{ id: "u1", name: "original", type: "float" }],
+        outputs: [{ id: "u2", name: "out", type: "float" }],
+      };
+      blueprint.syncContractCallers(g);
+
+      blueprint.setActiveGraph(g.id);
+      // Re-snapshot so the history knows the current state
+      g.history.currentState = blueprint.exportState();
+
+      // Edit the contract
+      g.data.contract.inputs[0].name = "modified";
+      blueprint.syncContractCallers(g);
+
+      expect(g.data.contract.inputs[0].name).toBe("modified");
+
+      // Undo should restore the original name
+      const result = g.history.undo();
+      expect(result).toBeTruthy();
+      expect(g.data.contract.inputs[0].name).toBe("original");
+    });
+
+    it("redo re-applies the contract change", () => {
+      const g = blueprint.createFunctionGraph({ name: "RedoTest" });
+      g.data.contract = {
+        inputs: [{ id: "r1", name: "before", type: "float" }],
+        outputs: [{ id: "r2", name: "out", type: "float" }],
+      };
+      blueprint.syncContractCallers(g);
+
+      blueprint.setActiveGraph(g.id);
+      g.history.currentState = blueprint.exportState();
+
+      g.data.contract.inputs[0].name = "after";
+      blueprint.syncContractCallers(g);
+
+      g.history.undo();
+      expect(g.data.contract.inputs[0].name).toBe("before");
+
+      g.history.redo();
+      expect(g.data.contract.inputs[0].name).toBe("after");
+    });
+
+    it("multi-graph transaction: undo on affected graph rolls back caller changes", () => {
+      const fn = blueprint.createFunctionGraph({ name: "TxFn" });
+      fn.data.contract = {
+        inputs: [{ id: "t1", name: "x", type: "float" }],
+        outputs: [{ id: "t2", name: "y", type: "float" }],
+      };
+      blueprint.syncContractCallers(fn);
+
+      // Place a caller in main
+      blueprint.setActiveGraph(blueprint.mainGraphId);
+      const callerType = blueprint.getCallableFunctionNodeTypes()[`function_call_${fn.id}`];
+      const callerNode = blueprint.addNode(0, 0, callerType);
+
+      // Snapshot main graph history baseline
+      const mainGraph = blueprint.mainGraph;
+      mainGraph.history.currentState = blueprint._exportGraphState(mainGraph);
+
+      const callerCountBefore = callerNode.inputPorts.length;
+
+      // Edit the function contract: add a second input
+      fn.data.contract.inputs.push({ id: "t3", name: "z", type: "vec3" });
+      blueprint.syncContractCallers(fn);
+
+      // Caller should have been rebuilt with the new port
+      const updatedCaller = mainGraph.nodes.find(
+        (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fn.id
+      );
+      expect(updatedCaller.inputPorts.length).toBe(callerCountBefore + 1);
+
+      // Undo on main graph should restore the caller to its previous port count
+      const undoResult = mainGraph.history.undo();
+      expect(undoResult).toBeTruthy();
+
+      const restoredCaller = mainGraph.nodes.find(
+        (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fn.id
+      );
+      expect(restoredCaller.inputPorts.length).toBe(callerCountBefore);
+    });
+  });
+
+  describe("backward compatibility", () => {
+    it("missing kind defaults to function for additional graphs", async () => {
+      const payload = {
+        version: "1.0.0",
+        shaderSettings: {},
+        uniforms: [],
+        deprecatedUniforms: [],
+        uniformIdCounter: 1,
+        customNodes: [],
+        previewSettings: {},
+        camera: { x: 0, y: 0, zoom: 1 },
+        nodes: [],
+        wires: [],
+        comments: [],
+        nodeIdCounter: 1,
+        commentIdCounter: 1,
+        _additionalGraphs: [
+          {
+            id: "old_fn",
+            name: "OldFn",
+            // no kind field
+            shaderSettings: {},
+            camera: { x: 0, y: 0, zoom: 1 },
+            nodes: [],
+            wires: [],
+            comments: [],
+            nodeIdCounter: 1,
+            commentIdCounter: 1,
+          },
+        ],
+      };
+
+      await blueprint.loadFromJSON(fakeFile(payload));
+
+      const g = blueprint.graphs.get("old_fn");
+      expect(g).toBeDefined();
+      expect(g.kind).toBe("function");
+      expect(g.data).toBeDefined();
+      expect(g.data.contract).toBeDefined();
+    });
+  });
 });

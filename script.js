@@ -2010,6 +2010,7 @@ class BlueprintSystem {
       ...opts,
     });
     if (handler) handler.bootstrapGraph(g, this);
+    g.history.currentState = this._exportGraphState(g);
     this.openTabs && this.openTabs.add(g.id);
     try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
     try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
@@ -2029,6 +2030,7 @@ class BlueprintSystem {
     });
     const handler = getHandler("loopBody");
     if (handler) handler.bootstrapGraph(g, this);
+    g.history.currentState = this._exportGraphState(g);
     this.openTabs && this.openTabs.add(g.id);
     try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
     try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
@@ -2596,9 +2598,71 @@ class BlueprintSystem {
     }
   }
 
+  // Capture snapshots of the listed graphs before and after running `fn`, then
+  // push a single undo entry onto each affected graph's history so that undoing
+  // on any of them rolls back to the pre-edit state.
+  runMultiGraphTransaction(graphIds, fn, description = "Contract edit") {
+    // Use each graph's last committed history state as the "before" snapshot.
+    // This captures the state from BEFORE the user's contract edit, not after.
+    const snapshots = new Map();
+    for (const id of graphIds) {
+      const g = this.graphs.get(id);
+      if (!g) continue;
+      snapshots.set(id, g.history.currentState || this._exportGraphState(g));
+    }
+
+    fn();
+
+    const txId = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    for (const [id, beforeState] of snapshots) {
+      const g = this.graphs.get(id);
+      if (!g) continue;
+      const afterState = this._exportGraphState(g);
+      const diff = g.history.calculateStateDiff(beforeState, afterState);
+      if (diff.changedProperties.size === 0) continue;
+
+      const entry = {
+        description,
+        beforeState,
+        afterState,
+        timestamp: Date.now(),
+        changedProperties: diff.changedProperties,
+        diff,
+        transactionId: txId,
+      };
+      g.history.undoStack.push(entry);
+      if (g.history.undoStack.length > g.history.maxUndoSteps) {
+        g.history.undoStack.shift();
+      }
+      g.history.redoStack = [];
+      g.history.currentState = afterState;
+      g.history.lastChangeTime = Date.now();
+      g.history.lastChangedProperties = diff.changedProperties;
+    }
+
+    try { this.updateUndoRedoButtons && this.updateUndoRedoButtons(); } catch {}
+  }
+
   // Update all caller nodes in every graph whose targetGraphId matches `graph.id`.
   // Preserves wires by contractPortId. Surfaces a notification listing changes.
   syncContractCallers(graph) {
+    // Identify all graphs that might be affected (the function graph itself +
+    // any graph containing a caller targeting it).
+    const affectedIds = new Set([graph.id]);
+    for (const g of this.graphs.values()) {
+      for (const node of g.nodes) {
+        if (node.nodeType.isFunctionCall && node.nodeType.targetGraphId === graph.id) {
+          affectedIds.add(g.id);
+        }
+      }
+    }
+
+    this.runMultiGraphTransaction([...affectedIds], () => {
+      this._syncContractCallersImpl(graph);
+    }, `Contract edit on "${graph.name}"`);
+  }
+
+  _syncContractCallersImpl(graph) {
     graph.contractVersion = (graph.contractVersion || 0) + 1;
     const handler = getHandler(graph.kind);
     if (!handler) return;
@@ -14461,6 +14525,10 @@ class BlueprintSystem {
       // that single-graph undo/redo restores the legacy library state.
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
       shaderSettings: { ...graph.shaderSettings },
+      kind: graph.kind,
+      color: graph.color,
+      data: JSON.parse(JSON.stringify(graph.data || {})),
+      contractVersion: graph.contractVersion || 0,
       counters: {
         nodeIdCounter: graph.nodeIdCounter,
         uniformIdCounter: this.uniformIdCounter, // host-level
@@ -14519,6 +14587,11 @@ class BlueprintSystem {
       this.customNodes = JSON.parse(JSON.stringify(stateData.customNodes));
     }
     graph.shaderSettings = { ...stateData.shaderSettings };
+
+    // Restore kind-specific fields (contract, color, etc.) for non-main graphs
+    if (stateData.color !== undefined) graph.color = stateData.color;
+    if (stateData.data !== undefined) graph.data = JSON.parse(JSON.stringify(stateData.data));
+    if (stateData.contractVersion !== undefined) graph.contractVersion = stateData.contractVersion;
 
     // Restore nodes
     const nodeMap = new Map();
@@ -14611,11 +14684,21 @@ class BlueprintSystem {
       node.recalculateHeight();
     });
 
+    // For function/loopBody graphs, re-enforce boundary rules so that
+    // boundary node ports match the restored contract.
+    if (graph.kind !== "main") {
+      const handler = getHandler(graph.kind);
+      if (handler) handler.enforceBoundaryRules(graph, this);
+    }
+
     // UI side-effects: only when this graph is currently visible.
     if (graph === this.activeGraph) {
       this.renderUniformList();
       this.renderCustomNodesList();
       this.updateShaderSettingsUI();
+      try { this.renderContractEditor && this.renderContractEditor(); } catch {}
+      try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
+      try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
       this.render();
       this.updateDependencyList();
     }
