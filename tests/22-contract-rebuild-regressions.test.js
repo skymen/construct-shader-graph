@@ -326,6 +326,72 @@ describe("Bug 5: type change drops incompatible wires, keeps compatible ones", (
     // any graph — that's the real belt-and-suspenders check.
   });
 
+  it("cascading type propagation drops downstream wires that become incompatible", () => {
+    // Chain: caller.output[T] -> math.input[genType] -> vec4.X[float]
+    // Initially T resolves to float everywhere. When we flip the contract
+    // output to vec3, math's genType re-resolves to vec3. That propagation
+    // makes math.output (now vec3) incompatible with Vec4's float input —
+    // the downstream wire must be dropped.
+    const g = blueprint.createFunctionGraph({ name: "Fn" });
+    g.data.contract = {
+      inputs: [{ id: "p_in", name: "x", type: "float" }],
+      outputs: [{ id: "p_out", name: "r", type: "T" }],
+    };
+    blueprint.syncContractCallers(g);
+
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const caller = addCaller(g);
+    const math = blueprint.addNode(0, 0, NODE_TYPES.math);
+    const vec4 = blueprint.addNode(0, 0, NODE_TYPES.vec4);
+    // caller.output[T] -> math.input[genType]
+    connect(caller.outputPorts[0], math.inputPorts[0]);
+    // math.output[genType] -> vec4.X[float]; this resolves math.genType to float.
+    connect(math.outputPorts[0], vec4.inputPorts[0]);
+    expect(math.outputPorts[0].getResolvedType()).toBe("float");
+
+    // Flip contract output T -> vec3. The caller-side wire survives (genType
+    // accepts vec3), and propagation re-resolves math.genType to vec3. But
+    // math.output -> vec4.X(float) is now incompatible and must drop.
+    g.data.contract.outputs[0].type = "vec3";
+    blueprint.syncContractCallers(g);
+
+    expect(caller.outputPorts[0].portType).toBe("vec3");
+    expect(math.outputPorts[0].getResolvedType()).toBe("vec3");
+    // Downstream wire must be gone — math.output no longer compatible with vec4.X (float).
+    expect(math.outputPorts[0].connections.length).toBe(0);
+    expect(vec4.inputPorts[0].connections.length).toBe(0);
+  });
+
+  it("compatible type change propagates through the preserved wire", () => {
+    // When a contract change keeps a wire (types still compatible), the new
+    // type on the contract side must propagate across the wire: any generic
+    // on the other end needs to re-resolve to the new concrete type.
+    const g = blueprint.createFunctionGraph({ name: "Fn" });
+    g.data.contract = {
+      inputs: [{ id: "p_in", name: "x", type: "float" }],
+      outputs: [{ id: "p_out", name: "r", type: "float" }],
+    };
+    blueprint.syncContractCallers(g);
+
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const caller = addCaller(g);
+    // Math node: output is genType. When we wire caller.output (float) into
+    // its first input, the genType resolves to float.
+    const math = blueprint.addNode(0, 0, NODE_TYPES.math);
+    connect(caller.outputPorts[0], math.inputPorts[0]);
+    expect(math.outputPorts[0].getResolvedType()).toBe("float");
+
+    // Flip the contract output to vec3. Math's input is genType and accepts
+    // vec3, so the wire survives.
+    g.data.contract.outputs[0].type = "vec3";
+    blueprint.syncContractCallers(g);
+
+    // The wire must still exist, AND math's generic must re-resolve to vec3.
+    expect(caller.outputPorts[0].portType).toBe("vec3");
+    expect(caller.outputPorts[0].connections.length).toBe(1);
+    expect(math.outputPorts[0].getResolvedType()).toBe("vec3");
+  });
+
   it("dropped-wire endpoint becomes editable again (falls back to default value)", () => {
     // When a contract change drops an incompatible wire, the *other* end
     // (the still-existing port that was reading through the wire) must

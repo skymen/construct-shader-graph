@@ -2071,13 +2071,39 @@ class BlueprintSystem {
           const fresh = new Port(node, portKind, i, def);
           if (saved) {
             const other = saved.startPort === existing ? saved.endPort : saved.startPort;
+            // The compatibility check below uses getResolvedType(), which
+            // reads `node.resolvedGenerics`. That map may still carry the
+            // resolution produced by THIS wire under the old contract
+            // (e.g. genType -> float). Clear it for the check so we test
+            // the raw port-type compatibility, then let
+            // resolveGenericsForConnection re-populate it with the new type.
+            let stashedResolved;
+            if (other && isGenericType(other.portType) &&
+                other.node.resolvedGenerics &&
+                other.node.resolvedGenerics[other.portType] !== undefined) {
+              stashedResolved = other.node.resolvedGenerics[other.portType];
+              delete other.node.resolvedGenerics[other.portType];
+            }
             const compatible = other && (portKind === "input"
               ? fresh.canConnectTo(other)
               : other.canConnectTo(fresh));
+            if (!compatible && stashedResolved !== undefined) {
+              // Restore the stale resolution — the wire is about to be
+              // dropped, and the drop branch expects normal state.
+              other.node.resolvedGenerics[other.portType] = stashedResolved;
+            }
             if (compatible) {
               fresh.connections.push(saved);
               if (saved.startPort === existing) saved.startPort = fresh;
               else saved.endPort = fresh;
+              // Re-propagate types across the preserved wire so any generic
+              // on `other` (and its downstream) picks up the new concrete
+              // type instead of keeping the stale resolution from the old
+              // contract.
+              this.resolveGenericsForConnection(saved.startPort, saved.endPort);
+              other.updateEditability();
+              other.node.inputPorts.forEach((p) => p.updateEditability());
+              other.node.recalculateHeight();
             } else {
               // Drop the wire on both sides and the owning graph's list.
               // Use the node's own graph — `this.wires` delegates to the
@@ -15167,6 +15193,12 @@ class BlueprintSystem {
       .getAllPorts()
       .filter((port) => port.portType === genericType);
 
+    // Propagation may carry the resolved type across a node (e.g. an input
+    // genType resolves, so the output genType resolves too). If the new
+    // concrete type now conflicts with a wire on the other-side port, that
+    // wire must be dropped — regardless of which graph owns it.
+    const wiresToDrop = [];
+
     // For each generic port, propagate to connected nodes
     genericPorts.forEach((port) => {
       // Update editability for this port
@@ -15175,8 +15207,9 @@ class BlueprintSystem {
       port.connections.forEach((wire) => {
         const connectedPort =
           wire.startPort === port ? wire.endPort : wire.startPort;
+        if (!connectedPort) return;
 
-        if (connectedPort && isGenericType(connectedPort.portType)) {
+        if (isGenericType(connectedPort.portType)) {
           // Check if the connected node hasn't resolved this generic yet
           const connectedNode = connectedPort.node;
           const currentResolution = connectedNode.resolveGenericType(
@@ -15198,10 +15231,31 @@ class BlueprintSystem {
                 concreteType,
               );
             }
+          } else if (currentResolution !== concreteType) {
+            // The other end already resolved to a different concrete type.
+            // The wire can no longer carry this signal.
+            wiresToDrop.push(wire);
+          }
+        } else {
+          // Connected port is concrete. If it can't accept the new resolved
+          // type, drop the wire.
+          const outputPort = port.type === "output" ? port : connectedPort;
+          const inputPort = port.type === "input" ? port : connectedPort;
+          if (!areTypesCompatible(
+            outputPort.portType,
+            inputPort.portType,
+            outputPort.getResolvedType(),
+            inputPort.getResolvedType(),
+          )) {
+            wiresToDrop.push(wire);
           }
         }
       });
     });
+
+    for (const wire of wiresToDrop) {
+      this.disconnectWire(wire);
+    }
   }
 
   onMouseDown(e) {
