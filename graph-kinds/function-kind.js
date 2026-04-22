@@ -18,7 +18,7 @@ const CONCRETE_TYPE_OPTIONS = [
   { value: "mat4",  label: "Mat4"  },
 ];
 
-const GENERIC_ALPHABET = "TUVWXYZABCDEFGHIJKLMNOPQRS";
+const GENERIC_ALPHABET = "TU";
 
 // A type is concrete if it's longer than one character (user generics are single letters).
 function isConcreteType(type) {
