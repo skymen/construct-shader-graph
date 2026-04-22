@@ -4414,6 +4414,7 @@ class BlueprintSystem {
         const name = this._pickNewCallableName("Function");
         const g = this.createFunctionGraph({ name });
         this.setActiveGraph(g.id);
+        this.centerView();
       });
     }
     const addLoopBodyBtn = document.getElementById("addLoopBodyBtn");
@@ -4422,6 +4423,7 @@ class BlueprintSystem {
         const name = this._pickNewCallableName("LoopBody");
         const g = this.createLoopBodyGraph({ name });
         this.setActiveGraph(g.id);
+        this.centerView();
       });
     }
 

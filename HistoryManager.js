@@ -214,6 +214,11 @@ export class HistoryManager {
         this.host.setActiveGraph(entry.primaryGraphId);
       }
 
+      // _loadGraphState only fires onShaderChanged for the main graph, but
+      // function/loopBody changes also affect codegen. Fire once after all
+      // graphs are restored so the preview reflects the final state.
+      try { this.host.onShaderChanged && this.host.onShaderChanged(); } catch {}
+
       console.log(`Undid: ${entry.description}`);
       return { success: true, description: entry.description };
     } catch (error) {
@@ -257,6 +262,8 @@ export class HistoryManager {
       if (entry.primaryGraphId && this.host.graphs.has(entry.primaryGraphId)) {
         this.host.setActiveGraph(entry.primaryGraphId);
       }
+
+      try { this.host.onShaderChanged && this.host.onShaderChanged(); } catch {}
 
       console.log(`Redid: ${entry.description}`);
       return { success: true, description: entry.description };
