@@ -546,9 +546,7 @@ function resolveGenericType(graph, port, which) {
   const portList = which === "inputs" ? boundary.outputPorts : boundary.inputPorts;
   const match = portList.find((p) => p.contractPortId === port.id);
   if (!match) return null;
-  try {
-    const t = match.getResolvedType && match.getResolvedType();
-    if (t && isConcreteType(t)) return t;
-  } catch {}
+  const t = match.getResolvedType();
+  if (t && isConcreteType(t)) return t;
   return null;
 }

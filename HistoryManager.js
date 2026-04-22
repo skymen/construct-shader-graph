@@ -175,7 +175,7 @@ export class HistoryManager {
     this.lastChangeTime = Date.now();
     this.lastChangedProperties = changedProperties;
 
-    try { this.host.updateUndoRedoButtons && this.host.updateUndoRedoButtons(); } catch {}
+    this.host.updateUndoRedoButtons();
   }
 
   /**
@@ -217,7 +217,7 @@ export class HistoryManager {
       // _loadGraphState only fires onShaderChanged for the main graph, but
       // function/loopBody changes also affect codegen. Fire once after all
       // graphs are restored so the preview reflects the final state.
-      try { this.host.onShaderChanged && this.host.onShaderChanged(); } catch {}
+      this.host.onShaderChanged();
 
       console.log(`Undid: ${entry.description}`);
       return { success: true, description: entry.description };
@@ -263,7 +263,7 @@ export class HistoryManager {
         this.host.setActiveGraph(entry.primaryGraphId);
       }
 
-      try { this.host.onShaderChanged && this.host.onShaderChanged(); } catch {}
+      this.host.onShaderChanged();
 
       console.log(`Redid: ${entry.description}`);
       return { success: true, description: entry.description };

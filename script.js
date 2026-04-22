@@ -2024,8 +2024,8 @@ class BlueprintSystem {
     if (handler) handler.bootstrapGraph(g, this);
     this.history.initGraphState(g.id, this._exportGraphState(g));
     this.openTabs && this.openTabs.add(g.id);
-    try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
-    try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
+    this.renderFunctionsList();
+    this.renderGraphTabBar();
     return g;
   }
 
@@ -2044,8 +2044,8 @@ class BlueprintSystem {
     if (handler) handler.bootstrapGraph(g, this);
     this.history.initGraphState(g.id, this._exportGraphState(g));
     this.openTabs && this.openTabs.add(g.id);
-    try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
-    try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
+    this.renderFunctionsList();
+    this.renderGraphTabBar();
     return g;
   }
 
@@ -2728,8 +2728,8 @@ class BlueprintSystem {
       const msg = totalDropped > 0
         ? `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt, ${totalDropped} incompatible wire(s) removed.`
         : `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt.`;
-      try { this.showNotification && this.showNotification({ type: "info", title: "Contract updated", message: msg }); } catch {}
-      try { this.onShaderChanged && this.onShaderChanged(); } catch {}
+      this.showNotification({ type: "info", title: "Contract updated", message: msg });
+      this.onShaderChanged();
     }
   }
 
@@ -2748,18 +2748,16 @@ class BlueprintSystem {
     this.activeGraphId = id;
     this.openTabs.add(id);
 
-    // Refresh UI to reflect the newly active graph (best-effort; some
-    // sidebars may not exist in test environments).
-    try { this.renderUniformList && this.renderUniformList(); } catch {}
-    try { this.renderCustomNodesList && this.renderCustomNodesList(); } catch {}
-    try { this.updateShaderSettingsUI && this.updateShaderSettingsUI(); } catch {}
-    try { this.updateDependencyList && this.updateDependencyList(); } catch {}
-    try { this.updateUndoRedoButtons && this.updateUndoRedoButtons(); } catch {}
-    try { this._applyKindSidebarVisibility && this._applyKindSidebarVisibility(); } catch {}
-    try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
-    try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
-    try { this.renderContractEditor && this.renderContractEditor(); } catch {}
-    try { this.render && this.render(); } catch {}
+    this.renderUniformList();
+    this.renderCustomNodesList();
+    this.updateShaderSettingsUI();
+    this.updateDependencyList();
+    this.updateUndoRedoButtons();
+    this._applyKindSidebarVisibility();
+    this.renderGraphTabBar();
+    this.renderFunctionsList();
+    this.renderContractEditor();
+    this.render();
   }
 
   // Delete a non-main graph. Throws if asked to delete the main graph.
@@ -9513,7 +9511,7 @@ class BlueprintSystem {
       if (nodeType.isFunctionCall && nodeType.targetGraphId) {
         if (wouldCreateCycle(this, this.activeGraphId, nodeType.targetGraphId)) {
           const cyclePath = getCyclePath(this, this.activeGraphId, nodeType.targetGraphId);
-          try { this.showNotification && this.showNotification({ type: "error", title: "Cycle detected", message: `Adding this would create a cycle: ${cyclePath}` }); } catch {}
+          this.showNotification({ type: "error", title: "Cycle detected", message: `Adding this would create a cycle: ${cyclePath}` });
           return;
         }
       }
@@ -9701,7 +9699,7 @@ class BlueprintSystem {
         if (!targetGraph) return;
         if (wouldCreateCycle(this, this.activeGraphId, callerGraphId)) {
           const cyclePath = getCyclePath(this, this.activeGraphId, callerGraphId);
-          try { this.showNotification && this.showNotification({ type: "error", title: "Cycle detected", message: `Adding this would create a cycle: ${cyclePath}` }); } catch {}
+          this.showNotification({ type: "error", title: "Cycle detected", message: `Adding this would create a cycle: ${cyclePath}` });
           return;
         }
         const handler = getHandler(targetGraph.kind);
@@ -14730,9 +14728,9 @@ class BlueprintSystem {
       this.renderUniformList();
       this.renderCustomNodesList();
       this.updateShaderSettingsUI();
-      try { this.renderContractEditor && this.renderContractEditor(); } catch {}
-      try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
-      try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
+      this.renderContractEditor();
+      this.renderFunctionsList();
+      this.renderGraphTabBar();
       this.render();
       this.updateDependencyList();
     }
