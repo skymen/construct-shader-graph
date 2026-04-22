@@ -2257,6 +2257,40 @@ class BlueprintSystem {
       }
     }
 
+    // Build a full binding map from the call-site signature. The signature
+    // binds contract-level generics (e.g. T → vec2). Body nodes may have
+    // narrowed T to genType internally. Trace through body resolvedGenerics
+    // to propagate the concrete type to intermediate generics (genType → vec2).
+    const fullBindings = { ...signature.bindings };
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const node of graph.nodes) {
+        for (const [key, val] of Object.entries(node.resolvedGenerics || {})) {
+          if (isGenericType(val) && fullBindings[key] && !fullBindings[val]) {
+            fullBindings[val] = fullBindings[key];
+            changed = true;
+          }
+        }
+      }
+    }
+
+    // Temporarily override body nodes' resolvedGenerics so getResolvedType()
+    // returns concrete types during compilation.
+    const savedGenerics = new Map();
+    for (const node of graph.nodes) {
+      savedGenerics.set(node, { ...node.resolvedGenerics });
+      for (const port of node.getAllPorts()) {
+        if (isGenericType(port.portType) && fullBindings[port.portType]) {
+          node.resolvedGenerics[port.portType] = fullBindings[port.portType];
+        }
+        const cur = node.resolvedGenerics[port.portType];
+        if (isGenericType(cur) && fullBindings[cur]) {
+          node.resolvedGenerics[port.portType] = fullBindings[cur];
+        }
+      }
+    }
+
     // Generate body code and collect helper deps.
     const deps = new Map();
     let bodyCode = "";
@@ -2317,6 +2351,11 @@ class BlueprintSystem {
           bodyCode += `    out_${_sanitizeId(op.name)} = ${src};\n`;
         });
       }
+    }
+
+    // Restore original resolvedGenerics so editing state isn't mutated.
+    for (const [node, saved] of savedGenerics) {
+      node.resolvedGenerics = saved;
     }
 
     return { bodyCode, deps };
@@ -2552,6 +2591,19 @@ class BlueprintSystem {
           const next = resolved[gen];
           const curr = caller.resolvedGenerics[gen];
           if (next && curr !== next) {
+            // If the body narrows to a generic (e.g. T→genType) and the caller
+            // already has a concrete resolution from its own wires that is valid
+            // within that generic, keep the caller's concrete resolution.
+            if (isGenericType(next) && curr) {
+              if (!isGenericType(curr)) {
+                const allowed = getAllowedTypesForGeneric(next);
+                if (allowed.includes(curr)) continue;
+              } else {
+                const nextAllowed = getAllowedTypesForGeneric(next);
+                const currAllowed = getAllowedTypesForGeneric(curr);
+                if (currAllowed.every((t) => nextAllowed.includes(t))) continue;
+              }
+            }
             caller.resolvedGenerics[gen] = next;
             changed = true;
             changedLetters.add(gen);
