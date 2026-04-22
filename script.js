@@ -1082,6 +1082,7 @@ class BlueprintSystem {
     this.activeWire = null;
     this.hoveredPort = null;
     this.hoveredNodeButton = null;
+    this.pendingButtonClick = null;
     this.draggedRerouteNode = null;
     this.draggedComment = null;
     this.resizingComment = null;
@@ -1950,6 +1951,7 @@ class BlueprintSystem {
       "activeWire",
       "hoveredPort",
       "hoveredNodeButton",
+      "pendingButtonClick",
       "draggedRerouteNode",
       "draggedComment",
       "resizingComment",
@@ -15984,84 +15986,15 @@ class BlueprintSystem {
       return;
     }
 
-    // Check if clicking on edit button for custom nodes
-    if (
-      topNodeAtPointer?.nodeType.isCustom &&
-      topNodeAtPointer.editButtonBounds
-    ) {
-      const btn = topNodeAtPointer.editButtonBounds;
-      if (
-        pos.x >= btn.x &&
-        pos.x <= btn.x + btn.width &&
-        pos.y >= btn.y &&
-        pos.y <= btn.y + btn.height
-      ) {
-        const customNode = this.customNodes.find(
-          (cn) => cn.id === topNodeAtPointer.nodeType.customNodeId,
-        );
-        if (customNode) {
-          this.showCustomNodeModal(customNode);
-        }
-        return;
-      }
-    }
-
-    // Check if clicking on open-graph button for function/loop call nodes
-    if (
-      topNodeAtPointer?.nodeType.isFunctionCall &&
-      topNodeAtPointer.openGraphButtonBounds
-    ) {
-      const btn = topNodeAtPointer.openGraphButtonBounds;
-      if (
-        pos.x >= btn.x &&
-        pos.x <= btn.x + btn.width &&
-        pos.y >= btn.y &&
-        pos.y <= btn.y + btn.height
-      ) {
-        this.openGraphTab(topNodeAtPointer.nodeType.targetGraphId);
-        return;
-      }
-    }
-
-    // Check if clicking on info button (opens manual)
-    if (
-      topNodeAtPointer &&
-      !topNodeAtPointer.nodeType.isCustom &&
-      !topNodeAtPointer.nodeType.isFunctionCall &&
-      topNodeAtPointer.infoButtonBounds
-    ) {
-      const btn = topNodeAtPointer.infoButtonBounds;
-      if (
-        pos.x >= btn.x &&
-        pos.x <= btn.x + btn.width &&
-        pos.y >= btn.y &&
-        pos.y <= btn.y + btn.height
-      ) {
-        // Find the node key in NODE_TYPES
-        for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
-          if (nodeType === topNodeAtPointer.nodeType) {
-            this.showManualModal();
-            // After the modal is shown, select this node's entry
-            setTimeout(() => {
-              const categoriesContainer = document.getElementById("manualCategories");
-              categoriesContainer
-                .querySelectorAll(".manual-node-item")
-                .forEach((i) => i.classList.remove("active"));
-              const nodeItem = categoriesContainer.querySelector(
-                `[data-node-key="${key}"]`,
-              );
-              if (nodeItem) {
-                nodeItem.classList.add("active");
-                const category = nodeItem.closest(".manual-category");
-                if (category) category.classList.remove("collapsed");
-                nodeItem.scrollIntoView({ behavior: "smooth", block: "center" });
-              }
-              this.showNodeManualEntry(key);
-            }, 0);
-            break;
-          }
-        }
-        return;
+    // Check if mousedown is on a node button — defer action to mouseup (so dragging doesn't trigger it)
+    {
+      const hitBounds = (b) => b && pos.x >= b.x && pos.x <= b.x + b.width && pos.y >= b.y && pos.y <= b.y + b.height;
+      if (topNodeAtPointer?.nodeType.isCustom && hitBounds(topNodeAtPointer.editButtonBounds)) {
+        this.pendingButtonClick = { type: "edit", node: topNodeAtPointer };
+      } else if (topNodeAtPointer?.nodeType.isFunctionCall && hitBounds(topNodeAtPointer.openGraphButtonBounds)) {
+        this.pendingButtonClick = { type: "openGraph", node: topNodeAtPointer };
+      } else if (topNodeAtPointer && !topNodeAtPointer.nodeType.isCustom && !topNodeAtPointer.nodeType.isFunctionCall && hitBounds(topNodeAtPointer.infoButtonBounds)) {
+        this.pendingButtonClick = { type: "info", node: topNodeAtPointer };
       }
     }
 
@@ -16198,10 +16131,9 @@ class BlueprintSystem {
         return;
       }
 
-      // Check edit button (pencil icon at top right)
+      // Check edit button (pencil icon at top right) — defer to mouseup
       if (comment.isPointInEditButton(pos.x, pos.y)) {
-        this.showCommentModal(comment);
-        return;
+        this.pendingButtonClick = { type: "commentEdit", comment };
       }
 
       // Check drag handle (small icon at top left) - drags ONLY the comment (without nodes)
@@ -16808,10 +16740,56 @@ class BlueprintSystem {
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = "default";
+      this.pendingButtonClick = null;
       return;
     }
 
     const pos = this.getMousePos(e);
+
+    // Handle deferred button clicks (node info/edit/openGraph, comment edit)
+    if (this.pendingButtonClick) {
+      const pending = this.pendingButtonClick;
+      this.pendingButtonClick = null;
+
+      // Only fire if the mouse hasn't moved far (i.e. not a drag)
+      const dx = pos.x - this.lastClickPos.x;
+      const dy = pos.y - this.lastClickPos.y;
+      if (dx * dx + dy * dy < 25) {
+        if (pending.type === "edit") {
+          const customNode = this.customNodes.find(
+            (cn) => cn.id === pending.node.nodeType.customNodeId,
+          );
+          if (customNode) this.showCustomNodeModal(customNode);
+        } else if (pending.type === "openGraph") {
+          this.openGraphTab(pending.node.nodeType.targetGraphId);
+        } else if (pending.type === "info") {
+          for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
+            if (nodeType === pending.node.nodeType) {
+              this.showManualModal();
+              setTimeout(() => {
+                const categoriesContainer = document.getElementById("manualCategories");
+                categoriesContainer
+                  .querySelectorAll(".manual-node-item")
+                  .forEach((i) => i.classList.remove("active"));
+                const nodeItem = categoriesContainer.querySelector(
+                  `[data-node-key="${key}"]`,
+                );
+                if (nodeItem) {
+                  nodeItem.classList.add("active");
+                  const category = nodeItem.closest(".manual-category");
+                  if (category) category.classList.remove("collapsed");
+                  nodeItem.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
+                this.showNodeManualEntry(key);
+              }, 0);
+              break;
+            }
+          }
+        } else if (pending.type === "commentEdit") {
+          this.showCommentModal(pending.comment);
+        }
+      }
+    }
 
     if (this.pendingCustomEditorClick) {
       const { node, bounds } = this.pendingCustomEditorClick;
