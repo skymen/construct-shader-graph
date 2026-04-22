@@ -470,6 +470,88 @@ describe("loop body contract undo/redo", () => {
     expect(loop.data.contract.inputs[0].role).toBe("acc");
   });
 
+  it("_loadGraphState preserves loop body Index/Count wires", () => {
+    // Regression: _loadGraphState calls enforceBoundaryRules twice (once before
+    // wire restoration, once after). The second call used to drop wires from
+    // Index/Count ports because the injected port defs lacked contractPortId.
+
+    const loop = blueprint.createLoopBodyGraph({ name: "Loop" });
+    loop.data.contract = {
+      inputs: [{ id: "a1", name: "sum", type: "float", role: "acc" }],
+      outputs: [{ id: "a1", name: "sum", type: "float" }],
+    };
+    blueprint.syncContractCallers(loop);
+
+    blueprint.setActiveGraph(loop.id);
+    const fnInput = loop.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+    expect(fnInput.outputPorts[0].name).toBe("Index");
+    expect(fnInput.outputPorts[1].name).toBe("Count");
+
+    const mathNode = blueprint.addNode(200, 0, NODE_TYPES.math);
+    connect(fnInput.outputPorts[0], mathNode.inputPorts[0]);
+    connect(fnInput.outputPorts[1], mathNode.inputPorts[1]);
+
+    expect(fnInput.outputPorts[0].connections.length).toBe(1);
+    expect(fnInput.outputPorts[1].connections.length).toBe(1);
+    const wireCount = loop.wires.length;
+
+    // Snapshot and reload — exercises the double enforceBoundaryRules path
+    const snapshot = snapshotGraph(loop);
+    blueprint._loadGraphState(loop, snapshot);
+
+    const restoredInput = loop.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+    expect(restoredInput.outputPorts[0].name).toBe("Index");
+    expect(restoredInput.outputPorts[0].portType).toBe("int");
+    expect(restoredInput.outputPorts[0].connections.length).toBe(1);
+    expect(restoredInput.outputPorts[1].name).toBe("Count");
+    expect(restoredInput.outputPorts[1].portType).toBe("int");
+    expect(restoredInput.outputPorts[1].connections.length).toBe(1);
+    expect(loop.wires.length).toBe(wireCount);
+  });
+
+  it("loop body Index/Count wires survive contract edit undo", () => {
+    // Verify that editing the loop body's OWN contract and undoing
+    // does not disconnect wires from the injected Index/Count ports.
+
+    const loop = blueprint.createLoopBodyGraph({ name: "Loop" });
+    loop.data.contract = {
+      inputs: [{ id: "a1", name: "sum", type: "float", role: "acc" }],
+      outputs: [{ id: "a1", name: "sum", type: "float" }],
+    };
+    blueprint.syncContractCallers(loop);
+
+    blueprint.setActiveGraph(loop.id);
+    const fnInput = loop.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+    const mathNode = blueprint.addNode(200, 0, NODE_TYPES.math);
+    blueprint.history.pushState("add math");
+
+    // Wire Index → math input A
+    connect(fnInput.outputPorts[0], mathNode.inputPorts[0]);
+    // Wire Count → math input B
+    connect(fnInput.outputPorts[1], mathNode.inputPorts[1]);
+    blueprint.history.pushState("wire index/count");
+
+    expect(fnInput.outputPorts[0].connections.length).toBe(1);
+    expect(fnInput.outputPorts[1].connections.length).toBe(1);
+    const wireCount = loop.wires.length;
+
+    blueprint.history.initGraphState(loop.id, snapshotGraph(loop));
+
+    // Edit the loop body's own contract: add an arg port
+    loop.data.contract.inputs.push({ id: "a2", name: "step", type: "float", role: "arg" });
+    blueprint.syncContractCallers(loop);
+
+    // Undo
+    blueprint.history.undo();
+
+    const restoredInput = loop.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+    expect(restoredInput.outputPorts[0].name).toBe("Index");
+    expect(restoredInput.outputPorts[1].name).toBe("Count");
+    expect(restoredInput.outputPorts[0].connections.length).toBe(1);
+    expect(restoredInput.outputPorts[1].connections.length).toBe(1);
+    expect(loop.wires.length).toBe(wireCount);
+  });
+
   it("loop body transaction undo rolls back ForLoop callers", () => {
     const loop = blueprint.createLoopBodyGraph({ name: "Loop" });
     loop.data.contract = {

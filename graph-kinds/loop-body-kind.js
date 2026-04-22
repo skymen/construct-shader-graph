@@ -10,14 +10,14 @@ import { sanitizeId } from "./function-kind.js";
 
 const CONCRETE_TYPE_OPTIONS = [
   { value: "float", label: "Float" },
-  { value: "int",   label: "Int"   },
-  { value: "bool",  label: "Bool"  },
-  { value: "vec2",  label: "Vec2"  },
-  { value: "vec3",  label: "Vec3"  },
-  { value: "vec4",  label: "Vec4"  },
-  { value: "mat2",  label: "Mat2"  },
-  { value: "mat3",  label: "Mat3"  },
-  { value: "mat4",  label: "Mat4"  },
+  { value: "int", label: "Int" },
+  { value: "bool", label: "Bool" },
+  { value: "vec2", label: "Vec2" },
+  { value: "vec3", label: "Vec3" },
+  { value: "vec4", label: "Vec4" },
+  { value: "mat2", label: "Mat2" },
+  { value: "mat3", label: "Mat3" },
+  { value: "mat4", label: "Mat4" },
 ];
 
 const GENERIC_ALPHABET = "TUVWXYZABCDEFGHIJKLMNOPQRS";
@@ -36,8 +36,16 @@ function shortHash(str) {
 
 // Index and Count are always prepended to the FunctionInput outputs of a loop body.
 // They are not stored in the contract; they are injected by enforceBoundaryRules.
-const INDEX_PORT_DEF = { name: "Index", type: "int" };
-const COUNT_PORT_DEF = { name: "Count", type: "int" };
+const INDEX_PORT_DEF = {
+  name: "Index",
+  type: "int",
+  contractPortId: "__loop_index__",
+};
+const COUNT_PORT_DEF = {
+  name: "Count",
+  type: "int",
+  contractPortId: "__loop_count__",
+};
 const INJECTED_PORT_COUNT = 2; // Index + Count
 
 /**
@@ -76,7 +84,7 @@ export const loopBodyKindHandler = {
 
     // Every acc output must pair with an acc input by id
     const accInputIds = new Set(
-      (contract.inputs || []).filter((p) => p.role === "acc").map((p) => p.id)
+      (contract.inputs || []).filter((p) => p.role === "acc").map((p) => p.id),
     );
     for (const out of contract.outputs || []) {
       if (!accInputIds.has(out.id)) {
@@ -99,7 +107,10 @@ export const loopBodyKindHandler = {
     const usedTypes = new Set((existingPorts || []).map((p) => p.type));
     let genericName = "T";
     for (const letter of GENERIC_ALPHABET) {
-      if (!usedTypes.has(letter)) { genericName = letter; break; }
+      if (!usedTypes.has(letter)) {
+        genericName = letter;
+        break;
+      }
     }
     const id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     return { id, name: "value", type: genericName, role: "acc" };
@@ -124,7 +135,9 @@ export const loopBodyKindHandler = {
   enforceBoundaryRules(graph, host) {
     const contract = graph.data?.contract || { inputs: [], outputs: [] };
     const inputNode = graph.nodes.find((n) => n.nodeType === FunctionInputNode);
-    const outputNode = graph.nodes.find((n) => n.nodeType === FunctionOutputNode);
+    const outputNode = graph.nodes.find(
+      (n) => n.nodeType === FunctionOutputNode,
+    );
 
     if (!inputNode || !outputNode) return;
 
@@ -132,9 +145,17 @@ export const loopBodyKindHandler = {
     const inputOutputDefs = [
       INDEX_PORT_DEF,
       COUNT_PORT_DEF,
-      ...contract.inputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id })),
+      ...contract.inputs.map((p) => ({
+        name: p.name,
+        type: p.type,
+        contractPortId: p.id,
+      })),
     ];
-    const outputInputDefs = contract.outputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id }));
+    const outputInputDefs = contract.outputs.map((p) => ({
+      name: p.name,
+      type: p.type,
+      contractPortId: p.id,
+    }));
 
     host._rebuildBoundaryNodePorts(inputNode, [], inputOutputDefs);
     host._rebuildBoundaryNodePorts(outputNode, outputInputDefs, []);
@@ -150,12 +171,24 @@ export const loopBodyKindHandler = {
     // ForLoop inputs: Count (int), then "Initial <acc>" for each accumulator, then args
     const inputs = [
       { name: "Count", type: "int", contractPortId: "__count__" },
-      ...accInputs.map((p) => ({ name: `Initial ${p.name}`, type: p.type, contractPortId: `init_${p.id}` })),
-      ...argInputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id })),
+      ...accInputs.map((p) => ({
+        name: `Initial ${p.name}`,
+        type: p.type,
+        contractPortId: `init_${p.id}`,
+      })),
+      ...argInputs.map((p) => ({
+        name: p.name,
+        type: p.type,
+        contractPortId: p.id,
+      })),
     ];
 
     // ForLoop outputs: one per acc output (which pair 1:1 with acc inputs)
-    const outputs = contract.outputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.id }));
+    const outputs = contract.outputs.map((p) => ({
+      name: p.name,
+      type: p.type,
+      contractPortId: p.id,
+    }));
 
     return {
       name: graph.name,
@@ -243,10 +276,19 @@ export const loopBodyKindHandler = {
     const resolvedOutputTypes = outputTypes;
 
     return {
-      sigHash, sigStr, hasGenerics, fnName,
-      inputTypes: allInputTypes, outputTypes, bindings,
-      resolvedInputTypes, resolvedOutputTypes,
-      accInputs, argInputs, accTypes, argTypes,
+      sigHash,
+      sigStr,
+      hasGenerics,
+      fnName,
+      inputTypes: allInputTypes,
+      outputTypes,
+      bindings,
+      resolvedInputTypes,
+      resolvedOutputTypes,
+      accInputs,
+      argInputs,
+      accTypes,
+      argTypes,
     };
   },
 
@@ -257,10 +299,16 @@ export const loopBodyKindHandler = {
     if (outputTypes.length === 0) return { declaration: "", deps: new Map() };
 
     const resolvedOut = signature.resolvedOutputTypes || [];
-    const accInputs = signature.accInputs || contract.inputs.filter((p) => p.role === "acc");
-    const argInputs = signature.argInputs || contract.inputs.filter((p) => p.role === "arg");
-    const accTypes = signature.accTypes || accInputs.map((p) => isConcreteType(p.type) ? p.type : "float");
-    const argTypes = signature.argTypes || argInputs.map((p) => isConcreteType(p.type) ? p.type : "float");
+    const accInputs =
+      signature.accInputs || contract.inputs.filter((p) => p.role === "acc");
+    const argInputs =
+      signature.argInputs || contract.inputs.filter((p) => p.role === "arg");
+    const accTypes =
+      signature.accTypes ||
+      accInputs.map((p) => (isConcreteType(p.type) ? p.type : "float"));
+    const argTypes =
+      signature.argTypes ||
+      argInputs.map((p) => (isConcreteType(p.type) ? p.type : "float"));
 
     // _compileFunctionBody expects a signature with resolvedInputTypes matching
     // how the FunctionInput output ports are laid out.
@@ -272,7 +320,11 @@ export const loopBodyKindHandler = {
       resolvedOutputTypes: resolvedOut,
     };
 
-    const { bodyCode, deps } = host._compileFunctionBody(graph, bodySignature, target);
+    const { bodyCode, deps } = host._compileFunctionBody(
+      graph,
+      bodySignature,
+      target,
+    );
 
     const isWebGPU = target === "webgpu";
     const singleOut = resolvedOut.length === 1;
@@ -281,8 +333,12 @@ export const loopBodyKindHandler = {
     const paramEntries = [];
     paramEntries.push({ name: "i", type: "int" }); // Index
     paramEntries.push({ name: "n", type: "int" }); // Count
-    accInputs.forEach((p, idx) => paramEntries.push({ name: sanitizeId(p.name), type: accTypes[idx] }));
-    argInputs.forEach((p, idx) => paramEntries.push({ name: sanitizeId(p.name), type: argTypes[idx] }));
+    accInputs.forEach((p, idx) =>
+      paramEntries.push({ name: sanitizeId(p.name), type: accTypes[idx] }),
+    );
+    argInputs.forEach((p, idx) =>
+      paramEntries.push({ name: sanitizeId(p.name), type: argTypes[idx] }),
+    );
 
     let declaration = "";
 
@@ -325,20 +381,30 @@ export const loopBodyKindHandler = {
     const { resolvedOutputTypes } = signature;
     const targetGraph = host.graphs.get(callerNode.nodeType.targetGraphId);
     const contract = targetGraph?.data?.contract || { inputs: [], outputs: [] };
-    const accInputs = signature.accInputs || contract.inputs.filter((p) => p.role === "acc");
-    const argInputs = signature.argInputs || contract.inputs.filter((p) => p.role === "arg");
-    const accTypes = signature.accTypes || accInputs.map((p) => isConcreteType(p.type) ? p.type : "float");
+    const accInputs =
+      signature.accInputs || contract.inputs.filter((p) => p.role === "acc");
+    const argInputs =
+      signature.argInputs || contract.inputs.filter((p) => p.role === "arg");
+    const accTypes =
+      signature.accTypes ||
+      accInputs.map((p) => (isConcreteType(p.type) ? p.type : "float"));
 
     const isWebGPU = target === "webgpu";
     const singleOut = resolvedOutputTypes.length === 1;
 
     // Caller input ports: [Count, Initial acc0, ..., arg0, ...]
-    const callerInputVars = callerNode.inputPorts.map((p) => portToVarName.get(p) || "0.0");
-    const callerOutputVars = callerNode.outputPorts.map((p) => portToVarName.get(p));
+    const callerInputVars = callerNode.inputPorts.map(
+      (p) => portToVarName.get(p) || "0.0",
+    );
+    const callerOutputVars = callerNode.outputPorts.map((p) =>
+      portToVarName.get(p),
+    );
 
     const countVar = callerInputVars[0]; // Count
     const initAccVars = accInputs.map((_, i) => callerInputVars[1 + i]);
-    const argVars = argInputs.map((_, i) => callerInputVars[1 + accInputs.length + i]);
+    const argVars = argInputs.map(
+      (_, i) => callerInputVars[1 + accInputs.length + i],
+    );
 
     // The accumulator variable names used INSIDE the loop.
     // These are the caller's OUTPUT variables (final accumulator values).
@@ -409,46 +475,61 @@ function renderInfoForm(handler, graph, host, form) {
   if (!form) return;
   form.innerHTML = "";
 
-  form.appendChild(buildLabeledRow("Name", (() => {
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.value = graph.name || "";
-    nameInput.addEventListener("change", () => {
-      const v = nameInput.value.trim() || graph.name || "Untitled";
-      if (v === graph.name) return;
-      graph.name = v;
-      host.syncContractCallers(graph);
-      host.renderGraphTabBar && host.renderGraphTabBar();
-      host.renderFunctionsList && host.renderFunctionsList();
-      host.onShaderChanged && host.onShaderChanged();
-    });
-    return nameInput;
-  })()));
+  form.appendChild(
+    buildLabeledRow(
+      "Name",
+      (() => {
+        const nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.value = graph.name || "";
+        nameInput.addEventListener("change", () => {
+          const v = nameInput.value.trim() || graph.name || "Untitled";
+          if (v === graph.name) return;
+          graph.name = v;
+          host.syncContractCallers(graph);
+          host.renderGraphTabBar && host.renderGraphTabBar();
+          host.renderFunctionsList && host.renderFunctionsList();
+          host.onShaderChanged && host.onShaderChanged();
+        });
+        return nameInput;
+      })(),
+    ),
+  );
 
-  form.appendChild(buildLabeledRow("Color", (() => {
-    const colorInput = document.createElement("input");
-    colorInput.type = "color";
-    colorInput.value = graph.color || handler.defaultColor;
-    colorInput.addEventListener("change", () => {
-      graph.color = colorInput.value;
-      host.syncContractCallers(graph);
-      host.renderGraphTabBar && host.renderGraphTabBar();
-      host.renderFunctionsList && host.renderFunctionsList();
-      host.render && host.render();
-    });
-    return colorInput;
-  })()));
+  form.appendChild(
+    buildLabeledRow(
+      "Color",
+      (() => {
+        const colorInput = document.createElement("input");
+        colorInput.type = "color";
+        colorInput.value = graph.color || handler.defaultColor;
+        colorInput.addEventListener("change", () => {
+          graph.color = colorInput.value;
+          host.syncContractCallers(graph);
+          host.renderGraphTabBar && host.renderGraphTabBar();
+          host.renderFunctionsList && host.renderFunctionsList();
+          host.render && host.render();
+        });
+        return colorInput;
+      })(),
+    ),
+  );
 
-  form.appendChild(buildLabeledRow("Notes", (() => {
-    const notes = document.createElement("textarea");
-    notes.rows = 3;
-    notes.value = graph.data?.notes || "";
-    notes.addEventListener("change", () => {
-      if (!graph.data) graph.data = {};
-      graph.data.notes = notes.value;
-    });
-    return notes;
-  })()));
+  form.appendChild(
+    buildLabeledRow(
+      "Notes",
+      (() => {
+        const notes = document.createElement("textarea");
+        notes.rows = 3;
+        notes.value = graph.data?.notes || "";
+        notes.addEventListener("change", () => {
+          if (!graph.data) graph.data = {};
+          graph.data.notes = notes.value;
+        });
+        return notes;
+      })(),
+    ),
+  );
 }
 
 function buildLabeledRow(labelText, control) {
@@ -495,15 +576,23 @@ function buildPortRow(handler, graph, host, port, index, which) {
   nameInput.value = port.name || "";
   nameInput.addEventListener("change", () => {
     const v = nameInput.value.trim();
-    if (!v || v === port.name) { nameInput.value = port.name || ""; return; }
+    if (!v || v === port.name) {
+      nameInput.value = port.name || "";
+      return;
+    }
     const dup = (graph.data.contract[which] || []).some(
-      (p, i) => i !== index && p.name === v
+      (p, i) => i !== index && p.name === v,
     );
-    if (dup) { nameInput.value = port.name || ""; return; }
+    if (dup) {
+      nameInput.value = port.name || "";
+      return;
+    }
     port.name = v;
     // If this is an acc input, also rename the paired output
     if (which === "inputs" && port.role === "acc") {
-      const pairedOut = graph.data.contract.outputs.find((o) => o.id === port.id);
+      const pairedOut = graph.data.contract.outputs.find(
+        (o) => o.id === port.id,
+      );
       if (pairedOut) pairedOut.name = v;
     }
     host.syncContractCallers(graph);
@@ -543,7 +632,9 @@ function buildPortRow(handler, graph, host, port, index, which) {
     }
     // If this is an acc input, also update paired output type
     if (which === "inputs" && port.role === "acc") {
-      const pairedOut = graph.data.contract.outputs.find((o) => o.id === port.id);
+      const pairedOut = graph.data.contract.outputs.find(
+        (o) => o.id === port.id,
+      );
       if (pairedOut) pairedOut.type = port.type;
     }
     host.syncContractCallers(graph);
@@ -569,10 +660,16 @@ function buildPortRow(handler, graph, host, port, index, which) {
       port.role = roleSelect.value;
       if (oldRole === "acc" && port.role === "arg") {
         // Remove paired output
-        graph.data.contract.outputs = graph.data.contract.outputs.filter((o) => o.id !== port.id);
+        graph.data.contract.outputs = graph.data.contract.outputs.filter(
+          (o) => o.id !== port.id,
+        );
       } else if (oldRole === "arg" && port.role === "acc") {
         // Add paired output
-        graph.data.contract.outputs.push({ id: port.id, name: port.name, type: port.type });
+        graph.data.contract.outputs.push({
+          id: port.id,
+          name: port.name,
+          type: port.type,
+        });
       }
       host.syncContractCallers(graph);
       host.renderContractEditor && host.renderContractEditor();
@@ -593,7 +690,7 @@ function buildPortRow(handler, graph, host, port, index, which) {
   // Paired indicator (for outputs)
   if (which === "outputs") {
     const pairedInput = (graph.data.contract.inputs || []).find(
-      (inp) => inp.id === port.id && inp.role === "acc"
+      (inp) => inp.id === port.id && inp.role === "acc",
     );
     if (pairedInput) {
       const hint = document.createElement("span");
@@ -612,7 +709,9 @@ function buildPortRow(handler, graph, host, port, index, which) {
   del.addEventListener("click", () => {
     if (which === "inputs" && port.role === "acc") {
       // Also remove paired output
-      graph.data.contract.outputs = graph.data.contract.outputs.filter((o) => o.id !== port.id);
+      graph.data.contract.outputs = graph.data.contract.outputs.filter(
+        (o) => o.id !== port.id,
+      );
     }
     graph.data.contract[which].splice(index, 1);
     host.syncContractCallers(graph);
@@ -629,13 +728,23 @@ function buildPortRow(handler, graph, host, port, index, which) {
   row.appendChild(del);
 
   // Drag-reorder handlers
-  handle.addEventListener("mousedown", () => { row.dataset.dragArmed = "1"; });
-  row.addEventListener("mouseup", () => { delete row.dataset.dragArmed; });
+  handle.addEventListener("mousedown", () => {
+    row.dataset.dragArmed = "1";
+  });
+  row.addEventListener("mouseup", () => {
+    delete row.dataset.dragArmed;
+  });
   row.addEventListener("dragstart", (e) => {
-    if (row.dataset.dragArmed !== "1") { e.preventDefault(); return; }
+    if (row.dataset.dragArmed !== "1") {
+      e.preventDefault();
+      return;
+    }
     delete row.dataset.dragArmed;
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/x-contract-port", JSON.stringify({ which, index }));
+    e.dataTransfer.setData(
+      "text/x-contract-port",
+      JSON.stringify({ which, index }),
+    );
     row.classList.add("dragging");
   });
   row.addEventListener("dragend", () => {
@@ -657,8 +766,13 @@ function buildPortRow(handler, graph, host, port, index, which) {
     e.preventDefault();
     row.classList.remove("drag-over-top", "drag-over-bottom");
     let payload;
-    try { payload = JSON.parse(e.dataTransfer.getData("text/x-contract-port") || "{}"); }
-    catch { payload = {}; }
+    try {
+      payload = JSON.parse(
+        e.dataTransfer.getData("text/x-contract-port") || "{}",
+      );
+    } catch {
+      payload = {};
+    }
     if (payload.which !== which) return;
     const from = payload.index;
     const rect = row.getBoundingClientRect();
