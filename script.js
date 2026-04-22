@@ -16647,20 +16647,34 @@ async function showExperimentalDialog() {
     const markdown = await response.text();
 
     let html = markdown
-      .replace(/^### (.*$)/gim, "<h3>$1</h3>")
-      .replace(/^## (.*$)/gim, "<h2>$1</h2>")
-      .replace(/^# (.*$)/gim, "<h1>$1</h1>")
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/^\- (.*$)/gim, "<li>$1</li>")
-      .replace(/\n\n/g, "</p><p>")
       .replace(/`([^`]+)`/g, "<code>$1</code>");
 
-    html = html.replace(/(<li>.*<\/li>)/s, "<ul>$1</ul>");
-
-    if (!html.startsWith("<h") && !html.startsWith("<p>")) {
-      html = "<p>" + html + "</p>";
-    }
+    html = html.split("\n").reduce((acc, line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("### ")) {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+        acc.result += `<h3>${trimmed.slice(4)}</h3>`;
+      } else if (trimmed.startsWith("## ")) {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+        acc.result += `<h2>${trimmed.slice(3)}</h2>`;
+      } else if (trimmed.startsWith("# ")) {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+        acc.result += `<h1>${trimmed.slice(2)}</h1>`;
+      } else if (trimmed.startsWith("- ")) {
+        if (!acc.inList) { acc.result += "<ul>"; acc.inList = true; }
+        acc.result += `<li>${trimmed.slice(2)}</li>`;
+      } else if (trimmed === "") {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+      } else {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+        acc.result += `<p>${trimmed}</p>`;
+      }
+      return acc;
+    }, { result: "", inList: false });
+    if (html.inList) html.result += "</ul>";
+    html = html.result;
 
     const modal = document.getElementById("experimentalModal");
     const content = modal.querySelector(".experimental-info-content");

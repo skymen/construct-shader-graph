@@ -3807,6 +3807,135 @@ body {
   font-style: italic;
 }
 
+/* ==================== Experimental Modal ==================== */
+#experimentalModal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 10000;
+  justify-content: center;
+  align-items: center;
+}
+
+.experimental-modal {
+  background: #2a2a2a;
+  border: 2px solid #4a4a4a;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 900px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.experimental-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 25px;
+  border-bottom: 1px solid #4a4a4a;
+}
+
+.experimental-modal .modal-header h2 {
+  margin: 0;
+  color: #f0f0f0;
+  font-size: 20px;
+}
+
+.experimental-modal .modal-body {
+  padding: 20px 25px;
+  overflow-y: auto;
+  color: #ccc;
+  line-height: 1.6;
+  font-size: 14px;
+  position: relative;
+}
+
+.experimental-modal .modal-body::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  height: 400px;
+  background-image: url('/favicon.svg');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.03;
+  filter: brightness(0) invert(1);
+}
+
+.experimental-modal .modal-body h2 {
+  color: #e0e0e0;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 18px 0 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.experimental-modal .modal-body h3 {
+  color: #d0d0d0;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.experimental-modal .modal-body p {
+  margin: 8px 0;
+  position: relative;
+  z-index: 1;
+}
+
+.experimental-modal .modal-body ul {
+  padding-left: 20px;
+  margin: 6px 0;
+  position: relative;
+  z-index: 1;
+}
+
+.experimental-modal .modal-body li {
+  margin: 4px 0;
+}
+
+.experimental-modal .modal-body strong {
+  color: #e0e0e0;
+}
+
+.experimental-modal .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 15px 25px;
+  border-top: 1px solid #4a4a4a;
+}
+
+.experimental-modal .modal-footer .primary-btn {
+  background: #4a90e2;
+  color: #fff;
+  border: none;
+  padding: 10px 30px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.experimental-modal .modal-footer .primary-btn:hover {
+  background: #357abd;
+}
+
 /* ==================== Manual Modal ==================== */
 #manualModal {
   display: none;
