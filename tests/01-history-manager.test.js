@@ -1,23 +1,25 @@
-// HistoryManager unit tests — pure logic with mock blueprint.
-// These tests do not depend on the BlueprintSystem and must continue passing
-// after the refactor (HistoryManager will be per-graph, taking a Graph instead
-// of a BlueprintSystem; the contract is identical).
+// HistoryManager unit tests — pure logic with mock host.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { HistoryManager } from "../HistoryManager.js";
 
-function makeFakeBp(initialState) {
-  const bp = {
+function makeFakeHost(initialState) {
+  const graphId = "test_graph";
+  const graph = {
+    id: graphId,
+    kind: "main",
     _state: structuredClone(initialState),
-    exportState() {
-      return structuredClone(this._state);
-    },
-    loadState(s) {
-      this._state = structuredClone(s);
-    },
-    updateUndoRedoButtons: vi.fn(),
   };
-  return bp;
+  const host = {
+    graphs: new Map([[graphId, graph]]),
+    activeGraphId: graphId,
+    get activeGraph() { return this.graphs.get(this.activeGraphId); },
+    _exportGraphState(g) { return structuredClone(g._state); },
+    _loadGraphState(g, s) { g._state = structuredClone(s); },
+    updateUndoRedoButtons: vi.fn(),
+    setActiveGraph(id) { this.activeGraphId = id; },
+  };
+  return { host, graph };
 }
 
 const emptyState = () => ({
@@ -30,22 +32,22 @@ const emptyState = () => ({
 });
 
 describe("HistoryManager", () => {
-  let bp, h;
+  let host, graph, h;
 
   beforeEach(() => {
-    bp = makeFakeBp(emptyState());
-    h = new HistoryManager(bp, { changeCoalesceTime: 0 });
-    h.pushState("init"); // seeds currentState
+    ({ host, graph } = makeFakeHost(emptyState()));
+    h = new HistoryManager(host, { changeCoalesceTime: 0 });
+    h.initGraphState(graph.id, structuredClone(graph._state));
   });
 
-  it("initial push seeds currentState without creating an undo entry", () => {
+  it("initGraphState seeds currentState without creating an undo entry", () => {
     expect(h.canUndo()).toBe(false);
     expect(h.canRedo()).toBe(false);
-    expect(h.currentState).not.toBeNull();
+    expect(h.currentStates.get(graph.id)).not.toBeNull();
   });
 
   it("detects added nodes and pushes an undo entry", () => {
-    bp._state.nodes.push({
+    graph._state.nodes.push({
       id: 1, x: 0, y: 0, inputPorts: [], operation: null, customInput: null,
       uniformId: null, data: null,
     });
@@ -55,20 +57,20 @@ describe("HistoryManager", () => {
   });
 
   it("undo restores prior state; redo reapplies", () => {
-    bp._state.nodes.push({
+    graph._state.nodes.push({
       id: 1, x: 5, y: 5, inputPorts: [], operation: null, customInput: null,
       uniformId: null, data: null,
     });
     h.pushState("add node");
-    expect(bp._state.nodes).toHaveLength(1);
+    expect(graph._state.nodes).toHaveLength(1);
 
     h.undo();
-    expect(bp._state.nodes).toHaveLength(0);
+    expect(graph._state.nodes).toHaveLength(0);
     expect(h.canRedo()).toBe(true);
 
     h.redo();
-    expect(bp._state.nodes).toHaveLength(1);
-    expect(bp._state.nodes[0].id).toBe(1);
+    expect(graph._state.nodes).toHaveLength(1);
+    expect(graph._state.nodes[0].id).toBe(1);
   });
 
   it("no-op pushState (state unchanged) does not create an entry", () => {
@@ -76,8 +78,8 @@ describe("HistoryManager", () => {
     expect(h.canUndo()).toBe(false);
   });
 
-  it("clear() empties stacks but preserves currentState reference", () => {
-    bp._state.nodes.push({
+  it("clear() empties stacks and currentStates", () => {
+    graph._state.nodes.push({
       id: 1, x: 0, y: 0, inputPorts: [], operation: null, customInput: null,
       uniformId: null, data: null,
     });
@@ -85,6 +87,7 @@ describe("HistoryManager", () => {
     h.clear();
     expect(h.canUndo()).toBe(false);
     expect(h.canRedo()).toBe(false);
+    expect(h.currentStates.size).toBe(0);
   });
 
   it("wireToString produces stable identity used by diff", () => {
@@ -95,16 +98,15 @@ describe("HistoryManager", () => {
   });
 
   it("isApplyingUndoRedo guard prevents recursive pushes during loadState", () => {
-    bp._state.nodes.push({
+    graph._state.nodes.push({
       id: 1, x: 0, y: 0, inputPorts: [], operation: null, customInput: null,
       uniformId: null, data: null,
     });
     h.pushState("add");
-    // simulate a buggy loadState that calls pushState during apply
-    const loadOrig = bp.loadState.bind(bp);
-    bp.loadState = (s) => {
-      loadOrig(s);
-      h.pushState("inner"); // should be a no-op while undo is in progress
+    const loadOrig = host._loadGraphState.bind(host);
+    host._loadGraphState = (g, s) => {
+      loadOrig(g, s);
+      h.pushState("inner");
     };
     h.undo();
     expect(h.canRedo()).toBe(true);
@@ -112,15 +114,32 @@ describe("HistoryManager", () => {
   });
 
   it("respects maxUndoSteps", () => {
-    h = new HistoryManager(bp, { changeCoalesceTime: 0, maxUndoSteps: 3 });
-    h.pushState("seed");
+    h = new HistoryManager(host, { changeCoalesceTime: 0, maxUndoSteps: 3 });
+    h.initGraphState(graph.id, structuredClone(graph._state));
     for (let i = 0; i < 10; i++) {
-      bp._state.nodes.push({
+      graph._state.nodes.push({
         id: i + 100, x: i, y: 0, inputPorts: [],
         operation: null, customInput: null, uniformId: null, data: null,
       });
       h.pushState(`add ${i}`);
     }
     expect(h.undoStack.length).toBe(3);
+  });
+
+  it("undo/redo switches active graph to the entry's primary graph", () => {
+    graph._state.nodes.push({
+      id: 1, x: 0, y: 0, inputPorts: [], operation: null, customInput: null,
+      uniformId: null, data: null,
+    });
+    h.pushState("add");
+
+    // Simulate switching to a different graph
+    const graph2 = { id: "other", kind: "function", _state: structuredClone(emptyState()) };
+    host.graphs.set(graph2.id, graph2);
+    host.activeGraphId = graph2.id;
+
+    // Undo should switch back to the original graph
+    h.undo();
+    expect(host.activeGraphId).toBe(graph.id);
   });
 });

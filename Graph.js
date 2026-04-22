@@ -1,7 +1,7 @@
 // Graph.js
 //
 // A Graph owns all per-graph editor state: nodes, wires, comments, selection,
-// camera, history, shader settings, preview pin, and the transient
+// camera, shader settings, preview pin, and the transient
 // interaction state machine. The BlueprintSystem (host) owns one or more
 // Graphs and delegates per-graph reads/writes to the active graph through
 // property getters/setters defined on the host instance.
@@ -14,8 +14,6 @@
 // Things that are NOT per-graph (live on host): canvas/DOM, customNodes
 // library, clipboard, preview iframe + previewSettings, mcpBridge,
 // NODE_TYPES, pressedKeys, autoPanInterval, uniforms.
-
-import { HistoryManager } from "./HistoryManager.js";
 
 let __graphIdCounter = 1;
 
@@ -106,8 +104,6 @@ export class Graph {
     this.previewNode = null;
     this.previewAnimationTime = 0;
 
-    // Per-graph undo/redo history
-    this.history = new HistoryManager(this);
   }
 
   isActive() {
@@ -118,25 +114,13 @@ export class Graph {
     return !!this.host && this.host.mainGraphId === this.id;
   }
 
-  // ---- HistoryManager target interface ----
-  // HistoryManager calls graph.exportState() / graph.loadState(state) /
-  // graph.updateUndoRedoButtons(). Implementation is delegated to the host
-  // because the snapshot logic depends on host helpers (cloneValue,
-  // getNodeTypeKey, etc.) and the load logic must touch UI/preview when this
-  // graph is the active or main graph.
+  // Convenience delegates so callers can snapshot/restore via the graph object.
   exportState() {
     return this.host._exportGraphState(this);
   }
 
   loadState(stateData) {
     return this.host._loadGraphState(this, stateData);
-  }
-
-  updateUndoRedoButtons() {
-    // Only the active graph's undo/redo state is reflected in the toolbar.
-    if (this.isActive()) {
-      this.host.updateUndoRedoButtons();
-    }
   }
 
   // Select every node in this graph. Mirrors the host method but always

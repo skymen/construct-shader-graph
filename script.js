@@ -1170,8 +1170,8 @@ class BlueprintSystem {
       startupScript: "",
     };
 
-    // History Manager: per-graph; the active Graph already owns its history,
-    // so reading `this.history` (delegated) returns activeGraph.history.
+    // Unified host-level undo/redo history (shared across all graphs).
+    this.history = new HistoryManager(this);
 
     // Auto Layout Engine
     this.autoLayoutEngine = new AutoLayoutEngine(this);
@@ -1222,7 +1222,7 @@ class BlueprintSystem {
 
     // Initialize history after setup
     setTimeout(() => {
-      this.history.currentState = this.exportState();
+      this.history.initGraphState(this.mainGraphId, this._exportGraphState(this.mainGraph));
     }, 0);
   }
 
@@ -1955,8 +1955,6 @@ class BlueprintSystem {
       // preview pin
       "previewNode",
       "previewAnimationTime",
-      // history
-      "history",
     ];
     for (const field of fields) {
       Object.defineProperty(this, field, {
@@ -2010,7 +2008,7 @@ class BlueprintSystem {
       ...opts,
     });
     if (handler) handler.bootstrapGraph(g, this);
-    g.history.currentState = this._exportGraphState(g);
+    this.history.initGraphState(g.id, this._exportGraphState(g));
     this.openTabs && this.openTabs.add(g.id);
     try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
     try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
@@ -2030,7 +2028,7 @@ class BlueprintSystem {
     });
     const handler = getHandler("loopBody");
     if (handler) handler.bootstrapGraph(g, this);
-    g.history.currentState = this._exportGraphState(g);
+    this.history.initGraphState(g.id, this._exportGraphState(g));
     this.openTabs && this.openTabs.add(g.id);
     try { this.renderFunctionsList && this.renderFunctionsList(); } catch {}
     try { this.renderGraphTabBar && this.renderGraphTabBar(); } catch {}
@@ -2599,48 +2597,9 @@ class BlueprintSystem {
   }
 
   // Capture snapshots of the listed graphs before and after running `fn`, then
-  // push a single undo entry onto each affected graph's history so that undoing
-  // on any of them rolls back to the pre-edit state.
+  // push a single unified undo entry covering all changed graphs.
   runMultiGraphTransaction(graphIds, fn, description = "Contract edit") {
-    // Use each graph's last committed history state as the "before" snapshot.
-    // This captures the state from BEFORE the user's contract edit, not after.
-    const snapshots = new Map();
-    for (const id of graphIds) {
-      const g = this.graphs.get(id);
-      if (!g) continue;
-      snapshots.set(id, g.history.currentState || this._exportGraphState(g));
-    }
-
-    fn();
-
-    const txId = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    for (const [id, beforeState] of snapshots) {
-      const g = this.graphs.get(id);
-      if (!g) continue;
-      const afterState = this._exportGraphState(g);
-      const diff = g.history.calculateStateDiff(beforeState, afterState);
-      if (diff.changedProperties.size === 0) continue;
-
-      const entry = {
-        description,
-        beforeState,
-        afterState,
-        timestamp: Date.now(),
-        changedProperties: diff.changedProperties,
-        diff,
-        transactionId: txId,
-      };
-      g.history.undoStack.push(entry);
-      if (g.history.undoStack.length > g.history.maxUndoSteps) {
-        g.history.undoStack.shift();
-      }
-      g.history.redoStack = [];
-      g.history.currentState = afterState;
-      g.history.lastChangeTime = Date.now();
-      g.history.lastChangedProperties = diff.changedProperties;
-    }
-
-    try { this.updateUndoRedoButtons && this.updateUndoRedoButtons(); } catch {}
+    this.history.runTransaction(graphIds, fn, description);
   }
 
   // Update all caller nodes in every graph whose targetGraphId matches `graph.id`.
@@ -13028,7 +12987,7 @@ class BlueprintSystem {
 
     // Clear and reinitialize history after adding default nodes
     this.history.clear();
-    this.history.currentState = this.exportState();
+    this.history.initGraphState(this.mainGraphId, this._exportGraphState(this.mainGraph));
 
     this.render();
     this.announceMcpProjectUpdate("create-new-file");
@@ -13523,10 +13482,10 @@ class BlueprintSystem {
         this.onShaderChanged();
       }, 100);
 
-      // Clear and reinitialize history (per-graph).
+      // Clear and reinitialize history for all graphs.
+      this.history.clear();
       for (const g of this.graphs.values()) {
-        g.history.clear();
-        g.history.currentState = this._exportGraphState(g);
+        this.history.initGraphState(g.id, this._exportGraphState(g));
       }
       this.announceMcpProjectUpdate("load-project");
 
@@ -14472,7 +14431,7 @@ class BlueprintSystem {
     return this._exportGraphState(this.activeGraph);
   }
 
-  // Snapshot a specific graph (used by per-graph HistoryManager).
+  // Snapshot a specific graph (used by HistoryManager).
   // NOTE: Uniforms are host-level (shared), but we snapshot them here so that
   // undo/redo restores them along with the graph state.
   _exportGraphState(graph) {

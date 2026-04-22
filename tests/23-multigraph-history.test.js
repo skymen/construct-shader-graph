@@ -1,5 +1,5 @@
-// Test 23: Multi-graph history — per-graph isolation, transactional undo/redo,
-// contract edit rollback, interleaved editing, and edge cases.
+// Test 23: Multi-graph history — unified host-level stack, transactional
+// undo/redo, contract edit rollback, interleaved editing, and edge cases.
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { bootstrap } from "./helpers/bootstrap.js";
@@ -37,15 +37,15 @@ function snapshotGraph(g) {
   return blueprint._exportGraphState(g);
 }
 
-// ────────────────────────────────────────────────────────────────
-// 1. Per-graph history isolation
+// ───────��────────────────────────────────────────────────────────
+// 1. Unified history stack basics
 // ────────────────────────────────────────────────────────────────
 
-describe("per-graph history isolation", () => {
-  it("each graph owns its own HistoryManager instance", () => {
+describe("unified history stack basics", () => {
+  it("host owns a single HistoryManager, graphs do not", () => {
     const fn = blueprint.createFunctionGraph({ name: "Fn" });
-    expect(fn.history).toBeDefined();
-    expect(fn.history).not.toBe(blueprint.mainGraph.history);
+    expect(blueprint.history).toBeDefined();
+    expect(fn.history).toBeUndefined();
   });
 
   it("editing graph A then undoing does not affect graph B", () => {
@@ -57,7 +57,6 @@ describe("per-graph history isolation", () => {
     };
     blueprint.syncContractCallers(gB);
 
-    // Edit A: add a node
     blueprint.setActiveGraph(gA.id);
     const beforeA = gA.nodes.length;
     api.nodes.create({ typeKey: "floatInput", x: 0, y: 0 });
@@ -65,11 +64,9 @@ describe("per-graph history isolation", () => {
 
     const bSnapshot = snapshotGraph(gB);
 
-    // Undo on A
-    gA.history.undo();
+    blueprint.history.undo();
     expect(gA.nodes.length).toBe(beforeA);
 
-    // B must be identical
     const bAfter = snapshotGraph(gB);
     expect(bAfter.nodes.length).toBe(bSnapshot.nodes.length);
     expect(bAfter.wires.length).toBe(bSnapshot.wires.length);
@@ -77,48 +74,43 @@ describe("per-graph history isolation", () => {
 
   it("redo on graph A does not affect graph B", () => {
     const gA = blueprint.mainGraph;
-    const gB = blueprint.createFunctionGraph({ name: "B" });
+    blueprint.createFunctionGraph({ name: "B" });
+    const gB = [...blueprint.graphs.values()].find((g) => g.name === "B");
 
     blueprint.setActiveGraph(gA.id);
     api.nodes.create({ typeKey: "floatInput", x: 0, y: 0 });
     const bSnapshot = snapshotGraph(gB);
 
-    gA.history.undo();
-    gA.history.redo();
+    blueprint.history.undo();
+    blueprint.history.redo();
 
     const bAfter = snapshotGraph(gB);
     expect(bAfter.nodes.length).toBe(bSnapshot.nodes.length);
   });
 
-  it("undo/redo stacks are independent across graphs", () => {
+  it("undo switches to the graph where the change originated", () => {
     const gA = blueprint.mainGraph;
     const gB = blueprint.createFunctionGraph({ name: "B" });
-    gB.data.contract = {
-      inputs: [{ id: "b1", name: "x", type: "float" }],
-      outputs: [{ id: "b2", name: "r", type: "float" }],
-    };
-    blueprint.syncContractCallers(gB);
 
+    // Edit A
     blueprint.setActiveGraph(gA.id);
     api.nodes.create({ typeKey: "floatInput", x: 0, y: 0 });
 
-    // A has an undo entry, B does not (except from syncContractCallers)
-    expect(gA.history.canUndo()).toBe(true);
-    // B's undo state is from contract sync, not from A's node creation
-    const bUndoCount = gB.history.undoStack.length;
+    // Switch to B
+    blueprint.setActiveGraph(gB.id);
 
-    // Adding a node to A shouldn't change B's stack count
-    api.nodes.create({ typeKey: "math", x: 100, y: 0 });
-    expect(gB.history.undoStack.length).toBe(bUndoCount);
+    // Undo should switch back to A
+    blueprint.history.undo();
+    expect(blueprint.activeGraphId).toBe(gA.id);
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ───────────────────���─────────────────────────────��──────────────
 // 2. Interleaved editing across graphs
-// ────────────────────────────────────────────────────────────────
+// ─────────────────���─────────────────────────────────��────────────
 
 describe("interleaved editing across graphs", () => {
-  it("edit A, switch to B, edit B, switch to A, undo A — B stays intact", () => {
+  it("edit A, switch to B, edit B, undo undoes B's edit, undo again undoes A's edit", () => {
     const gA = blueprint.mainGraph;
     const gB = blueprint.createFunctionGraph({ name: "B" });
 
@@ -132,19 +124,21 @@ describe("interleaved editing across graphs", () => {
     blueprint.setActiveGraph(gB.id);
     const beforeB = gB.nodes.length;
     const mathNode = blueprint.addNode(0, 0, NODE_TYPES.math);
-    gB.history.pushState("add math to B");
-
-    // Switch back to A, undo
-    blueprint.setActiveGraph(gA.id);
-    gA.history.undo();
-    expect(gA.nodes.length).toBe(beforeA);
-
-    // B must still have the math node
+    blueprint.history.pushState("add math to B");
     expect(gB.nodes.length).toBe(beforeB + 1);
-    expect(gB.nodes.some((n) => n.id === mathNode.id)).toBe(true);
+
+    // Undo — should undo B's edit (last entry), switching to B
+    blueprint.history.undo();
+    expect(gB.nodes.length).toBe(beforeB);
+    expect(blueprint.activeGraphId).toBe(gB.id);
+
+    // Undo — should undo A's edit, switching to A
+    blueprint.history.undo();
+    expect(gA.nodes.length).toBe(beforeA);
+    expect(blueprint.activeGraphId).toBe(gA.id);
   });
 
-  it("multiple undo/redo cycles on different graphs are independent", () => {
+  it("redo after undo replays in order", () => {
     const gA = blueprint.mainGraph;
     const gB = blueprint.createFunctionGraph({ name: "B" });
 
@@ -159,31 +153,38 @@ describe("interleaved editing across graphs", () => {
     blueprint.setActiveGraph(gB.id);
     const baseB = gB.nodes.length;
     blueprint.addNode(0, 0, NODE_TYPES.floatInput);
-    gB.history.pushState("add to B");
+    blueprint.history.pushState("add to B");
 
-    // Undo both A edits
-    gA.history.undo();
-    gA.history.undo();
+    // Undo all three
+    blueprint.history.undo(); // B's edit
+    blueprint.history.undo(); // A's second
+    blueprint.history.undo(); // A's first
+
     expect(gA.nodes.length).toBe(baseA);
+    expect(gB.nodes.length).toBe(baseB);
 
-    // B unchanged
-    expect(gB.nodes.length).toBe(baseB + 1);
-
-    // Redo one A edit
-    gA.history.redo();
+    // Redo first A edit
+    blueprint.history.redo();
     expect(gA.nodes.length).toBe(baseA + 1);
+    expect(gB.nodes.length).toBe(baseB);
 
-    // B still unchanged
+    // Redo second A edit
+    blueprint.history.redo();
+    expect(gA.nodes.length).toBe(baseA + 2);
+    expect(gB.nodes.length).toBe(baseB);
+
+    // Redo B edit
+    blueprint.history.redo();
     expect(gB.nodes.length).toBe(baseB + 1);
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ─���────────��────────────────────────────────��────────────────────
 // 3. Transactional undo (contract edit → caller rebuild)
-// ────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────���────────
 
 describe("transactional undo/redo via syncContractCallers", () => {
-  it("syncContractCallers creates history entries with matching transactionIds", () => {
+  it("syncContractCallers creates a single unified undo entry covering all affected graphs", () => {
     const fn = blueprint.createFunctionGraph({ name: "Fn" });
     fn.data.contract = {
       inputs: [{ id: "p1", name: "x", type: "float" }],
@@ -191,28 +192,23 @@ describe("transactional undo/redo via syncContractCallers", () => {
     };
     blueprint.syncContractCallers(fn);
 
-    // Place a caller in main
     blueprint.setActiveGraph(blueprint.mainGraphId);
-    const caller = addCaller(fn);
-    blueprint.mainGraph.history.currentState = snapshotGraph(blueprint.mainGraph);
+    addCaller(fn);
+    blueprint.history.initGraphState(blueprint.mainGraphId, snapshotGraph(blueprint.mainGraph));
 
-    // Edit the contract
+    const stackBefore = blueprint.history.undoStack.length;
+
     fn.data.contract.inputs.push({ id: "p3", name: "y", type: "vec3" });
     blueprint.syncContractCallers(fn);
 
-    // Both fn and main should have new undo entries
-    const fnEntry = fn.history.undoStack[fn.history.undoStack.length - 1];
-    const mainEntry = blueprint.mainGraph.history.undoStack[
-      blueprint.mainGraph.history.undoStack.length - 1
-    ];
+    // Should be exactly one new entry (not one per graph)
+    expect(blueprint.history.undoStack.length).toBe(stackBefore + 1);
 
-    expect(fnEntry).toBeDefined();
-    expect(mainEntry).toBeDefined();
-    expect(fnEntry.transactionId).toBeDefined();
-    expect(mainEntry.transactionId).toBe(fnEntry.transactionId);
+    const entry = blueprint.history.undoStack[blueprint.history.undoStack.length - 1];
+    expect(entry.graphs.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("undo on fn graph rolls back sibling (main) via transactionId", () => {
+  it("undo rolls back both fn and main graph changes atomically", () => {
     const fn = blueprint.createFunctionGraph({ name: "Fn" });
     fn.data.contract = {
       inputs: [{ id: "p1", name: "x", type: "float" }],
@@ -223,24 +219,16 @@ describe("transactional undo/redo via syncContractCallers", () => {
     blueprint.setActiveGraph(blueprint.mainGraphId);
     const caller = addCaller(fn);
     expect(caller.inputPorts.length).toBe(1);
+    blueprint.history.initGraphState(blueprint.mainGraphId, snapshotGraph(blueprint.mainGraph));
 
-    // Snapshot main's baseline
-    blueprint.mainGraph.history.currentState = snapshotGraph(blueprint.mainGraph);
-
-    // Contract edit adds a second input
     fn.data.contract.inputs.push({ id: "p3", name: "z", type: "vec3" });
     blueprint.syncContractCallers(fn);
-
     expect(caller.inputPorts.length).toBe(2);
 
-    // Undo on the function graph should also roll back main
-    blueprint.setActiveGraph(fn.id);
-    fn.history.undo();
+    blueprint.history.undo();
 
-    // fn contract should be restored
     expect(fn.data.contract.inputs.length).toBe(1);
 
-    // main's caller should also be restored
     const restoredCaller = blueprint.mainGraph.nodes.find(
       (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fn.id
     );
@@ -248,64 +236,7 @@ describe("transactional undo/redo via syncContractCallers", () => {
     expect(restoredCaller.inputPorts.length).toBe(1);
   });
 
-  it("undo on main graph rolls back sibling (fn) via transactionId", () => {
-    const fn = blueprint.createFunctionGraph({ name: "Fn" });
-    fn.data.contract = {
-      inputs: [{ id: "p1", name: "x", type: "float" }],
-      outputs: [{ id: "p2", name: "r", type: "float" }],
-    };
-    blueprint.syncContractCallers(fn);
-
-    blueprint.setActiveGraph(blueprint.mainGraphId);
-    const caller = addCaller(fn);
-    blueprint.mainGraph.history.currentState = snapshotGraph(blueprint.mainGraph);
-
-    const contractVersionBefore = fn.contractVersion;
-
-    fn.data.contract.inputs.push({ id: "p3", name: "added", type: "float" });
-    blueprint.syncContractCallers(fn);
-
-    expect(fn.contractVersion).toBeGreaterThan(contractVersionBefore);
-
-    // Undo on main should also roll back fn
-    blueprint.mainGraph.history.undo();
-
-    expect(fn.data.contract.inputs.length).toBe(1);
-    expect(fn.contractVersion).toBe(contractVersionBefore);
-  });
-
-  it("transaction redo re-applies both fn and main changes", () => {
-    const fn = blueprint.createFunctionGraph({ name: "Fn" });
-    fn.data.contract = {
-      inputs: [{ id: "p1", name: "x", type: "float" }],
-      outputs: [{ id: "p2", name: "r", type: "float" }],
-    };
-    blueprint.syncContractCallers(fn);
-
-    blueprint.setActiveGraph(blueprint.mainGraphId);
-    const caller = addCaller(fn);
-    blueprint.mainGraph.history.currentState = snapshotGraph(blueprint.mainGraph);
-
-    fn.data.contract.inputs.push({ id: "p3", name: "z", type: "vec3" });
-    blueprint.syncContractCallers(fn);
-
-    // Undo then redo on fn
-    fn.history.undo();
-    expect(fn.data.contract.inputs.length).toBe(1);
-
-    fn.history.redo();
-    expect(fn.data.contract.inputs.length).toBe(2);
-    expect(fn.data.contract.inputs[1].name).toBe("z");
-
-    // Main must also be re-applied
-    const reCaller = blueprint.mainGraph.nodes.find(
-      (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fn.id
-    );
-    expect(reCaller).toBeDefined();
-    expect(reCaller.inputPorts.length).toBe(2);
-  });
-
-  it("transaction redo via main graph also restores fn", () => {
+  it("redo re-applies both fn and main changes", () => {
     const fn = blueprint.createFunctionGraph({ name: "Fn" });
     fn.data.contract = {
       inputs: [{ id: "p1", name: "x", type: "float" }],
@@ -315,23 +246,29 @@ describe("transactional undo/redo via syncContractCallers", () => {
 
     blueprint.setActiveGraph(blueprint.mainGraphId);
     addCaller(fn);
-    blueprint.mainGraph.history.currentState = snapshotGraph(blueprint.mainGraph);
+    blueprint.history.initGraphState(blueprint.mainGraphId, snapshotGraph(blueprint.mainGraph));
 
-    fn.data.contract.inputs.push({ id: "p3", name: "added", type: "float" });
+    fn.data.contract.inputs.push({ id: "p3", name: "z", type: "vec3" });
     blueprint.syncContractCallers(fn);
 
-    blueprint.mainGraph.history.undo();
+    blueprint.history.undo();
     expect(fn.data.contract.inputs.length).toBe(1);
 
-    blueprint.mainGraph.history.redo();
+    blueprint.history.redo();
     expect(fn.data.contract.inputs.length).toBe(2);
-    expect(fn.data.contract.inputs[1].name).toBe("added");
+    expect(fn.data.contract.inputs[1].name).toBe("z");
+
+    const reCaller = blueprint.mainGraph.nodes.find(
+      (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fn.id
+    );
+    expect(reCaller).toBeDefined();
+    expect(reCaller.inputPorts.length).toBe(2);
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ─────���──────────────────────��───────────────────────────────────
 // 4. Contract affecting callers in multiple graphs
-// ────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────���────────────────
 
 describe("transaction spanning multiple sibling graphs", () => {
   it("contract change affecting callers in two different graphs undoes atomically", () => {
@@ -345,7 +282,7 @@ describe("transaction spanning multiple sibling graphs", () => {
     // Caller in main
     blueprint.setActiveGraph(blueprint.mainGraphId);
     const callerMain = addCaller(target);
-    blueprint.mainGraph.history.currentState = snapshotGraph(blueprint.mainGraph);
+    blueprint.history.initGraphState(blueprint.mainGraphId, snapshotGraph(blueprint.mainGraph));
 
     // Caller in a second function graph
     const host = blueprint.createFunctionGraph({ name: "Host" });
@@ -356,20 +293,18 @@ describe("transaction spanning multiple sibling graphs", () => {
     blueprint.syncContractCallers(host);
     blueprint.setActiveGraph(host.id);
     const callerHost = addCaller(target);
-    host.history.currentState = snapshotGraph(host);
+    blueprint.history.initGraphState(host.id, snapshotGraph(host));
 
     expect(callerMain.inputPorts.length).toBe(1);
     expect(callerHost.inputPorts.length).toBe(1);
 
-    // Edit target's contract
     target.data.contract.inputs.push({ id: "t3", name: "y", type: "vec3" });
     blueprint.syncContractCallers(target);
 
     expect(callerMain.inputPorts.length).toBe(2);
     expect(callerHost.inputPorts.length).toBe(2);
 
-    // Undo on target should roll back all three graphs
-    target.history.undo();
+    blueprint.history.undo();
 
     expect(target.data.contract.inputs.length).toBe(1);
 
@@ -387,9 +322,9 @@ describe("transaction spanning multiple sibling graphs", () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ────────────────────���───────────────────────────────────────────
 // 5. Deep undo chain (multiple sequential contract edits)
-// ────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────���─────────────────
 
 describe("deep undo chain", () => {
   it("three sequential contract edits can be undone one at a time", () => {
@@ -400,32 +335,26 @@ describe("deep undo chain", () => {
     };
     blueprint.syncContractCallers(fn);
 
-    // Edit 1: add input b
     fn.data.contract.inputs.push({ id: "p3", name: "b", type: "float" });
     blueprint.syncContractCallers(fn);
     expect(fn.data.contract.inputs.length).toBe(2);
 
-    // Edit 2: add input c
     fn.data.contract.inputs.push({ id: "p4", name: "c", type: "vec3" });
     blueprint.syncContractCallers(fn);
     expect(fn.data.contract.inputs.length).toBe(3);
 
-    // Edit 3: rename first input
     fn.data.contract.inputs[0].name = "alpha";
     blueprint.syncContractCallers(fn);
     expect(fn.data.contract.inputs[0].name).toBe("alpha");
 
-    // Undo edit 3 — restore name
-    fn.history.undo();
+    blueprint.history.undo();
     expect(fn.data.contract.inputs[0].name).toBe("a");
     expect(fn.data.contract.inputs.length).toBe(3);
 
-    // Undo edit 2 — remove c
-    fn.history.undo();
+    blueprint.history.undo();
     expect(fn.data.contract.inputs.length).toBe(2);
 
-    // Undo edit 1 — remove b
-    fn.history.undo();
+    blueprint.history.undo();
     expect(fn.data.contract.inputs.length).toBe(1);
     expect(fn.data.contract.inputs[0].name).toBe("a");
   });
@@ -444,20 +373,19 @@ describe("deep undo chain", () => {
     fn.data.contract.inputs.push({ id: "p4", name: "z", type: "vec2" });
     blueprint.syncContractCallers(fn);
 
-    // Undo twice, then redo once → should be at the 2-input state
-    fn.history.undo();
-    fn.history.undo();
+    blueprint.history.undo();
+    blueprint.history.undo();
     expect(fn.data.contract.inputs.length).toBe(1);
 
-    fn.history.redo();
+    blueprint.history.redo();
     expect(fn.data.contract.inputs.length).toBe(2);
     expect(fn.data.contract.inputs[1].name).toBe("y");
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────��──────────────────
 // 6. Contract undo restoring boundary nodes and body wires
-// ────────────────────────────────────────────────────────────────
+// ──���────────────────────���─────────────────────────────��──────────
 
 describe("contract undo restores boundary nodes and body wires", () => {
   it("undo restores FunctionInput/FunctionOutput port counts", () => {
@@ -473,15 +401,13 @@ describe("contract undo restores boundary nodes and body wires", () => {
     expect(fnIn.outputPorts.length).toBe(1);
     expect(fnOut.inputPorts.length).toBe(1);
 
-    // Add a second input
     fn.data.contract.inputs.push({ id: "p3", name: "y", type: "vec3" });
     blueprint.syncContractCallers(fn);
 
     const fnIn2 = fn.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
     expect(fnIn2.outputPorts.length).toBe(2);
 
-    // Undo
-    fn.history.undo();
+    blueprint.history.undo();
 
     const fnInRestored = fn.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
     const fnOutRestored = fn.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
@@ -497,22 +423,19 @@ describe("contract undo restores boundary nodes and body wires", () => {
     };
     blueprint.syncContractCallers(fn);
 
-    // Wire FunctionInput.x → FunctionOutput.r
     blueprint.setActiveGraph(fn.id);
     const fnIn = fn.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
     const fnOut = fn.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
     connect(fnIn.outputPorts[0], fnOut.inputPorts[0]);
     expect(fn.wires.length).toBe(1);
 
-    // Snapshot this state
-    fn.history.currentState = snapshotGraph(fn);
+    // Commit this state
+    blueprint.history.initGraphState(fn.id, snapshotGraph(fn));
 
-    // Add a second input via contract (this rebuilds boundary nodes)
     fn.data.contract.inputs.push({ id: "p3", name: "y", type: "vec3" });
     blueprint.syncContractCallers(fn);
 
-    // Undo should restore the 1-input state with the body wire intact
-    fn.history.undo();
+    blueprint.history.undo();
 
     expect(fn.data.contract.inputs.length).toBe(1);
     expect(fn.wires.length).toBe(1);
@@ -524,9 +447,9 @@ describe("contract undo restores boundary nodes and body wires", () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ���──────────────────────────────��────────────────────────────────
 // 7. Loop body history
-// ────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────���───
 
 describe("loop body contract undo/redo", () => {
   it("loop body contract undo restores acc/arg roles", () => {
@@ -537,14 +460,12 @@ describe("loop body contract undo/redo", () => {
     };
     blueprint.syncContractCallers(loop);
 
-    // Add an arg input
     loop.data.contract.inputs.push({ id: "a2", name: "step", type: "float", role: "arg" });
     blueprint.syncContractCallers(loop);
     expect(loop.data.contract.inputs.length).toBe(2);
     expect(loop.data.contract.inputs[1].role).toBe("arg");
 
-    // Undo
-    loop.history.undo();
+    blueprint.history.undo();
     expect(loop.data.contract.inputs.length).toBe(1);
     expect(loop.data.contract.inputs[0].role).toBe("acc");
   });
@@ -559,33 +480,28 @@ describe("loop body contract undo/redo", () => {
 
     blueprint.setActiveGraph(blueprint.mainGraphId);
     const caller = addCaller(loop);
-    // ForLoop inputs: [Count, Initial sum]
     expect(caller.inputPorts.length).toBe(2);
-    blueprint.mainGraph.history.currentState = snapshotGraph(blueprint.mainGraph);
+    blueprint.history.initGraphState(blueprint.mainGraphId, snapshotGraph(blueprint.mainGraph));
 
-    // Add a second accumulator
     loop.data.contract.inputs.push({ id: "a2", name: "prod", type: "float", role: "acc" });
     loop.data.contract.outputs.push({ id: "a2", name: "prod", type: "float" });
     blueprint.syncContractCallers(loop);
 
-    // ForLoop inputs: [Count, Initial sum, Initial prod]
     expect(caller.inputPorts.length).toBe(3);
 
-    // Undo on loop
-    loop.history.undo();
+    blueprint.history.undo();
 
     const restoredCaller = blueprint.mainGraph.nodes.find(
       (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === loop.id
     );
     expect(restoredCaller).toBeDefined();
-    // Should be back to [Count, Initial sum]
     expect(restoredCaller.inputPorts.length).toBe(2);
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ────────────────────────────────────���───────────────────────────
 // 8. No-change contract sync does not pollute history
-// ────────────────────────────────────────────────────────────────
+// ─────────────────��──────────────────────────────────────────────
 
 describe("no-change contract sync", () => {
   it("calling syncContractCallers without changing the contract does not add undo entries", () => {
@@ -596,48 +512,43 @@ describe("no-change contract sync", () => {
     };
     blueprint.syncContractCallers(fn);
 
-    const undoCountBefore = fn.history.undoStack.length;
+    const undoCountBefore = blueprint.history.undoStack.length;
 
     // Sync again without changing anything
     blueprint.syncContractCallers(fn);
 
-    // The transaction should detect no diff and skip creating entries
-    // (contractVersion still increments, so there IS a diff — this tests
-    // whether that's the actual behavior)
-    const undoCountAfter = fn.history.undoStack.length;
+    const undoCountAfter = blueprint.history.undoStack.length;
 
-    // At most one entry from the contractVersion bump, but no double-stacking
+    // At most one entry from the contractVersion bump
     expect(undoCountAfter).toBeLessThanOrEqual(undoCountBefore + 1);
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ──��─────────────────────��───────────────────────────────────────
 // 9. History after createNewFile
-// ────────────────────────────────────────────────────────────────
+// ─���────────────��─────────────────────────────────���───────────────
 
 describe("history after createNewFile", () => {
-  it("createNewFile clears all graph histories", () => {
+  it("createNewFile clears all history", () => {
     const fn = blueprint.createFunctionGraph({ name: "Fn" });
     fn.data.contract = {
       inputs: [{ id: "p1", name: "x", type: "float" }],
       outputs: [{ id: "p2", name: "r", type: "float" }],
     };
     blueprint.syncContractCallers(fn);
-    expect(fn.history.canUndo()).toBe(true);
+    expect(blueprint.history.canUndo()).toBe(true);
 
     blueprint.createNewFile();
 
-    // After createNewFile, the main graph history should be fresh
-    expect(blueprint.mainGraph.history.canUndo()).toBe(false);
-    expect(blueprint.mainGraph.history.canRedo()).toBe(false);
-    // fn graph no longer exists
+    expect(blueprint.history.canUndo()).toBe(false);
+    expect(blueprint.history.canRedo()).toBe(false);
     expect(blueprint.graphs.has(fn.id)).toBe(false);
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ───────────────────────────────────���────────────────────────────
 // 10. History + save/load round-trip
-// ────────────────────────────────────────────────────────────────
+// ─────���────────────────────────────────────────────���─────────────
 
 describe("history after save/load", () => {
   function fakeFile(json) {
@@ -651,16 +562,13 @@ describe("history after save/load", () => {
       outputs: [{ id: "p2", name: "r", type: "float" }],
     };
     blueprint.syncContractCallers(fn);
-    expect(fn.history.canUndo()).toBe(true);
+    expect(blueprint.history.canUndo()).toBe(true);
 
     const json = blueprint.serializeProjectToJSON();
     await blueprint.loadFromJSON(fakeFile(JSON.parse(json)));
 
-    // All graphs should have clean history after load
-    for (const g of blueprint.graphs.values()) {
-      expect(g.history.canUndo()).toBe(false);
-      expect(g.history.canRedo()).toBe(false);
-    }
+    expect(blueprint.history.canUndo()).toBe(false);
+    expect(blueprint.history.canRedo()).toBe(false);
   });
 
   it("contract edits after load create proper undo entries", async () => {
@@ -674,35 +582,30 @@ describe("history after save/load", () => {
     const json = blueprint.serializeProjectToJSON();
     await blueprint.loadFromJSON(fakeFile(JSON.parse(json)));
 
-    // Find the reloaded function graph
     const reloadedFn = [...blueprint.graphs.values()].find((g) => g.name === "Fn");
     expect(reloadedFn).toBeDefined();
 
-    // Edit contract after load
     reloadedFn.data.contract.inputs.push({ id: "p3", name: "new", type: "vec3" });
     blueprint.syncContractCallers(reloadedFn);
 
-    expect(reloadedFn.history.canUndo()).toBe(true);
+    expect(blueprint.history.canUndo()).toBe(true);
 
-    // Undo should work
-    reloadedFn.history.undo();
+    blueprint.history.undo();
     expect(reloadedFn.data.contract.inputs.length).toBe(1);
   });
 });
 
-// ────────────────────────────────────────────────────────────────
+// ──��─────────────────────────────���───────────────────────���───────
 // 11. runMultiGraphTransaction only affects listed graphs
-// ────────────────────────────────────────────────────────────────
+// ──────────────────��─────────────────────────────────��───────────
 
 describe("runMultiGraphTransaction scoping", () => {
-  it("only listed graphs get undo entries", () => {
+  it("only listed graphs get included in the undo entry", () => {
     const fn1 = blueprint.createFunctionGraph({ name: "Fn1" });
     const fn2 = blueprint.createFunctionGraph({ name: "Fn2" });
 
-    const fn1Before = fn1.history.undoStack.length;
-    const fn2Before = fn2.history.undoStack.length;
+    const stackBefore = blueprint.history.undoStack.length;
 
-    // Run a transaction that only touches fn1
     blueprint.runMultiGraphTransaction([fn1.id], () => {
       fn1.data.contract = {
         inputs: [{ id: "p1", name: "x", type: "float" }],
@@ -711,18 +614,24 @@ describe("runMultiGraphTransaction scoping", () => {
       fn1.contractVersion = (fn1.contractVersion || 0) + 1;
     }, "test edit");
 
-    expect(fn1.history.undoStack.length).toBeGreaterThan(fn1Before);
-    expect(fn2.history.undoStack.length).toBe(fn2Before);
+    expect(blueprint.history.undoStack.length).toBeGreaterThan(stackBefore);
+
+    // The entry should only contain fn1, not fn2
+    const entry = blueprint.history.undoStack[blueprint.history.undoStack.length - 1];
+    const graphIds = entry.graphs.map((g) => g.graphId);
+    expect(graphIds).toContain(fn1.id);
+    expect(graphIds).not.toContain(fn2.id);
   });
 
   it("transaction with no actual changes does not create entries", () => {
-    const fn = blueprint.createFunctionGraph({ name: "Fn" });
-    const before = fn.history.undoStack.length;
+    blueprint.createFunctionGraph({ name: "Fn" });
+    const fn = [...blueprint.graphs.values()].find((g) => g.name === "Fn");
+    const before = blueprint.history.undoStack.length;
 
     blueprint.runMultiGraphTransaction([fn.id], () => {
       // no-op
     }, "empty transaction");
 
-    expect(fn.history.undoStack.length).toBe(before);
+    expect(blueprint.history.undoStack.length).toBe(before);
   });
 });

@@ -102,7 +102,7 @@ describe("MULTI-GRAPH CONTRACTS", () => {
       api.nodes.create({ typeKey: "floatInput", x: 0, y: 0 });
       const bSnapshot = gB.exportState();
 
-      gA.history.undo();
+      blueprint.history.undo();
       expect(gA.nodes.length).toBe(aBefore);
       // B is untouched.
       expect(gB.exportState()).toEqual(bSnapshot);

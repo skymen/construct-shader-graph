@@ -1,50 +1,76 @@
 /**
- * HistoryManager - Snapshot-based undo/redo system with intelligent change coalescing
+ * HistoryManager — Unified host-level undo/redo system.
+ *
+ * A single instance lives on BlueprintSystem. Every undo/redo entry records
+ * which graph(s) were affected and their before/after snapshots. On undo/redo,
+ * the editor switches to the graph where the change originated.
  */
 export class HistoryManager {
-  constructor(blueprint, options = {}) {
-    this.blueprint = blueprint;
+  constructor(host, options = {}) {
+    this.host = host;
     this.undoStack = [];
     this.redoStack = [];
-    this.currentState = null;
+    this.currentStates = new Map(); // graphId → state snapshot
     this.maxUndoSteps = options.maxUndoSteps || 50;
 
     // Change coalescing
     this.lastChangeTime = 0;
     this.lastChangedProperties = new Set();
-    this.changeCoalesceTime = options.changeCoalesceTime || 1000; // 1 second
+    this.changeCoalesceTime = options.changeCoalesceTime || 1000;
     this.isApplyingUndoRedo = false;
   }
 
+  // Backward-compat: reading/writing `this.history.currentState` maps to
+  // the active graph's entry in `currentStates`.
+  get currentState() {
+    const gId = this.host.activeGraphId;
+    return gId ? this.currentStates.get(gId) : null;
+  }
+
+  set currentState(val) {
+    const gId = this.host.activeGraphId;
+    if (gId) this.currentStates.set(gId, val);
+  }
+
+  initGraphState(graphId, state) {
+    this.currentStates.set(graphId, state);
+  }
+
+  removeGraphState(graphId) {
+    this.currentStates.delete(graphId);
+  }
+
   /**
-   * Push current state to undo stack with automatic change detection and coalescing
+   * Push current state to undo stack with automatic change detection and coalescing.
+   * Always captures the currently active graph.
    */
   pushState(description = "State Change") {
     if (this.isApplyingUndoRedo) return;
 
-    const currentTime = Date.now();
-    const newState = this.blueprint.exportState();
+    const graphId = this.host.activeGraphId;
+    const graph = this.host.graphs.get(graphId);
+    if (!graph) return;
 
-    // Initialize if first push
-    if (!this.currentState) {
-      this.currentState = newState;
+    const currentTime = Date.now();
+    const newState = this.host._exportGraphState(graph);
+
+    const oldState = this.currentStates.get(graphId);
+    if (!oldState) {
+      this.currentStates.set(graphId, newState);
       this.lastChangeTime = currentTime;
       this.lastChangedProperties = new Set();
       console.log("Initialized undo system with current state");
       return;
     }
 
-    // Calculate diff
-    const diff = this.calculateStateDiff(this.currentState, newState);
+    const diff = this.calculateStateDiff(oldState, newState);
     const changedProperties = diff.changedProperties;
 
-    // No changes? Skip
     if (changedProperties.size === 0) {
       console.log("No changes detected, skipping undo push");
       return;
     }
 
-    // Check if we should coalesce
     const timeSinceLastChange = currentTime - this.lastChangeTime;
     const shouldCoalesce =
       timeSinceLastChange < this.changeCoalesceTime &&
@@ -53,57 +79,214 @@ export class HistoryManager {
       this.propertySetsOverlap(changedProperties, this.lastChangedProperties);
 
     if (shouldCoalesce) {
-      // Update existing entry
       const lastUndo = this.undoStack[this.undoStack.length - 1];
-      lastUndo.afterState = newState;
-      lastUndo.timestamp = currentTime;
-
-      // Merge changed properties
-      changedProperties.forEach((prop) => lastUndo.changedProperties.add(prop));
-
-      // Update diff (preserve old values, update new values)
-      this.mergeDiff(lastUndo.diff, diff);
-
-      console.log(
-        `Coalesced: ${description} (${changedProperties.size} properties)`
-      );
-    } else {
-      // Create new entry
-      const undoEntry = {
-        description: description,
-        beforeState: this.currentState,
-        afterState: newState,
-        timestamp: currentTime,
-        changedProperties: new Set(changedProperties),
-        diff: diff,
-      };
-
-      this.undoStack.push(undoEntry);
-
-      // Limit stack size
-      if (this.undoStack.length > this.maxUndoSteps) {
-        this.undoStack.shift();
+      // Only coalesce single-graph entries targeting the same graph
+      if (lastUndo.graphs.length === 1 && lastUndo.graphs[0].graphId === graphId) {
+        lastUndo.graphs[0].afterState = newState;
+        lastUndo.timestamp = currentTime;
+        changedProperties.forEach((prop) => lastUndo.changedProperties.add(prop));
+        this.mergeDiff(lastUndo.graphs[0].diff, diff);
+        console.log(
+          `Coalesced: ${description} (${changedProperties.size} properties)`
+        );
+      } else {
+        this._pushNewEntry(description, graphId, oldState, newState, diff, currentTime);
+        console.log(
+          `Pushed: ${description} (${changedProperties.size} properties)`
+        );
       }
-
+    } else {
+      this._pushNewEntry(description, graphId, oldState, newState, diff, currentTime);
       console.log(
         `Pushed: ${description} (${changedProperties.size} properties)`
       );
     }
 
-    // Clear redo stack
     this.redoStack = [];
-
-    // Update tracking
-    this.currentState = newState;
+    this.currentStates.set(graphId, newState);
     this.lastChangeTime = currentTime;
     this.lastChangedProperties = changedProperties;
 
-    this.blueprint.updateUndoRedoButtons();
+    this.host.updateUndoRedoButtons();
+  }
+
+  _pushNewEntry(description, graphId, oldState, newState, diff, timestamp) {
+    const entry = {
+      description,
+      primaryGraphId: graphId,
+      graphs: [{ graphId, beforeState: oldState, afterState: newState, diff }],
+      timestamp,
+      changedProperties: new Set(diff.changedProperties),
+    };
+    this.undoStack.push(entry);
+    if (this.undoStack.length > this.maxUndoSteps) {
+      this.undoStack.shift();
+    }
   }
 
   /**
-   * Calculate diff between two states
+   * Run a multi-graph transaction: snapshot listed graphs before `fn()`,
+   * then push a single unified undo entry covering all changed graphs.
    */
+  runTransaction(graphIds, fn, description = "Transaction") {
+    if (this.isApplyingUndoRedo) return;
+
+    const snapshots = new Map();
+    for (const id of graphIds) {
+      const g = this.host.graphs.get(id);
+      if (!g) continue;
+      snapshots.set(id, this.currentStates.get(id) || this.host._exportGraphState(g));
+    }
+
+    fn();
+
+    const graphEntries = [];
+    const changedProperties = new Set();
+    let primaryGraphId = null;
+
+    for (const [id, beforeState] of snapshots) {
+      const g = this.host.graphs.get(id);
+      if (!g) continue;
+      const afterState = this.host._exportGraphState(g);
+      const diff = this.calculateStateDiff(beforeState, afterState);
+      if (diff.changedProperties.size === 0) continue;
+
+      if (!primaryGraphId) primaryGraphId = id;
+      graphEntries.push({ graphId: id, beforeState, afterState, diff });
+      diff.changedProperties.forEach((p) => changedProperties.add(p));
+      this.currentStates.set(id, afterState);
+    }
+
+    if (graphEntries.length === 0) return;
+
+    const entry = {
+      description,
+      primaryGraphId,
+      graphs: graphEntries,
+      timestamp: Date.now(),
+      changedProperties,
+    };
+
+    this.undoStack.push(entry);
+    if (this.undoStack.length > this.maxUndoSteps) {
+      this.undoStack.shift();
+    }
+    this.redoStack = [];
+    this.lastChangeTime = Date.now();
+    this.lastChangedProperties = changedProperties;
+
+    try { this.host.updateUndoRedoButtons && this.host.updateUndoRedoButtons(); } catch {}
+  }
+
+  /**
+   * Undo the last change. Restores all graphs in the entry and switches the
+   * editor to the graph where the change originated.
+   */
+  undo() {
+    if (this.undoStack.length === 0) {
+      console.log("Nothing to undo");
+      return false;
+    }
+
+    const entry = this.undoStack.pop();
+    this.redoStack.push(entry);
+
+    this.isApplyingUndoRedo = true;
+    try {
+      // Callable graphs (function/loopBody) own contracts that callers depend
+      // on — restore them first so callers rebuild with the correct layout.
+      const sorted = [...entry.graphs].sort((a, b) => {
+        const gA = this.host.graphs.get(a.graphId);
+        const gB = this.host.graphs.get(b.graphId);
+        const aCallable = (gA?.kind === "function" || gA?.kind === "loopBody") ? 0 : 1;
+        const bCallable = (gB?.kind === "function" || gB?.kind === "loopBody") ? 0 : 1;
+        return aCallable - bCallable;
+      });
+
+      for (const ge of sorted) {
+        const graph = this.host.graphs.get(ge.graphId);
+        if (!graph) continue;
+        this.host._loadGraphState(graph, ge.beforeState);
+        this.currentStates.set(ge.graphId, ge.beforeState);
+      }
+
+      if (entry.primaryGraphId && this.host.graphs.has(entry.primaryGraphId)) {
+        this.host.setActiveGraph(entry.primaryGraphId);
+      }
+
+      console.log(`Undid: ${entry.description}`);
+      return { success: true, description: entry.description };
+    } catch (error) {
+      console.error("Failed to undo:", error);
+      return false;
+    } finally {
+      this.isApplyingUndoRedo = false;
+    }
+  }
+
+  /**
+   * Redo the last undone change. Restores all graphs and switches to the
+   * originating graph.
+   */
+  redo() {
+    if (this.redoStack.length === 0) {
+      console.log("Nothing to redo");
+      return false;
+    }
+
+    const entry = this.redoStack.pop();
+    this.undoStack.push(entry);
+
+    this.isApplyingUndoRedo = true;
+    try {
+      const sorted = [...entry.graphs].sort((a, b) => {
+        const gA = this.host.graphs.get(a.graphId);
+        const gB = this.host.graphs.get(b.graphId);
+        const aCallable = (gA?.kind === "function" || gA?.kind === "loopBody") ? 0 : 1;
+        const bCallable = (gB?.kind === "function" || gB?.kind === "loopBody") ? 0 : 1;
+        return aCallable - bCallable;
+      });
+
+      for (const ge of sorted) {
+        const graph = this.host.graphs.get(ge.graphId);
+        if (!graph) continue;
+        this.host._loadGraphState(graph, ge.afterState);
+        this.currentStates.set(ge.graphId, ge.afterState);
+      }
+
+      if (entry.primaryGraphId && this.host.graphs.has(entry.primaryGraphId)) {
+        this.host.setActiveGraph(entry.primaryGraphId);
+      }
+
+      console.log(`Redid: ${entry.description}`);
+      return { success: true, description: entry.description };
+    } catch (error) {
+      console.error("Failed to redo:", error);
+      return false;
+    } finally {
+      this.isApplyingUndoRedo = false;
+    }
+  }
+
+  clear() {
+    this.undoStack = [];
+    this.redoStack = [];
+    this.currentStates = new Map();
+    this.lastChangeTime = 0;
+    this.lastChangedProperties = new Set();
+    console.log("Cleared undo/redo history");
+  }
+
+  canUndo() {
+    return this.undoStack.length > 0;
+  }
+
+  canRedo() {
+    return this.redoStack.length > 0;
+  }
+
+  // ---- Diff / comparison utilities (unchanged) ----
+
   calculateStateDiff(oldState, newState) {
     const diff = {
       nodesAdded: [],
@@ -121,11 +304,9 @@ export class HistoryManager {
       changedProperties: new Set(),
     };
 
-    // Build maps for efficient comparison
     const oldNodes = new Map(oldState.nodes.map((n) => [n.id, n]));
     const newNodes = new Map(newState.nodes.map((n) => [n.id, n]));
 
-    // Find added nodes
     newNodes.forEach((node, id) => {
       if (!oldNodes.has(id)) {
         diff.nodesAdded.push(node);
@@ -133,7 +314,6 @@ export class HistoryManager {
       }
     });
 
-    // Find removed nodes
     oldNodes.forEach((node, id) => {
       if (!newNodes.has(id)) {
         diff.nodesRemoved.push(node);
@@ -141,16 +321,12 @@ export class HistoryManager {
       }
     });
 
-    // Find modified nodes
     oldNodes.forEach((oldNode, id) => {
       const newNode = newNodes.get(id);
       if (newNode) {
         const nodeDiff = this.calculateNodeDiff(oldNode, newNode);
         if (nodeDiff.hasChanges) {
-          diff.nodesModified.push({
-            id: id,
-            changes: nodeDiff.changes,
-          });
+          diff.nodesModified.push({ id, changes: nodeDiff.changes });
           nodeDiff.changedKeys.forEach((key) => {
             diff.changedProperties.add(`node:${id}:${key}`);
           });
@@ -158,7 +334,6 @@ export class HistoryManager {
       }
     });
 
-    // Compare wires
     const oldWires = oldState.wires.map((w) => this.wireToString(w));
     const newWires = newState.wires.map((w) => this.wireToString(w));
 
@@ -176,11 +351,9 @@ export class HistoryManager {
       }
     });
 
-    // Compare comments
     const oldComments = new Map(oldState.comments.map((c) => [c.id, c]));
     const newComments = new Map(newState.comments.map((c) => [c.id, c]));
 
-    // Find added comments
     newComments.forEach((comment, id) => {
       if (!oldComments.has(id)) {
         diff.commentsAdded.push(comment);
@@ -188,7 +361,6 @@ export class HistoryManager {
       }
     });
 
-    // Find removed comments
     oldComments.forEach((comment, id) => {
       if (!newComments.has(id)) {
         diff.commentsRemoved.push(comment);
@@ -196,16 +368,12 @@ export class HistoryManager {
       }
     });
 
-    // Find modified comments
     oldComments.forEach((oldComment, id) => {
       const newComment = newComments.get(id);
       if (newComment) {
         const commentDiff = this.calculateCommentDiff(oldComment, newComment);
         if (commentDiff.hasChanges) {
-          diff.commentsModified.push({
-            id: id,
-            changes: commentDiff.changes,
-          });
+          diff.commentsModified.push({ id, changes: commentDiff.changes });
           commentDiff.changedKeys.forEach((key) => {
             diff.changedProperties.add(`comment:${id}:${key}`);
           });
@@ -213,25 +381,21 @@ export class HistoryManager {
       }
     });
 
-    // Compare uniforms
     if (!this.deepEqual(oldState.uniforms, newState.uniforms)) {
       diff.uniformsChanged = true;
       diff.changedProperties.add("uniforms:changed");
     }
 
-    // Compare custom nodes
     if (!this.deepEqual(oldState.customNodes, newState.customNodes)) {
       diff.customNodesChanged = true;
       diff.changedProperties.add("customNodes:changed");
     }
 
-    // Compare settings
     if (!this.deepEqual(oldState.shaderSettings, newState.shaderSettings)) {
       diff.settingsChanged = true;
       diff.changedProperties.add("settings:changed");
     }
 
-    // Compare contract (function/loopBody graphs)
     if (!this.deepEqual(oldState.data, newState.data)) {
       diff.contractChanged = true;
       diff.changedProperties.add("contract:changed");
@@ -240,29 +404,17 @@ export class HistoryManager {
     return diff;
   }
 
-  /**
-   * Calculate diff for a single node
-   */
   calculateNodeDiff(oldNode, newNode) {
-    const diff = {
-      hasChanges: false,
-      changes: {},
-      changedKeys: [],
-    };
+    const diff = { hasChanges: false, changes: {}, changedKeys: [] };
 
-    // Compare simple properties
     ["x", "y", "operation", "customInput", "uniformId", "data"].forEach((key) => {
       if (!this.deepEqual(oldNode[key], newNode[key])) {
         diff.hasChanges = true;
-        diff.changes[key] = {
-          oldValue: oldNode[key],
-          newValue: newNode[key],
-        };
+        diff.changes[key] = { oldValue: oldNode[key], newValue: newNode[key] };
         diff.changedKeys.push(key);
       }
     });
 
-    // Compare input port values and detect port count/type changes
     if (oldNode.inputPorts.length !== newNode.inputPorts.length) {
       diff.hasChanges = true;
       diff.changes["inputPorts:count"] = {
@@ -304,17 +456,9 @@ export class HistoryManager {
     return diff;
   }
 
-  /**
-   * Calculate diff for a single comment
-   */
   calculateCommentDiff(oldComment, newComment) {
-    const diff = {
-      hasChanges: false,
-      changes: {},
-      changedKeys: [],
-    };
+    const diff = { hasChanges: false, changes: {}, changedKeys: [] };
 
-    // Compare simple properties
     ["x", "y", "width", "height", "title", "description", "color"].forEach(
       (key) => {
         if (!this.deepEqual(oldComment[key], newComment[key])) {
@@ -331,18 +475,12 @@ export class HistoryManager {
     return diff;
   }
 
-  /**
-   * Convert wire to string for comparison
-   */
   wireToString(wire) {
     const rerouteStr =
       wire.rerouteNodes.length > 0 ? `:r${wire.rerouteNodes.length}` : "";
     return `${wire.startNodeId}:${wire.startPortIndex}->${wire.endNodeId}:${wire.endPortIndex}${rerouteStr}`;
   }
 
-  /**
-   * Check if two sets of properties overlap
-   */
   propertySetsOverlap(set1, set2) {
     for (const prop of set1) {
       if (set2.has(prop)) return true;
@@ -350,11 +488,7 @@ export class HistoryManager {
     return false;
   }
 
-  /**
-   * Merge new diff into existing diff (for coalescing)
-   */
   mergeDiff(existingDiff, newDiff) {
-    // Merge nodesModified (preserve old values, update new values)
     const existingModified = new Map(
       existingDiff.nodesModified.map((n) => [n.id, n])
     );
@@ -362,7 +496,6 @@ export class HistoryManager {
     newDiff.nodesModified.forEach((newMod) => {
       const existing = existingModified.get(newMod.id);
       if (existing) {
-        // Update: preserve oldValue, update newValue
         Object.entries(newMod.changes).forEach(([key, change]) => {
           if (existing.changes[key]) {
             existing.changes[key].newValue = change.newValue;
@@ -375,7 +508,6 @@ export class HistoryManager {
       }
     });
 
-    // Merge commentsModified (same logic as nodesModified)
     const existingCommentsModified = new Map(
       existingDiff.commentsModified.map((c) => [c.id, c])
     );
@@ -383,7 +515,6 @@ export class HistoryManager {
     newDiff.commentsModified.forEach((newMod) => {
       const existing = existingCommentsModified.get(newMod.id);
       if (existing) {
-        // Update: preserve oldValue, update newValue
         Object.entries(newMod.changes).forEach(([key, change]) => {
           if (existing.changes[key]) {
             existing.changes[key].newValue = change.newValue;
@@ -396,7 +527,6 @@ export class HistoryManager {
       }
     });
 
-    // Merge other changes
     existingDiff.nodesAdded.push(...newDiff.nodesAdded);
     existingDiff.nodesRemoved.push(...newDiff.nodesRemoved);
     existingDiff.wiresAdded.push(...newDiff.wiresAdded);
@@ -414,9 +544,6 @@ export class HistoryManager {
       existingDiff.settingsChanged || newDiff.settingsChanged;
   }
 
-  /**
-   * Deep equality check
-   */
   deepEqual(a, b) {
     if (a === b) return true;
     if (a == null || b == null) return a === b;
@@ -447,178 +574,6 @@ export class HistoryManager {
     return false;
   }
 
-  /**
-   * Undo the last change
-   * @returns {object|false} { success: true, description: string } or false
-   */
-  undo() {
-    if (this.undoStack.length === 0) {
-      console.log("Nothing to undo");
-      return false;
-    }
-
-    const undoEntry = this.undoStack.pop();
-
-    // Store for redo
-    this.redoStack.push(undoEntry);
-
-    // Apply before state
-    this.isApplyingUndoRedo = true;
-    try {
-      const host = this.blueprint.host || this.blueprint;
-      if (undoEntry.transactionId && host.graphs) {
-        // Collect all graphs to restore (self + siblings).
-        const toRestore = [{ graph: this.blueprint, entry: undoEntry, isSelf: true }];
-        for (const g of host.graphs.values()) {
-          if (g.history === this) continue;
-          const siblingStack = g.history.undoStack;
-          const idx = siblingStack.findIndex(
-            (e) => e.transactionId === undoEntry.transactionId
-          );
-          if (idx !== -1) {
-            const siblingEntry = siblingStack.splice(idx, 1)[0];
-            g.history.redoStack.push(siblingEntry);
-            toRestore.push({ graph: g, entry: siblingEntry, isSelf: false });
-          }
-        }
-
-        // Callable graphs (function/loopBody) own contracts that
-        // getNodeTypeFromKey depends on — restore them first so callers
-        // in other graphs rebuild with the correct port layout.
-        toRestore.sort((a, b) => {
-          const aCallable = (a.graph.kind === "function" || a.graph.kind === "loopBody") ? 0 : 1;
-          const bCallable = (b.graph.kind === "function" || b.graph.kind === "loopBody") ? 0 : 1;
-          return aCallable - bCallable;
-        });
-
-        for (const { graph, entry, isSelf } of toRestore) {
-          if (isSelf) {
-            this.blueprint.loadState(entry.beforeState);
-            this.currentState = entry.beforeState;
-          } else {
-            graph.history.isApplyingUndoRedo = true;
-            try {
-              host._loadGraphState(graph, entry.beforeState);
-              graph.history.currentState = entry.beforeState;
-            } finally {
-              graph.history.isApplyingUndoRedo = false;
-            }
-          }
-        }
-      } else {
-        this.blueprint.loadState(undoEntry.beforeState);
-        this.currentState = undoEntry.beforeState;
-      }
-
-      console.log(`Undid: ${undoEntry.description}`);
-      return { success: true, description: undoEntry.description };
-    } catch (error) {
-      console.error("Failed to undo:", error);
-      return false;
-    } finally {
-      this.isApplyingUndoRedo = false;
-    }
-  }
-
-  /**
-   * Redo the last undone change
-   * @returns {object|false} { success: true, description: string } or false
-   */
-  redo() {
-    if (this.redoStack.length === 0) {
-      console.log("Nothing to redo");
-      return false;
-    }
-
-    const redoEntry = this.redoStack.pop();
-
-    // Store back in undo
-    this.undoStack.push(redoEntry);
-
-    // Apply after state
-    this.isApplyingUndoRedo = true;
-    try {
-      const host = this.blueprint.host || this.blueprint;
-      if (redoEntry.transactionId && host.graphs) {
-        const toRestore = [{ graph: this.blueprint, entry: redoEntry, isSelf: true }];
-        for (const g of host.graphs.values()) {
-          if (g.history === this) continue;
-          const siblingStack = g.history.redoStack;
-          const idx = siblingStack.findIndex(
-            (e) => e.transactionId === redoEntry.transactionId
-          );
-          if (idx !== -1) {
-            const siblingEntry = siblingStack.splice(idx, 1)[0];
-            g.history.undoStack.push(siblingEntry);
-            toRestore.push({ graph: g, entry: siblingEntry, isSelf: false });
-          }
-        }
-
-        // Callable graphs first (same reason as undo).
-        toRestore.sort((a, b) => {
-          const aCallable = (a.graph.kind === "function" || a.graph.kind === "loopBody") ? 0 : 1;
-          const bCallable = (b.graph.kind === "function" || b.graph.kind === "loopBody") ? 0 : 1;
-          return aCallable - bCallable;
-        });
-
-        for (const { graph, entry, isSelf } of toRestore) {
-          if (isSelf) {
-            this.blueprint.loadState(entry.afterState);
-            this.currentState = entry.afterState;
-          } else {
-            graph.history.isApplyingUndoRedo = true;
-            try {
-              host._loadGraphState(graph, entry.afterState);
-              graph.history.currentState = entry.afterState;
-            } finally {
-              graph.history.isApplyingUndoRedo = false;
-            }
-          }
-        }
-      } else {
-        this.blueprint.loadState(redoEntry.afterState);
-        this.currentState = redoEntry.afterState;
-      }
-
-      console.log(`Redid: ${redoEntry.description}`);
-      return { success: true, description: redoEntry.description };
-    } catch (error) {
-      console.error("Failed to redo:", error);
-      return false;
-    } finally {
-      this.isApplyingUndoRedo = false;
-    }
-  }
-
-  /**
-   * Clear undo/redo history
-   */
-  clear() {
-    this.undoStack = [];
-    this.redoStack = [];
-    this.currentState = null;
-    this.lastChangeTime = 0;
-    this.lastChangedProperties = new Set();
-    console.log("Cleared undo/redo history");
-  }
-
-  /**
-   * Check if undo is available
-   */
-  canUndo() {
-    return this.undoStack.length > 0;
-  }
-
-  /**
-   * Check if redo is available
-   */
-  canRedo() {
-    return this.redoStack.length > 0;
-  }
-
-  /**
-   * Get undo/redo info for debugging
-   */
   getInfo() {
     return {
       undoCount: this.undoStack.length,
@@ -628,11 +583,15 @@ export class HistoryManager {
       undoStack: this.undoStack.map((entry) => ({
         description: entry.description,
         timestamp: entry.timestamp,
+        primaryGraphId: entry.primaryGraphId,
+        graphCount: entry.graphs.length,
         changedPropertyCount: entry.changedProperties.size,
       })),
       redoStack: this.redoStack.map((entry) => ({
         description: entry.description,
         timestamp: entry.timestamp,
+        primaryGraphId: entry.primaryGraphId,
+        graphCount: entry.graphs.length,
         changedPropertyCount: entry.changedProperties.size,
       })),
     };

@@ -373,14 +373,14 @@ describe("Save/load round-trip with function graphs", () => {
       blueprint.syncContractCallers(g);
 
       blueprint.setActiveGraph(g.id);
-      g.history.currentState = blueprint.exportState();
+      blueprint.history.initGraphState(g.id, blueprint._exportGraphState(g));
 
       g.data.contract.inputs[0].name = "modified";
       blueprint.syncContractCallers(g);
 
       expect(g.data.contract.inputs[0].name).toBe("modified");
 
-      const result = g.history.undo();
+      const result = blueprint.history.undo();
       expect(result).toBeTruthy();
       expect(g.data.contract.inputs[0].name).toBe("original");
     });
@@ -394,19 +394,19 @@ describe("Save/load round-trip with function graphs", () => {
       blueprint.syncContractCallers(g);
 
       blueprint.setActiveGraph(g.id);
-      g.history.currentState = blueprint.exportState();
+      blueprint.history.initGraphState(g.id, blueprint._exportGraphState(g));
 
       g.data.contract.inputs[0].name = "after";
       blueprint.syncContractCallers(g);
 
-      g.history.undo();
+      blueprint.history.undo();
       expect(g.data.contract.inputs[0].name).toBe("before");
 
-      g.history.redo();
+      blueprint.history.redo();
       expect(g.data.contract.inputs[0].name).toBe("after");
     });
 
-    it("multi-graph transaction: undo on affected graph rolls back caller changes", () => {
+    it("multi-graph transaction: undo rolls back caller changes", () => {
       const fn = blueprint.createFunctionGraph({ name: "TxFn" });
       fn.data.contract = {
         inputs: [{ id: "t1", name: "x", type: "float" }],
@@ -414,29 +414,24 @@ describe("Save/load round-trip with function graphs", () => {
       };
       blueprint.syncContractCallers(fn);
 
-      // Place a caller in main
       blueprint.setActiveGraph(blueprint.mainGraphId);
       const callerType = blueprint.getCallableFunctionNodeTypes()[`function_call_${fn.id}`];
       const callerNode = blueprint.addNode(0, 0, callerType);
 
-      // Snapshot main graph history baseline
       const mainGraph = blueprint.mainGraph;
-      mainGraph.history.currentState = blueprint._exportGraphState(mainGraph);
+      blueprint.history.initGraphState(mainGraph.id, blueprint._exportGraphState(mainGraph));
 
       const callerCountBefore = callerNode.inputPorts.length;
 
-      // Edit the function contract: add a second input
       fn.data.contract.inputs.push({ id: "t3", name: "z", type: "vec3" });
       blueprint.syncContractCallers(fn);
 
-      // Caller should have been rebuilt with the new port
       const updatedCaller = mainGraph.nodes.find(
         (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fn.id
       );
       expect(updatedCaller.inputPorts.length).toBe(callerCountBefore + 1);
 
-      // Undo on main graph should restore the caller to its previous port count
-      const undoResult = mainGraph.history.undo();
+      const undoResult = blueprint.history.undo();
       expect(undoResult).toBeTruthy();
 
       const restoredCaller = mainGraph.nodes.find(

@@ -1,6 +1,5 @@
 // Real undo/redo round-trip through the BlueprintSystem.
-// The HistoryManager monkey-patch in GlobalConsoleApi must continue to work,
-// and the per-graph history (post-refactor) must keep these flows intact.
+// The unified host-level HistoryManager stores all graphs in one stack.
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { bootstrap } from "./helpers/bootstrap.js";
@@ -13,8 +12,6 @@ beforeAll(async () => {
 
 beforeEach(() => {
   blueprint.createNewFile();
-  blueprint.history.clear();
-  blueprint.history.currentState = blueprint.exportState();
 });
 
 describe("Undo / Redo", () => {
@@ -38,9 +35,9 @@ describe("Undo / Redo", () => {
   });
 
   it("undo of wire creation removes the wire", () => {
-    blueprint.createNewFile(); // ensures default chain present
+    blueprint.createNewFile();
     blueprint.history.clear();
-    blueprint.history.currentState = blueprint.exportState();
+    blueprint.history.initGraphState(blueprint.mainGraphId, blueprint._exportGraphState(blueprint.mainGraph));
 
     const a = api.nodes.create({ typeKey: "floatInput", x: 0, y: 0 });
     const b = api.nodes.create({ typeKey: "math", x: 200, y: 0 });
