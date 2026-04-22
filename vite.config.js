@@ -54,8 +54,8 @@ export default defineConfig({
     assetsInlineLimit: 0, // Don't inline assets, keep them as separate files
   },
   define: {
-    "import.meta.env.VITE_IS_EXPERIMENTAL": JSON.stringify(
-      process.env.VITE_IS_EXPERIMENTAL || "false"
+    __IS_EXPERIMENTAL__: JSON.stringify(
+      process.env.VITE_IS_EXPERIMENTAL === "true"
     ),
   },
   plugins: [

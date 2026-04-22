@@ -8,18 +8,17 @@ This build includes the new **Functions and Loop Bodies** system — a complete 
 - Loop body subgraphs with iteration support
 - Generic type propagation across function boundaries (genType cascading)
 - "Turn Into Function" — select nodes and convert them into a reusable function
-- Button on subgraph nodes to open and edit the subgraph
-- Code generation for functions and loops across all targets (WebGL1, WebGL2, WebGPU)
-- Copy/paste support for subgraph nodes
-- Undo/redo support with proper shader updates on undo/redo
-- Centering view on newly created function/loop body
+- View code generation for functions and loops across all targets (WebGL1, WebGL2, WebGPU)
+- Copy/paste support accross subgraphs
+- Undo/redo support accross subgraphs
 
 ### UX Improvements
 
-- Double click on a comment to edit it
+- Double click on a comment's body to edit it
 - Comment text is now always visible
-- Manual entries for Swizzle and Type nodes
-- Button on nodes that links to the manual
+- Added manual entry for Swizzle node
+- Added manual entry for types
+- Added buttons on nodes that links to their manual page
 - Fixed bug with float input shortcut
 
 ## Important Notes

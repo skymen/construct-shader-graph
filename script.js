@@ -7,7 +7,12 @@ import {
   getAllowedTypesForGeneric,
   toShaderValue,
 } from "./nodes/index.js";
-import { getHandler, wouldCreateCycle, getCyclePath, detectCycleInDAG } from "./graph-kinds/index.js";
+import {
+  getHandler,
+  wouldCreateCycle,
+  getCyclePath,
+  detectCycleInDAG,
+} from "./graph-kinds/index.js";
 
 // Convert an arbitrary string to a valid GLSL/WGSL identifier.
 function _sanitizeId(str) {
@@ -581,8 +586,10 @@ class Node {
     // Generic-to-generic: accept only if resolvedType is strictly narrower
     const portAllowed = getAllowedTypesForGeneric(portType);
     const resolvedAllowed = getAllowedTypesForGeneric(resolvedType);
-    if (resolvedAllowed.length < portAllowed.length &&
-        resolvedAllowed.every((t) => portAllowed.includes(t))) {
+    if (
+      resolvedAllowed.length < portAllowed.length &&
+      resolvedAllowed.every((t) => portAllowed.includes(t))
+    ) {
       this.resolvedGenerics[portType] = resolvedType;
       return true;
     }
@@ -1238,7 +1245,10 @@ class BlueprintSystem {
 
     // Initialize history after setup
     setTimeout(() => {
-      this.history.initGraphState(this.mainGraphId, this._exportGraphState(this.mainGraph));
+      this.history.initGraphState(
+        this.mainGraphId,
+        this._exportGraphState(this.mainGraph),
+      );
     }, 0);
   }
 
@@ -2017,12 +2027,16 @@ class BlueprintSystem {
   createFunctionGraph(opts = {}) {
     const handler = getHandler("function");
     // Seed with one input + one output, both sharing generic T.
-    const mkId = (suffix) => `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const mkId = (suffix) =>
+      `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
     const seedInputs = [{ id: mkId("in"), name: "value", type: "T" }];
     const seedOutputs = [{ id: mkId("out"), name: "result", type: "T" }];
     const g = this.createGraph({
       kind: "function",
-      data: { contract: { inputs: seedInputs, outputs: seedOutputs }, notes: "" },
+      data: {
+        contract: { inputs: seedInputs, outputs: seedOutputs },
+        notes: "",
+      },
       ...opts,
     });
     if (handler) handler.bootstrapGraph(g, this);
@@ -2035,13 +2049,17 @@ class BlueprintSystem {
 
   // Create a loopBody-kind graph and bootstrap its boundary nodes.
   createLoopBodyGraph(opts = {}) {
-    const mkId = (suffix) => `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const mkId = (suffix) =>
+      `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
     const accId = mkId("acc");
     const seedInputs = [{ id: accId, name: "value", type: "T", role: "acc" }];
     const seedOutputs = [{ id: accId, name: "value", type: "T" }];
     const g = this.createGraph({
       kind: "loopBody",
-      data: { contract: { inputs: seedInputs, outputs: seedOutputs }, notes: "" },
+      data: {
+        contract: { inputs: seedInputs, outputs: seedOutputs },
+        notes: "",
+      },
       ...opts,
     });
     const handler = getHandler("loopBody");
@@ -2056,7 +2074,7 @@ class BlueprintSystem {
   // All callable (function + loopBody) graphs on this host.
   getCallableGraphs() {
     return [...this.graphs.values()].filter(
-      (g) => g.kind === "function" || g.kind === "loopBody"
+      (g) => g.kind === "function" || g.kind === "loopBody",
     );
   }
 
@@ -2078,7 +2096,9 @@ class BlueprintSystem {
       const adopted = new Set();
 
       const newPorts = defs.map((def, i) => {
-        const existing = def.contractPortId ? oldById.get(def.contractPortId) : null;
+        const existing = def.contractPortId
+          ? oldById.get(def.contractPortId)
+          : null;
         if (existing && !adopted.has(existing)) {
           adopted.add(existing);
           if (existing.portType === def.type && existing.name === def.name) {
@@ -2092,7 +2112,8 @@ class BlueprintSystem {
           if (saved) existing.connections.length = 0;
           const fresh = new Port(node, portKind, i, def);
           if (saved) {
-            const other = saved.startPort === existing ? saved.endPort : saved.startPort;
+            const other =
+              saved.startPort === existing ? saved.endPort : saved.startPort;
             // The compatibility check below uses getResolvedType(), which
             // reads `node.resolvedGenerics`. That map may still carry the
             // resolution produced by THIS wire under the old contract
@@ -2100,15 +2121,20 @@ class BlueprintSystem {
             // the raw port-type compatibility, then let
             // resolveGenericsForConnection re-populate it with the new type.
             let stashedResolved;
-            if (other && isGenericType(other.portType) &&
-                other.node.resolvedGenerics &&
-                other.node.resolvedGenerics[other.portType] !== undefined) {
+            if (
+              other &&
+              isGenericType(other.portType) &&
+              other.node.resolvedGenerics &&
+              other.node.resolvedGenerics[other.portType] !== undefined
+            ) {
               stashedResolved = other.node.resolvedGenerics[other.portType];
               delete other.node.resolvedGenerics[other.portType];
             }
-            const compatible = other && (portKind === "input"
-              ? fresh.canConnectTo(other)
-              : other.canConnectTo(fresh));
+            const compatible =
+              other &&
+              (portKind === "input"
+                ? fresh.canConnectTo(other)
+                : other.canConnectTo(fresh));
             if (!compatible && stashedResolved !== undefined) {
               // Restore the stale resolution — the wire is about to be
               // dropped, and the drop branch expects normal state.
@@ -2181,8 +2207,12 @@ class BlueprintSystem {
     const { resolvedInputTypes, resolvedOutputTypes, fnName } = signature;
     const contract = graph.data?.contract || { inputs: [], outputs: [] };
 
-    const inputNode = graph.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
-    const outputNode = graph.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+    const inputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionInput,
+    );
+    const outputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionOutput,
+    );
     if (!inputNode || !outputNode) {
       return { bodyCode: "    // missing boundary nodes\n", deps: new Map() };
     }
@@ -2200,18 +2230,26 @@ class BlueprintSystem {
           if (wire.startPort?.node) {
             const dep = wire.startPort.node;
             nodeDeps.add(dep);
-            if (!visited.has(dep)) { visited.add(dep); queue.push(dep); }
+            if (!visited.has(dep)) {
+              visited.add(dep);
+              queue.push(dep);
+            }
           }
         }
       }
       // Variable nodes: depend on their Set Variable counterpart (graph-local).
       if (node.nodeType.name === "Get Variable" && node.selectedVariable) {
         const setVarNode = graph.nodes.find(
-          (n) => n.nodeType.name === "Set Variable" && n.customInput === node.selectedVariable
+          (n) =>
+            n.nodeType.name === "Set Variable" &&
+            n.customInput === node.selectedVariable,
         );
         if (setVarNode) {
           nodeDeps.add(setVarNode);
-          if (!visited.has(setVarNode)) { visited.add(setVarNode); queue.push(setVarNode); }
+          if (!visited.has(setVarNode)) {
+            visited.add(setVarNode);
+            queue.push(setVarNode);
+          }
         }
       }
       dependencies.set(node, nodeDeps);
@@ -2247,16 +2285,21 @@ class BlueprintSystem {
         for (const port of node.inputPorts) {
           if (port.connections.length > 0) {
             const src = port.connections[0].startPort;
-            if (portToVarName.has(src)) portToVarName.set(port, portToVarName.get(src));
+            if (portToVarName.has(src))
+              portToVarName.set(port, portToVarName.get(src));
           } else if (port.isEditable && port.value !== undefined) {
-            portToVarName.set(port, toShaderValue(port.value, port.getResolvedType(), target));
+            portToVarName.set(
+              port,
+              toShaderValue(port.value, port.getResolvedType(), target),
+            );
           } else if (!isOutputNode) {
             // Unbound FunctionOutput inputs fall back to "0.0" at emission; no need to allocate fv_.
             portToVarName.set(port, `fv_${varCounter++}`);
           }
         }
         for (const port of node.outputPorts) {
-          if (!portToVarName.has(port)) portToVarName.set(port, `fv_${varCounter++}`);
+          if (!portToVarName.has(port))
+            portToVarName.set(port, `fv_${varCounter++}`);
         }
       }
     }
@@ -2301,7 +2344,11 @@ class BlueprintSystem {
 
     for (const level of levels) {
       for (const node of level) {
-        if (node.nodeType === NODE_TYPES.functionInput || node.nodeType === NODE_TYPES.functionOutput) continue;
+        if (
+          node.nodeType === NODE_TYPES.functionInput ||
+          node.nodeType === NODE_TYPES.functionOutput
+        )
+          continue;
 
         if (typeof node.nodeType.getDependency === "function") {
           const dep = node.nodeType.getDependency(target);
@@ -2311,29 +2358,43 @@ class BlueprintSystem {
           }
         }
 
-        const execution = typeof node.nodeType.getExecution === "function"
-          ? node.nodeType.getExecution(target)
-          : node.nodeType.shaderCode?.[target]?.execution || null;
+        const execution =
+          typeof node.nodeType.getExecution === "function"
+            ? node.nodeType.getExecution(target)
+            : node.nodeType.shaderCode?.[target]?.execution || null;
 
         if (execution) {
-          const inputVars = node.inputPorts.map((p) => portToVarName.get(p) || "0.0");
+          const inputVars = node.inputPorts.map(
+            (p) => portToVarName.get(p) || "0.0",
+          );
           const outputVars = node.outputPorts.map((p) => portToVarName.get(p));
           const inputTypes = node.inputPorts.map((p) => p.getResolvedType());
           const outputTypes = node.outputPorts.map((p) => p.getResolvedType());
           bodyCode += `\n    // ${node.nodeType.name}\n`;
-          bodyCode += execution(inputVars, outputVars, node, inputTypes, outputTypes) + "\n";
+          bodyCode +=
+            execution(inputVars, outputVars, node, inputTypes, outputTypes) +
+            "\n";
         } else if (node.nodeType.isFunctionCall) {
           // Nested FunctionCall inside a function body. Compute its signature
           // and emit the call site; the nested declaration is collected by
           // _generateFunctionDeclarations in a separate pass.
-          const callerHandler = getHandler(node.nodeType.callerKind || "function");
+          const callerHandler = getHandler(
+            node.nodeType.callerKind || "function",
+          );
           if (callerHandler) {
-            const nestedSig = callerHandler.computeCallSiteSignature(node, this);
+            const nestedSig = callerHandler.computeCallSiteSignature(
+              node,
+              this,
+            );
             node._computedSignature = nestedSig;
             bodyCode += `\n    // ${node.nodeType.name}\n`;
-            bodyCode += callerHandler.emitCallSite(node, nestedSig, {
-              target, portToVarName, fnName: nestedSig.fnName, host: this,
-            }) + "\n";
+            bodyCode +=
+              callerHandler.emitCallSite(node, nestedSig, {
+                target,
+                portToVarName,
+                fnName: nestedSig.fnName,
+                host: this,
+              }) + "\n";
           }
         }
       }
@@ -2347,7 +2408,9 @@ class BlueprintSystem {
     } else if (resolvedOutputTypes.length > 1) {
       if (isWebGPU) {
         const structName = `${fnName}_Out`;
-        const fields = outputNode.inputPorts.map((p) => portToVarName.get(p) || "0.0").join(", ");
+        const fields = outputNode.inputPorts
+          .map((p) => portToVarName.get(p) || "0.0")
+          .join(", ");
         bodyCode += `    return ${structName}(${fields});\n`;
       } else {
         contract.outputs.forEach((op, i) => {
@@ -2388,7 +2451,14 @@ class BlueprintSystem {
       if (!variantByKey.has(key)) {
         const graph = this.graphs.get(node.nodeType.targetGraphId);
         if (!graph) return null;
-        variantByKey.set(key, { graph, signature: sig, handler, declaration: "", deps: new Map(), callees: new Set() });
+        variantByKey.set(key, {
+          graph,
+          signature: sig,
+          handler,
+          declaration: "",
+          deps: new Map(),
+          callees: new Set(),
+        });
         worklist.push(key);
       }
       return key;
@@ -2406,7 +2476,10 @@ class BlueprintSystem {
       const key = worklist.shift();
       const entry = variantByKey.get(key);
       const { declaration, deps } = entry.handler.emitFunctionDeclaration(
-        entry.graph, entry.signature, target, this,
+        entry.graph,
+        entry.signature,
+        target,
+        this,
       );
       entry.declaration = declaration;
       entry.deps = deps;
@@ -2466,7 +2539,13 @@ class BlueprintSystem {
       if (!g) return null;
       const key = `${g.id}_${sig.sigHash}`;
       if (!variantByKey.has(key)) {
-        variantByKey.set(key, { graph: g, signature: sig, handler: h, declaration: "", callees: new Set() });
+        variantByKey.set(key, {
+          graph: g,
+          signature: sig,
+          handler: h,
+          declaration: "",
+          callees: new Set(),
+        });
         worklist.push(key);
       }
       return key;
@@ -2474,7 +2553,10 @@ class BlueprintSystem {
 
     for (const g of this.graphs.values()) {
       for (const n of g.nodes) {
-        if (n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id) {
+        if (
+          n.nodeType.isFunctionCall &&
+          n.nodeType.targetGraphId === graph.id
+        ) {
           enqueueFromCaller(n);
         }
       }
@@ -2485,7 +2567,13 @@ class BlueprintSystem {
       const sig = this._synthesizeDefaultSignature(graph);
       if (sig) {
         const key = `${graph.id}_${sig.sigHash}`;
-        variantByKey.set(key, { graph, signature: sig, handler, declaration: "", callees: new Set() });
+        variantByKey.set(key, {
+          graph,
+          signature: sig,
+          handler,
+          declaration: "",
+          callees: new Set(),
+        });
         worklist.push(key);
       }
     }
@@ -2495,7 +2583,10 @@ class BlueprintSystem {
       const key = worklist.shift();
       const entry = variantByKey.get(key);
       const { declaration } = entry.handler.emitFunctionDeclaration(
-        entry.graph, entry.signature, target, this,
+        entry.graph,
+        entry.signature,
+        target,
+        this,
       );
       entry.declaration = declaration;
       for (const n of entry.graph.nodes) {
@@ -2533,7 +2624,9 @@ class BlueprintSystem {
       if (key.startsWith(ownKey)) own += block;
       else nested += block;
     }
-    return hdr + own + (nested ? "\n// --- transitive callees ---\n" + nested : "");
+    return (
+      hdr + own + (nested ? "\n// --- transitive callees ---\n" + nested : "")
+    );
   }
 
   // Build a synthetic "default" call-site signature by treating generic
@@ -2569,12 +2662,19 @@ class BlueprintSystem {
   // node to the FunctionInput's T port), callers should display and enforce
   // `vec2` instead of the generic letter.
   _syncCallersBodyGenerics(graph) {
-    if (!graph || (graph.kind !== "function" && graph.kind !== "loopBody")) return;
-    const inputNode = graph.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
-    const outputNode = graph.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+    if (!graph || (graph.kind !== "function" && graph.kind !== "loopBody"))
+      return;
+    const inputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionInput,
+    );
+    const outputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionOutput,
+    );
     const resolved = {};
-    if (inputNode?.resolvedGenerics) Object.assign(resolved, inputNode.resolvedGenerics);
-    if (outputNode?.resolvedGenerics) Object.assign(resolved, outputNode.resolvedGenerics);
+    if (inputNode?.resolvedGenerics)
+      Object.assign(resolved, inputNode.resolvedGenerics);
+    if (outputNode?.resolvedGenerics)
+      Object.assign(resolved, outputNode.resolvedGenerics);
 
     for (const g of this.graphs.values()) {
       for (const caller of g.nodes) {
@@ -2613,9 +2713,9 @@ class BlueprintSystem {
             changedLetters.add(gen);
           } else if (!next && curr !== undefined) {
             // Only clear if no local wire is forcing the same resolution.
-            const localWireForces = caller.getAllPorts().some(
-              (p) => p.portType === gen && p.connections.length > 0
-            );
+            const localWireForces = caller
+              .getAllPorts()
+              .some((p) => p.portType === gen && p.connections.length > 0);
             if (!localWireForces) {
               delete caller.resolvedGenerics[gen];
               changed = true;
@@ -2636,16 +2736,19 @@ class BlueprintSystem {
           for (const port of caller.getAllPorts()) {
             if (!changedLetters.has(port.portType)) continue;
             for (const wire of port.connections) {
-              const other = wire.startPort === port ? wire.endPort : wire.startPort;
+              const other =
+                wire.startPort === port ? wire.endPort : wire.startPort;
               if (!other) continue;
               const outputPort = port.type === "output" ? port : other;
               const inputPort = port.type === "input" ? port : other;
-              if (!areTypesCompatible(
-                outputPort.portType,
-                inputPort.portType,
-                outputPort.getResolvedType(),
-                inputPort.getResolvedType(),
-              )) {
+              if (
+                !areTypesCompatible(
+                  outputPort.portType,
+                  inputPort.portType,
+                  outputPort.getResolvedType(),
+                  inputPort.getResolvedType(),
+                )
+              ) {
                 wiresToDrop.push(wire);
               }
             }
@@ -2680,15 +2783,22 @@ class BlueprintSystem {
     const affectedIds = new Set([graph.id]);
     for (const g of this.graphs.values()) {
       for (const node of g.nodes) {
-        if (node.nodeType.isFunctionCall && node.nodeType.targetGraphId === graph.id) {
+        if (
+          node.nodeType.isFunctionCall &&
+          node.nodeType.targetGraphId === graph.id
+        ) {
           affectedIds.add(g.id);
         }
       }
     }
 
-    this.runMultiGraphTransaction([...affectedIds], () => {
-      this._syncContractCallersImpl(graph);
-    }, `Contract edit on "${graph.name}"`);
+    this.runMultiGraphTransaction(
+      [...affectedIds],
+      () => {
+        this._syncContractCallersImpl(graph);
+      },
+      `Contract edit on "${graph.name}"`,
+    );
   }
 
   _syncContractCallersImpl(graph) {
@@ -2720,8 +2830,16 @@ class BlueprintSystem {
         // a transformed layout (Count + Initial acc + args → acc outputs).
         const { droppedWires } = this._rebuildBoundaryNodePorts(
           node,
-          newType.inputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.contractPortId || p.id })),
-          newType.outputs.map((p) => ({ name: p.name, type: p.type, contractPortId: p.contractPortId || p.id }))
+          newType.inputs.map((p) => ({
+            name: p.name,
+            type: p.type,
+            contractPortId: p.contractPortId || p.id,
+          })),
+          newType.outputs.map((p) => ({
+            name: p.name,
+            type: p.type,
+            contractPortId: p.contractPortId || p.id,
+          })),
         );
         totalDropped += droppedWires;
         affectedCount++;
@@ -2729,10 +2847,15 @@ class BlueprintSystem {
     }
 
     if (affectedCount > 0 || totalDropped > 0) {
-      const msg = totalDropped > 0
-        ? `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt, ${totalDropped} incompatible wire(s) removed.`
-        : `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt.`;
-      this.showNotification({ type: "info", title: "Contract updated", message: msg });
+      const msg =
+        totalDropped > 0
+          ? `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt, ${totalDropped} incompatible wire(s) removed.`
+          : `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt.`;
+      this.showNotification({
+        type: "info",
+        title: "Contract updated",
+        message: msg,
+      });
       this.onShaderChanged();
     }
   }
@@ -4230,13 +4353,19 @@ class BlueprintSystem {
     this.graphTabsEl = document.getElementById("graph-tabs");
     this.functionsListEl = document.getElementById("functions-list");
     this.functionInfoSection = document.getElementById("function-info-section");
-    this.functionInputsSection = document.getElementById("function-inputs-section");
-    this.functionOutputsSection = document.getElementById("function-outputs-section");
+    this.functionInputsSection = document.getElementById(
+      "function-inputs-section",
+    );
+    this.functionOutputsSection = document.getElementById(
+      "function-outputs-section",
+    );
     this.functionInfoForm = document.getElementById("function-info-form");
     this.functionInputsList = document.getElementById("function-inputs-list");
     this.functionOutputsList = document.getElementById("function-outputs-list");
     this.shaderInfoSection = document.getElementById("shader-info-section");
-    this.shaderSettingsSection = document.getElementById("shader-settings-section");
+    this.shaderSettingsSection = document.getElementById(
+      "shader-settings-section",
+    );
 
     // Code editor container
     this.customNodeCodeEditorContainer = document.getElementById(
@@ -4436,7 +4565,9 @@ class BlueprintSystem {
         this._addContractPort("inputs");
       });
     }
-    const addContractOutputBtn = document.getElementById("addContractOutputBtn");
+    const addContractOutputBtn = document.getElementById(
+      "addContractOutputBtn",
+    );
     if (addContractOutputBtn) {
       addContractOutputBtn.addEventListener("click", () => {
         this._addContractPort("outputs");
@@ -6156,8 +6287,13 @@ class BlueprintSystem {
     const errors = [];
     const cycle = detectCycleInDAG(this);
     if (cycle) {
-      const names = cycle.map((id) => this.graphs.get(id)?.name || id).join(" → ");
-      errors.push({ message: `Cycle detected in call graph: ${names}`, graphId: cycle[0] });
+      const names = cycle
+        .map((id) => this.graphs.get(id)?.name || id)
+        .join(" → ");
+      errors.push({
+        message: `Cycle detected in call graph: ${names}`,
+        graphId: cycle[0],
+      });
     }
 
     for (const graph of this.graphs.values()) {
@@ -6165,21 +6301,39 @@ class BlueprintSystem {
       const handler = getHandler(graph.kind);
       if (!handler) continue;
 
-      const inputNodes = graph.nodes.filter((n) => n.nodeType.name === "Function Input");
-      const outputNodes = graph.nodes.filter((n) => n.nodeType.name === "Function Output");
+      const inputNodes = graph.nodes.filter(
+        (n) => n.nodeType.name === "Function Input",
+      );
+      const outputNodes = graph.nodes.filter(
+        (n) => n.nodeType.name === "Function Output",
+      );
 
       if (inputNodes.length === 0) {
-        errors.push({ message: `"${graph.name}" is missing a Function Input node`, graphId: graph.id });
+        errors.push({
+          message: `"${graph.name}" is missing a Function Input node`,
+          graphId: graph.id,
+        });
       } else if (inputNodes.length > 1) {
-        errors.push({ message: `"${graph.name}" has duplicate Function Input nodes`, graphId: graph.id });
+        errors.push({
+          message: `"${graph.name}" has duplicate Function Input nodes`,
+          graphId: graph.id,
+        });
       }
       if (outputNodes.length === 0) {
-        errors.push({ message: `"${graph.name}" is missing a Function Output node`, graphId: graph.id });
+        errors.push({
+          message: `"${graph.name}" is missing a Function Output node`,
+          graphId: graph.id,
+        });
       } else if (outputNodes.length > 1) {
-        errors.push({ message: `"${graph.name}" has duplicate Function Output nodes`, graphId: graph.id });
+        errors.push({
+          message: `"${graph.name}" has duplicate Function Output nodes`,
+          graphId: graph.id,
+        });
       }
 
-      const contractErrors = handler.validateContract(graph.data?.contract || { inputs: [], outputs: [] });
+      const contractErrors = handler.validateContract(
+        graph.data?.contract || { inputs: [], outputs: [] },
+      );
       for (const msg of contractErrors) {
         errors.push({ message: `"${graph.name}": ${msg}`, graphId: graph.id });
       }
@@ -6191,7 +6345,10 @@ class BlueprintSystem {
     try {
       const validationErrors = this._validateCallDAG();
       if (validationErrors.length > 0) {
-        console.warn("Pre-codegen validation failed:", validationErrors.map((e) => e.message).join("; "));
+        console.warn(
+          "Pre-codegen validation failed:",
+          validationErrors.map((e) => e.message).join("; "),
+        );
         return null;
       }
 
@@ -6214,24 +6371,36 @@ class BlueprintSystem {
 
         // Compile all reachable function declarations for this target.
         // Also caches signatures on FunctionCall nodes for use in generateShader.
-        const { declStr, extraDeps } = this._generateFunctionDeclarations(target, levels, portToVarName);
+        const { declStr, extraDeps } = this._generateFunctionDeclarations(
+          target,
+          levels,
+          portToVarName,
+        );
 
         const boilerplate = this.getBoilerplate(target);
         const uniforms = this.generateUniformDeclarations(target);
         // Pass extraDeps so function body helpers appear in the dep block.
-        const shaderCode = this.generateShader(target, levels, portToVarName, extraDeps);
+        const shaderCode = this.generateShader(
+          target,
+          levels,
+          portToVarName,
+          extraDeps,
+        );
 
         // Order: boilerplate → uniforms → function body helper deps (inside shaderCode dep block) → function declarations → main()
         // generateShader emits the dep block then main(). We insert declStr between them.
-        const depBlockEnd = shaderCode.indexOf("\nvoid main") !== -1
-          ? shaderCode.indexOf("\nvoid main")
-          : shaderCode.indexOf("\n@fragment");
+        const depBlockEnd =
+          shaderCode.indexOf("\nvoid main") !== -1
+            ? shaderCode.indexOf("\nvoid main")
+            : shaderCode.indexOf("\n@fragment");
         let fullShader;
         if (depBlockEnd !== -1) {
-          fullShader = boilerplate + uniforms
-            + shaderCode.slice(0, depBlockEnd)
-            + declStr
-            + shaderCode.slice(depBlockEnd);
+          fullShader =
+            boilerplate +
+            uniforms +
+            shaderCode.slice(0, depBlockEnd) +
+            declStr +
+            shaderCode.slice(depBlockEnd);
         } else {
           fullShader = boilerplate + uniforms + declStr + shaderCode;
         }
@@ -6889,7 +7058,8 @@ class BlueprintSystem {
     for (const id of ordered) {
       const g = this.graphs.get(id);
       const tab = document.createElement("div");
-      tab.className = "graph-tab" + (id === this.activeGraphId ? " active" : "");
+      tab.className =
+        "graph-tab" + (id === this.activeGraphId ? " active" : "");
       tab.dataset.graphId = id;
 
       // Color stripe for non-main tabs
@@ -6972,8 +7142,9 @@ class BlueprintSystem {
     };
     input.addEventListener("blur", commit);
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { input.blur(); }
-      else if (e.key === "Escape") {
+      if (e.key === "Enter") {
+        input.blur();
+      } else if (e.key === "Escape") {
         input.value = graph.name;
         input.blur();
       }
@@ -7054,7 +7225,8 @@ class BlueprintSystem {
       });
 
       const badge = document.createElement("span");
-      badge.className = "function-entry-badge " + (g.kind === "function" ? "fn" : "loop");
+      badge.className =
+        "function-entry-badge " + (g.kind === "function" ? "fn" : "loop");
       badge.textContent = g.kind === "function" ? "fn" : "loop";
 
       const nameSpan = document.createElement("span");
@@ -7111,18 +7283,21 @@ class BlueprintSystem {
     let callers = 0;
     for (const g of this.graphs.values()) {
       for (const n of g.nodes) {
-        if (n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id) callers++;
+        if (n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id)
+          callers++;
       }
     }
-    const msg = callers > 0
-      ? `Delete "${graph.name}"? ${callers} caller node(s) will be removed.`
-      : `Delete "${graph.name}"?`;
+    const msg =
+      callers > 0
+        ? `Delete "${graph.name}"? ${callers} caller node(s) will be removed.`
+        : `Delete "${graph.name}"?`;
     if (!confirm(msg)) return;
 
     // Remove caller nodes and their wires from every graph.
     for (const g of this.graphs.values()) {
       const toRemove = g.nodes.filter(
-        (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id,
+        (n) =>
+          n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id,
       );
       for (const n of toRemove) {
         for (const port of [...n.inputPorts, ...n.outputPorts]) {
@@ -7130,7 +7305,8 @@ class BlueprintSystem {
         }
       }
       g.nodes = g.nodes.filter(
-        (n) => !(n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id),
+        (n) =>
+          !(n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id),
       );
     }
 
@@ -9513,9 +9689,19 @@ class BlueprintSystem {
       }
     } else {
       if (nodeType.isFunctionCall && nodeType.targetGraphId) {
-        if (wouldCreateCycle(this, this.activeGraphId, nodeType.targetGraphId)) {
-          const cyclePath = getCyclePath(this, this.activeGraphId, nodeType.targetGraphId);
-          this.showNotification({ type: "error", title: "Cycle detected", message: `Adding this would create a cycle: ${cyclePath}` });
+        if (
+          wouldCreateCycle(this, this.activeGraphId, nodeType.targetGraphId)
+        ) {
+          const cyclePath = getCyclePath(
+            this,
+            this.activeGraphId,
+            nodeType.targetGraphId,
+          );
+          this.showNotification({
+            type: "error",
+            title: "Cycle detected",
+            message: `Adding this would create a cycle: ${cyclePath}`,
+          });
           return;
         }
       }
@@ -9708,8 +9894,16 @@ class BlueprintSystem {
         const targetGraph = this.graphs.get(callerGraphId);
         if (!targetGraph) return;
         if (wouldCreateCycle(this, this.activeGraphId, callerGraphId)) {
-          const cyclePath = getCyclePath(this, this.activeGraphId, callerGraphId);
-          this.showNotification({ type: "error", title: "Cycle detected", message: `Adding this would create a cycle: ${cyclePath}` });
+          const cyclePath = getCyclePath(
+            this,
+            this.activeGraphId,
+            callerGraphId,
+          );
+          this.showNotification({
+            type: "error",
+            title: "Cycle detected",
+            message: `Adding this would create a cycle: ${cyclePath}`,
+          });
           return;
         }
         const handler = getHandler(targetGraph.kind);
@@ -10043,7 +10237,7 @@ class BlueprintSystem {
         isEnabled: () => {
           if (this.selectedNodes.size === 0) return false;
           return Array.from(this.selectedNodes).some(
-            (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable
+            (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable,
           );
         },
       },
@@ -11336,7 +11530,7 @@ class BlueprintSystem {
       (e.key === "g" || e.key === "G")
     ) {
       const hasExtractable = Array.from(this.selectedNodes).some(
-        (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable
+        (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable,
       );
       if (this.selectedNodes.size > 0 && hasExtractable) {
         e.preventDefault();
@@ -11846,17 +12040,19 @@ class BlueprintSystem {
           // Emit the call site for a FunctionCall node.
           const handler = getHandler(node.nodeType.callerKind || "function");
           if (handler) {
-            const sig = node._computedSignature
-              || handler.computeCallSiteSignature(node, this);
+            const sig =
+              node._computedSignature ||
+              handler.computeCallSiteSignature(node, this);
             node._computedSignature = sig;
 
             shader += `\n    // ${node.nodeType.name}\n`;
-            shader += handler.emitCallSite(node, sig, {
-              target,
-              portToVarName,
-              fnName: sig.fnName,
-              host: this,
-            }) + "\n";
+            shader +=
+              handler.emitCallSite(node, sig, {
+                target,
+                portToVarName,
+                fnName: sig.fnName,
+                host: this,
+              }) + "\n";
           }
         }
       }
@@ -11941,7 +12137,10 @@ class BlueprintSystem {
     const activeKind = this.activeGraph?.kind || "main";
     if (activeKind !== "main") {
       for (const target of targets) {
-        shaders[target] = this._generateCallableGraphPreview(this.activeGraph, target);
+        shaders[target] = this._generateCallableGraphPreview(
+          this.activeGraph,
+          target,
+        );
       }
     } else {
       const all = this.generateAllShaders();
@@ -12180,7 +12379,7 @@ class BlueprintSystem {
 
   turnSelectionIntoFunction(name = "Untitled") {
     const extractable = Array.from(this.selectedNodes).filter(
-      (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable
+      (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable,
     );
     if (extractable.length === 0) return null;
 
@@ -12199,9 +12398,17 @@ class BlueprintSystem {
       if (startInside && endInside) {
         internalWires.push(wire);
       } else if (startInside && !endInside) {
-        outgoingWires.push({ wire, internalPort: wire.startPort, externalPort: wire.endPort });
+        outgoingWires.push({
+          wire,
+          internalPort: wire.startPort,
+          externalPort: wire.endPort,
+        });
       } else if (!startInside && endInside) {
-        incomingWires.push({ wire, externalPort: wire.startPort, internalPort: wire.endPort });
+        incomingWires.push({
+          wire,
+          externalPort: wire.startPort,
+          internalPort: wire.endPort,
+        });
       }
     }
 
@@ -12210,13 +12417,16 @@ class BlueprintSystem {
     const contractInputs = [];
     const intPortToContractOutput = new Map();
     const contractOutputs = [];
-    const mkId = (suffix) => `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const mkId = (suffix) =>
+      `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
     const usedNames = new Set();
 
     const uniqueName = (base) => {
       let n = base;
       let i = 2;
-      while (usedNames.has(n)) { n = `${base}_${i++}`; }
+      while (usedNames.has(n)) {
+        n = `${base}_${i++}`;
+      }
       usedNames.add(n);
       return n;
     };
@@ -12228,7 +12438,9 @@ class BlueprintSystem {
       const concreteType = this._resolveConcreteTypeForContract(resolved);
       const portDef = {
         id: mkId("in"),
-        name: uniqueName(entry.internalPort.name || `in_${contractInputs.length}`),
+        name: uniqueName(
+          entry.internalPort.name || `in_${contractInputs.length}`,
+        ),
         type: concreteType,
       };
       contractInputs.push(portDef);
@@ -12253,19 +12465,31 @@ class BlueprintSystem {
     const functionGraph = this.createGraph({
       kind: "function",
       name,
-      data: { contract: { inputs: contractInputs, outputs: contractOutputs }, notes: "" },
+      data: {
+        contract: { inputs: contractInputs, outputs: contractOutputs },
+        notes: "",
+      },
     });
     const handler = getHandler("function");
     handler.bootstrapGraph(functionGraph, this);
 
-    const fnInputNode = functionGraph.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
-    const fnOutputNode = functionGraph.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+    const fnInputNode = functionGraph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionInput,
+    );
+    const fnOutputNode = functionGraph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionOutput,
+    );
 
     // ── 4. Copy nodes into the function body ─────────────────────────────
     const oldToNewNode = new Map();
     this._withGraph(functionGraph, () => {
       for (const node of extractable) {
-        const newNode = new Node(node.x, node.y, this.nodeIdCounter++, node.nodeType);
+        const newNode = new Node(
+          node.x,
+          node.y,
+          this.nodeIdCounter++,
+          node.nodeType,
+        );
         newNode._blueprintSystem = this;
         newNode._graph = functionGraph;
         newNode.operation = node.operation;
@@ -12276,9 +12500,15 @@ class BlueprintSystem {
         newNode.uniformName = node.uniformName;
         newNode.uniformDisplayName = node.uniformDisplayName;
         newNode.uniformVariableName = node.uniformVariableName;
-        for (let i = 0; i < newNode.inputPorts.length && i < node.inputPorts.length; i++) {
+        for (
+          let i = 0;
+          i < newNode.inputPorts.length && i < node.inputPorts.length;
+          i++
+        ) {
           if (node.inputPorts[i].value !== undefined) {
-            newNode.inputPorts[i].value = this.cloneValue(node.inputPorts[i].value);
+            newNode.inputPorts[i].value = this.cloneValue(
+              node.inputPorts[i].value,
+            );
           }
         }
         functionGraph.nodes.push(newNode);
@@ -12336,7 +12566,10 @@ class BlueprintSystem {
       this.resolveGenericsForConnection(wire.startPort, wire.endPort);
     }
 
-    this.history.initGraphState(functionGraph.id, this._exportGraphState(functionGraph));
+    this.history.initGraphState(
+      functionGraph.id,
+      this._exportGraphState(functionGraph),
+    );
     this.openTabs && this.openTabs.add(functionGraph.id);
 
     // ── 8. Build the caller node type ────────────────────────────────────
@@ -12346,62 +12579,74 @@ class BlueprintSystem {
 
     // ── 9. Mutate source graph in a transaction ──────────────────────────
     let callerNode;
-    this.runMultiGraphTransaction([sourceGraphId], () => {
-      // Disconnect and remove selected nodes from source graph.
-      for (const node of extractable) {
-        for (const port of node.getAllPorts()) {
-          for (const wire of [...port.connections]) {
-            this.disconnectWire(wire);
+    this.runMultiGraphTransaction(
+      [sourceGraphId],
+      () => {
+        // Disconnect and remove selected nodes from source graph.
+        for (const node of extractable) {
+          for (const port of node.getAllPorts()) {
+            for (const wire of [...port.connections]) {
+              this.disconnectWire(wire);
+            }
           }
         }
-      }
-      sourceGraph.nodes = sourceGraph.nodes.filter((n) => !selectedSet.has(n));
-
-      // Place caller node.
-      let avgX = 0, avgY = 0;
-      for (const n of extractable) { avgX += n.x; avgY += n.y; }
-      avgX /= extractable.length;
-      avgY /= extractable.length;
-
-      this._withGraph(sourceGraph, () => {
-        callerNode = this.addNode(avgX, avgY, callerType);
-      });
-
-      // Rewire external inputs to caller.
-      for (let i = 0; i < contractInputs.length; i++) {
-        const contractDef = contractInputs[i];
-        const entry = incomingWires.find((e) => srcPortToContractInput.get(e.externalPort) === contractDef);
-        if (!entry) continue;
-        const srcPort = entry.externalPort;
-        const callerInPort = callerNode.inputPorts[i];
-        if (!callerInPort) continue;
-        const newWire = new Wire(srcPort, callerInPort);
-        srcPort.connections.push(newWire);
-        callerInPort.connections.push(newWire);
-        sourceGraph.wires.push(newWire);
-        this.resolveGenericsForConnection(srcPort, callerInPort);
-      }
-
-      // Rewire caller outputs to external destinations.
-      for (let i = 0; i < contractOutputs.length; i++) {
-        const contractDef = contractOutputs[i];
-        const matchingEntries = outgoingWires.filter(
-          (e) => intPortToContractOutput.get(e.internalPort) === contractDef
+        sourceGraph.nodes = sourceGraph.nodes.filter(
+          (n) => !selectedSet.has(n),
         );
-        const callerOutPort = callerNode.outputPorts[i];
-        if (!callerOutPort) continue;
-        for (const entry of matchingEntries) {
-          const dstPort = entry.externalPort;
-          const newWire = new Wire(callerOutPort, dstPort);
-          callerOutPort.connections.push(newWire);
-          dstPort.connections.push(newWire);
-          sourceGraph.wires.push(newWire);
-          this.resolveGenericsForConnection(callerOutPort, dstPort);
-        }
-      }
 
-      this.clearSelection();
-    }, `Turn selection into function "${name}"`);
+        // Place caller node.
+        let avgX = 0,
+          avgY = 0;
+        for (const n of extractable) {
+          avgX += n.x;
+          avgY += n.y;
+        }
+        avgX /= extractable.length;
+        avgY /= extractable.length;
+
+        this._withGraph(sourceGraph, () => {
+          callerNode = this.addNode(avgX, avgY, callerType);
+        });
+
+        // Rewire external inputs to caller.
+        for (let i = 0; i < contractInputs.length; i++) {
+          const contractDef = contractInputs[i];
+          const entry = incomingWires.find(
+            (e) => srcPortToContractInput.get(e.externalPort) === contractDef,
+          );
+          if (!entry) continue;
+          const srcPort = entry.externalPort;
+          const callerInPort = callerNode.inputPorts[i];
+          if (!callerInPort) continue;
+          const newWire = new Wire(srcPort, callerInPort);
+          srcPort.connections.push(newWire);
+          callerInPort.connections.push(newWire);
+          sourceGraph.wires.push(newWire);
+          this.resolveGenericsForConnection(srcPort, callerInPort);
+        }
+
+        // Rewire caller outputs to external destinations.
+        for (let i = 0; i < contractOutputs.length; i++) {
+          const contractDef = contractOutputs[i];
+          const matchingEntries = outgoingWires.filter(
+            (e) => intPortToContractOutput.get(e.internalPort) === contractDef,
+          );
+          const callerOutPort = callerNode.outputPorts[i];
+          if (!callerOutPort) continue;
+          for (const entry of matchingEntries) {
+            const dstPort = entry.externalPort;
+            const newWire = new Wire(callerOutPort, dstPort);
+            callerOutPort.connections.push(newWire);
+            dstPort.connections.push(newWire);
+            sourceGraph.wires.push(newWire);
+            this.resolveGenericsForConnection(callerOutPort, dstPort);
+          }
+        }
+
+        this.clearSelection();
+      },
+      `Turn selection into function "${name}"`,
+    );
 
     this.renderFunctionsList();
     this.renderGraphTabBar();
@@ -12902,24 +13147,32 @@ class BlueprintSystem {
     const contentContainer = document.getElementById("manualContent");
     const skipKeys = new Set(["T", "U"]);
     const typeRows = Object.entries(PORT_TYPES)
-      .filter(([key, t]) => !t.isGeneric && !t.isComposite && !skipKeys.has(key))
-      .map(([key, t]) => `
+      .filter(
+        ([key, t]) => !t.isGeneric && !t.isComposite && !skipKeys.has(key),
+      )
+      .map(
+        ([key, t]) => `
         <tr>
           <td><span class="manual-type-badge" style="background: ${t.color}40; color: ${t.color}; border-color: ${t.color}">${key}</span></td>
           <td>${t.name}</td>
           <td>${t.editable ? "Yes" : "No"}</td>
           <td>${t.defaultValue !== undefined ? (Array.isArray(t.defaultValue) ? `(${t.defaultValue.join(", ")})` : String(t.defaultValue)) : "—"}</td>
         </tr>
-      `).join("");
+      `,
+      )
+      .join("");
 
     const genericRows = Object.entries(PORT_TYPES)
       .filter(([key, t]) => t.isGeneric && !skipKeys.has(key))
-      .map(([key, t]) => `
+      .map(
+        ([key, t]) => `
         <tr>
           <td><span class="manual-type-badge">${t.name}</span></td>
-          <td>${t.allowedTypes?.map(at => `<code>${at}</code>`).join(", ") || "—"}</td>
+          <td>${t.allowedTypes?.map((at) => `<code>${at}</code>`).join(", ") || "—"}</td>
         </tr>
-      `).join("");
+      `,
+      )
+      .join("");
 
     contentContainer.innerHTML = `
       <div class="manual-entry">
@@ -13443,7 +13696,10 @@ class BlueprintSystem {
 
     // Clear and reinitialize history after adding default nodes
     this.history.clear();
-    this.history.initGraphState(this.mainGraphId, this._exportGraphState(this.mainGraph));
+    this.history.initGraphState(
+      this.mainGraphId,
+      this._exportGraphState(this.mainGraph),
+    );
 
     this.render();
     this.announceMcpProjectUpdate("create-new-file");
@@ -13896,7 +14152,10 @@ class BlueprintSystem {
             name: extra.name,
             kind: extra.kind || "function",
             color: extra.color || null,
-            data: extra.data || { contract: { inputs: [], outputs: [] }, notes: "" },
+            data: extra.data || {
+              contract: { inputs: [], outputs: [] },
+              notes: "",
+            },
             contractVersion: extra.contractVersion || 0,
           });
           additionalGraphEntries.push({ g, extra });
@@ -15005,8 +15264,10 @@ class BlueprintSystem {
 
     // Restore kind-specific fields (contract, color, etc.) for non-main graphs
     if (stateData.color !== undefined) graph.color = stateData.color;
-    if (stateData.data !== undefined) graph.data = JSON.parse(JSON.stringify(stateData.data));
-    if (stateData.contractVersion !== undefined) graph.contractVersion = stateData.contractVersion;
+    if (stateData.data !== undefined)
+      graph.data = JSON.parse(JSON.stringify(stateData.data));
+    if (stateData.contractVersion !== undefined)
+      graph.contractVersion = stateData.contractVersion;
 
     // Restore nodes
     const nodeMap = new Map();
@@ -15834,12 +16095,14 @@ class BlueprintSystem {
           // type, drop the wire.
           const outputPort = port.type === "output" ? port : connectedPort;
           const inputPort = port.type === "input" ? port : connectedPort;
-          if (!areTypesCompatible(
-            outputPort.portType,
-            inputPort.portType,
-            outputPort.getResolvedType(),
-            inputPort.getResolvedType(),
-          )) {
+          if (
+            !areTypesCompatible(
+              outputPort.portType,
+              inputPort.portType,
+              outputPort.getResolvedType(),
+              inputPort.getResolvedType(),
+            )
+          ) {
             wiresToDrop.push(wire);
           }
         }
@@ -15905,7 +16168,8 @@ class BlueprintSystem {
       Math.pow(pos.x - this.lastClickPos.x, 2) +
         Math.pow(pos.y - this.lastClickPos.y, 2),
     );
-    const isDoubleClick = timeSinceLastClick < 300 && distanceFromLastClick < 10;
+    const isDoubleClick =
+      timeSinceLastClick < 300 && distanceFromLastClick < 10;
 
     // Double-click on wire to add reroute node (takes priority over comment body)
     if (isDoubleClick) {
@@ -15988,12 +16252,28 @@ class BlueprintSystem {
 
     // Check if mousedown is on a node button — defer action to mouseup (so dragging doesn't trigger it)
     {
-      const hitBounds = (b) => b && pos.x >= b.x && pos.x <= b.x + b.width && pos.y >= b.y && pos.y <= b.y + b.height;
-      if (topNodeAtPointer?.nodeType.isCustom && hitBounds(topNodeAtPointer.editButtonBounds)) {
+      const hitBounds = (b) =>
+        b &&
+        pos.x >= b.x &&
+        pos.x <= b.x + b.width &&
+        pos.y >= b.y &&
+        pos.y <= b.y + b.height;
+      if (
+        topNodeAtPointer?.nodeType.isCustom &&
+        hitBounds(topNodeAtPointer.editButtonBounds)
+      ) {
         this.pendingButtonClick = { type: "edit", node: topNodeAtPointer };
-      } else if (topNodeAtPointer?.nodeType.isFunctionCall && hitBounds(topNodeAtPointer.openGraphButtonBounds)) {
+      } else if (
+        topNodeAtPointer?.nodeType.isFunctionCall &&
+        hitBounds(topNodeAtPointer.openGraphButtonBounds)
+      ) {
         this.pendingButtonClick = { type: "openGraph", node: topNodeAtPointer };
-      } else if (topNodeAtPointer && !topNodeAtPointer.nodeType.isCustom && !topNodeAtPointer.nodeType.isFunctionCall && hitBounds(topNodeAtPointer.infoButtonBounds)) {
+      } else if (
+        topNodeAtPointer &&
+        !topNodeAtPointer.nodeType.isCustom &&
+        !topNodeAtPointer.nodeType.isFunctionCall &&
+        hitBounds(topNodeAtPointer.infoButtonBounds)
+      ) {
         this.pendingButtonClick = { type: "info", node: topNodeAtPointer };
       }
     }
@@ -16637,7 +16917,12 @@ class BlueprintSystem {
         if (!overCommentHandle) {
           const node = this.findNodeAtPosition(pos.x, pos.y);
           if (node) {
-            const hitBounds = (b) => b && pos.x >= b.x && pos.x <= b.x + b.width && pos.y >= b.y && pos.y <= b.y + b.height;
+            const hitBounds = (b) =>
+              b &&
+              pos.x >= b.x &&
+              pos.x <= b.x + b.width &&
+              pos.y >= b.y &&
+              pos.y <= b.y + b.height;
             if (hitBounds(node.infoButtonBounds)) {
               this.hoveredNodeButton = { node, type: "info" };
             } else if (hitBounds(node.editButtonBounds)) {
@@ -16767,7 +17052,8 @@ class BlueprintSystem {
             if (nodeType === pending.node.nodeType) {
               this.showManualModal();
               setTimeout(() => {
-                const categoriesContainer = document.getElementById("manualCategories");
+                const categoriesContainer =
+                  document.getElementById("manualCategories");
                 categoriesContainer
                   .querySelectorAll(".manual-node-item")
                   .forEach((i) => i.classList.remove("active"));
@@ -16778,7 +17064,10 @@ class BlueprintSystem {
                   nodeItem.classList.add("active");
                   const category = nodeItem.closest(".manual-category");
                   if (category) category.classList.remove("collapsed");
-                  nodeItem.scrollIntoView({ behavior: "smooth", block: "center" });
+                  nodeItem.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                  });
                 }
                 this.showNodeManualEntry(key);
               }, 0);
@@ -17825,8 +18114,15 @@ class BlueprintSystem {
         const btnCX = btnX + btnSize / 2;
         const btnCY = btnY + btnSize / 2;
 
-        const pillBtnType = node.nodeType.isCustom ? "edit" : (node.nodeType.isFunctionCall && node.nodeType.targetGraphId) ? "openGraph" : "info";
-        if (this.hoveredNodeButton?.node === node && this.hoveredNodeButton.type === pillBtnType) {
+        const pillBtnType = node.nodeType.isCustom
+          ? "edit"
+          : node.nodeType.isFunctionCall && node.nodeType.targetGraphId
+            ? "openGraph"
+            : "info";
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === pillBtnType
+        ) {
           ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
           ctx.beginPath();
           ctx.arc(btnCX, btnCY, btnSize / 2, 0, Math.PI * 2);
@@ -17864,7 +18160,10 @@ class BlueprintSystem {
           node.editButtonBounds.y = btnY;
           node.editButtonBounds.width = btnSize;
           node.editButtonBounds.height = btnSize;
-        } else if (node.nodeType.isFunctionCall && node.nodeType.targetGraphId) {
+        } else if (
+          node.nodeType.isFunctionCall &&
+          node.nodeType.targetGraphId
+        ) {
           // Pencil icon for function/loop call nodes
           ctx.fillStyle = "#fff";
           ctx.save();
@@ -17960,7 +18259,10 @@ class BlueprintSystem {
         const buttonY = node.y + 7;
 
         // Button background (only on hover)
-        if (this.hoveredNodeButton?.node === node && this.hoveredNodeButton.type === "edit") {
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === "edit"
+        ) {
           ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
           ctx.beginPath();
           ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
@@ -18016,7 +18318,10 @@ class BlueprintSystem {
         const buttonX = node.x + node.width - buttonSize - 5;
         const buttonY = node.y + 7;
 
-        if (this.hoveredNodeButton?.node === node && this.hoveredNodeButton.type === "openGraph") {
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === "openGraph"
+        ) {
           ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
           ctx.beginPath();
           ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
@@ -18065,7 +18370,10 @@ class BlueprintSystem {
         const btnCenterX = buttonX + buttonSize / 2;
         const btnCenterY = buttonY + buttonSize / 2;
 
-        if (this.hoveredNodeButton?.node === node && this.hoveredNodeButton.type === "info") {
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === "info"
+        ) {
           ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
           ctx.beginPath();
           ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
@@ -18882,7 +19190,7 @@ blueprint.createNewFile();
 
 // Experimental build dialog
 async function showExperimentalDialog() {
-  const isExperimental = import.meta.env.VITE_IS_EXPERIMENTAL === "true";
+  const isExperimental = __IS_EXPERIMENTAL__;
 
   if (!isExperimental) {
     return;
@@ -18890,7 +19198,7 @@ async function showExperimentalDialog() {
 
   try {
     const response = await fetch(
-      `${import.meta.env.BASE_URL}EXPERIMENTAL_INFO.md`
+      `${import.meta.env.BASE_URL}EXPERIMENTAL_INFO.md`,
     );
     if (!response.ok) {
       console.warn("Could not load experimental info file");
@@ -18936,6 +19244,7 @@ async function showExperimentalDialog() {
   }
 }
 
-if (import.meta.env.VITE_IS_EXPERIMENTAL === "true") {
+debugger;
+if (__IS_EXPERIMENTAL__) {
   setTimeout(showExperimentalDialog, 500);
 }
