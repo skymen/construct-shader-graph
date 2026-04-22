@@ -3862,7 +3862,7 @@ body {
 }
 
 .experimental-modal .modal-body {
-  padding: 20px 25px;
+  padding: 16px 24px;
   overflow-y: auto;
   color: #ccc;
   line-height: 1.6;
