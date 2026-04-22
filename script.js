@@ -16626,3 +16626,63 @@ if (typeof globalThis !== "undefined") {
 // Initialize with default nodes
 
 blueprint.createNewFile();
+
+// Experimental build dialog
+async function showExperimentalDialog() {
+  const isExperimental = import.meta.env.VITE_IS_EXPERIMENTAL === "true";
+
+  if (!isExperimental) {
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `${import.meta.env.BASE_URL}EXPERIMENTAL_INFO.md`
+    );
+    if (!response.ok) {
+      console.warn("Could not load experimental info file");
+      return;
+    }
+
+    const markdown = await response.text();
+
+    let html = markdown
+      .replace(/^### (.*$)/gim, "<h3>$1</h3>")
+      .replace(/^## (.*$)/gim, "<h2>$1</h2>")
+      .replace(/^# (.*$)/gim, "<h1>$1</h1>")
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.*?)\*/g, "<em>$1</em>")
+      .replace(/^\- (.*$)/gim, "<li>$1</li>")
+      .replace(/\n\n/g, "</p><p>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+
+    html = html.replace(/(<li>.*<\/li>)/s, "<ul>$1</ul>");
+
+    if (!html.startsWith("<h") && !html.startsWith("<p>")) {
+      html = "<p>" + html + "</p>";
+    }
+
+    const modal = document.getElementById("experimentalModal");
+    const content = modal.querySelector(".experimental-info-content");
+    const okButton = document.getElementById("experimentalModalOk");
+
+    content.innerHTML = html;
+    modal.style.display = "flex";
+
+    okButton.onclick = () => {
+      modal.style.display = "none";
+    };
+
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        // Don't close - user must acknowledge
+      }
+    };
+  } catch (error) {
+    console.error("Error loading experimental info:", error);
+  }
+}
+
+if (import.meta.env.VITE_IS_EXPERIMENTAL === "true") {
+  setTimeout(showExperimentalDialog, 500);
+}
