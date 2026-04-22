@@ -354,6 +354,14 @@ export function areTypesCompatible(
   // Exact match
   if (actualOutputType === actualInputType) return true;
 
+  // Both sides are unresolved generics — compatible if their allowed types overlap
+  if (isGenericType(inputType) && !resolvedInputType &&
+      isGenericType(outputType) && !resolvedOutputType) {
+    const inputAllowed = getAllowedTypesForGeneric(inputType);
+    const outputAllowed = getAllowedTypesForGeneric(outputType);
+    return outputAllowed.some((t) => inputAllowed.includes(t));
+  }
+
   // If input is generic (and not resolved), check if output is in allowed types
   if (isGenericType(inputType) && !resolvedInputType) {
     const allowedTypes = getAllowedTypesForGeneric(inputType);
@@ -364,6 +372,13 @@ export function areTypesCompatible(
   if (isGenericType(outputType) && !resolvedOutputType) {
     const allowedTypes = getAllowedTypesForGeneric(outputType);
     return allowedTypes.includes(actualInputType);
+  }
+
+  // Both actual types are generic (resolved from custom) — check overlap
+  if (isGenericType(actualOutputType) && isGenericType(actualInputType)) {
+    const outputAllowed = getAllowedTypesForGeneric(actualOutputType);
+    const inputAllowed = getAllowedTypesForGeneric(actualInputType);
+    return outputAllowed.some((t) => inputAllowed.includes(t));
   }
 
   // If actual types are generic (resolved from custom), check compatibility

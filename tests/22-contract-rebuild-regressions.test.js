@@ -458,3 +458,140 @@ describe("Bug 5: type change drops incompatible wires, keeps compatible ones", (
     expect(caller.inputPorts[0].value).not.toBeUndefined();
   });
 });
+
+// ────────────────────────────────────────────────────────────────
+// 5. Generic-to-generic compatibility (T ↔ genType wire preservation)
+// ────────────────────────────────────────────────────────────────
+
+describe("generic-to-generic compatibility during contract rebuild", () => {
+  it("T-typed boundary port preserves wire to genType node", () => {
+    const g = blueprint.createFunctionGraph({ name: "Fn" });
+    g.data.contract = {
+      inputs: [{ id: "p_in", name: "x", type: "T" }],
+      outputs: [{ id: "p_out", name: "r", type: "T" }],
+    };
+    blueprint.syncContractCallers(g);
+
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const caller = addCaller(g);
+    const math = blueprint.addNode(0, 0, NODE_TYPES.math);
+    connect(caller.outputPorts[0], math.inputPorts[0]);
+    expect(caller.outputPorts[0].connections.length).toBe(1);
+
+    // Rename the contract output — type stays T. The wire to genType should survive.
+    g.data.contract.outputs[0].name = "result";
+    blueprint.syncContractCallers(g);
+
+    const rebuilt = blueprint.mainGraph.nodes.find(
+      (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === g.id
+    );
+    expect(rebuilt.outputPorts[0].connections.length).toBe(1);
+  });
+
+  it("changing contract port from concrete to T preserves wire to genType", () => {
+    const g = blueprint.createFunctionGraph({ name: "Fn" });
+    g.data.contract = {
+      inputs: [{ id: "p_in", name: "x", type: "float" }],
+      outputs: [{ id: "p_out", name: "r", type: "float" }],
+    };
+    blueprint.syncContractCallers(g);
+
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const caller = addCaller(g);
+    const math = blueprint.addNode(0, 0, NODE_TYPES.math);
+    connect(caller.outputPorts[0], math.inputPorts[0]);
+    expect(caller.outputPorts[0].connections.length).toBe(1);
+    expect(math.outputPorts[0].getResolvedType()).toBe("float");
+
+    // Change output from float to T. T is compatible with genType (overlapping allowed types).
+    g.data.contract.outputs[0].type = "T";
+    blueprint.syncContractCallers(g);
+
+    const rebuilt = blueprint.mainGraph.nodes.find(
+      (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === g.id
+    );
+    expect(rebuilt.outputPorts[0].portType).toBe("T");
+    expect(rebuilt.outputPorts[0].connections.length).toBe(1);
+  });
+
+  it("changing contract port from concrete to genType preserves wire to T-typed node", () => {
+    // Create two functions: fnA has output T, fnB has input that we'll change to genType.
+    const fnA = blueprint.createFunctionGraph({ name: "FnA" });
+    fnA.data.contract = {
+      inputs: [{ id: "a1", name: "x", type: "float" }],
+      outputs: [{ id: "a2", name: "r", type: "float" }],
+    };
+    blueprint.syncContractCallers(fnA);
+
+    const fnB = blueprint.createFunctionGraph({ name: "FnB" });
+    fnB.data.contract = {
+      inputs: [{ id: "b1", name: "x", type: "float" }],
+      outputs: [{ id: "b2", name: "r", type: "float" }],
+    };
+    blueprint.syncContractCallers(fnB);
+
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const callerA = addCaller(fnA);
+    const callerB = addCaller(fnB);
+    connect(callerA.outputPorts[0], callerB.inputPorts[0]);
+    expect(callerB.inputPorts[0].connections.length).toBe(1);
+
+    // Change A's output to T and B's input to genType.
+    fnA.data.contract.outputs[0].type = "T";
+    blueprint.syncContractCallers(fnA);
+    fnB.data.contract.inputs[0].type = "genType";
+    blueprint.syncContractCallers(fnB);
+
+    // Both are generics with overlapping allowed types — wire should survive.
+    const rA = blueprint.mainGraph.nodes.find(
+      (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fnA.id
+    );
+    const rB = blueprint.mainGraph.nodes.find(
+      (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fnB.id
+    );
+    expect(rA.outputPorts[0].connections.length).toBe(1);
+    expect(rB.inputPorts[0].connections.length).toBe(1);
+  });
+
+  it("incompatible generics still drop wires (genIType ↔ genMatType)", () => {
+    const g = blueprint.createFunctionGraph({ name: "Fn" });
+    g.data.contract = {
+      inputs: [{ id: "p_in", name: "x", type: "int" }],
+      outputs: [{ id: "p_out", name: "r", type: "int" }],
+    };
+    blueprint.syncContractCallers(g);
+
+    blueprint.setActiveGraph(blueprint.mainGraphId);
+    const caller = addCaller(g);
+    // matDet output is genMatType. Connect caller.output (int) to it.
+    // This won't work because int is not in genMatType's allowed types.
+    // Instead, let's find a scenario with incompatible generics.
+    // Create a second function that takes mat2, then change first to genIType.
+    const fnB = blueprint.createFunctionGraph({ name: "FnB" });
+    fnB.data.contract = {
+      inputs: [{ id: "b1", name: "m", type: "int" }],
+      outputs: [{ id: "b2", name: "r", type: "int" }],
+    };
+    blueprint.syncContractCallers(fnB);
+
+    const callerB = addCaller(fnB);
+    connect(caller.outputPorts[0], callerB.inputPorts[0]);
+    expect(callerB.inputPorts[0].connections.length).toBe(1);
+
+    // Change first to genIType (int) and second to genMatType (mat2/mat3/mat4).
+    // These have no overlap → wire should drop.
+    g.data.contract.outputs[0].type = "genIType";
+    blueprint.syncContractCallers(g);
+    fnB.data.contract.inputs[0].type = "genMatType";
+    blueprint.syncContractCallers(fnB);
+
+    const rA = blueprint.mainGraph.nodes.find(
+      (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === g.id
+    );
+    const rB = blueprint.mainGraph.nodes.find(
+      (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fnB.id
+    );
+    expect(rA.outputPorts[0].connections.length).toBe(0);
+    expect(rB.inputPorts[0].connections.length).toBe(0);
+  });
+});
