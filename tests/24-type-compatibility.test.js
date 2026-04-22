@@ -54,53 +54,64 @@ describe("areTypesCompatible", () => {
     });
   });
 
-  describe("generic ↔ generic (both sides unresolved)", () => {
-    it("T is compatible with genType (overlapping: float, vec2, vec3, vec4)", () => {
+  describe("generic ↔ generic (both sides unresolved, containment rule)", () => {
+    it("T contains genType → compatible", () => {
       expect(areTypesCompatible("T", "genType")).toBe(true);
       expect(areTypesCompatible("genType", "T")).toBe(true);
     });
 
-    it("T is compatible with genIType (overlapping: int)", () => {
+    it("T contains genIType → compatible", () => {
       expect(areTypesCompatible("T", "genIType")).toBe(true);
       expect(areTypesCompatible("genIType", "T")).toBe(true);
     });
 
-    it("T is compatible with genBType (overlapping: bool)", () => {
+    it("T contains genBType → compatible", () => {
       expect(areTypesCompatible("T", "genBType")).toBe(true);
     });
 
-    it("genType is compatible with genType2Plus (overlapping: vec2, vec3, vec4)", () => {
+    it("genType contains genType2Plus → compatible", () => {
+      // genType: float, vec2, vec3, vec4 ⊃ genType2Plus: vec2, vec3, vec4
       expect(areTypesCompatible("genType", "genType2Plus")).toBe(true);
     });
 
-    it("genType is compatible with genType2OrLess (overlapping: float, vec2)", () => {
+    it("genType contains genType2OrLess → compatible", () => {
+      // genType: float, vec2, vec3, vec4 ⊃ genType2OrLess: float, vec2
       expect(areTypesCompatible("genType", "genType2OrLess")).toBe(true);
     });
 
-    it("genIType is NOT compatible with genMatType (no overlap)", () => {
+    it("genIType is NOT compatible with genMatType (no containment)", () => {
       expect(areTypesCompatible("genIType", "genMatType")).toBe(false);
       expect(areTypesCompatible("genMatType", "genIType")).toBe(false);
     });
 
-    it("genBType is NOT compatible with genMatType (no overlap)", () => {
+    it("genBType is NOT compatible with genMatType (no containment)", () => {
       expect(areTypesCompatible("genBType", "genMatType")).toBe(false);
     });
 
-    it("genIType is NOT compatible with genType (int not in genType)", () => {
+    it("genIType is NOT compatible with genType (neither contains the other)", () => {
+      // genIType: int — genType: float, vec2, vec3, vec4 — no containment
       expect(areTypesCompatible("genIType", "genType")).toBe(false);
     });
 
-    it("genType2Plus is NOT compatible with genType2OrLess if only overlap is vec2", () => {
+    it("genType2Plus is NOT compatible with genType2OrLess (partial overlap, no containment)", () => {
       // genType2Plus: vec2, vec3, vec4
       // genType2OrLess: float, vec2
-      // Overlap: vec2 → compatible
-      expect(areTypesCompatible("genType2Plus", "genType2OrLess")).toBe(true);
+      // Neither is a subset of the other
+      expect(areTypesCompatible("genType2Plus", "genType2OrLess")).toBe(false);
     });
 
-    it("genType3Plus is NOT compatible with genType2OrLess (no overlap)", () => {
+    it("genType3Plus is NOT compatible with genType2OrLess (no containment)", () => {
       // genType3Plus: vec3, vec4
       // genType2OrLess: float, vec2
       expect(areTypesCompatible("genType3Plus", "genType2OrLess")).toBe(false);
+    });
+
+    it("genType3Plus ⊂ genType → compatible", () => {
+      expect(areTypesCompatible("genType3Plus", "genType")).toBe(true);
+    });
+
+    it("genType3OrLess ⊂ genType → compatible", () => {
+      expect(areTypesCompatible("genType3OrLess", "genType")).toBe(true);
     });
   });
 

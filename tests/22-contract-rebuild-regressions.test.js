@@ -503,7 +503,7 @@ describe("generic-to-generic compatibility during contract rebuild", () => {
     expect(caller.outputPorts[0].connections.length).toBe(1);
     expect(math.outputPorts[0].getResolvedType()).toBe("float");
 
-    // Change output from float to T. T is compatible with genType (overlapping allowed types).
+    // Change output from float to T. T fully contains genType → compatible.
     g.data.contract.outputs[0].type = "T";
     blueprint.syncContractCallers(g);
 
@@ -542,7 +542,7 @@ describe("generic-to-generic compatibility during contract rebuild", () => {
     fnB.data.contract.inputs[0].type = "genType";
     blueprint.syncContractCallers(fnB);
 
-    // Both are generics with overlapping allowed types — wire should survive.
+    // T fully contains genType → wire should survive.
     const rA = blueprint.mainGraph.nodes.find(
       (n) => n.nodeType.isFunctionCall && n.nodeType.targetGraphId === fnA.id
     );
