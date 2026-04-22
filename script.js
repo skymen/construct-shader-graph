@@ -10931,6 +10931,12 @@ class BlueprintSystem {
       }
     });
 
+    // Store the camera's world-space center at copy time
+    const vw = this.logicalWidth || this.canvas.width;
+    const vh = this.logicalHeight || this.canvas.height;
+    copiedData.cameraCenterX = (vw / 2 - this.camera.x) / this.camera.zoom;
+    copiedData.cameraCenterY = (vh / 2 - this.camera.y) / this.camera.zoom;
+
     // Store in clipboard
     this.clipboard = copiedData;
     console.log(`Copied ${copiedData.nodes.length} nodes`);
@@ -10942,7 +10948,13 @@ class BlueprintSystem {
       return;
     }
 
-    this.pasteNodes(this.clipboard, 50, 50); // Offset by 50px
+    const vw = this.logicalWidth || this.canvas.width;
+    const vh = this.logicalHeight || this.canvas.height;
+    const nowX = (vw / 2 - this.camera.x) / this.camera.zoom;
+    const nowY = (vh / 2 - this.camera.y) / this.camera.zoom;
+    const dx = nowX - this.clipboard.cameraCenterX;
+    const dy = nowY - this.clipboard.cameraCenterY;
+    this.pasteNodes(this.clipboard, dx + 50, dy + 50);
   }
 
   duplicateSelected() {
