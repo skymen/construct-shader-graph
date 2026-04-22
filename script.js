@@ -566,13 +566,27 @@ class Node {
     return this.resolvedGenerics[genericType] || null;
   }
 
-  // Update resolved generic types based on a new connection
-  updateResolvedGenerics(portType, concreteType) {
-    if (isGenericType(portType) && !isGenericType(concreteType)) {
-      // Set the generic to the concrete type
-      this.resolvedGenerics[portType] = concreteType;
+  // Update resolved generic types based on a new connection.
+  // Accepts concrete types directly, and also accepts a narrower generic
+  // (one whose allowed types are a strict subset of this port's allowed types).
+  updateResolvedGenerics(portType, resolvedType) {
+    if (!isGenericType(portType)) return false;
+    if (this.resolvedGenerics[portType] === resolvedType) return false;
+
+    if (!isGenericType(resolvedType)) {
+      this.resolvedGenerics[portType] = resolvedType;
       return true;
     }
+
+    // Generic-to-generic: accept only if resolvedType is strictly narrower
+    const portAllowed = getAllowedTypesForGeneric(portType);
+    const resolvedAllowed = getAllowedTypesForGeneric(resolvedType);
+    if (resolvedAllowed.length < portAllowed.length &&
+        resolvedAllowed.every((t) => portAllowed.includes(t))) {
+      this.resolvedGenerics[portType] = resolvedType;
+      return true;
+    }
+
     return false;
   }
 
@@ -15116,121 +15130,55 @@ class BlueprintSystem {
   }
 
   reevaluateGenericType(node, genericType, visited = new Set()) {
-    // Prevent infinite loops
     const nodeKey = `${node.id}_${genericType}`;
     if (visited.has(nodeKey)) return;
     visited.add(nodeKey);
 
-    // Get all ports with this generic type
     const genericPorts = node
       .getAllPorts()
       .filter((port) => port.portType === genericType);
 
-    // Find all connected concrete types
-    const connectedConcreteTypes = new Set();
+    const oldResolution = node.resolvedGenerics[genericType];
+
+    // Phase 1: Collect connected generic nodes and direct concrete sources.
+    // Direct = concrete port types, NOT resolutions inherited from other generics.
     const connectedGenericNodes = [];
+    const directConcreteTypes = new Set();
 
     genericPorts.forEach((port) => {
       port.connections.forEach((wire) => {
         const connectedPort =
           wire.startPort === port ? wire.endPort : wire.startPort;
-        if (connectedPort) {
-          // Check if the connected port is generic
-          if (isGenericType(connectedPort.portType)) {
-            // Track connected generic nodes for re-evaluation
-            connectedGenericNodes.push({
-              node: connectedPort.node,
-              genericType: connectedPort.portType,
-            });
+        if (!connectedPort) return;
 
-            // Also check if it has a concrete resolution we can use
-            const resolvedType = connectedPort.node.resolveGenericType(
-              connectedPort.portType,
+        if (isGenericType(connectedPort.portType)) {
+          connectedGenericNodes.push({
+            node: connectedPort.node,
+            genericType: connectedPort.portType,
+          });
+        } else {
+          let connectedType = connectedPort.portType;
+          if (connectedPort.node.nodeType.getCustomType) {
+            const customType = connectedPort.node.nodeType.getCustomType(
+              connectedPort.node,
+              connectedPort,
             );
-            if (resolvedType) {
-              const resolvedTypeDef = PORT_TYPES[resolvedType];
-              if (
-                !resolvedTypeDef?.isComposite &&
-                !isGenericType(resolvedType)
-              ) {
-                connectedConcreteTypes.add(resolvedType);
-              }
-            }
-          } else {
-            // Non-generic port - resolve its actual type first
-            let connectedType = connectedPort.portType;
-
-            // Try to resolve custom types through getCustomType
-            if (connectedPort.node.nodeType.getCustomType) {
-              const customType = connectedPort.node.nodeType.getCustomType(
-                connectedPort.node,
-                connectedPort,
-              );
-              if (customType) {
-                connectedType = customType;
-              }
-            }
-
-            // Now check if the resolved type is a concrete type
-            const connectedTypeDef = PORT_TYPES[connectedType];
-
-            // Only consider concrete types (not composite, not generic, and defined in PORT_TYPES)
-            if (
-              connectedTypeDef &&
-              !connectedTypeDef.isComposite &&
-              !connectedTypeDef.isGeneric
-            ) {
-              connectedConcreteTypes.add(connectedType);
-            }
+            if (customType) connectedType = customType;
+          }
+          const def = PORT_TYPES[connectedType];
+          if (def && !def.isComposite && !def.isGeneric) {
+            directConcreteTypes.add(connectedType);
           }
         }
       });
     });
 
-    const oldResolution = node.resolvedGenerics[genericType];
-    let resolutionChanged = false;
+    // Phase 2: Clear this node's resolution and cascade-clear connected generics
+    // so that stale inherited resolutions don't influence the re-scan.
+    if (oldResolution) {
+      delete node.resolvedGenerics[genericType];
+      genericPorts.forEach((port) => port.updateEditability());
 
-    // If no concrete types found, clear the resolution
-    if (connectedConcreteTypes.size === 0) {
-      if (oldResolution) {
-        delete node.resolvedGenerics[genericType];
-        resolutionChanged = true;
-
-        // Update editability for all ports with this generic type
-        genericPorts.forEach((port) => {
-          port.updateEditability();
-        });
-      }
-    }
-    // If exactly one concrete type, use it
-    else if (connectedConcreteTypes.size === 1) {
-      const concreteType = Array.from(connectedConcreteTypes)[0];
-
-      if (oldResolution !== concreteType) {
-        node.resolvedGenerics[genericType] = concreteType;
-        resolutionChanged = true;
-
-        // Propagate new resolution
-        this.propagateGenericResolution(node, genericType, concreteType);
-
-        // Update editability for all ports with this generic type
-        genericPorts.forEach((port) => {
-          port.updateEditability();
-        });
-      }
-    }
-    // If multiple concrete types, this is an error state (shouldn't happen)
-    // Keep the first one found
-    else {
-      const concreteType = Array.from(connectedConcreteTypes)[0];
-      if (oldResolution !== concreteType) {
-        node.resolvedGenerics[genericType] = concreteType;
-        resolutionChanged = true;
-      }
-    }
-
-    // Always re-evaluate connected generic nodes if our resolution changed
-    if (resolutionChanged) {
       connectedGenericNodes.forEach(
         ({ node: connectedNode, genericType: connectedGenericType }) => {
           this.reevaluateGenericType(
@@ -15240,6 +15188,52 @@ class BlueprintSystem {
           );
         },
       );
+    }
+
+    // Phase 3: Re-scan connected generics for concrete resolutions that
+    // survived the cascade (from independent concrete sources).
+    const concreteTypes = new Set(directConcreteTypes);
+    connectedGenericNodes.forEach(({ node: cn, genericType: cgt }) => {
+      const resolved = cn.resolveGenericType(cgt);
+      if (resolved) {
+        const def = PORT_TYPES[resolved];
+        if (def && !def.isComposite && !isGenericType(resolved)) {
+          concreteTypes.add(resolved);
+        }
+      }
+    });
+
+    // Phase 4: Decide on new resolution.
+    if (concreteTypes.size === 0) {
+      let narrowestGeneric = null;
+      const myAllowed = getAllowedTypesForGeneric(genericType);
+
+      connectedGenericNodes.forEach(({ genericType: connectedGenericType }) => {
+        const connectedAllowed =
+          getAllowedTypesForGeneric(connectedGenericType);
+        if (
+          connectedAllowed.length < myAllowed.length &&
+          connectedAllowed.every((t) => myAllowed.includes(t))
+        ) {
+          if (
+            !narrowestGeneric ||
+            connectedAllowed.length <
+              getAllowedTypesForGeneric(narrowestGeneric).length
+          ) {
+            narrowestGeneric = connectedGenericType;
+          }
+        }
+      });
+
+      if (narrowestGeneric) {
+        node.resolvedGenerics[genericType] = narrowestGeneric;
+        genericPorts.forEach((port) => port.updateEditability());
+      }
+    } else {
+      const concreteType = Array.from(concreteTypes)[0];
+      node.resolvedGenerics[genericType] = concreteType;
+      this.propagateGenericResolution(node, genericType, concreteType);
+      genericPorts.forEach((port) => port.updateEditability());
     }
   }
 
@@ -15372,8 +15366,9 @@ class BlueprintSystem {
             connectedPort.portType,
           );
 
-          if (!currentResolution) {
-            // Resolve the connected node's generic
+          if (!currentResolution || isGenericType(currentResolution)) {
+            // Resolve the connected node's generic (or override a
+            // generic-narrowed resolution with a concrete type)
             const wasUpdated = connectedNode.updateResolvedGenerics(
               connectedPort.portType,
               concreteType,
