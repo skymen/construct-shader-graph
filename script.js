@@ -19244,7 +19244,6 @@ async function showExperimentalDialog() {
   }
 }
 
-debugger;
 if (__IS_EXPERIMENTAL__) {
   setTimeout(showExperimentalDialog, 500);
 }
