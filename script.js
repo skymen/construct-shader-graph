@@ -7,6 +7,19 @@ import {
   getAllowedTypesForGeneric,
   toShaderValue,
 } from "./nodes/index.js";
+import {
+  getHandler,
+  wouldCreateCycle,
+  getCyclePath,
+  detectCycleInDAG,
+} from "./graph-kinds/index.js";
+
+// Convert an arbitrary string to a valid GLSL/WGSL identifier.
+function _sanitizeId(str) {
+  return String(str)
+    .replace(/[^a-zA-Z0-9_]/g, "_")
+    .replace(/^([^a-zA-Z_])/, "_$1");
+}
 
 // Debug mode detection
 function isDebugMode() {
@@ -115,6 +128,9 @@ class Port {
     this.displayName = node.nodeType.noTranslation?.ports
       ? portDef.name
       : languageManager.getPortDisplayName(portDef.name); // Translated name for display
+
+    // Stable contract port id, used when rebuilding caller nodes after contract edits.
+    this.contractPortId = portDef.contractPortId || null;
 
     // Store value for editable input ports
     // Custom types are never editable as their type can change dynamically
@@ -555,13 +571,29 @@ class Node {
     return this.resolvedGenerics[genericType] || null;
   }
 
-  // Update resolved generic types based on a new connection
-  updateResolvedGenerics(portType, concreteType) {
-    if (isGenericType(portType) && !isGenericType(concreteType)) {
-      // Set the generic to the concrete type
-      this.resolvedGenerics[portType] = concreteType;
+  // Update resolved generic types based on a new connection.
+  // Accepts concrete types directly, and also accepts a narrower generic
+  // (one whose allowed types are a strict subset of this port's allowed types).
+  updateResolvedGenerics(portType, resolvedType) {
+    if (!isGenericType(portType)) return false;
+    if (this.resolvedGenerics[portType] === resolvedType) return false;
+
+    if (!isGenericType(resolvedType)) {
+      this.resolvedGenerics[portType] = resolvedType;
       return true;
     }
+
+    // Generic-to-generic: accept only if resolvedType is strictly narrower
+    const portAllowed = getAllowedTypesForGeneric(portType);
+    const resolvedAllowed = getAllowedTypesForGeneric(resolvedType);
+    if (
+      resolvedAllowed.length < portAllowed.length &&
+      resolvedAllowed.every((t) => portAllowed.includes(t))
+    ) {
+      this.resolvedGenerics[portType] = resolvedType;
+      return true;
+    }
+
     return false;
   }
 
@@ -1038,6 +1070,9 @@ class BlueprintSystem {
     this.graphs.set(__mainGraph.id, __mainGraph);
     this.mainGraphId = __mainGraph.id;
     this.activeGraphId = __mainGraph.id;
+    // Tabs currently shown in the tab bar. Session-only; not persisted.
+    // Main's tab is always present.
+    this.openTabs = new Set([__mainGraph.id]);
 
     this.nodes = [];
     this.wires = [];
@@ -1053,6 +1088,8 @@ class BlueprintSystem {
     this.draggedNode = null;
     this.activeWire = null;
     this.hoveredPort = null;
+    this.hoveredNodeButton = null;
+    this.pendingButtonClick = null;
     this.draggedRerouteNode = null;
     this.draggedComment = null;
     this.resizingComment = null;
@@ -1117,7 +1154,7 @@ class BlueprintSystem {
       extendBoxV: 0,
     };
 
-    // Uniforms
+    // Uniforms (host-level: shared across all graphs, not per-graph)
     this.uniforms = [];
     this.deprecatedUniforms = [];
     this.uniformIdCounter = 1;
@@ -1156,8 +1193,8 @@ class BlueprintSystem {
       startupScript: "",
     };
 
-    // History Manager: per-graph; the active Graph already owns its history,
-    // so reading `this.history` (delegated) returns activeGraph.history.
+    // Unified host-level undo/redo history (shared across all graphs).
+    this.history = new HistoryManager(this);
 
     // Auto Layout Engine
     this.autoLayoutEngine = new AutoLayoutEngine(this);
@@ -1208,7 +1245,10 @@ class BlueprintSystem {
 
     // Initialize history after setup
     setTimeout(() => {
-      this.history.currentState = this.exportState();
+      this.history.initGraphState(
+        this.mainGraphId,
+        this._exportGraphState(this.mainGraph),
+      );
     }, 0);
   }
 
@@ -1559,13 +1599,15 @@ class BlueprintSystem {
     updateTexturePreview("shapeTexturePreview");
 
     // Sidebar sections
-    const shaderInfoHeaders = document.querySelectorAll(
+    const shaderInfoHeader = document.querySelector(
+      "#shader-info-section .sidebar-section-header h2",
+    );
+    if (shaderInfoHeader) shaderInfoHeader.textContent = t("Shader Info");
+    const shaderSettingsHeader = document.querySelector(
       "#shader-settings-section .sidebar-section-header h2",
     );
-    if (shaderInfoHeaders[0])
-      shaderInfoHeaders[0].textContent = t("Shader Info");
-    if (shaderInfoHeaders[1])
-      shaderInfoHeaders[1].textContent = t("Shader Settings");
+    if (shaderSettingsHeader)
+      shaderSettingsHeader.textContent = t("Shader Settings");
 
     const uniformsHeader = document.querySelector(
       "#uniforms-section .sidebar-section-header h2",
@@ -1896,6 +1938,7 @@ class BlueprintSystem {
   _installGraphDelegation() {
     // Per-graph fields that should transparently route to activeGraph.
     // Order matters only for documentation; install order is irrelevant.
+    // NOTE: uniforms live on host (shared across all graphs), NOT delegated.
     const fields = [
       // editable graph data
       "nodes",
@@ -1905,7 +1948,6 @@ class BlueprintSystem {
       "nodeIdCounter",
       "commentIdCounter",
       "wireIdCounter",
-      "uniformIdCounter",
       // selection
       "selectedNodes",
       "selectedRerouteNodes",
@@ -1918,6 +1960,8 @@ class BlueprintSystem {
       "draggedNode",
       "activeWire",
       "hoveredPort",
+      "hoveredNodeButton",
+      "pendingButtonClick",
       "draggedRerouteNode",
       "draggedComment",
       "resizingComment",
@@ -1934,16 +1978,11 @@ class BlueprintSystem {
       "panStart",
       // file
       "fileHandle",
-      // shader settings + uniforms
+      // shader settings (uniforms are host-level, not delegated)
       "shaderSettings",
-      "uniforms",
-      "deprecatedUniforms",
-      "deprecatedUniformsExpanded",
       // preview pin
       "previewNode",
       "previewAnimationTime",
-      // history
-      "history",
     ];
     for (const field of fields) {
       Object.defineProperty(this, field, {
@@ -1984,6 +2023,843 @@ class BlueprintSystem {
     return g;
   }
 
+  // Create a function-kind graph and bootstrap its boundary nodes.
+  createFunctionGraph(opts = {}) {
+    const handler = getHandler("function");
+    // Seed with one input + one output, both sharing generic T.
+    const mkId = (suffix) =>
+      `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const seedInputs = [{ id: mkId("in"), name: "value", type: "T" }];
+    const seedOutputs = [{ id: mkId("out"), name: "result", type: "T" }];
+    const g = this.createGraph({
+      kind: "function",
+      data: {
+        contract: { inputs: seedInputs, outputs: seedOutputs },
+        notes: "",
+      },
+      ...opts,
+    });
+    if (handler) handler.bootstrapGraph(g, this);
+    this.history.initGraphState(g.id, this._exportGraphState(g));
+    this.openTabs && this.openTabs.add(g.id);
+    this.renderFunctionsList();
+    this.renderGraphTabBar();
+    return g;
+  }
+
+  // Create a loopBody-kind graph and bootstrap its boundary nodes.
+  createLoopBodyGraph(opts = {}) {
+    const mkId = (suffix) =>
+      `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const accId = mkId("acc");
+    const seedInputs = [{ id: accId, name: "value", type: "T", role: "acc" }];
+    const seedOutputs = [{ id: accId, name: "value", type: "T" }];
+    const g = this.createGraph({
+      kind: "loopBody",
+      data: {
+        contract: { inputs: seedInputs, outputs: seedOutputs },
+        notes: "",
+      },
+      ...opts,
+    });
+    const handler = getHandler("loopBody");
+    if (handler) handler.bootstrapGraph(g, this);
+    this.history.initGraphState(g.id, this._exportGraphState(g));
+    this.openTabs && this.openTabs.add(g.id);
+    this.renderFunctionsList();
+    this.renderGraphTabBar();
+    return g;
+  }
+
+  // All callable (function + loopBody) graphs on this host.
+  getCallableGraphs() {
+    return [...this.graphs.values()].filter(
+      (g) => g.kind === "function" || g.kind === "loopBody",
+    );
+  }
+
+  // Reconcile a boundary/caller node's ports against the new contract defs.
+  // Matches old ports to new defs by `contractPortId` and preserves wires
+  // whenever name + type are unchanged. When type changes, tries to carry
+  // the wire over if still compatible; otherwise the wire is dropped.
+  // Ports present before but missing from the new defs have their wires
+  // disconnected. Defs without a contractPortId always become fresh ports.
+  //
+  // inputDefs / outputDefs: [{ name, type, contractPortId? }]
+  _rebuildBoundaryNodePorts(node, inputDefs, outputDefs) {
+    let droppedWires = 0;
+    const reconcile = (oldPorts, defs, portKind) => {
+      const oldById = new Map();
+      for (const p of oldPorts) {
+        if (p.contractPortId) oldById.set(p.contractPortId, p);
+      }
+      const adopted = new Set();
+
+      const newPorts = defs.map((def, i) => {
+        const existing = def.contractPortId
+          ? oldById.get(def.contractPortId)
+          : null;
+        if (existing && !adopted.has(existing)) {
+          adopted.add(existing);
+          if (existing.portType === def.type && existing.name === def.name) {
+            // Unchanged: reuse the Port instance so wires stay intact.
+            existing.index = i;
+            return existing;
+          }
+          // Type or name changed. Try to preserve the single connected wire if the
+          // new port can still accept it; otherwise drop it cleanly.
+          const saved = existing.connections[0] || null;
+          if (saved) existing.connections.length = 0;
+          const fresh = new Port(node, portKind, i, def);
+          if (saved) {
+            const other =
+              saved.startPort === existing ? saved.endPort : saved.startPort;
+            // The compatibility check below uses getResolvedType(), which
+            // reads `node.resolvedGenerics`. That map may still carry the
+            // resolution produced by THIS wire under the old contract
+            // (e.g. genType -> float). Clear it for the check so we test
+            // the raw port-type compatibility, then let
+            // resolveGenericsForConnection re-populate it with the new type.
+            let stashedResolved;
+            if (
+              other &&
+              isGenericType(other.portType) &&
+              other.node.resolvedGenerics &&
+              other.node.resolvedGenerics[other.portType] !== undefined
+            ) {
+              stashedResolved = other.node.resolvedGenerics[other.portType];
+              delete other.node.resolvedGenerics[other.portType];
+            }
+            const compatible =
+              other &&
+              (portKind === "input"
+                ? fresh.canConnectTo(other)
+                : other.canConnectTo(fresh));
+            if (!compatible && stashedResolved !== undefined) {
+              // Restore the stale resolution — the wire is about to be
+              // dropped, and the drop branch expects normal state.
+              other.node.resolvedGenerics[other.portType] = stashedResolved;
+            }
+            if (compatible) {
+              fresh.connections.push(saved);
+              if (saved.startPort === existing) saved.startPort = fresh;
+              else saved.endPort = fresh;
+              // Re-propagate types across the preserved wire so any generic
+              // on `other` (and its downstream) picks up the new concrete
+              // type instead of keeping the stale resolution from the old
+              // contract.
+              this.resolveGenericsForConnection(saved.startPort, saved.endPort);
+              other.updateEditability();
+              other.node.inputPorts.forEach((p) => p.updateEditability());
+              other.node.recalculateHeight();
+            } else {
+              // Drop the wire on both sides and the owning graph's list.
+              // Use the node's own graph — `this.wires` delegates to the
+              // active graph, which may not own this wire.
+              if (other) {
+                const ix = other.connections.indexOf(saved);
+                if (ix > -1) other.connections.splice(ix, 1);
+                // Refresh the other side so it goes back to using its default
+                // value (editability is driven by connections.length).
+                if (isGenericType(other.portType)) {
+                  this.reevaluateGenericType(other.node, other.portType);
+                }
+                other.updateEditability();
+                other.node.inputPorts.forEach((p) => p.updateEditability());
+                other.node.recalculateHeight();
+              }
+              const ownerGraph = node._graph || this.activeGraph;
+              const ownerWires = ownerGraph?.wires;
+              if (ownerWires) {
+                const wx = ownerWires.indexOf(saved);
+                if (wx > -1) ownerWires.splice(wx, 1);
+              }
+              droppedWires++;
+            }
+          }
+          return fresh;
+        }
+        return new Port(node, portKind, i, def);
+      });
+
+      // Any old port not adopted → no longer in the contract. Disconnect cleanly.
+      for (const p of oldPorts) {
+        if (!adopted.has(p)) {
+          for (const w of [...p.connections]) {
+            this.disconnectWire(w);
+            droppedWires++;
+          }
+        }
+      }
+      return newPorts;
+    };
+
+    node.inputPorts = reconcile(node.inputPorts, inputDefs, "input");
+    node.outputPorts = reconcile(node.outputPorts, outputDefs, "output");
+    node.recalculateHeight();
+    return { droppedWires };
+  }
+
+  // Compile a function graph's body into shader code and collect helper deps.
+  // signature must include { resolvedInputTypes, resolvedOutputTypes, fnName, bindings }.
+  // Returns { bodyCode: string, deps: Map<string, Set<string>> }.
+  _compileFunctionBody(graph, signature, target) {
+    const { resolvedInputTypes, resolvedOutputTypes, fnName } = signature;
+    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+
+    const inputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionInput,
+    );
+    const outputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionOutput,
+    );
+    if (!inputNode || !outputNode) {
+      return { bodyCode: "    // missing boundary nodes\n", deps: new Map() };
+    }
+
+    // BFS from FunctionOutput backwards to build levels for this body.
+    const visited = new Set();
+    const dependencies = new Map();
+    const queue = [outputNode];
+    visited.add(outputNode);
+    while (queue.length > 0) {
+      const node = queue.shift();
+      const nodeDeps = new Set();
+      for (const port of node.inputPorts) {
+        for (const wire of port.connections) {
+          if (wire.startPort?.node) {
+            const dep = wire.startPort.node;
+            nodeDeps.add(dep);
+            if (!visited.has(dep)) {
+              visited.add(dep);
+              queue.push(dep);
+            }
+          }
+        }
+      }
+      // Variable nodes: depend on their Set Variable counterpart (graph-local).
+      if (node.nodeType.name === "Get Variable" && node.selectedVariable) {
+        const setVarNode = graph.nodes.find(
+          (n) =>
+            n.nodeType.name === "Set Variable" &&
+            n.customInput === node.selectedVariable,
+        );
+        if (setVarNode) {
+          nodeDeps.add(setVarNode);
+          if (!visited.has(setVarNode)) {
+            visited.add(setVarNode);
+            queue.push(setVarNode);
+          }
+        }
+      }
+      dependencies.set(node, nodeDeps);
+    }
+
+    const levels = this.topologicalSort(dependencies, visited);
+
+    // Build portToVarName: FunctionInput outputs -> parameter names; rest -> fv_N.
+    // For loop bodies, outputPorts[0..1] are the injected Index and Count ports
+    // (not in the contract), so contract indices are offset by 2.
+    const portToVarName = new Map();
+    let varCounter = 0;
+    const injectedCount = graph.kind === "loopBody" ? 2 : 0;
+    inputNode.outputPorts.forEach((port, i) => {
+      if (graph.kind === "loopBody" && i === 0) {
+        portToVarName.set(port, "i"); // Index
+      } else if (graph.kind === "loopBody" && i === 1) {
+        portToVarName.set(port, "n"); // Count
+      } else {
+        const ci = i - injectedCount;
+        const paramName = contract.inputs[ci]
+          ? _sanitizeId(contract.inputs[ci].name)
+          : `p${i}`;
+        portToVarName.set(port, paramName);
+      }
+    });
+
+    for (const level of levels) {
+      for (const node of level) {
+        // FunctionInput's output ports were pre-seeded as parameter names; skip.
+        if (node.nodeType === NODE_TYPES.functionInput) continue;
+        const isOutputNode = node.nodeType === NODE_TYPES.functionOutput;
+        for (const port of node.inputPorts) {
+          if (port.connections.length > 0) {
+            const src = port.connections[0].startPort;
+            if (portToVarName.has(src))
+              portToVarName.set(port, portToVarName.get(src));
+          } else if (port.isEditable && port.value !== undefined) {
+            portToVarName.set(
+              port,
+              toShaderValue(port.value, port.getResolvedType(), target),
+            );
+          } else if (!isOutputNode) {
+            // Unbound FunctionOutput inputs fall back to "0.0" at emission; no need to allocate fv_.
+            portToVarName.set(port, `fv_${varCounter++}`);
+          }
+        }
+        for (const port of node.outputPorts) {
+          if (!portToVarName.has(port))
+            portToVarName.set(port, `fv_${varCounter++}`);
+        }
+      }
+    }
+
+    // Build a full binding map from the call-site signature. The signature
+    // binds contract-level generics (e.g. T → vec2). Body nodes may have
+    // narrowed T to genType internally. Trace through body resolvedGenerics
+    // to propagate the concrete type to intermediate generics (genType → vec2).
+    const fullBindings = { ...signature.bindings };
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const node of graph.nodes) {
+        for (const [key, val] of Object.entries(node.resolvedGenerics || {})) {
+          if (isGenericType(val) && fullBindings[key] && !fullBindings[val]) {
+            fullBindings[val] = fullBindings[key];
+            changed = true;
+          }
+        }
+      }
+    }
+
+    // Temporarily override body nodes' resolvedGenerics so getResolvedType()
+    // returns concrete types during compilation.
+    const savedGenerics = new Map();
+    for (const node of graph.nodes) {
+      savedGenerics.set(node, { ...node.resolvedGenerics });
+      for (const port of node.getAllPorts()) {
+        if (isGenericType(port.portType) && fullBindings[port.portType]) {
+          node.resolvedGenerics[port.portType] = fullBindings[port.portType];
+        }
+        const cur = node.resolvedGenerics[port.portType];
+        if (isGenericType(cur) && fullBindings[cur]) {
+          node.resolvedGenerics[port.portType] = fullBindings[cur];
+        }
+      }
+    }
+
+    // Generate body code and collect helper deps.
+    const deps = new Map();
+    let bodyCode = "";
+
+    for (const level of levels) {
+      for (const node of level) {
+        if (
+          node.nodeType === NODE_TYPES.functionInput ||
+          node.nodeType === NODE_TYPES.functionOutput
+        )
+          continue;
+
+        if (typeof node.nodeType.getDependency === "function") {
+          const dep = node.nodeType.getDependency(target);
+          if (dep) {
+            if (!deps.has(dep)) deps.set(dep, new Set());
+            deps.get(dep).add(node.nodeType.name);
+          }
+        }
+
+        const execution =
+          typeof node.nodeType.getExecution === "function"
+            ? node.nodeType.getExecution(target)
+            : node.nodeType.shaderCode?.[target]?.execution || null;
+
+        if (execution) {
+          const inputVars = node.inputPorts.map(
+            (p) => portToVarName.get(p) || "0.0",
+          );
+          const outputVars = node.outputPorts.map((p) => portToVarName.get(p));
+          const inputTypes = node.inputPorts.map((p) => p.getResolvedType());
+          const outputTypes = node.outputPorts.map((p) => p.getResolvedType());
+          bodyCode += `\n    // ${node.nodeType.name}\n`;
+          bodyCode +=
+            execution(inputVars, outputVars, node, inputTypes, outputTypes) +
+            "\n";
+        } else if (node.nodeType.isFunctionCall) {
+          // Nested FunctionCall inside a function body. Compute its signature
+          // and emit the call site; the nested declaration is collected by
+          // _generateFunctionDeclarations in a separate pass.
+          const callerHandler = getHandler(
+            node.nodeType.callerKind || "function",
+          );
+          if (callerHandler) {
+            const nestedSig = callerHandler.computeCallSiteSignature(
+              node,
+              this,
+            );
+            node._computedSignature = nestedSig;
+            bodyCode += `\n    // ${node.nodeType.name}\n`;
+            bodyCode +=
+              callerHandler.emitCallSite(node, nestedSig, {
+                target,
+                portToVarName,
+                fnName: nestedSig.fnName,
+                host: this,
+              }) + "\n";
+          }
+        }
+      }
+    }
+
+    // Emit return / output assignments.
+    const isWebGPU = target === "webgpu";
+    if (resolvedOutputTypes.length === 1) {
+      const retVar = portToVarName.get(outputNode.inputPorts[0]) || "0.0";
+      bodyCode += `    return ${retVar};\n`;
+    } else if (resolvedOutputTypes.length > 1) {
+      if (isWebGPU) {
+        const structName = `${fnName}_Out`;
+        const fields = outputNode.inputPorts
+          .map((p) => portToVarName.get(p) || "0.0")
+          .join(", ");
+        bodyCode += `    return ${structName}(${fields});\n`;
+      } else {
+        contract.outputs.forEach((op, i) => {
+          const src = portToVarName.get(outputNode.inputPorts[i]) || "0.0";
+          bodyCode += `    out_${_sanitizeId(op.name)} = ${src};\n`;
+        });
+      }
+    }
+
+    // Restore original resolvedGenerics so editing state isn't mutated.
+    for (const [node, saved] of savedGenerics) {
+      node.resolvedGenerics = saved;
+    }
+
+    return { bodyCode, deps };
+  }
+
+  // Collect all function declarations reachable from the current levels.
+  // Also caches the computed signature on each FunctionCall node for use in
+  // emitCallSite during the main generateShader pass.
+  // Returns { declStr: string, extraDeps: Map<string, Set<string>> }.
+  _generateFunctionDeclarations(target, levels, portToVarName) {
+    // Collect variants in discovery order: main's call sites first, then any
+    // nested call sites reached by compiling a function body. Emit in
+    // callee-first order (reverse-topological) so forward declarations aren't
+    // needed in GLSL. Deduped by (targetGraphId, sigHash).
+    const variantByKey = new Map(); // key → { graph, signature, handler, declaration, deps, callees: Set<key> }
+    const extraDeps = new Map();
+    const worklist = [];
+
+    const enqueue = (node) => {
+      if (!node.nodeType.isFunctionCall) return null;
+      const handler = getHandler(node.nodeType.callerKind || "function");
+      if (!handler) return null;
+      const sig = handler.computeCallSiteSignature(node, this);
+      node._computedSignature = sig;
+      const key = `${node.nodeType.targetGraphId}_${sig.sigHash}`;
+      if (!variantByKey.has(key)) {
+        const graph = this.graphs.get(node.nodeType.targetGraphId);
+        if (!graph) return null;
+        variantByKey.set(key, {
+          graph,
+          signature: sig,
+          handler,
+          declaration: "",
+          deps: new Map(),
+          callees: new Set(),
+        });
+        worklist.push(key);
+      }
+      return key;
+    };
+
+    // Seed: every FunctionCall reachable at the top level (inside main()).
+    for (const level of levels) {
+      for (const node of level) enqueue(node);
+    }
+
+    // Expand: compile each variant's body; during that compilation, the body
+    // walks its own FunctionCall nodes and caches their signatures on them.
+    // After compilation we scan the body for nested callers and enqueue them.
+    while (worklist.length > 0) {
+      const key = worklist.shift();
+      const entry = variantByKey.get(key);
+      const { declaration, deps } = entry.handler.emitFunctionDeclaration(
+        entry.graph,
+        entry.signature,
+        target,
+        this,
+      );
+      entry.declaration = declaration;
+      entry.deps = deps;
+      for (const [dep, names] of deps) {
+        if (!extraDeps.has(dep)) extraDeps.set(dep, new Set());
+        for (const n of names) extraDeps.get(dep).add(n);
+      }
+      // Discover nested callees.
+      for (const n of entry.graph.nodes) {
+        const calleeKey = enqueue(n);
+        if (calleeKey) entry.callees.add(calleeKey);
+      }
+    }
+
+    if (variantByKey.size === 0) return { declStr: "", extraDeps };
+
+    // DFS postorder to emit callees before their callers.
+    const emitted = new Set();
+    const ordered = [];
+    const stack = new Set(); // for cycle guard (shouldn't happen; Phase 6 prevents)
+    const visit = (key) => {
+      if (emitted.has(key)) return;
+      if (stack.has(key)) return; // cycle fallback
+      stack.add(key);
+      const entry = variantByKey.get(key);
+      for (const ck of entry.callees) visit(ck);
+      stack.delete(key);
+      emitted.add(key);
+      ordered.push(key);
+    };
+    for (const key of variantByKey.keys()) visit(key);
+
+    let declStr = "\n// --- Function declarations ---\n";
+    for (const key of ordered) {
+      declStr += variantByKey.get(key).declaration + "\n";
+    }
+
+    return { declStr, extraDeps };
+  }
+
+  // Build a standalone preview of a callable graph's declarations. Used by
+  // the View Code modal when the active graph is a function/loopBody.
+  _generateCallableGraphPreview(graph, target) {
+    const handler = getHandler(graph.kind);
+    if (!handler) return "// (no handler for this graph kind)\n";
+
+    // Collect existing caller signatures across all graphs.
+    const variantByKey = new Map();
+    const worklist = [];
+    const enqueueFromCaller = (node) => {
+      if (!node.nodeType.isFunctionCall) return null;
+      const h = getHandler(node.nodeType.callerKind || "function");
+      if (!h) return null;
+      const sig = h.computeCallSiteSignature(node, this);
+      node._computedSignature = sig;
+      const g = this.graphs.get(node.nodeType.targetGraphId);
+      if (!g) return null;
+      const key = `${g.id}_${sig.sigHash}`;
+      if (!variantByKey.has(key)) {
+        variantByKey.set(key, {
+          graph: g,
+          signature: sig,
+          handler: h,
+          declaration: "",
+          callees: new Set(),
+        });
+        worklist.push(key);
+      }
+      return key;
+    };
+
+    for (const g of this.graphs.values()) {
+      for (const n of g.nodes) {
+        if (
+          n.nodeType.isFunctionCall &&
+          n.nodeType.targetGraphId === graph.id
+        ) {
+          enqueueFromCaller(n);
+        }
+      }
+    }
+
+    // If no callers exist, synthesize a default signature from the contract.
+    if (variantByKey.size === 0) {
+      const sig = this._synthesizeDefaultSignature(graph);
+      if (sig) {
+        const key = `${graph.id}_${sig.sigHash}`;
+        variantByKey.set(key, {
+          graph,
+          signature: sig,
+          handler,
+          declaration: "",
+          callees: new Set(),
+        });
+        worklist.push(key);
+      }
+    }
+
+    // Expand: emit each variant's declaration and discover nested callees.
+    while (worklist.length > 0) {
+      const key = worklist.shift();
+      const entry = variantByKey.get(key);
+      const { declaration } = entry.handler.emitFunctionDeclaration(
+        entry.graph,
+        entry.signature,
+        target,
+        this,
+      );
+      entry.declaration = declaration;
+      for (const n of entry.graph.nodes) {
+        const calleeKey = enqueueFromCaller(n);
+        if (calleeKey) entry.callees.add(calleeKey);
+      }
+    }
+
+    if (variantByKey.size === 0) return "// (no declarations to show)\n";
+
+    // DFS postorder so callees come before callers.
+    const emitted = new Set();
+    const ordered = [];
+    const stack = new Set();
+    const visit = (key) => {
+      if (emitted.has(key)) return;
+      if (stack.has(key)) return;
+      stack.add(key);
+      const entry = variantByKey.get(key);
+      for (const ck of entry.callees) visit(ck);
+      stack.delete(key);
+      emitted.add(key);
+      ordered.push(key);
+    };
+    for (const key of variantByKey.keys()) visit(key);
+
+    const hdr = `// ${graph.kind} "${graph.name}" — ${target}\n`;
+    const ownKey = `${graph.id}_`;
+    let own = "";
+    let nested = "";
+    for (const key of ordered) {
+      const entry = variantByKey.get(key);
+      const label = `// ${entry.signature.fnName} (${entry.signature.sigStr})\n`;
+      const block = label + entry.declaration + "\n";
+      if (key.startsWith(ownKey)) own += block;
+      else nested += block;
+    }
+    return (
+      hdr + own + (nested ? "\n// --- transitive callees ---\n" + nested : "")
+    );
+  }
+
+  // Build a synthetic "default" call-site signature by treating generic
+  // letters as float, mirroring the fallback in computeCallSiteSignature.
+  _synthesizeDefaultSignature(graph) {
+    const handler = getHandler(graph.kind);
+    if (!handler) return null;
+    // Fake a caller node with unconnected input ports so the handler's
+    // computeCallSiteSignature path walks the same code.  Use the caller
+    // node type's port layout (which differs from the raw contract for
+    // ForLoop callers: Count + Initial accs + args).
+    const fakeCallerType = handler.createCallerNodeType(graph, this);
+    const fakeInputs = fakeCallerType
+      ? fakeCallerType.inputs.map(() => ({ connections: [] }))
+      : [];
+    const fakeOutputs = fakeCallerType
+      ? fakeCallerType.outputs.map(() => ({ connections: [] }))
+      : [];
+    const fakeNode = {
+      nodeType: { targetGraphId: graph.id, callerKind: graph.kind },
+      inputPorts: fakeInputs,
+      outputPorts: fakeOutputs,
+    };
+    try {
+      return handler.computeCallSiteSignature(fakeNode, this);
+    } catch {
+      return null;
+    }
+  }
+
+  // Propagate resolved generics from a function graph's boundary nodes down to
+  // every caller. If the body collapses `T` to `vec2` (e.g. by wiring a vec2
+  // node to the FunctionInput's T port), callers should display and enforce
+  // `vec2` instead of the generic letter.
+  _syncCallersBodyGenerics(graph) {
+    if (!graph || (graph.kind !== "function" && graph.kind !== "loopBody"))
+      return;
+    const inputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionInput,
+    );
+    const outputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionOutput,
+    );
+    const resolved = {};
+    if (inputNode?.resolvedGenerics)
+      Object.assign(resolved, inputNode.resolvedGenerics);
+    if (outputNode?.resolvedGenerics)
+      Object.assign(resolved, outputNode.resolvedGenerics);
+
+    for (const g of this.graphs.values()) {
+      for (const caller of g.nodes) {
+        if (!caller.nodeType.isFunctionCall) continue;
+        if (caller.nodeType.targetGraphId !== graph.id) continue;
+        let changed = false;
+        // Letters whose concrete resolution on the caller actually changed —
+        // wires on those ports may no longer be compatible.
+        const changedLetters = new Set();
+        // Gather which generic letters the caller actually uses on its ports.
+        const callerGenerics = new Set();
+        for (const p of caller.getAllPorts()) {
+          if (isGenericType(p.portType)) callerGenerics.add(p.portType);
+        }
+        // Apply the body's resolutions. A missing entry (body no longer
+        // constrains that letter) clears any prior body-driven resolution.
+        for (const gen of callerGenerics) {
+          const next = resolved[gen];
+          const curr = caller.resolvedGenerics[gen];
+          if (next && curr !== next) {
+            // If the body narrows to a generic (e.g. T→genType) and the caller
+            // already has a concrete resolution from its own wires that is valid
+            // within that generic, keep the caller's concrete resolution.
+            if (isGenericType(next) && curr) {
+              if (!isGenericType(curr)) {
+                const allowed = getAllowedTypesForGeneric(next);
+                if (allowed.includes(curr)) continue;
+              } else {
+                const nextAllowed = getAllowedTypesForGeneric(next);
+                const currAllowed = getAllowedTypesForGeneric(curr);
+                if (currAllowed.every((t) => nextAllowed.includes(t))) continue;
+              }
+            }
+            caller.resolvedGenerics[gen] = next;
+            changed = true;
+            changedLetters.add(gen);
+          } else if (!next && curr !== undefined) {
+            // Only clear if no local wire is forcing the same resolution.
+            const localWireForces = caller
+              .getAllPorts()
+              .some((p) => p.portType === gen && p.connections.length > 0);
+            if (!localWireForces) {
+              delete caller.resolvedGenerics[gen];
+              changed = true;
+              changedLetters.add(gen);
+            }
+          }
+        }
+        if (changed) {
+          caller.inputPorts.forEach((p) => p.updateEditability());
+          caller.recalculateHeight();
+        }
+        // A body-driven resolution shift can make existing wires on the
+        // caller's same-letter ports incompatible (e.g. caller.output[T]
+        // was float, body now says vec3 — an outgoing wire to a float input
+        // must drop). Re-check and disconnect.
+        if (changedLetters.size > 0) {
+          const wiresToDrop = [];
+          for (const port of caller.getAllPorts()) {
+            if (!changedLetters.has(port.portType)) continue;
+            for (const wire of port.connections) {
+              const other =
+                wire.startPort === port ? wire.endPort : wire.startPort;
+              if (!other) continue;
+              const outputPort = port.type === "output" ? port : other;
+              const inputPort = port.type === "input" ? port : other;
+              if (
+                !areTypesCompatible(
+                  outputPort.portType,
+                  inputPort.portType,
+                  outputPort.getResolvedType(),
+                  inputPort.getResolvedType(),
+                )
+              ) {
+                wiresToDrop.push(wire);
+              }
+            }
+          }
+          for (const wire of wiresToDrop) this.disconnectWire(wire);
+        }
+      }
+    }
+  }
+
+  // Refresh caller generics for every callable graph. Cheap enough to run
+  // after any wire op — the hot path is only O(graphs × callers).
+  _syncAllCallerBodyGenerics() {
+    for (const g of this.graphs.values()) {
+      if (g.kind === "function" || g.kind === "loopBody") {
+        this._syncCallersBodyGenerics(g);
+      }
+    }
+  }
+
+  // Capture snapshots of the listed graphs before and after running `fn`, then
+  // push a single unified undo entry covering all changed graphs.
+  runMultiGraphTransaction(graphIds, fn, description = "Contract edit") {
+    this.history.runTransaction(graphIds, fn, description);
+  }
+
+  // Update all caller nodes in every graph whose targetGraphId matches `graph.id`.
+  // Preserves wires by contractPortId. Surfaces a notification listing changes.
+  syncContractCallers(graph) {
+    // Identify all graphs that might be affected (the function graph itself +
+    // any graph containing a caller targeting it).
+    const affectedIds = new Set([graph.id]);
+    for (const g of this.graphs.values()) {
+      for (const node of g.nodes) {
+        if (
+          node.nodeType.isFunctionCall &&
+          node.nodeType.targetGraphId === graph.id
+        ) {
+          affectedIds.add(g.id);
+        }
+      }
+    }
+
+    this.runMultiGraphTransaction(
+      [...affectedIds],
+      () => {
+        this._syncContractCallersImpl(graph);
+      },
+      `Contract edit on "${graph.name}"`,
+    );
+  }
+
+  _syncContractCallersImpl(graph) {
+    graph.contractVersion = (graph.contractVersion || 0) + 1;
+    const handler = getHandler(graph.kind);
+    if (!handler) return;
+
+    // Rebuild boundary nodes in the function graph itself.
+    handler.enforceBoundaryRules(graph, this);
+
+    const newType = handler.createCallerNodeType(graph, this);
+    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+
+    let affectedCount = 0;
+    let totalDropped = 0;
+
+    for (const g of this.graphs.values()) {
+      for (const node of g.nodes) {
+        if (!node.nodeType.isFunctionCall) continue;
+        if (node.nodeType.targetGraphId !== graph.id) continue;
+
+        // Update the node type (and the cached header color).
+        node.nodeType = newType;
+        node.headerColor = newType.color;
+
+        // Reconcile ports against the new caller node type — wires survive for
+        // ports whose (contractPortId, name, type) are unchanged.  Use the
+        // newType's ports (not the raw contract) because ForLoop callers have
+        // a transformed layout (Count + Initial acc + args → acc outputs).
+        const { droppedWires } = this._rebuildBoundaryNodePorts(
+          node,
+          newType.inputs.map((p) => ({
+            name: p.name,
+            type: p.type,
+            contractPortId: p.contractPortId || p.id,
+          })),
+          newType.outputs.map((p) => ({
+            name: p.name,
+            type: p.type,
+            contractPortId: p.contractPortId || p.id,
+          })),
+        );
+        totalDropped += droppedWires;
+        affectedCount++;
+      }
+    }
+
+    if (affectedCount > 0 || totalDropped > 0) {
+      const msg =
+        totalDropped > 0
+          ? `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt, ${totalDropped} incompatible wire(s) removed.`
+          : `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt.`;
+      this.showNotification({
+        type: "info",
+        title: "Contract updated",
+        message: msg,
+      });
+      this.onShaderChanged();
+    }
+  }
+
   // Switch the editor's active graph. Sidebars/UI are refreshed if available.
   setActiveGraph(id) {
     if (!this.graphs.has(id)) {
@@ -1997,27 +2873,18 @@ class BlueprintSystem {
       this.autoPanInterval = null;
     }
     this.activeGraphId = id;
+    this.openTabs.add(id);
 
-    // Refresh UI to reflect the newly active graph (best-effort; some
-    // sidebars may not exist in test environments).
-    try {
-      this.renderUniformList && this.renderUniformList();
-    } catch {}
-    try {
-      this.renderCustomNodesList && this.renderCustomNodesList();
-    } catch {}
-    try {
-      this.updateShaderSettingsUI && this.updateShaderSettingsUI();
-    } catch {}
-    try {
-      this.updateDependencyList && this.updateDependencyList();
-    } catch {}
-    try {
-      this.updateUndoRedoButtons && this.updateUndoRedoButtons();
-    } catch {}
-    try {
-      this.render && this.render();
-    } catch {}
+    this.renderUniformList();
+    this.renderCustomNodesList();
+    this.updateShaderSettingsUI();
+    this.updateDependencyList();
+    this.updateUndoRedoButtons();
+    this._applyKindSidebarVisibility();
+    this.renderGraphTabBar();
+    this.renderFunctionsList();
+    this.renderContractEditor();
+    this.render();
   }
 
   // Delete a non-main graph. Throws if asked to delete the main graph.
@@ -3482,6 +4349,24 @@ class BlueprintSystem {
       document.getElementById("customNodeOutputs");
     this.customNodesList = document.getElementById("custom-nodes-list");
 
+    // Phase 4: graph tab bar + Functions sidebar + contract editor containers
+    this.graphTabsEl = document.getElementById("graph-tabs");
+    this.functionsListEl = document.getElementById("functions-list");
+    this.functionInfoSection = document.getElementById("function-info-section");
+    this.functionInputsSection = document.getElementById(
+      "function-inputs-section",
+    );
+    this.functionOutputsSection = document.getElementById(
+      "function-outputs-section",
+    );
+    this.functionInfoForm = document.getElementById("function-info-form");
+    this.functionInputsList = document.getElementById("function-inputs-list");
+    this.functionOutputsList = document.getElementById("function-outputs-list");
+    this.shaderInfoSection = document.getElementById("shader-info-section");
+    this.shaderSettingsSection = document.getElementById(
+      "shader-settings-section",
+    );
+
     // Code editor container
     this.customNodeCodeEditorContainer = document.getElementById(
       "customNodeCodeEditor",
@@ -3652,6 +4537,63 @@ class BlueprintSystem {
       .addEventListener("click", () => {
         this.showCustomNodeModal();
       });
+
+    // Phase 4: Functions sidebar — add buttons
+    const addFunctionBtn = document.getElementById("addFunctionBtn");
+    if (addFunctionBtn) {
+      addFunctionBtn.addEventListener("click", () => {
+        const name = this._pickNewCallableName("Function");
+        const g = this.createFunctionGraph({ name });
+        this.setActiveGraph(g.id);
+        this.centerView();
+      });
+    }
+    const addLoopBodyBtn = document.getElementById("addLoopBodyBtn");
+    if (addLoopBodyBtn) {
+      addLoopBodyBtn.addEventListener("click", () => {
+        const name = this._pickNewCallableName("LoopBody");
+        const g = this.createLoopBodyGraph({ name });
+        this.setActiveGraph(g.id);
+        this.centerView();
+      });
+    }
+
+    // Phase 4: Contract editor — add input/output buttons
+    const addContractInputBtn = document.getElementById("addContractInputBtn");
+    if (addContractInputBtn) {
+      addContractInputBtn.addEventListener("click", () => {
+        this._addContractPort("inputs");
+      });
+    }
+    const addContractOutputBtn = document.getElementById(
+      "addContractOutputBtn",
+    );
+    if (addContractOutputBtn) {
+      addContractOutputBtn.addEventListener("click", () => {
+        this._addContractPort("outputs");
+      });
+    }
+  }
+
+  _pickNewCallableName(base) {
+    const existing = new Set(this.getCallableGraphs().map((g) => g.name));
+    let n = 1;
+    while (existing.has(`${base}${n}`)) n++;
+    return `${base}${n}`;
+  }
+
+  _addContractPort(which) {
+    const g = this.activeGraph;
+    if (!g || g.kind === "main") return;
+    const handler = getHandler(g.kind);
+    if (!handler) return;
+    const contract = g.data.contract || { inputs: [], outputs: [] };
+    const section = which === "inputs" ? contract.inputs : contract.outputs;
+    const port = handler.defaultPort(section);
+    section.push(port);
+    this.syncContractCallers(g);
+    this.renderContractEditor();
+    this.renderFunctionsList();
   }
 
   showCustomNodeModal(customNode = null) {
@@ -5309,7 +6251,7 @@ class BlueprintSystem {
   sendUniformValuesToPreview() {
     if (!this.previewReady || !this.previewIframe) return;
     // Preview reflects the main graph's uniforms.
-    const uniforms = this.mainGraph ? this.mainGraph.uniforms : this.uniforms;
+    const uniforms = this.uniforms;
 
     uniforms.forEach((uniform, index) => {
       // Convert color values to array format [r, g, b]
@@ -5341,8 +6283,75 @@ class BlueprintSystem {
     );
   }
 
+  _validateCallDAG() {
+    const errors = [];
+    const cycle = detectCycleInDAG(this);
+    if (cycle) {
+      const names = cycle
+        .map((id) => this.graphs.get(id)?.name || id)
+        .join(" → ");
+      errors.push({
+        message: `Cycle detected in call graph: ${names}`,
+        graphId: cycle[0],
+      });
+    }
+
+    for (const graph of this.graphs.values()) {
+      if (graph.kind !== "function" && graph.kind !== "loopBody") continue;
+      const handler = getHandler(graph.kind);
+      if (!handler) continue;
+
+      const inputNodes = graph.nodes.filter(
+        (n) => n.nodeType.name === "Function Input",
+      );
+      const outputNodes = graph.nodes.filter(
+        (n) => n.nodeType.name === "Function Output",
+      );
+
+      if (inputNodes.length === 0) {
+        errors.push({
+          message: `"${graph.name}" is missing a Function Input node`,
+          graphId: graph.id,
+        });
+      } else if (inputNodes.length > 1) {
+        errors.push({
+          message: `"${graph.name}" has duplicate Function Input nodes`,
+          graphId: graph.id,
+        });
+      }
+      if (outputNodes.length === 0) {
+        errors.push({
+          message: `"${graph.name}" is missing a Function Output node`,
+          graphId: graph.id,
+        });
+      } else if (outputNodes.length > 1) {
+        errors.push({
+          message: `"${graph.name}" has duplicate Function Output nodes`,
+          graphId: graph.id,
+        });
+      }
+
+      const contractErrors = handler.validateContract(
+        graph.data?.contract || { inputs: [], outputs: [] },
+      );
+      for (const msg of contractErrors) {
+        errors.push({ message: `"${graph.name}": ${msg}`, graphId: graph.id });
+      }
+    }
+    return errors;
+  }
+
   _generateAllShadersImpl() {
     try {
+      const validationErrors = this._validateCallDAG();
+      if (validationErrors.length > 0) {
+        console.warn(
+          "Pre-codegen validation failed:",
+          validationErrors.map((e) => e.message).join("; "),
+        );
+        return null;
+      }
+
       // Build dependency graph
       const graph = this.buildDependencyGraph();
 
@@ -5356,38 +6365,49 @@ class BlueprintSystem {
         graph.connectedNodes,
       );
 
-      // Generate shaders for all targets (each needs its own variable names for proper value formatting)
-      const webgl1PortToVarName = this.generateVariableNames(levels, "webgl1");
-      const webgl1Boilerplate = this.getBoilerplate("webgl1");
-      const webgl1Uniforms = this.generateUniformDeclarations("webgl1");
-      const webgl1Code = this.generateShader(
-        "webgl1",
-        levels,
-        webgl1PortToVarName,
-      );
-      const webgl1 = webgl1Boilerplate + webgl1Uniforms + webgl1Code;
+      const result = {};
+      for (const target of ["webgl1", "webgl2", "webgpu"]) {
+        const portToVarName = this.generateVariableNames(levels, target);
 
-      const webgl2PortToVarName = this.generateVariableNames(levels, "webgl2");
-      const webgl2Boilerplate = this.getBoilerplate("webgl2");
-      const webgl2Uniforms = this.generateUniformDeclarations("webgl2");
-      const webgl2Code = this.generateShader(
-        "webgl2",
-        levels,
-        webgl2PortToVarName,
-      );
-      const webgl2 = webgl2Boilerplate + webgl2Uniforms + webgl2Code;
+        // Compile all reachable function declarations for this target.
+        // Also caches signatures on FunctionCall nodes for use in generateShader.
+        const { declStr, extraDeps } = this._generateFunctionDeclarations(
+          target,
+          levels,
+          portToVarName,
+        );
 
-      const webgpuPortToVarName = this.generateVariableNames(levels, "webgpu");
-      const webgpuBoilerplate = this.getBoilerplate("webgpu");
-      const webgpuUniforms = this.generateUniformDeclarations("webgpu");
-      const webgpuCode = this.generateShader(
-        "webgpu",
-        levels,
-        webgpuPortToVarName,
-      );
-      const webgpu = webgpuBoilerplate + webgpuUniforms + webgpuCode;
+        const boilerplate = this.getBoilerplate(target);
+        const uniforms = this.generateUniformDeclarations(target);
+        // Pass extraDeps so function body helpers appear in the dep block.
+        const shaderCode = this.generateShader(
+          target,
+          levels,
+          portToVarName,
+          extraDeps,
+        );
 
-      return { webgl1, webgl2, webgpu };
+        // Order: boilerplate → uniforms → function body helper deps (inside shaderCode dep block) → function declarations → main()
+        // generateShader emits the dep block then main(). We insert declStr between them.
+        const depBlockEnd =
+          shaderCode.indexOf("\nvoid main") !== -1
+            ? shaderCode.indexOf("\nvoid main")
+            : shaderCode.indexOf("\n@fragment");
+        let fullShader;
+        if (depBlockEnd !== -1) {
+          fullShader =
+            boilerplate +
+            uniforms +
+            shaderCode.slice(0, depBlockEnd) +
+            declStr +
+            shaderCode.slice(depBlockEnd);
+        } else {
+          fullShader = boilerplate + uniforms + declStr + shaderCode;
+        }
+        result[target] = fullShader;
+      }
+
+      return result;
     } catch (error) {
       console.error("Error generating shaders:", error);
       return null;
@@ -5997,6 +7017,327 @@ class BlueprintSystem {
 
     this.render();
     this.updateDependencyList();
+  }
+
+  // ---------- Phase 4: graph tab bar ----------
+
+  // Open a tab for a graph and switch to it. Creates the tab entry if missing.
+  openGraphTab(graphId) {
+    if (!this.graphs.has(graphId)) return;
+    this.openTabs.add(graphId);
+    this.setActiveGraph(graphId);
+  }
+
+  // Close a tab (does NOT delete the graph). Main tab can't be closed.
+  closeGraphTab(graphId) {
+    if (graphId === this.mainGraphId) return;
+    this.openTabs.delete(graphId);
+    if (this.activeGraphId === graphId) {
+      this.setActiveGraph(this.mainGraphId);
+    } else {
+      this.renderGraphTabBar && this.renderGraphTabBar();
+    }
+  }
+
+  renderGraphTabBar() {
+    if (!this.graphTabsEl) return;
+    this.graphTabsEl.innerHTML = "";
+
+    // Render in insertion order: main first, then others that are open.
+    const ordered = [];
+    if (this.graphs.has(this.mainGraphId)) ordered.push(this.mainGraphId);
+    for (const id of this.openTabs) {
+      if (id !== this.mainGraphId && this.graphs.has(id)) ordered.push(id);
+    }
+
+    // Hide the whole bar when only main is open — a single orphan tab is noise.
+    const bar = document.getElementById("graph-tab-bar");
+    if (bar) bar.style.display = ordered.length <= 1 ? "none" : "";
+    if (ordered.length <= 1) return;
+
+    for (const id of ordered) {
+      const g = this.graphs.get(id);
+      const tab = document.createElement("div");
+      tab.className =
+        "graph-tab" + (id === this.activeGraphId ? " active" : "");
+      tab.dataset.graphId = id;
+
+      // Color stripe for non-main tabs
+      if (g.kind !== "main") {
+        const stripe = document.createElement("div");
+        stripe.className = "graph-tab-color-stripe";
+        const handler = getHandler(g.kind);
+        stripe.style.background = g.color || handler?.defaultColor || "#4a9eff";
+        tab.appendChild(stripe);
+
+        const badge = document.createElement("span");
+        badge.className = "graph-tab-badge";
+        badge.textContent = g.kind === "function" ? "fn" : "loop";
+        tab.appendChild(badge);
+      }
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "graph-tab-name";
+      nameEl.textContent = g.name || "Untitled";
+      nameEl.title = g.name || "Untitled";
+      tab.appendChild(nameEl);
+
+      // Click to switch
+      tab.addEventListener("mousedown", (e) => {
+        if (e.button === 1) {
+          // middle-click closes
+          e.preventDefault();
+          this.closeGraphTab(id);
+          return;
+        }
+        if (e.target === closeBtn) return;
+        if (e.target === nameEl && e.detail >= 2) return;
+        this.setActiveGraph(id);
+      });
+
+      // Double-click the name to rename (non-main only)
+      if (g.kind !== "main") {
+        nameEl.addEventListener("dblclick", (e) => {
+          e.stopPropagation();
+          this._startTabRename(g, nameEl);
+        });
+      }
+
+      // Close button (non-main)
+      let closeBtn = null;
+      if (g.kind !== "main") {
+        closeBtn = document.createElement("button");
+        closeBtn.className = "graph-tab-close";
+        closeBtn.textContent = "×";
+        closeBtn.title = "Close tab";
+        closeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.closeGraphTab(id);
+        });
+        tab.appendChild(closeBtn);
+      }
+
+      this.graphTabsEl.appendChild(tab);
+    }
+  }
+
+  _startTabRename(graph, nameEl) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "graph-tab-name-input";
+    input.value = graph.name || "";
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+      const newName = input.value.trim() || graph.name || "Untitled";
+      graph.name = newName;
+      this.renderGraphTabBar();
+      this.renderFunctionsList && this.renderFunctionsList();
+      // Caller node types display the graph's name; refresh instances.
+      if (graph.kind === "function" || graph.kind === "loopBody") {
+        this.syncContractCallers(graph);
+      }
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        input.blur();
+      } else if (e.key === "Escape") {
+        input.value = graph.name;
+        input.blur();
+      }
+    });
+  }
+
+  // Show/hide sidebar sections based on the active graph's kind.
+  _applyKindSidebarVisibility() {
+    const kind = this.activeGraph?.kind || "main";
+    const isSub = kind === "function" || kind === "loopBody";
+    if (this.shaderInfoSection)
+      this.shaderInfoSection.style.display = isSub ? "none" : "";
+    if (this.shaderSettingsSection)
+      this.shaderSettingsSection.style.display = isSub ? "none" : "";
+    if (this.functionInfoSection)
+      this.functionInfoSection.style.display = isSub ? "" : "none";
+    if (this.functionInputsSection)
+      this.functionInputsSection.style.display = isSub ? "" : "none";
+    if (this.functionOutputsSection)
+      this.functionOutputsSection.style.display = isSub ? "" : "none";
+  }
+
+  // ---------- Phase 4: Functions sidebar section ----------
+
+  renderFunctionsList() {
+    if (!this.functionsListEl) return;
+    this.functionsListEl.innerHTML = "";
+
+    for (const g of this.getCallableGraphs()) {
+      const handler = getHandler(g.kind);
+      const item = document.createElement("div");
+      item.className = "uniform-item";
+      const tint = g.color || handler?.defaultColor || "#4a9eff";
+      item.style.borderLeft = `4px solid ${tint}`;
+
+      const header = document.createElement("div");
+      header.className = "uniform-item-header";
+      header.style.paddingLeft = "24px";
+
+      // Drag handle to drop a caller node onto the canvas
+      const dragHandle = document.createElement("div");
+      dragHandle.className = "custom-node-drag-handle";
+      dragHandle.style.position = "absolute";
+      dragHandle.style.left = "0";
+      dragHandle.style.top = "0";
+      dragHandle.style.bottom = "0";
+      dragHandle.style.width = "20px";
+      dragHandle.style.background = tint;
+      dragHandle.style.cursor = "grab";
+      dragHandle.style.display = "flex";
+      dragHandle.style.alignItems = "center";
+      dragHandle.style.justifyContent = "center";
+      dragHandle.style.color = "rgba(255,255,255,0.6)";
+      dragHandle.style.fontSize = "14px";
+      dragHandle.style.userSelect = "none";
+      dragHandle.textContent = "⋮⋮";
+      dragHandle.title = "Drag to canvas to create caller node";
+
+      let draggingFromHandle = false;
+      dragHandle.addEventListener("mousedown", () => {
+        draggingFromHandle = true;
+        item.draggable = true;
+        dragHandle.style.cursor = "grabbing";
+      });
+      item.addEventListener("dragstart", (e) => {
+        if (draggingFromHandle) {
+          e.dataTransfer.setData("callerGraphId", g.id);
+          e.dataTransfer.effectAllowed = "copy";
+        } else {
+          e.preventDefault();
+        }
+      });
+      item.addEventListener("dragend", () => {
+        item.draggable = false;
+        draggingFromHandle = false;
+        dragHandle.style.cursor = "grab";
+        this.renderFunctionsList();
+      });
+
+      const badge = document.createElement("span");
+      badge.className =
+        "function-entry-badge " + (g.kind === "function" ? "fn" : "loop");
+      badge.textContent = g.kind === "function" ? "fn" : "loop";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = g.name || "Untitled";
+      nameSpan.style.fontWeight = "bold";
+      nameSpan.style.color = "#ddd";
+      nameSpan.style.flex = "1";
+
+      const contract = g.data?.contract || { inputs: [], outputs: [] };
+      const infoSpan = document.createElement("span");
+      infoSpan.textContent = `${contract.inputs.length}→${contract.outputs.length}`;
+      infoSpan.style.fontSize = "11px";
+      infoSpan.style.color = "#888";
+      infoSpan.style.marginLeft = "8px";
+
+      const controls = document.createElement("div");
+      controls.className = "uniform-item-controls";
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "uniform-delete-btn";
+      editBtn.textContent = "✎";
+      editBtn.title = "Open graph";
+      editBtn.style.background = "#4a90e2";
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.openGraphTab(g.id);
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "uniform-delete-btn";
+      delBtn.textContent = "×";
+      delBtn.title = "Delete graph";
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this._deleteCallableGraph(g);
+      });
+
+      controls.appendChild(editBtn);
+      controls.appendChild(delBtn);
+
+      item.appendChild(dragHandle);
+      header.appendChild(badge);
+      header.appendChild(nameSpan);
+      header.appendChild(infoSpan);
+      header.appendChild(controls);
+      item.appendChild(header);
+
+      this.functionsListEl.appendChild(item);
+    }
+  }
+
+  _deleteCallableGraph(graph) {
+    // Count callers across all graphs.
+    let callers = 0;
+    for (const g of this.graphs.values()) {
+      for (const n of g.nodes) {
+        if (n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id)
+          callers++;
+      }
+    }
+    const msg =
+      callers > 0
+        ? `Delete "${graph.name}"? ${callers} caller node(s) will be removed.`
+        : `Delete "${graph.name}"?`;
+    if (!confirm(msg)) return;
+
+    // Remove caller nodes and their wires from every graph.
+    for (const g of this.graphs.values()) {
+      const toRemove = g.nodes.filter(
+        (n) =>
+          n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id,
+      );
+      for (const n of toRemove) {
+        for (const port of [...n.inputPorts, ...n.outputPorts]) {
+          for (const w of [...port.connections]) this.disconnectWire(w);
+        }
+      }
+      g.nodes = g.nodes.filter(
+        (n) =>
+          !(n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id),
+      );
+    }
+
+    this.openTabs.delete(graph.id);
+    this.deleteGraph(graph.id);
+    this.renderGraphTabBar();
+    this.renderFunctionsList();
+    this.render && this.render();
+    this.onShaderChanged && this.onShaderChanged();
+  }
+
+  // ---------- Phase 4: Function Info / Inputs / Outputs contract editor ----------
+
+  renderContractEditor() {
+    if (!this.functionInfoForm) return;
+    const g = this.activeGraph;
+    if (!g || g.kind === "main") {
+      this.functionInfoForm.innerHTML = "";
+      if (this.functionInputsList) this.functionInputsList.innerHTML = "";
+      if (this.functionOutputsList) this.functionOutputsList.innerHTML = "";
+      return;
+    }
+    const handler = getHandler(g.kind);
+    if (!handler) return;
+
+    // Delegate to the kind handler to populate panels.
+    handler.renderContractEditor(g, this, {
+      infoForm: this.functionInfoForm,
+      inputsList: this.functionInputsList,
+      outputsList: this.functionOutputsList,
+    });
   }
 
   renderCustomNodesList() {
@@ -7784,14 +9125,40 @@ class BlueprintSystem {
     const customNodeTypes = this.getCustomNodeTypes();
     nodeTypes = [...nodeTypes, ...Object.entries(customNodeTypes)];
 
-    // Filter out output node if one already exists
+    // Add callable function/loop-body graph types (FunctionCall / ForLoop nodes),
+    // excluding any that would create a cycle from the active graph.
+    const callableTypes = this.getCallableFunctionNodeTypes();
+    for (const [key, nodeType] of Object.entries(callableTypes)) {
+      if (!wouldCreateCycle(this, this.activeGraphId, nodeType.targetGraphId)) {
+        nodeTypes.push([key, nodeType]);
+      }
+    }
+
+    const activeKind = this.activeGraph?.kind || "main";
+    const inSubgraph = activeKind === "function" || activeKind === "loopBody";
+
+    // Shader Output: only valid in main. Hide in subgraphs entirely; in main,
+    // hide if one is already placed.
     const hasOutputNode = this.nodes.some(
       (node) => node.nodeType === NODE_TYPES.output,
     );
-    if (hasOutputNode) {
+    if (inSubgraph || hasOutputNode) {
       nodeTypes = nodeTypes.filter(
         ([key, nodeType]) => nodeType !== NODE_TYPES.output,
       );
+    }
+
+    // Nodes that require a function/loopBody context are hidden in main.
+    if (!inSubgraph) {
+      nodeTypes = nodeTypes.filter(
+        ([key, nodeType]) => !nodeType.requiresFunctionContext,
+      );
+    } else {
+      // In a subgraph, hide uniqueWithinGraph types that are already placed.
+      nodeTypes = nodeTypes.filter(([key, nodeType]) => {
+        if (!nodeType.uniqueWithinGraph) return true;
+        return !this.nodes.some((n) => n.nodeType === nodeType);
+      });
     }
 
     // If we're filtering by port type
@@ -7824,6 +9191,20 @@ class BlueprintSystem {
       customNodeTypes[key] = this.createNodeTypeFromCustomNode(customNode);
     });
     return customNodeTypes;
+  }
+
+  getCallableFunctionNodeTypes() {
+    const types = {};
+    for (const g of this.getCallableGraphs()) {
+      const handler = getHandler(g.kind);
+      if (!handler) continue;
+      const nodeType = handler.createCallerNodeType(g, this);
+      if (nodeType) {
+        const key = `${handler.callerSearchPrefix}_${g.id}`;
+        types[key] = nodeType;
+      }
+    }
+    return types;
   }
 
   createNodeTypeFromCustomNode(customNode) {
@@ -8307,6 +9688,23 @@ class BlueprintSystem {
         newNode = this.createUniformNode(uniform, worldX, worldY);
       }
     } else {
+      if (nodeType.isFunctionCall && nodeType.targetGraphId) {
+        if (
+          wouldCreateCycle(this, this.activeGraphId, nodeType.targetGraphId)
+        ) {
+          const cyclePath = getCyclePath(
+            this,
+            this.activeGraphId,
+            nodeType.targetGraphId,
+          );
+          this.showNotification({
+            type: "error",
+            title: "Cycle detected",
+            message: `Adding this would create a cycle: ${cyclePath}`,
+          });
+          return;
+        }
+      }
       newNode = this.addNode(worldX, worldY, nodeType);
     }
 
@@ -8411,8 +9809,8 @@ class BlueprintSystem {
     const selectedItem = this.searchResults.querySelector(".search-selected");
     if (selectedItem && selectedItem.dataset.nodeTypeKey) {
       const key = selectedItem.dataset.nodeTypeKey;
-      const nodeType = NODE_TYPES[key];
-      this.selectNodeType(key, nodeType);
+      const nodeType = this.getNodeTypeFromKey(key);
+      if (nodeType) this.selectNodeType(key, nodeType);
       return;
     }
 
@@ -8423,8 +9821,8 @@ class BlueprintSystem {
     const firstItem = items[0];
     if (firstItem.dataset.nodeTypeKey) {
       const key = firstItem.dataset.nodeTypeKey;
-      const nodeType = NODE_TYPES[key];
-      this.selectNodeType(key, nodeType);
+      const nodeType = this.getNodeTypeFromKey(key);
+      if (nodeType) this.selectNodeType(key, nodeType);
     } else if (firstItem.classList.contains("create-custom-node-btn")) {
       // Handle Create Custom Node button
       this.pendingCustomNodePosition = { ...this.searchMenuPosition };
@@ -8447,6 +9845,12 @@ class BlueprintSystem {
     // Attach mousemove and mouseup to document so they work even over UI elements
     document.addEventListener("mousemove", (e) => this.onMouseMove(e));
     document.addEventListener("mouseup", (e) => this.onMouseUp(e));
+
+    // Clear pressed keys when window loses focus (prevents stuck keys)
+    window.addEventListener("blur", () => this.pressedKeys.clear());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.pressedKeys.clear();
+    });
 
     // Drag and drop for uniforms
     this.canvas.addEventListener("dragover", (e) => {
@@ -8481,6 +9885,33 @@ class BlueprintSystem {
           this.addNode(x, y, nodeType);
           this.history.pushState("Create custom node");
         }
+        return;
+      }
+
+      // Phase 4: caller-node drop (function / loop body)
+      const callerGraphId = e.dataTransfer.getData("callerGraphId");
+      if (callerGraphId) {
+        const targetGraph = this.graphs.get(callerGraphId);
+        if (!targetGraph) return;
+        if (wouldCreateCycle(this, this.activeGraphId, callerGraphId)) {
+          const cyclePath = getCyclePath(
+            this,
+            this.activeGraphId,
+            callerGraphId,
+          );
+          this.showNotification({
+            type: "error",
+            title: "Cycle detected",
+            message: `Adding this would create a cycle: ${cyclePath}`,
+          });
+          return;
+        }
+        const handler = getHandler(targetGraph.kind);
+        if (!handler) return;
+        const nodeType = handler.createCallerNodeType(targetGraph, this);
+        if (!nodeType) return;
+        this.addNode(x, y, nodeType);
+        this.history.pushState("Create caller node");
         return;
       }
     });
@@ -8796,6 +10227,19 @@ class BlueprintSystem {
         shortcut: "V",
         handler: () => this.runRewriteSelectedFanout(),
         isEnabled: () => !!this.getSelectedFanoutCandidate(),
+      },
+      {
+        label: "Turn Into Function",
+        menu: "Project",
+        action: "turnIntoFunction",
+        shortcut: "G",
+        handler: () => this.runTurnSelectionIntoFunction(),
+        isEnabled: () => {
+          if (this.selectedNodes.size === 0) return false;
+          return Array.from(this.selectedNodes).some(
+            (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable,
+          );
+        },
       },
       // Help menu
       {
@@ -9360,10 +10804,14 @@ class BlueprintSystem {
     const deletingPreviewNode =
       this.previewNode && this.selectedNodes.has(this.previewNode);
 
-    // Delete selected nodes and their wires (except output node)
+    // Delete selected nodes and their wires (except undeleteable ones)
     this.selectedNodes.forEach((node) => {
       // Don't delete the output node
       if (node.nodeType === NODE_TYPES.output) {
+        return;
+      }
+      // Respect NodeType.undeleteable (function/loop-body boundary nodes).
+      if (node.nodeType.undeleteable) {
         return;
       }
 
@@ -9687,6 +11135,12 @@ class BlueprintSystem {
       }
     });
 
+    // Store the camera's world-space center at copy time
+    const vw = this.logicalWidth || this.canvas.width;
+    const vh = this.logicalHeight || this.canvas.height;
+    copiedData.cameraCenterX = (vw / 2 - this.camera.x) / this.camera.zoom;
+    copiedData.cameraCenterY = (vh / 2 - this.camera.y) / this.camera.zoom;
+
     // Store in clipboard
     this.clipboard = copiedData;
     console.log(`Copied ${copiedData.nodes.length} nodes`);
@@ -9698,7 +11152,13 @@ class BlueprintSystem {
       return;
     }
 
-    this.pasteNodes(this.clipboard, 50, 50); // Offset by 50px
+    const vw = this.logicalWidth || this.canvas.width;
+    const vh = this.logicalHeight || this.canvas.height;
+    const nowX = (vw / 2 - this.camera.x) / this.camera.zoom;
+    const nowY = (vh / 2 - this.camera.y) / this.camera.zoom;
+    const dx = nowX - this.clipboard.cameraCenterX;
+    const dy = nowY - this.clipboard.cameraCenterY;
+    this.pasteNodes(this.clipboard, dx + 50, dy + 50);
   }
 
   duplicateSelected() {
@@ -10060,6 +11520,21 @@ class BlueprintSystem {
       if (this.getSelectedFanoutCandidate()) {
         e.preventDefault();
         this.runRewriteSelectedFanout();
+      }
+    }
+    // G: Turn selection into function
+    else if (
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      (e.key === "g" || e.key === "G")
+    ) {
+      const hasExtractable = Array.from(this.selectedNodes).some(
+        (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable,
+      );
+      if (this.selectedNodes.size > 0 && hasExtractable) {
+        e.preventDefault();
+        this.runTurnSelectionIntoFunction();
       }
     }
     // L: Toggle Preview Node
@@ -10461,11 +11936,12 @@ class BlueprintSystem {
     return declarations;
   }
 
-  generateShader(target, levels, portToVarName) {
+  generateShader(target, levels, portToVarName, extraDeps = new Map()) {
     let shader = "";
 
-    // Collect unique dependencies for this target with their node sources
-    const dependencyMap = new Map(); // Map from dependency string to Set of node names
+    // Collect unique dependencies for this target with their node sources.
+    // extraDeps carries helper functions needed by compiled function bodies.
+    const dependencyMap = new Map(extraDeps); // start with function-body deps
     for (const level of levels) {
       for (const node of level) {
         // Check if getDependency exists (some dynamically created nodes might not have it)
@@ -10560,6 +12036,24 @@ class BlueprintSystem {
             outputTypes,
           );
           shader += code + "\n";
+        } else if (node.nodeType.isFunctionCall) {
+          // Emit the call site for a FunctionCall node.
+          const handler = getHandler(node.nodeType.callerKind || "function");
+          if (handler) {
+            const sig =
+              node._computedSignature ||
+              handler.computeCallSiteSignature(node, this);
+            node._computedSignature = sig;
+
+            shader += `\n    // ${node.nodeType.name}\n`;
+            shader +=
+              handler.emitCallSite(node, sig, {
+                target,
+                portToVarName,
+                fnName: sig.fnName,
+                host: this,
+              }) + "\n";
+          }
         }
       }
     }
@@ -10637,29 +12131,24 @@ class BlueprintSystem {
   }
 
   showViewCodeModal() {
-    const graph = this.buildDependencyGraph();
-
-    if (!graph) {
-      alert("No output node found. Cannot generate shader.");
-      return;
-    }
-
-    const levels = this.topologicalSort(
-      graph.dependencies,
-      graph.connectedNodes,
-    );
-
-    // Generate shaders for all targets
     const targets = ["webgl1", "webgl2", "webgpu"];
     const shaders = {};
 
-    for (const target of targets) {
-      const portToVarName = this.generateVariableNames(levels, target);
-      const boilerplate = this.getBoilerplate(target);
-      const uniformDeclarations = this.generateUniformDeclarations(target);
-      const shaderCode = this.generateShader(target, levels, portToVarName);
-      const fullShader = boilerplate + uniformDeclarations + shaderCode;
-      shaders[target] = fullShader;
+    const activeKind = this.activeGraph?.kind || "main";
+    if (activeKind !== "main") {
+      for (const target of targets) {
+        shaders[target] = this._generateCallableGraphPreview(
+          this.activeGraph,
+          target,
+        );
+      }
+    } else {
+      const all = this.generateAllShaders();
+      if (!all) {
+        alert("No output node found. Cannot generate shader.");
+        return;
+      }
+      for (const target of targets) shaders[target] = all[target];
     }
 
     // Initialize CodeMirror editors for each panel if not already done
@@ -10888,6 +12377,332 @@ class BlueprintSystem {
     }
   }
 
+  turnSelectionIntoFunction(name = "Untitled") {
+    const extractable = Array.from(this.selectedNodes).filter(
+      (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable,
+    );
+    if (extractable.length === 0) return null;
+
+    const selectedSet = new Set(extractable);
+    const sourceGraph = this.activeGraph;
+    const sourceGraphId = this.activeGraphId;
+
+    // ── 1. Analyse boundary wires ────────────────────────────────────────
+    const incomingWires = [];
+    const outgoingWires = [];
+    const internalWires = [];
+
+    for (const wire of sourceGraph.wires) {
+      const startInside = selectedSet.has(wire.startPort.node);
+      const endInside = selectedSet.has(wire.endPort.node);
+      if (startInside && endInside) {
+        internalWires.push(wire);
+      } else if (startInside && !endInside) {
+        outgoingWires.push({
+          wire,
+          internalPort: wire.startPort,
+          externalPort: wire.endPort,
+        });
+      } else if (!startInside && endInside) {
+        incomingWires.push({
+          wire,
+          externalPort: wire.startPort,
+          internalPort: wire.endPort,
+        });
+      }
+    }
+
+    // ── 2. Build function contract ───────────────────────────────────────
+    const srcPortToContractInput = new Map();
+    const contractInputs = [];
+    const intPortToContractOutput = new Map();
+    const contractOutputs = [];
+    const mkId = (suffix) =>
+      `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const usedNames = new Set();
+
+    const uniqueName = (base) => {
+      let n = base;
+      let i = 2;
+      while (usedNames.has(n)) {
+        n = `${base}_${i++}`;
+      }
+      usedNames.add(n);
+      return n;
+    };
+
+    for (const entry of incomingWires) {
+      const srcPort = entry.externalPort;
+      if (srcPortToContractInput.has(srcPort)) continue;
+      const resolved = srcPort.getResolvedType();
+      const concreteType = this._resolveConcreteTypeForContract(resolved);
+      const portDef = {
+        id: mkId("in"),
+        name: uniqueName(
+          entry.internalPort.name || `in_${contractInputs.length}`,
+        ),
+        type: concreteType,
+      };
+      contractInputs.push(portDef);
+      srcPortToContractInput.set(srcPort, portDef);
+    }
+
+    for (const entry of outgoingWires) {
+      const intPort = entry.internalPort;
+      if (intPortToContractOutput.has(intPort)) continue;
+      const resolved = intPort.getResolvedType();
+      const concreteType = this._resolveConcreteTypeForContract(resolved);
+      const portDef = {
+        id: mkId("out"),
+        name: uniqueName(intPort.name || `out_${contractOutputs.length}`),
+        type: concreteType,
+      };
+      contractOutputs.push(portDef);
+      intPortToContractOutput.set(intPort, portDef);
+    }
+
+    // ── 3. Create the function graph ─────────────────────────────────────
+    const functionGraph = this.createGraph({
+      kind: "function",
+      name,
+      data: {
+        contract: { inputs: contractInputs, outputs: contractOutputs },
+        notes: "",
+      },
+    });
+    const handler = getHandler("function");
+    handler.bootstrapGraph(functionGraph, this);
+
+    const fnInputNode = functionGraph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionInput,
+    );
+    const fnOutputNode = functionGraph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionOutput,
+    );
+
+    // ── 4. Copy nodes into the function body ─────────────────────────────
+    const oldToNewNode = new Map();
+    this._withGraph(functionGraph, () => {
+      for (const node of extractable) {
+        const newNode = new Node(
+          node.x,
+          node.y,
+          this.nodeIdCounter++,
+          node.nodeType,
+        );
+        newNode._blueprintSystem = this;
+        newNode._graph = functionGraph;
+        newNode.operation = node.operation;
+        newNode.customInput = node.customInput;
+        newNode.data = this.cloneNodeData(node.data);
+        newNode.selectedVariable = node.selectedVariable;
+        newNode.uniformId = node.uniformId;
+        newNode.uniformName = node.uniformName;
+        newNode.uniformDisplayName = node.uniformDisplayName;
+        newNode.uniformVariableName = node.uniformVariableName;
+        for (
+          let i = 0;
+          i < newNode.inputPorts.length && i < node.inputPorts.length;
+          i++
+        ) {
+          if (node.inputPorts[i].value !== undefined) {
+            newNode.inputPorts[i].value = this.cloneValue(
+              node.inputPorts[i].value,
+            );
+          }
+        }
+        functionGraph.nodes.push(newNode);
+        oldToNewNode.set(node, newNode);
+      }
+    });
+
+    // ── 5. Recreate internal wires in the function body ──────────────────
+    for (const wire of internalWires) {
+      const newSrcNode = oldToNewNode.get(wire.startPort.node);
+      const newDstNode = oldToNewNode.get(wire.endPort.node);
+      if (!newSrcNode || !newDstNode) continue;
+      const newSrcPort = newSrcNode.outputPorts[wire.startPort.index];
+      const newDstPort = newDstNode.inputPorts[wire.endPort.index];
+      if (!newSrcPort || !newDstPort) continue;
+      const newWire = new Wire(newSrcPort, newDstPort);
+      newSrcPort.connections.push(newWire);
+      newDstPort.connections.push(newWire);
+      functionGraph.wires.push(newWire);
+    }
+
+    // ── 6. Wire function inputs to body nodes ────────────────────────────
+    for (const entry of incomingWires) {
+      const contractDef = srcPortToContractInput.get(entry.externalPort);
+      const contractIdx = contractInputs.indexOf(contractDef);
+      const fnInPort = fnInputNode.outputPorts[contractIdx];
+      const newDstNode = oldToNewNode.get(entry.internalPort.node);
+      if (!newDstNode || !fnInPort) continue;
+      const newDstPort = newDstNode.inputPorts[entry.internalPort.index];
+      if (!newDstPort) continue;
+      const newWire = new Wire(fnInPort, newDstPort);
+      fnInPort.connections.push(newWire);
+      newDstPort.connections.push(newWire);
+      functionGraph.wires.push(newWire);
+    }
+
+    // ── 7. Wire body nodes to function outputs ───────────────────────────
+    for (const entry of outgoingWires) {
+      const contractDef = intPortToContractOutput.get(entry.internalPort);
+      const contractIdx = contractOutputs.indexOf(contractDef);
+      const fnOutPort = fnOutputNode.inputPorts[contractIdx];
+      const newSrcNode = oldToNewNode.get(entry.internalPort.node);
+      if (!newSrcNode || !fnOutPort) continue;
+      const newSrcPort = newSrcNode.outputPorts[entry.internalPort.index];
+      if (!newSrcPort) continue;
+      if (!fnOutPort.connections.some((w) => w.startPort === newSrcPort)) {
+        const newWire = new Wire(newSrcPort, fnOutPort);
+        newSrcPort.connections.push(newWire);
+        fnOutPort.connections.push(newWire);
+        functionGraph.wires.push(newWire);
+      }
+    }
+
+    for (const wire of functionGraph.wires) {
+      this.resolveGenericsForConnection(wire.startPort, wire.endPort);
+    }
+
+    this.history.initGraphState(
+      functionGraph.id,
+      this._exportGraphState(functionGraph),
+    );
+    this.openTabs && this.openTabs.add(functionGraph.id);
+
+    // ── 8. Build the caller node type ────────────────────────────────────
+    functionGraph.contractVersion = (functionGraph.contractVersion || 0) + 1;
+    handler.enforceBoundaryRules(functionGraph, this);
+    const callerType = handler.createCallerNodeType(functionGraph, this);
+
+    // ── 9. Mutate source graph in a transaction ──────────────────────────
+    let callerNode;
+    this.runMultiGraphTransaction(
+      [sourceGraphId],
+      () => {
+        // Disconnect and remove selected nodes from source graph.
+        for (const node of extractable) {
+          for (const port of node.getAllPorts()) {
+            for (const wire of [...port.connections]) {
+              this.disconnectWire(wire);
+            }
+          }
+        }
+        sourceGraph.nodes = sourceGraph.nodes.filter(
+          (n) => !selectedSet.has(n),
+        );
+
+        // Place caller node.
+        let avgX = 0,
+          avgY = 0;
+        for (const n of extractable) {
+          avgX += n.x;
+          avgY += n.y;
+        }
+        avgX /= extractable.length;
+        avgY /= extractable.length;
+
+        this._withGraph(sourceGraph, () => {
+          callerNode = this.addNode(avgX, avgY, callerType);
+        });
+
+        // Rewire external inputs to caller.
+        for (let i = 0; i < contractInputs.length; i++) {
+          const contractDef = contractInputs[i];
+          const entry = incomingWires.find(
+            (e) => srcPortToContractInput.get(e.externalPort) === contractDef,
+          );
+          if (!entry) continue;
+          const srcPort = entry.externalPort;
+          const callerInPort = callerNode.inputPorts[i];
+          if (!callerInPort) continue;
+          const newWire = new Wire(srcPort, callerInPort);
+          srcPort.connections.push(newWire);
+          callerInPort.connections.push(newWire);
+          sourceGraph.wires.push(newWire);
+          this.resolveGenericsForConnection(srcPort, callerInPort);
+        }
+
+        // Rewire caller outputs to external destinations.
+        for (let i = 0; i < contractOutputs.length; i++) {
+          const contractDef = contractOutputs[i];
+          const matchingEntries = outgoingWires.filter(
+            (e) => intPortToContractOutput.get(e.internalPort) === contractDef,
+          );
+          const callerOutPort = callerNode.outputPorts[i];
+          if (!callerOutPort) continue;
+          for (const entry of matchingEntries) {
+            const dstPort = entry.externalPort;
+            const newWire = new Wire(callerOutPort, dstPort);
+            callerOutPort.connections.push(newWire);
+            dstPort.connections.push(newWire);
+            sourceGraph.wires.push(newWire);
+            this.resolveGenericsForConnection(callerOutPort, dstPort);
+          }
+        }
+
+        this.clearSelection();
+      },
+      `Turn selection into function "${name}"`,
+    );
+
+    this.renderFunctionsList();
+    this.renderGraphTabBar();
+    this.onShaderChanged();
+    this.render();
+
+    return { functionGraph, callerNode };
+  }
+
+  _nextFunctionName() {
+    let max = 0;
+    for (const g of this.graphs.values()) {
+      if (g.kind !== "function") continue;
+      const m = g.name.match(/^Function(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `Function${max + 1}`;
+  }
+
+  runTurnSelectionIntoFunction() {
+    const name = prompt("Function name:", this._nextFunctionName());
+    if (!name) return;
+    try {
+      const result = this.turnSelectionIntoFunction(name);
+      if (!result) {
+        this.showNotification({
+          type: "warning",
+          title: "Turn Into Function",
+          message: "No extractable nodes in selection.",
+          duration: 2200,
+        });
+        return;
+      }
+      this.showNotification({
+        type: "success",
+        title: "Turn Into Function",
+        message: `Created function "${name}" with ${result.functionGraph.data.contract.inputs.length} input(s) and ${result.functionGraph.data.contract.outputs.length} output(s).`,
+        duration: 2500,
+      });
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "Turn Into Function Failed",
+        message: error.message,
+        duration: 2400,
+      });
+    }
+  }
+
+  _resolveConcreteTypeForContract(portType) {
+    if (isGenericType(portType)) {
+      return "float";
+    }
+    return portType;
+  }
+
   runRewriteSelectedFanout() {
     const candidate = this.getSelectedFanoutCandidate();
     if (!candidate) {
@@ -10999,7 +12814,11 @@ class BlueprintSystem {
     const sortedCategories = Object.keys(categories).sort();
 
     // Build the sidebar HTML
-    let sidebarHtml = "";
+    let sidebarHtml = `
+      <div class="manual-node-item manual-types-item" data-special="types" style="border-left-color: #c084fc; margin: 4px 8px 8px 8px; padding: 8px 10px;">
+        <span class="manual-node-name">Types Reference</span>
+      </div>
+    `;
     for (const category of sortedCategories) {
       const nodes = categories[category].sort((a, b) =>
         a.nodeType.name.localeCompare(b.nodeType.name),
@@ -11090,9 +12909,13 @@ class BlueprintSystem {
             .forEach((i) => i.classList.remove("active"));
           // Add active class to clicked item
           item.classList.add("active");
-          // Show node documentation
-          const nodeKey = item.dataset.nodeKey;
-          this.showNodeManualEntry(nodeKey);
+          // Show node or special documentation
+          if (item.dataset.special === "types") {
+            this.showTypesManualEntry();
+          } else {
+            const nodeKey = item.dataset.nodeKey;
+            this.showNodeManualEntry(nodeKey);
+          }
         });
       });
 
@@ -11320,38 +13143,79 @@ class BlueprintSystem {
     contentContainer.innerHTML = html;
   }
 
-  async exportGLSL() {
-    const graph = this.buildDependencyGraph();
+  showTypesManualEntry() {
+    const contentContainer = document.getElementById("manualContent");
+    const skipKeys = new Set(["T", "U"]);
+    const typeRows = Object.entries(PORT_TYPES)
+      .filter(
+        ([key, t]) => !t.isGeneric && !t.isComposite && !skipKeys.has(key),
+      )
+      .map(
+        ([key, t]) => `
+        <tr>
+          <td><span class="manual-type-badge" style="background: ${t.color}40; color: ${t.color}; border-color: ${t.color}">${key}</span></td>
+          <td>${t.name}</td>
+          <td>${t.editable ? "Yes" : "No"}</td>
+          <td>${t.defaultValue !== undefined ? (Array.isArray(t.defaultValue) ? `(${t.defaultValue.join(", ")})` : String(t.defaultValue)) : "—"}</td>
+        </tr>
+      `,
+      )
+      .join("");
 
-    if (!graph) {
+    const genericRows = Object.entries(PORT_TYPES)
+      .filter(([key, t]) => t.isGeneric && !skipKeys.has(key))
+      .map(
+        ([key, t]) => `
+        <tr>
+          <td><span class="manual-type-badge">${t.name}</span></td>
+          <td>${t.allowedTypes?.map((at) => `<code>${at}</code>`).join(", ") || "—"}</td>
+        </tr>
+      `,
+      )
+      .join("");
+
+    contentContainer.innerHTML = `
+      <div class="manual-entry">
+        <div class="manual-entry-header" style="border-left-color: #c084fc">
+          <h2>Types Reference</h2>
+        </div>
+        <div class="manual-section">
+          <h3>Concrete Types</h3>
+          <p>These are the fundamental data types used by shader node ports.</p>
+          <table class="manual-ports-table">
+            <thead><tr><th>Type</th><th>Name</th><th>Editable</th><th>Default</th></tr></thead>
+            <tbody>${typeRows}</tbody>
+          </table>
+        </div>
+        <div class="manual-section">
+          <h3>Generic Types</h3>
+          <p>Generic types resolve to a concrete type at codegen time based on what is connected. When unconnected, they default to the first allowed type.</p>
+          <table class="manual-ports-table">
+            <thead><tr><th>Name</th><th>Allowed Types</th></tr></thead>
+            <tbody>${genericRows}</tbody>
+          </table>
+        </div>
+        <div class="manual-section">
+          <h3>Type Compatibility</h3>
+          <p>Ports can be connected when their types are compatible: exact match, generic-to-concrete (if the concrete type is in the generic's allowed list), or when one generic is a subset of another.</p>
+        </div>
+      </div>
+    `;
+  }
+
+  async exportGLSL() {
+    const shaders = this.generateAllShaders();
+    if (!shaders) {
       alert("No output node found. Cannot generate shader.");
       return;
     }
 
-    const levels = this.topologicalSort(
-      graph.dependencies,
-      graph.connectedNodes,
-    );
-
     // Create ZIP file
     const zip = new JSZip();
 
-    // Generate shaders for all targets
-    const targets = ["webgl1", "webgl2", "webgpu"];
-    const shaders = {};
-
-    for (const target of targets) {
-      // Generate variable names for this specific target
-      const portToVarName = this.generateVariableNames(levels, target);
-      const boilerplate = this.getBoilerplate(target);
-      const uniformDeclarations = this.generateUniformDeclarations(target);
-      const shaderCode = this.generateShader(target, levels, portToVarName);
-      const fullShader = boilerplate + uniformDeclarations + shaderCode;
-      shaders[target] = fullShader;
-
-      // Log to console
+    for (const target of ["webgl1", "webgl2", "webgpu"]) {
       console.log(`Generated ${target.toUpperCase()} Shader:`);
-      console.log(fullShader);
+      console.log(shaders[target]);
       console.log("---");
     }
 
@@ -11832,7 +13696,10 @@ class BlueprintSystem {
 
     // Clear and reinitialize history after adding default nodes
     this.history.clear();
-    this.history.currentState = this.exportState();
+    this.history.initGraphState(
+      this.mainGraphId,
+      this._exportGraphState(this.mainGraph),
+    );
 
     this.render();
     this.announceMcpProjectUpdate("create-new-file");
@@ -11843,11 +13710,11 @@ class BlueprintSystem {
   // _additionalGraphs entries (non-main graphs). Wraps in _withGraph so any
   // helper that incidentally reads via the delegating getters resolves to
   // the right graph.
+  // NOTE: Uniforms are host-level; they're added in _buildSaveData, not here.
   _serializeGraphPayload(graph) {
     return this._withGraph(graph, () => ({
       shaderSettings: graph.shaderSettings,
-      uniforms: graph.uniforms,
-      deprecatedUniforms: graph.deprecatedUniforms,
+      // Uniforms are host-level (not per-graph); saved at top level by _buildSaveData
       camera: { x: graph.camera.x, y: graph.camera.y, zoom: graph.camera.zoom },
       nodes: graph.nodes.map((node) => ({
         id: node.id,
@@ -11892,7 +13759,6 @@ class BlueprintSystem {
         color: comment.color,
       })),
       nodeIdCounter: graph.nodeIdCounter,
-      uniformIdCounter: graph.uniformIdCounter,
       commentIdCounter: graph.commentIdCounter,
     }));
   }
@@ -11906,6 +13772,9 @@ class BlueprintSystem {
       version: "1.0.0",
       ...main,
       // Host-level fields (shared across graphs)
+      uniforms: this.uniforms,
+      deprecatedUniforms: this.deprecatedUniforms,
+      uniformIdCounter: this.uniformIdCounter,
       customNodes: this.customNodes,
       customNodeIdCounter: this.customNodeIdCounter,
       previewSettings: this.previewSettings,
@@ -11918,6 +13787,10 @@ class BlueprintSystem {
       extras.push({
         id: graph.id,
         name: graph.name,
+        kind: graph.kind,
+        color: graph.color,
+        data: graph.data,
+        contractVersion: graph.contractVersion,
         ...this._serializeGraphPayload(graph),
       });
     }
@@ -12030,6 +13903,7 @@ class BlueprintSystem {
   // Apply a serialized per-graph payload to the given Graph. Pure graph
   // mutation: no UI side-effects, no notifications, no history reset. The
   // caller is responsible for any post-load UI refresh.
+  // NOTE: Uniforms are host-level (not per-graph) and are loaded separately.
   _loadGraphPayload(graph, data) {
     // Clear current state
     graph.nodes = [];
@@ -12046,17 +13920,8 @@ class BlueprintSystem {
       };
     }
 
-    // Restore uniforms
-    const normalizedUniformCollections = this.normalizeUniformCollections(
-      data.uniforms || [],
-      data.deprecatedUniforms || [],
-    );
-    graph.uniforms = normalizedUniformCollections.uniforms;
-    graph.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
-    graph.uniformIdCounter = Math.max(
-      data.uniformIdCounter || 1,
-      normalizedUniformCollections.uniformIdCounter,
-    );
+    // Uniforms are now host-level, not per-graph.
+    // They are loaded in loadFromJSON before this method is called.
 
     // Restore camera
     if (data.camera) {
@@ -12073,7 +13938,8 @@ class BlueprintSystem {
           nodeData.nodeTypeKey.startsWith("uniform_") &&
           nodeData.uniformId !== undefined
         ) {
-          const uniform = graph.uniforms.find(
+          // Uniforms are host-level; look them up from this (host)
+          const uniform = this.uniforms.find(
             (u) => u.id === nodeData.uniformId,
           );
           if (uniform) {
@@ -12114,7 +13980,8 @@ class BlueprintSystem {
 
         if (nodeData.uniformId !== undefined) {
           node.uniformId = nodeData.uniformId;
-          const uniform = graph.uniforms.find(
+          // Uniforms are host-level; look them up from this (host)
+          const uniform = this.uniforms.find(
             (u) => u.id === nodeData.uniformId,
           );
           if (uniform) {
@@ -12139,6 +14006,17 @@ class BlueprintSystem {
 
         nodeMap.set(nodeData.id, node);
         graph.nodes.push(node);
+      }
+    }
+
+    // Rebuild boundary-node ports from the contract. FunctionInput/Output
+    // store no ports in their NodeType (they're contract-driven), so without
+    // this step their ports would be empty after load and wires referencing
+    // them would be dropped as "missing ports".
+    if (graph.kind === "function" || graph.kind === "loopBody") {
+      const handler = getHandler(graph.kind);
+      if (handler && typeof handler.enforceBoundaryRules === "function") {
+        handler.enforceBoundaryRules(graph, this);
       }
     }
 
@@ -12224,20 +14102,79 @@ class BlueprintSystem {
         this.updatePreviewSettingsUI();
       }
 
+      // Restore host-level uniforms (migration support for old per-graph format)
+      // Priority: top-level uniforms > mainGraph payload uniforms > empty
+      if (data.uniforms !== undefined) {
+        // New format: uniforms at top level
+        const normalizedUniformCollections = this.normalizeUniformCollections(
+          data.uniforms || [],
+          data.deprecatedUniforms || [],
+        );
+        this.uniforms = normalizedUniformCollections.uniforms;
+        this.deprecatedUniforms =
+          normalizedUniformCollections.deprecatedUniforms;
+        this.uniformIdCounter = Math.max(
+          data.uniformIdCounter || 1,
+          normalizedUniformCollections.uniformIdCounter,
+        );
+      } else if (
+        data.uniforms === undefined &&
+        (data.nodes || data.shaderSettings)
+      ) {
+        // Old format: uniforms might be in mainGraph payload (top-level data IS mainGraph)
+        // This is the migration path from old files
+        const normalizedUniformCollections = this.normalizeUniformCollections(
+          data.uniforms || [],
+          data.deprecatedUniforms || [],
+        );
+        this.uniforms = normalizedUniformCollections.uniforms;
+        this.deprecatedUniforms =
+          normalizedUniformCollections.deprecatedUniforms;
+        this.uniformIdCounter = Math.max(
+          data.uniformIdCounter || 1,
+          normalizedUniformCollections.uniformIdCounter,
+        );
+      } else {
+        // No uniforms found, reset to empty
+        this.uniforms = [];
+        this.deprecatedUniforms = [];
+        this.uniformIdCounter = 1;
+      }
+      this.deprecatedUniformsExpanded = false;
+
+      // Register additional graph shells BEFORE loading the main graph's nodes,
+      // so that function_call_<id> keys resolve during main-graph node loading.
+      const additionalGraphEntries = [];
+      if (Array.isArray(data._additionalGraphs)) {
+        for (const extra of data._additionalGraphs) {
+          const g = this.createGraph({
+            id: extra.id,
+            name: extra.name,
+            kind: extra.kind || "function",
+            color: extra.color || null,
+            data: extra.data || {
+              contract: { inputs: [], outputs: [] },
+              notes: "",
+            },
+            contractVersion: extra.contractVersion || 0,
+          });
+          additionalGraphEntries.push({ g, extra });
+        }
+      }
+
       // Load top-level into the main graph.
       this._loadGraphPayload(this.mainGraph, data);
 
-      // Load any additional graphs.
-      if (Array.isArray(data._additionalGraphs)) {
-        for (const extra of data._additionalGraphs) {
-          const g = this.createGraph({ id: extra.id, name: extra.name });
-          this._loadGraphPayload(g, extra);
-        }
+      // Now load node payloads for additional graphs.
+      for (const { g, extra } of additionalGraphEntries) {
+        this._loadGraphPayload(g, extra);
       }
 
       // Post-load UI refresh (active graph is mainGraph at this point).
       this.updateShaderSettingsUI();
       this.renderUniformList();
+      this.renderFunctionsList && this.renderFunctionsList();
+      this.renderGraphTabBar && this.renderGraphTabBar();
       this.mainGraph.nodes.forEach((node) => {
         node.inputPorts.forEach((port) => port.updateEditability());
         node.recalculateHeight();
@@ -12260,10 +14197,10 @@ class BlueprintSystem {
         this.onShaderChanged();
       }, 100);
 
-      // Clear and reinitialize history (per-graph).
+      // Clear and reinitialize history for all graphs.
+      this.history.clear();
       for (const g of this.graphs.values()) {
-        g.history.clear();
-        g.history.currentState = this._exportGraphState(g);
+        this.history.initGraphState(g.id, this._exportGraphState(g));
       }
       this.announceMcpProjectUpdate("load-project");
 
@@ -12292,6 +14229,11 @@ class BlueprintSystem {
       return `uniform_${nodeType.uniformId}`;
     }
 
+    // Check if it's a function-call caller node
+    if (nodeType.isFunctionCall && nodeType.targetGraphId) {
+      return `function_call_${nodeType.targetGraphId}`;
+    }
+
     // Find the key for this node type in NODE_TYPES
     for (const [key, type] of Object.entries(NODE_TYPES)) {
       if (type === nodeType) {
@@ -12317,6 +14259,16 @@ class BlueprintSystem {
       }
     }
 
+    // Check if it's a function-call caller node
+    if (key.startsWith("function_call_")) {
+      const graphId = key.slice("function_call_".length);
+      const g = this.graphs.get(graphId);
+      if (g) {
+        const handler = getHandler(g.kind);
+        if (handler) return handler.createCallerNodeType(g, this);
+      }
+    }
+
     // Check uniform nodes
     const uniformNodeTypes = this.getUniformNodeTypes();
     if (uniformNodeTypes[key]) {
@@ -12339,6 +14291,7 @@ class BlueprintSystem {
   }
 
   sanitizeGraphLocalId(value, fallback = "node") {
+    // (see module-level _sanitizeId for the shader identifier version)
     const normalized = String(value || "")
       .trim()
       .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
@@ -13193,7 +15146,9 @@ class BlueprintSystem {
     return this._exportGraphState(this.activeGraph);
   }
 
-  // Snapshot a specific graph (used by per-graph HistoryManager).
+  // Snapshot a specific graph (used by HistoryManager).
+  // NOTE: Uniforms are host-level (shared), but we snapshot them here so that
+  // undo/redo restores them along with the graph state.
   _exportGraphState(graph) {
     return {
       version: "1.0.0",
@@ -13237,15 +15192,20 @@ class BlueprintSystem {
         description: comment.description,
         color: comment.color,
       })),
-      uniforms: JSON.parse(JSON.stringify(graph.uniforms)),
-      deprecatedUniforms: JSON.parse(JSON.stringify(graph.deprecatedUniforms)),
+      // Uniforms are host-level (shared across graphs)
+      uniforms: JSON.parse(JSON.stringify(this.uniforms)),
+      deprecatedUniforms: JSON.parse(JSON.stringify(this.deprecatedUniforms)),
       // customNodes is host-level (shared) but we still snapshot it here so
       // that single-graph undo/redo restores the legacy library state.
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
       shaderSettings: { ...graph.shaderSettings },
+      kind: graph.kind,
+      color: graph.color,
+      data: JSON.parse(JSON.stringify(graph.data || {})),
+      contractVersion: graph.contractVersion || 0,
       counters: {
         nodeIdCounter: graph.nodeIdCounter,
-        uniformIdCounter: graph.uniformIdCounter,
+        uniformIdCounter: this.uniformIdCounter, // host-level
         customNodeIdCounter: this.customNodeIdCounter,
         commentIdCounter: graph.commentIdCounter,
       },
@@ -13271,6 +15231,7 @@ class BlueprintSystem {
   // Restore a snapshot into a specific graph (used by per-graph
   // HistoryManager). UI side-effects only fire when targeting the active
   // graph; the shader-changed pulse fires when targeting the main graph.
+  // NOTE: Uniforms are host-level (shared), but restored here for undo/redo.
   _loadGraphState(graph, stateData) {
     // Clear current state
     graph.nodes = [];
@@ -13281,25 +15242,32 @@ class BlueprintSystem {
 
     // Restore counters
     graph.nodeIdCounter = stateData.counters.nodeIdCounter;
-    graph.uniformIdCounter = stateData.counters.uniformIdCounter;
+    this.uniformIdCounter = stateData.counters.uniformIdCounter; // host-level
     this.customNodeIdCounter = stateData.counters.customNodeIdCounter;
     graph.commentIdCounter = stateData.counters.commentIdCounter || 1;
 
-    // Restore uniforms and custom nodes
+    // Restore uniforms (host-level) and custom nodes
     const normalizedUniformCollections = this.normalizeUniformCollections(
       JSON.parse(JSON.stringify(stateData.uniforms || [])),
       JSON.parse(JSON.stringify(stateData.deprecatedUniforms || [])),
     );
-    graph.uniforms = normalizedUniformCollections.uniforms;
-    graph.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
-    graph.uniformIdCounter = Math.max(
-      graph.uniformIdCounter,
+    this.uniforms = normalizedUniformCollections.uniforms;
+    this.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
+    this.uniformIdCounter = Math.max(
+      this.uniformIdCounter,
       normalizedUniformCollections.uniformIdCounter,
     );
     if (stateData.customNodes !== undefined) {
       this.customNodes = JSON.parse(JSON.stringify(stateData.customNodes));
     }
     graph.shaderSettings = { ...stateData.shaderSettings };
+
+    // Restore kind-specific fields (contract, color, etc.) for non-main graphs
+    if (stateData.color !== undefined) graph.color = stateData.color;
+    if (stateData.data !== undefined)
+      graph.data = JSON.parse(JSON.stringify(stateData.data));
+    if (stateData.contractVersion !== undefined)
+      graph.contractVersion = stateData.contractVersion;
 
     // Restore nodes
     const nodeMap = new Map();
@@ -13337,6 +15305,13 @@ class BlueprintSystem {
       nodeMap.set(nodeData.id, node);
       graph.nodes.push(node);
     });
+
+    // Rebuild boundary-node ports from the restored contract so that wire
+    // restoration below can find the correct port indices.
+    if (graph.kind === "function" || graph.kind === "loopBody") {
+      const handler = getHandler(graph.kind);
+      if (handler) handler.enforceBoundaryRules(graph, this);
+    }
 
     // Restore wires
     stateData.wires.forEach((wireData) => {
@@ -13392,11 +15367,21 @@ class BlueprintSystem {
       node.recalculateHeight();
     });
 
+    // For function/loopBody graphs, re-enforce boundary rules so that
+    // boundary node ports match the restored contract.
+    if (graph.kind !== "main") {
+      const handler = getHandler(graph.kind);
+      if (handler) handler.enforceBoundaryRules(graph, this);
+    }
+
     // UI side-effects: only when this graph is currently visible.
     if (graph === this.activeGraph) {
       this.renderUniformList();
       this.renderCustomNodesList();
       this.updateShaderSettingsUI();
+      this.renderContractEditor();
+      this.renderFunctionsList();
+      this.renderGraphTabBar();
       this.render();
       this.updateDependencyList();
     }
@@ -13589,8 +15574,18 @@ class BlueprintSystem {
     const node = new Node(x, y, this.nodeIdCounter++, nodeType);
     // Store reference to blueprint system for nodes that need it (like Get Variable)
     node._blueprintSystem = this;
-    node._graph = this.activeGraph;
+    // Use the same graph `this.nodes.push` will target — `_graphOverride`
+    // (set by `_withGraph`) redirects pushes to a non-active graph, and the
+    // node's `_graph` must agree with where it's actually stored.
+    node._graph = this._graphOverride || this.activeGraph;
     this.nodes.push(node);
+    // If this is a function caller, seed its resolvedGenerics from the
+    // body so newly-placed callers display collapsed types immediately
+    // (otherwise the UI would only catch up after the next wire op).
+    if (nodeType.isFunctionCall && nodeType.targetGraphId) {
+      const target = this.graphs.get(nodeType.targetGraphId);
+      if (target) this._syncCallersBodyGenerics(target);
+    }
     this.render();
     return node;
   }
@@ -13815,128 +15810,78 @@ class BlueprintSystem {
       // Recalculate node height
       wire.endPort.node.recalculateHeight();
     }
-    // Remove from wires array
-    const wireIndex = this.wires.indexOf(wire);
-    if (wireIndex > -1) this.wires.splice(wireIndex, 1);
+    // Remove from the OWNING graph's wires array. `this.wires` delegates to
+    // the active graph, but a wire can live on any graph (e.g., contract
+    // syncs walk all graphs). Find the wire's home via its endpoint node's
+    // `_graph` pointer; fall back to scanning all graphs if that's missing.
+    const ownerGraph =
+      wire.startPort?.node?._graph ||
+      wire.endPort?.node?._graph ||
+      (() => {
+        for (const g of this.graphs.values()) {
+          if (g.wires.includes(wire)) return g;
+        }
+        return null;
+      })();
+    if (ownerGraph) {
+      const idx = ownerGraph.wires.indexOf(wire);
+      if (idx > -1) ownerGraph.wires.splice(idx, 1);
+    }
+    // Body-side generic resolution may have shifted; push to callers.
+    this._syncAllCallerBodyGenerics();
     this.onShaderChanged();
   }
 
   reevaluateGenericType(node, genericType, visited = new Set()) {
-    // Prevent infinite loops
     const nodeKey = `${node.id}_${genericType}`;
     if (visited.has(nodeKey)) return;
     visited.add(nodeKey);
 
-    // Get all ports with this generic type
     const genericPorts = node
       .getAllPorts()
       .filter((port) => port.portType === genericType);
 
-    // Find all connected concrete types
-    const connectedConcreteTypes = new Set();
+    const oldResolution = node.resolvedGenerics[genericType];
+
+    // Phase 1: Collect connected generic nodes and direct concrete sources.
+    // Direct = concrete port types, NOT resolutions inherited from other generics.
     const connectedGenericNodes = [];
+    const directConcreteTypes = new Set();
 
     genericPorts.forEach((port) => {
       port.connections.forEach((wire) => {
         const connectedPort =
           wire.startPort === port ? wire.endPort : wire.startPort;
-        if (connectedPort) {
-          // Check if the connected port is generic
-          if (isGenericType(connectedPort.portType)) {
-            // Track connected generic nodes for re-evaluation
-            connectedGenericNodes.push({
-              node: connectedPort.node,
-              genericType: connectedPort.portType,
-            });
+        if (!connectedPort) return;
 
-            // Also check if it has a concrete resolution we can use
-            const resolvedType = connectedPort.node.resolveGenericType(
-              connectedPort.portType,
+        if (isGenericType(connectedPort.portType)) {
+          connectedGenericNodes.push({
+            node: connectedPort.node,
+            genericType: connectedPort.portType,
+          });
+        } else {
+          let connectedType = connectedPort.portType;
+          if (connectedPort.node.nodeType.getCustomType) {
+            const customType = connectedPort.node.nodeType.getCustomType(
+              connectedPort.node,
+              connectedPort,
             );
-            if (resolvedType) {
-              const resolvedTypeDef = PORT_TYPES[resolvedType];
-              if (
-                !resolvedTypeDef?.isComposite &&
-                !isGenericType(resolvedType)
-              ) {
-                connectedConcreteTypes.add(resolvedType);
-              }
-            }
-          } else {
-            // Non-generic port - resolve its actual type first
-            let connectedType = connectedPort.portType;
-
-            // Try to resolve custom types through getCustomType
-            if (connectedPort.node.nodeType.getCustomType) {
-              const customType = connectedPort.node.nodeType.getCustomType(
-                connectedPort.node,
-                connectedPort,
-              );
-              if (customType) {
-                connectedType = customType;
-              }
-            }
-
-            // Now check if the resolved type is a concrete type
-            const connectedTypeDef = PORT_TYPES[connectedType];
-
-            // Only consider concrete types (not composite, not generic, and defined in PORT_TYPES)
-            if (
-              connectedTypeDef &&
-              !connectedTypeDef.isComposite &&
-              !connectedTypeDef.isGeneric
-            ) {
-              connectedConcreteTypes.add(connectedType);
-            }
+            if (customType) connectedType = customType;
+          }
+          const def = PORT_TYPES[connectedType];
+          if (def && !def.isComposite && !def.isGeneric) {
+            directConcreteTypes.add(connectedType);
           }
         }
       });
     });
 
-    const oldResolution = node.resolvedGenerics[genericType];
-    let resolutionChanged = false;
+    // Phase 2: Clear this node's resolution and cascade-clear connected generics
+    // so that stale inherited resolutions don't influence the re-scan.
+    if (oldResolution) {
+      delete node.resolvedGenerics[genericType];
+      genericPorts.forEach((port) => port.updateEditability());
 
-    // If no concrete types found, clear the resolution
-    if (connectedConcreteTypes.size === 0) {
-      if (oldResolution) {
-        delete node.resolvedGenerics[genericType];
-        resolutionChanged = true;
-
-        // Update editability for all ports with this generic type
-        genericPorts.forEach((port) => {
-          port.updateEditability();
-        });
-      }
-    }
-    // If exactly one concrete type, use it
-    else if (connectedConcreteTypes.size === 1) {
-      const concreteType = Array.from(connectedConcreteTypes)[0];
-
-      if (oldResolution !== concreteType) {
-        node.resolvedGenerics[genericType] = concreteType;
-        resolutionChanged = true;
-
-        // Propagate new resolution
-        this.propagateGenericResolution(node, genericType, concreteType);
-
-        // Update editability for all ports with this generic type
-        genericPorts.forEach((port) => {
-          port.updateEditability();
-        });
-      }
-    }
-    // If multiple concrete types, this is an error state (shouldn't happen)
-    // Keep the first one found
-    else {
-      const concreteType = Array.from(connectedConcreteTypes)[0];
-      if (oldResolution !== concreteType) {
-        node.resolvedGenerics[genericType] = concreteType;
-        resolutionChanged = true;
-      }
-    }
-
-    // Always re-evaluate connected generic nodes if our resolution changed
-    if (resolutionChanged) {
       connectedGenericNodes.forEach(
         ({ node: connectedNode, genericType: connectedGenericType }) => {
           this.reevaluateGenericType(
@@ -13946,6 +15891,52 @@ class BlueprintSystem {
           );
         },
       );
+    }
+
+    // Phase 3: Re-scan connected generics for concrete resolutions that
+    // survived the cascade (from independent concrete sources).
+    const concreteTypes = new Set(directConcreteTypes);
+    connectedGenericNodes.forEach(({ node: cn, genericType: cgt }) => {
+      const resolved = cn.resolveGenericType(cgt);
+      if (resolved) {
+        const def = PORT_TYPES[resolved];
+        if (def && !def.isComposite && !isGenericType(resolved)) {
+          concreteTypes.add(resolved);
+        }
+      }
+    });
+
+    // Phase 4: Decide on new resolution.
+    if (concreteTypes.size === 0) {
+      let narrowestGeneric = null;
+      const myAllowed = getAllowedTypesForGeneric(genericType);
+
+      connectedGenericNodes.forEach(({ genericType: connectedGenericType }) => {
+        const connectedAllowed =
+          getAllowedTypesForGeneric(connectedGenericType);
+        if (
+          connectedAllowed.length < myAllowed.length &&
+          connectedAllowed.every((t) => myAllowed.includes(t))
+        ) {
+          if (
+            !narrowestGeneric ||
+            connectedAllowed.length <
+              getAllowedTypesForGeneric(narrowestGeneric).length
+          ) {
+            narrowestGeneric = connectedGenericType;
+          }
+        }
+      });
+
+      if (narrowestGeneric) {
+        node.resolvedGenerics[genericType] = narrowestGeneric;
+        genericPorts.forEach((port) => port.updateEditability());
+      }
+    } else {
+      const concreteType = Array.from(concreteTypes)[0];
+      node.resolvedGenerics[genericType] = concreteType;
+      this.propagateGenericResolution(node, genericType, concreteType);
+      genericPorts.forEach((port) => port.updateEditability());
     }
   }
 
@@ -14044,6 +16035,9 @@ class BlueprintSystem {
         port.updateEditability();
       });
     }
+
+    // Body-side generic resolution may have shifted; push to callers.
+    this._syncAllCallerBodyGenerics();
   }
 
   propagateGenericResolution(node, genericType, concreteType) {
@@ -14051,6 +16045,12 @@ class BlueprintSystem {
     const genericPorts = node
       .getAllPorts()
       .filter((port) => port.portType === genericType);
+
+    // Propagation may carry the resolved type across a node (e.g. an input
+    // genType resolves, so the output genType resolves too). If the new
+    // concrete type now conflicts with a wire on the other-side port, that
+    // wire must be dropped — regardless of which graph owns it.
+    const wiresToDrop = [];
 
     // For each generic port, propagate to connected nodes
     genericPorts.forEach((port) => {
@@ -14060,16 +16060,18 @@ class BlueprintSystem {
       port.connections.forEach((wire) => {
         const connectedPort =
           wire.startPort === port ? wire.endPort : wire.startPort;
+        if (!connectedPort) return;
 
-        if (connectedPort && isGenericType(connectedPort.portType)) {
+        if (isGenericType(connectedPort.portType)) {
           // Check if the connected node hasn't resolved this generic yet
           const connectedNode = connectedPort.node;
           const currentResolution = connectedNode.resolveGenericType(
             connectedPort.portType,
           );
 
-          if (!currentResolution) {
-            // Resolve the connected node's generic
+          if (!currentResolution || isGenericType(currentResolution)) {
+            // Resolve the connected node's generic (or override a
+            // generic-narrowed resolution with a concrete type)
             const wasUpdated = connectedNode.updateResolvedGenerics(
               connectedPort.portType,
               concreteType,
@@ -14083,10 +16085,33 @@ class BlueprintSystem {
                 concreteType,
               );
             }
+          } else if (currentResolution !== concreteType) {
+            // The other end already resolved to a different concrete type.
+            // The wire can no longer carry this signal.
+            wiresToDrop.push(wire);
+          }
+        } else {
+          // Connected port is concrete. If it can't accept the new resolved
+          // type, drop the wire.
+          const outputPort = port.type === "output" ? port : connectedPort;
+          const inputPort = port.type === "input" ? port : connectedPort;
+          if (
+            !areTypesCompatible(
+              outputPort.portType,
+              inputPort.portType,
+              outputPort.getResolvedType(),
+              inputPort.getResolvedType(),
+            )
+          ) {
+            wiresToDrop.push(wire);
           }
         }
       });
     });
+
+    for (const wire of wiresToDrop) {
+      this.disconnectWire(wire);
+    }
   }
 
   onMouseDown(e) {
@@ -14137,15 +16162,17 @@ class BlueprintSystem {
     const currentTime = Date.now();
     const isMultiSelect = e.shiftKey;
 
-    // Check for double-click on wire
+    // Double-click detection
     const timeSinceLastClick = currentTime - this.lastClickTime;
     const distanceFromLastClick = Math.sqrt(
       Math.pow(pos.x - this.lastClickPos.x, 2) +
         Math.pow(pos.y - this.lastClickPos.y, 2),
     );
+    const isDoubleClick =
+      timeSinceLastClick < 300 && distanceFromLastClick < 10;
 
-    // If this is the second click of a double-click (within 300ms and close to same position)
-    if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+    // Double-click on wire to add reroute node (takes priority over comment body)
+    if (isDoubleClick) {
       const wireHit = this.findWireAtPosition(pos.x, pos.y);
       if (wireHit) {
         const { wire, segmentIndex } = wireHit;
@@ -14223,25 +16250,31 @@ class BlueprintSystem {
       return;
     }
 
-    // Check if clicking on edit button for custom nodes
-    if (
-      topNodeAtPointer?.nodeType.isCustom &&
-      topNodeAtPointer.editButtonBounds
-    ) {
-      const btn = topNodeAtPointer.editButtonBounds;
+    // Check if mousedown is on a node button — defer action to mouseup (so dragging doesn't trigger it)
+    {
+      const hitBounds = (b) =>
+        b &&
+        pos.x >= b.x &&
+        pos.x <= b.x + b.width &&
+        pos.y >= b.y &&
+        pos.y <= b.y + b.height;
       if (
-        pos.x >= btn.x &&
-        pos.x <= btn.x + btn.width &&
-        pos.y >= btn.y &&
-        pos.y <= btn.y + btn.height
+        topNodeAtPointer?.nodeType.isCustom &&
+        hitBounds(topNodeAtPointer.editButtonBounds)
       ) {
-        const customNode = this.customNodes.find(
-          (cn) => cn.id === topNodeAtPointer.nodeType.customNodeId,
-        );
-        if (customNode) {
-          this.showCustomNodeModal(customNode);
-        }
-        return;
+        this.pendingButtonClick = { type: "edit", node: topNodeAtPointer };
+      } else if (
+        topNodeAtPointer?.nodeType.isFunctionCall &&
+        hitBounds(topNodeAtPointer.openGraphButtonBounds)
+      ) {
+        this.pendingButtonClick = { type: "openGraph", node: topNodeAtPointer };
+      } else if (
+        topNodeAtPointer &&
+        !topNodeAtPointer.nodeType.isCustom &&
+        !topNodeAtPointer.nodeType.isFunctionCall &&
+        hitBounds(topNodeAtPointer.infoButtonBounds)
+      ) {
+        this.pendingButtonClick = { type: "info", node: topNodeAtPointer };
       }
     }
 
@@ -14378,10 +16411,9 @@ class BlueprintSystem {
         return;
       }
 
-      // Check edit button (pencil icon at top right)
+      // Check edit button (pencil icon at top right) — defer to mouseup
       if (comment.isPointInEditButton(pos.x, pos.y)) {
-        this.showCommentModal(comment);
-        return;
+        this.pendingButtonClick = { type: "commentEdit", comment };
       }
 
       // Check drag handle (small icon at top left) - drags ONLY the comment (without nodes)
@@ -14418,7 +16450,7 @@ class BlueprintSystem {
 
       if (inTitleBar) {
         // Check for double-click to edit
-        if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+        if (isDoubleClick) {
           this.showCommentModal(comment);
           return;
         }
@@ -14462,8 +16494,21 @@ class BlueprintSystem {
         return;
       }
 
-      // For clicks inside the comment body (not title bar or handles),
-      // don't intercept - let them fall through to node/box selection logic below
+      // Double-click on comment body (below title bar, not on a node) opens edit
+      const inBody =
+        pos.x >= comment.x &&
+        pos.x <= comment.x + comment.width &&
+        pos.y > comment.y + COMMENT_TITLE_HEIGHT &&
+        pos.y <= comment.y + comment.height;
+
+      if (inBody && isDoubleClick) {
+        const nodeAtPos = this.findNodeAtPosition(pos.x, pos.y);
+        if (!nodeAtPos) {
+          this.showCommentModal(comment);
+          return;
+        }
+      }
+      // Otherwise single clicks fall through to node/box selection logic below
     }
 
     // Check if clicking on a node
@@ -14803,6 +16848,7 @@ class BlueprintSystem {
     }
 
     // Update cursor
+    this.hoveredNodeButton = null;
     const rerouteNode = this.findRerouteNodeAtPosition(pos.x, pos.y);
     if (rerouteNode) {
       this.canvas.style.cursor = "move";
@@ -14870,8 +16916,27 @@ class BlueprintSystem {
 
         if (!overCommentHandle) {
           const node = this.findNodeAtPosition(pos.x, pos.y);
-          if (node && node.isPointInHeader(pos.x, pos.y)) {
-            this.canvas.style.cursor = "move";
+          if (node) {
+            const hitBounds = (b) =>
+              b &&
+              pos.x >= b.x &&
+              pos.x <= b.x + b.width &&
+              pos.y >= b.y &&
+              pos.y <= b.y + b.height;
+            if (hitBounds(node.infoButtonBounds)) {
+              this.hoveredNodeButton = { node, type: "info" };
+            } else if (hitBounds(node.editButtonBounds)) {
+              this.hoveredNodeButton = { node, type: "edit" };
+            } else if (hitBounds(node.openGraphButtonBounds)) {
+              this.hoveredNodeButton = { node, type: "openGraph" };
+            }
+            if (this.hoveredNodeButton) {
+              this.canvas.style.cursor = "pointer";
+            } else if (node.isPointInHeader(pos.x, pos.y)) {
+              this.canvas.style.cursor = "move";
+            } else {
+              this.canvas.style.cursor = "default";
+            }
           } else {
             this.canvas.style.cursor = "default";
           }
@@ -14960,10 +17025,60 @@ class BlueprintSystem {
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = "default";
+      this.pendingButtonClick = null;
       return;
     }
 
     const pos = this.getMousePos(e);
+
+    // Handle deferred button clicks (node info/edit/openGraph, comment edit)
+    if (this.pendingButtonClick) {
+      const pending = this.pendingButtonClick;
+      this.pendingButtonClick = null;
+
+      // Only fire if the mouse hasn't moved far (i.e. not a drag)
+      const dx = pos.x - this.lastClickPos.x;
+      const dy = pos.y - this.lastClickPos.y;
+      if (dx * dx + dy * dy < 25) {
+        if (pending.type === "edit") {
+          const customNode = this.customNodes.find(
+            (cn) => cn.id === pending.node.nodeType.customNodeId,
+          );
+          if (customNode) this.showCustomNodeModal(customNode);
+        } else if (pending.type === "openGraph") {
+          this.openGraphTab(pending.node.nodeType.targetGraphId);
+        } else if (pending.type === "info") {
+          for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
+            if (nodeType === pending.node.nodeType) {
+              this.showManualModal();
+              setTimeout(() => {
+                const categoriesContainer =
+                  document.getElementById("manualCategories");
+                categoriesContainer
+                  .querySelectorAll(".manual-node-item")
+                  .forEach((i) => i.classList.remove("active"));
+                const nodeItem = categoriesContainer.querySelector(
+                  `[data-node-key="${key}"]`,
+                );
+                if (nodeItem) {
+                  nodeItem.classList.add("active");
+                  const category = nodeItem.closest(".manual-category");
+                  if (category) category.classList.remove("collapsed");
+                  nodeItem.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                  });
+                }
+                this.showNodeManualEntry(key);
+              }, 0);
+              break;
+            }
+          }
+        } else if (pending.type === "commentEdit") {
+          this.showCommentModal(pending.comment);
+        }
+      }
+    }
 
     if (this.pendingCustomEditorClick) {
       const { node, bounds } = this.pendingCustomEditorClick;
@@ -15812,8 +17927,8 @@ class BlueprintSystem {
     // ctx.lineTo(iconCenterX + iconSize, iconCenterY - iconSize);
     // ctx.stroke();
 
-    // Title text (offset to make room for drag handle)
-    if (shouldDrawText) {
+    // Title text (offset to make room for drag handle) - always shown
+    {
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "left";
@@ -15825,32 +17940,36 @@ class BlueprintSystem {
         ctx.font = "12px sans-serif";
         ctx.textAlign = "left";
 
-        // Word wrap the description
+        // Word wrap the description with newline support
         const maxWidth = comment.width - COMMENT_TEXT_MARGIN;
         const lineHeight = 16;
-        const words = comment.description.split(" ");
-        let line = "";
+        const paragraphs = comment.description.split("\n");
         let y = comment.y + 50;
 
-        for (let i = 0; i < words.length; i++) {
-          const testLine = line + words[i] + " ";
-          const metrics = ctx.measureText(testLine);
+        for (let p = 0; p < paragraphs.length; p++) {
+          if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
+          const words = paragraphs[p].split(" ");
+          let line = "";
 
-          if (metrics.width > maxWidth && i > 0) {
-            ctx.fillText(line, comment.x + 10, y);
-            line = words[i] + " ";
-            y += lineHeight;
+          for (let i = 0; i < words.length; i++) {
+            const testLine = line + words[i] + " ";
+            const metrics = ctx.measureText(testLine);
 
-            // Stop if we run out of space
-            if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
-          } else {
-            line = testLine;
+            if (metrics.width > maxWidth && i > 0) {
+              ctx.fillText(line, comment.x + 10, y);
+              line = words[i] + " ";
+              y += lineHeight;
+              if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
+            } else {
+              line = testLine;
+            }
           }
-        }
 
-        // Draw the last line
-        if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
-          ctx.fillText(line, comment.x + 10, y);
+          // Draw the last line of this paragraph
+          if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
+            ctx.fillText(line, comment.x + 10, y);
+            y += lineHeight;
+          }
         }
       }
     }
@@ -15986,6 +18105,112 @@ class BlueprintSystem {
         ctx.fill();
         ctx.stroke();
       });
+
+      // Pill node button (left side, circular) — skip for uniforms
+      if (!node.nodeType.isUniform) {
+        const btnSize = 20;
+        const btnX = node.x + 6;
+        const btnY = node.y + (node.height - btnSize) / 2;
+        const btnCX = btnX + btnSize / 2;
+        const btnCY = btnY + btnSize / 2;
+
+        const pillBtnType = node.nodeType.isCustom
+          ? "edit"
+          : node.nodeType.isFunctionCall && node.nodeType.targetGraphId
+            ? "openGraph"
+            : "info";
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === pillBtnType
+        ) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.arc(btnCX, btnCY, btnSize / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        if (node.nodeType.isCustom) {
+          // Pencil icon for custom nodes
+          ctx.fillStyle = "#fff";
+          ctx.save();
+          const iconSize = 12;
+          const iconOffset = (btnSize - iconSize) / 2;
+          ctx.translate(btnX + iconOffset, btnY + iconOffset);
+          const scale = iconSize / 24;
+          ctx.scale(scale, scale);
+          ctx.beginPath();
+          ctx.moveTo(20.71, 7.04);
+          ctx.bezierCurveTo(21.1, 6.65, 21.1, 6, 20.71, 5.63);
+          ctx.lineTo(18.37, 3.29);
+          ctx.bezierCurveTo(18, 2.9, 17.35, 2.9, 16.96, 3.29);
+          ctx.lineTo(15.12, 5.12);
+          ctx.lineTo(18.87, 8.87);
+          ctx.moveTo(3, 17.25);
+          ctx.lineTo(3, 21);
+          ctx.lineTo(6.75, 21);
+          ctx.lineTo(17.81, 9.93);
+          ctx.lineTo(14.06, 6.18);
+          ctx.lineTo(3, 17.25);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+
+          if (!node.editButtonBounds) node.editButtonBounds = {};
+          node.editButtonBounds.x = btnX;
+          node.editButtonBounds.y = btnY;
+          node.editButtonBounds.width = btnSize;
+          node.editButtonBounds.height = btnSize;
+        } else if (
+          node.nodeType.isFunctionCall &&
+          node.nodeType.targetGraphId
+        ) {
+          // Pencil icon for function/loop call nodes
+          ctx.fillStyle = "#fff";
+          ctx.save();
+          const iconSize = 12;
+          const iconOffset = (btnSize - iconSize) / 2;
+          ctx.translate(btnX + iconOffset, btnY + iconOffset);
+          const scale = iconSize / 24;
+          ctx.scale(scale, scale);
+          ctx.beginPath();
+          ctx.moveTo(20.71, 7.04);
+          ctx.bezierCurveTo(21.1, 6.65, 21.1, 6, 20.71, 5.63);
+          ctx.lineTo(18.37, 3.29);
+          ctx.bezierCurveTo(18, 2.9, 17.35, 2.9, 16.96, 3.29);
+          ctx.lineTo(15.12, 5.12);
+          ctx.lineTo(18.87, 8.87);
+          ctx.moveTo(3, 17.25);
+          ctx.lineTo(3, 21);
+          ctx.lineTo(6.75, 21);
+          ctx.lineTo(17.81, 9.93);
+          ctx.lineTo(14.06, 6.18);
+          ctx.lineTo(3, 17.25);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+
+          if (!node.openGraphButtonBounds) node.openGraphButtonBounds = {};
+          node.openGraphButtonBounds.x = btnX;
+          node.openGraphButtonBounds.y = btnY;
+          node.openGraphButtonBounds.width = btnSize;
+          node.openGraphButtonBounds.height = btnSize;
+        } else {
+          // Info icon for pill nodes
+          ctx.save();
+          ctx.fillStyle = "#fff";
+          ctx.font = "bold 14px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("?", btnCX, btnCY);
+          ctx.restore();
+
+          if (!node.infoButtonBounds) node.infoButtonBounds = {};
+          node.infoButtonBounds.x = btnX;
+          node.infoButtonBounds.y = btnY;
+          node.infoButtonBounds.width = btnSize;
+          node.infoButtonBounds.height = btnSize;
+        }
+      }
     } else {
       // Regular nodes
       // Node body
@@ -16033,11 +18258,16 @@ class BlueprintSystem {
         const buttonX = node.x + node.width - buttonSize - 5;
         const buttonY = node.y + 7;
 
-        // Button background
-        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-        ctx.beginPath();
-        ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
-        ctx.fill();
+        // Button background (only on hover)
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === "edit"
+        ) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+          ctx.fill();
+        }
 
         // Edit icon (pencil) - SVG path scaled to fit button
         ctx.fillStyle = "#fff";
@@ -16080,6 +18310,92 @@ class BlueprintSystem {
         node.editButtonBounds.y = buttonY;
         node.editButtonBounds.width = buttonSize;
         node.editButtonBounds.height = buttonSize;
+      }
+
+      // Open-graph button for function/loop body call nodes
+      if (node.nodeType.isFunctionCall && node.nodeType.targetGraphId) {
+        const buttonSize = 20;
+        const buttonX = node.x + node.width - buttonSize - 5;
+        const buttonY = node.y + 7;
+
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === "openGraph"
+        ) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+          ctx.fill();
+        }
+
+        // Pencil icon (same as custom nodes)
+        ctx.fillStyle = "#fff";
+        ctx.save();
+        const iconSize = 14;
+        const iconOffset = (buttonSize - iconSize) / 2;
+        ctx.translate(buttonX + iconOffset, buttonY + iconOffset);
+        const scale = iconSize / 24;
+        ctx.scale(scale, scale);
+        ctx.beginPath();
+        ctx.moveTo(20.71, 7.04);
+        ctx.bezierCurveTo(21.1, 6.65, 21.1, 6, 20.71, 5.63);
+        ctx.lineTo(18.37, 3.29);
+        ctx.bezierCurveTo(18, 2.9, 17.35, 2.9, 16.96, 3.29);
+        ctx.lineTo(15.12, 5.12);
+        ctx.lineTo(18.87, 8.87);
+        ctx.moveTo(3, 17.25);
+        ctx.lineTo(3, 21);
+        ctx.lineTo(6.75, 21);
+        ctx.lineTo(17.81, 9.93);
+        ctx.lineTo(14.06, 6.18);
+        ctx.lineTo(3, 17.25);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        if (!node.openGraphButtonBounds) {
+          node.openGraphButtonBounds = {};
+        }
+        node.openGraphButtonBounds.x = buttonX;
+        node.openGraphButtonBounds.y = buttonY;
+        node.openGraphButtonBounds.width = buttonSize;
+        node.openGraphButtonBounds.height = buttonSize;
+      }
+
+      // Info button for non-custom nodes (opens manual page)
+      if (!node.nodeType.isCustom && !node.nodeType.isFunctionCall) {
+        const buttonSize = 20;
+        const buttonX = node.x + node.width - buttonSize - 5;
+        const buttonY = node.y + 7;
+        const btnCenterX = buttonX + buttonSize / 2;
+        const btnCenterY = buttonY + buttonSize / 2;
+
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === "info"
+        ) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+          ctx.fill();
+        }
+
+        // Info icon: white "?"
+        ctx.save();
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 14px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("?", btnCenterX, btnCenterY);
+        ctx.restore();
+
+        if (!node.infoButtonBounds) {
+          node.infoButtonBounds = {};
+        }
+        node.infoButtonBounds.x = buttonX;
+        node.infoButtonBounds.y = buttonY;
+        node.infoButtonBounds.width = buttonSize;
+        node.infoButtonBounds.height = buttonSize;
       }
 
       // Operation dropdown (if node has operations)
@@ -16874,9 +19190,7 @@ blueprint.createNewFile();
 
 // Experimental build dialog
 async function showExperimentalDialog() {
-  const isExperimental =
-    window.location.pathname.endsWith("/experimental/") ||
-    window.location.pathname.endsWith("/experimental");
+  const isExperimental = window.location.pathname.endsWith("/experimental/") || window.location.pathname.endsWith("/experimental");
 
   if (!isExperimental) {
     return;
@@ -16898,49 +19212,28 @@ async function showExperimentalDialog() {
       .replace(/\*(.*?)\*/g, "<em>$1</em>")
       .replace(/`([^`]+)`/g, "<code>$1</code>");
 
-    html = html.split("\n").reduce(
-      (acc, line) => {
-        const trimmed = line.trim();
-        if (trimmed.startsWith("### ")) {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<h3>${trimmed.slice(4)}</h3>`;
-        } else if (trimmed.startsWith("## ")) {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<h2>${trimmed.slice(3)}</h2>`;
-        } else if (trimmed.startsWith("# ")) {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<h1>${trimmed.slice(2)}</h1>`;
-        } else if (trimmed.startsWith("- ")) {
-          if (!acc.inList) {
-            acc.result += "<ul>";
-            acc.inList = true;
-          }
-          acc.result += `<li>${trimmed.slice(2)}</li>`;
-        } else if (trimmed === "") {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-        } else {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<p>${trimmed}</p>`;
-        }
-        return acc;
-      },
-      { result: "", inList: false },
-    );
+    html = html.split("\n").reduce((acc, line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("### ")) {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+        acc.result += `<h3>${trimmed.slice(4)}</h3>`;
+      } else if (trimmed.startsWith("## ")) {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+        acc.result += `<h2>${trimmed.slice(3)}</h2>`;
+      } else if (trimmed.startsWith("# ")) {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+        acc.result += `<h1>${trimmed.slice(2)}</h1>`;
+      } else if (trimmed.startsWith("- ")) {
+        if (!acc.inList) { acc.result += "<ul>"; acc.inList = true; }
+        acc.result += `<li>${trimmed.slice(2)}</li>`;
+      } else if (trimmed === "") {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+      } else {
+        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
+        acc.result += `<p>${trimmed}</p>`;
+      }
+      return acc;
+    }, { result: "", inList: false });
     if (html.inList) html.result += "</ul>";
     html = html.result;
 
@@ -16965,9 +19258,6 @@ async function showExperimentalDialog() {
   }
 }
 
-if (
-  window.location.pathname.endsWith("/experimental/") ||
-  window.location.pathname.endsWith("/experimental")
-) {
+if (window.location.pathname.endsWith("/experimental/") || window.location.pathname.endsWith("/experimental")) {
   setTimeout(showExperimentalDialog, 500);
 }

@@ -1,11 +1,6 @@
-// Multi-graph contracts (post-refactor).
+// Multi-graph contracts.
 //
-// These tests describe the new BlueprintSystem (host) + Graph class
-// architecture. They are SKIPPED today because the system is single-graph,
-// but they must pass once the refactor lands. Use `it` (not `it.skip`) when
-// the new system is in place.
-//
-// Conceptual API assumed:
+// These tests verify the BlueprintSystem (host) + Graph class architecture:
 //   blueprint.graphs               -> Map<id, Graph>
 //   blueprint.mainGraphId          -> id of the main graph (used for code-gen + preview)
 //   blueprint.activeGraphId        -> id of the graph the UI displays / interacts with
@@ -35,7 +30,7 @@ beforeEach(() => {
   blueprint.createNewFile();
 });
 
-describe("MULTI-GRAPH CONTRACTS (enable after refactor)", () => {
+describe("MULTI-GRAPH CONTRACTS", () => {
   describe("host shape", () => {
     it("exposes graphs Map, mainGraphId, activeGraphId", () => {
       expect(blueprint.graphs).toBeInstanceOf(Map);
@@ -107,7 +102,7 @@ describe("MULTI-GRAPH CONTRACTS (enable after refactor)", () => {
       api.nodes.create({ typeKey: "floatInput", x: 0, y: 0 });
       const bSnapshot = gB.exportState();
 
-      gA.history.undo();
+      blueprint.history.undo();
       expect(gA.nodes.length).toBe(aBefore);
       // B is untouched.
       expect(gB.exportState()).toEqual(bSnapshot);

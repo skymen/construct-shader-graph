@@ -33,6 +33,7 @@ const genMatType = {
   allowedTypes: ["mat2", "mat3", "mat4"],
 };
 
+
 export const PORT_TYPES = {
   // Scalar types
   float: {
@@ -211,6 +212,13 @@ export const PORT_TYPES = {
     isGeneric: true,
     allowedTypes: ["float", "int", "bool", "vec2", "vec3", "vec4", "color"],
   },
+  U: {
+    color: "#c084fc",
+    name: "U",
+    editable: false,
+    isGeneric: true,
+    allowedTypes: ["float", "int", "bool", "vec2", "vec3", "vec4", "color"],
+  },
   genType2Plus: {
     color: "#c084fc",
     name: "Vec2+",
@@ -272,6 +280,7 @@ export const NODE_COLORS = {
   output: "#3a3a4a", // Dark neutral - terminal node
   variable: "#9b59b6", // Purple - storage/memory
   debug: "#777777", // Grey - debug visualization
+  functionBoundary: "#2a6a5a", // Teal-green - function/loop boundary nodes
 
   // === Port Types: Color ===
   colorInt: PORT_TYPES.int.color,
@@ -353,6 +362,15 @@ export function areTypesCompatible(
   // Exact match
   if (actualOutputType === actualInputType) return true;
 
+  // Both sides are unresolved generics — compatible only if one fully contains the other
+  if (isGenericType(inputType) && !resolvedInputType &&
+      isGenericType(outputType) && !resolvedOutputType) {
+    const inputAllowed = getAllowedTypesForGeneric(inputType);
+    const outputAllowed = getAllowedTypesForGeneric(outputType);
+    return outputAllowed.every((t) => inputAllowed.includes(t)) ||
+           inputAllowed.every((t) => outputAllowed.includes(t));
+  }
+
   // If input is generic (and not resolved), check if output is in allowed types
   if (isGenericType(inputType) && !resolvedInputType) {
     const allowedTypes = getAllowedTypesForGeneric(inputType);
@@ -363,6 +381,14 @@ export function areTypesCompatible(
   if (isGenericType(outputType) && !resolvedOutputType) {
     const allowedTypes = getAllowedTypesForGeneric(outputType);
     return allowedTypes.includes(actualInputType);
+  }
+
+  // Both actual types are generic (resolved from custom) — one must fully contain the other
+  if (isGenericType(actualOutputType) && isGenericType(actualInputType)) {
+    const outputAllowed = getAllowedTypesForGeneric(actualOutputType);
+    const inputAllowed = getAllowedTypesForGeneric(actualInputType);
+    return outputAllowed.every((t) => inputAllowed.includes(t)) ||
+           inputAllowed.every((t) => outputAllowed.includes(t));
   }
 
   // If actual types are generic (resolved from custom), check compatibility
