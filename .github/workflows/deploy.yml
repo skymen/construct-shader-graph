@@ -19,25 +19,71 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: "npm"
+          node-version: "20"
 
-      - name: Install dependencies
+      # Build Main Branch
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install dependencies (main)
         run: npm ci
 
-      - name: Build
+      - name: Build main branch
         run: npm run build
+        env:
+          NODE_ENV: production
+          VITE_BASE_PATH: /construct-shader-graph/
+          VITE_IS_EXPERIMENTAL: false
+
+      - name: Prepare main build
+        run: |
+          mkdir -p deploy
+          cp -r dist/* deploy/
+
+      # Build Experimental Branch
+      - name: Check if experimental branch exists
+        id: check-experimental
+        run: |
+          if git ls-remote --heads origin experimental | grep -q experimental; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout experimental branch
+        if: steps.check-experimental.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: experimental
+          clean: false
+
+      - name: Install dependencies (experimental)
+        if: steps.check-experimental.outputs.exists == 'true'
+        run: npm ci
+
+      - name: Build experimental branch
+        if: steps.check-experimental.outputs.exists == 'true'
+        run: npm run build
+        env:
+          NODE_ENV: production
+          VITE_BASE_PATH: /construct-shader-graph/experimental/
+          VITE_IS_EXPERIMENTAL: true
+
+      - name: Prepare experimental build
+        if: steps.check-experimental.outputs.exists == 'true'
+        run: |
+          mkdir -p deploy/experimental
+          cp -r dist/* deploy/experimental/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: "./deploy"
 
   deploy:
     environment:

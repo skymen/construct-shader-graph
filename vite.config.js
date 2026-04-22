@@ -41,7 +41,9 @@ function examplesPlugin() {
 
 export default defineConfig({
   base:
-    process.env.NODE_ENV === "production" ? "/construct-shader-graph/" : "/",
+    process.env.NODE_ENV === "production"
+      ? process.env.VITE_BASE_PATH || "/construct-shader-graph/"
+      : "/",
   assetsInclude: ["**/*.glsl", "**/*.wgsl"],
   server: {
     port: 3002,
@@ -50,6 +52,11 @@ export default defineConfig({
   build: {
     outDir: "dist",
     assetsInlineLimit: 0, // Don't inline assets, keep them as separate files
+  },
+  define: {
+    "import.meta.env.VITE_IS_EXPERIMENTAL": JSON.stringify(
+      process.env.VITE_IS_EXPERIMENTAL || "false"
+    ),
   },
   plugins: [
     examplesPlugin(),
