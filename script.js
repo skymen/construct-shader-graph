@@ -12896,8 +12896,9 @@ class BlueprintSystem {
 
   showTypesManualEntry() {
     const contentContainer = document.getElementById("manualContent");
+    const skipKeys = new Set(["T", "U"]);
     const typeRows = Object.entries(PORT_TYPES)
-      .filter(([key, t]) => !t.isGeneric && !t.isComposite)
+      .filter(([key, t]) => !t.isGeneric && !t.isComposite && !skipKeys.has(key))
       .map(([key, t]) => `
         <tr>
           <td><span class="manual-type-badge" style="background: ${t.color}40; color: ${t.color}; border-color: ${t.color}">${key}</span></td>
@@ -12908,11 +12909,10 @@ class BlueprintSystem {
       `).join("");
 
     const genericRows = Object.entries(PORT_TYPES)
-      .filter(([key, t]) => t.isGeneric)
+      .filter(([key, t]) => t.isGeneric && !skipKeys.has(key))
       .map(([key, t]) => `
         <tr>
-          <td><span class="manual-type-badge" style="background: ${t.color}40; color: ${t.color}; border-color: ${t.color}">${key}</span></td>
-          <td>${t.name}</td>
+          <td><span class="manual-type-badge">${t.name}</span></td>
           <td>${t.allowedTypes?.map(at => `<code>${at}</code>`).join(", ") || "—"}</td>
         </tr>
       `).join("");
@@ -12934,18 +12934,13 @@ class BlueprintSystem {
           <h3>Generic Types</h3>
           <p>Generic types resolve to a concrete type at codegen time based on what is connected. When unconnected, they default to the first allowed type.</p>
           <table class="manual-ports-table">
-            <thead><tr><th>Type</th><th>Name</th><th>Allowed Types</th></tr></thead>
+            <thead><tr><th>Name</th><th>Allowed Types</th></tr></thead>
             <tbody>${genericRows}</tbody>
           </table>
         </div>
         <div class="manual-section">
-          <h3>Composite Types</h3>
-          <p><strong>vector</strong> — accepts vec2, vec3, or vec4.<br>
-          <strong>any</strong> — accepts any type including scalar, vector, and texture.</p>
-        </div>
-        <div class="manual-section">
           <h3>Type Compatibility</h3>
-          <p>Ports can be connected when their types are compatible: exact match, generic-to-concrete (if the concrete type is in the generic's allowed list), or composite-to-concrete (if the concrete type is in the composite's includes list). When two generic ports are connected, one must be a subset of the other.</p>
+          <p>Ports can be connected when their types are compatible: exact match, generic-to-concrete (if the concrete type is in the generic's allowed list), or when one generic is a subset of another.</p>
         </div>
       </div>
     `;
@@ -15900,15 +15895,16 @@ class BlueprintSystem {
     const currentTime = Date.now();
     const isMultiSelect = e.shiftKey;
 
-    // Check for double-click on wire
+    // Double-click detection
     const timeSinceLastClick = currentTime - this.lastClickTime;
     const distanceFromLastClick = Math.sqrt(
       Math.pow(pos.x - this.lastClickPos.x, 2) +
         Math.pow(pos.y - this.lastClickPos.y, 2),
     );
+    const isDoubleClick = timeSinceLastClick < 300 && distanceFromLastClick < 10;
 
-    // If this is the second click of a double-click (within 300ms and close to same position)
-    if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+    // Double-click on wire to add reroute node (takes priority over comment body)
+    if (isDoubleClick) {
       const wireHit = this.findWireAtPosition(pos.x, pos.y);
       if (wireHit) {
         const { wire, segmentIndex } = wireHit;
@@ -16240,7 +16236,7 @@ class BlueprintSystem {
 
       if (inTitleBar) {
         // Check for double-click to edit
-        if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+        if (isDoubleClick) {
           this.showCommentModal(comment);
           return;
         }
@@ -16284,15 +16280,21 @@ class BlueprintSystem {
         return;
       }
 
-      // Double-click on comment body (outside any node/port/wire) opens edit
-      if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+      // Double-click on comment body (below title bar, not on a node) opens edit
+      const inBody =
+        pos.x >= comment.x &&
+        pos.x <= comment.x + comment.width &&
+        pos.y > comment.y + COMMENT_TITLE_HEIGHT &&
+        pos.y <= comment.y + comment.height;
+
+      if (inBody && isDoubleClick) {
         const nodeAtPos = this.findNodeAtPosition(pos.x, pos.y);
         if (!nodeAtPos) {
           this.showCommentModal(comment);
           return;
         }
       }
-      // Otherwise let single clicks fall through to node/box selection logic below
+      // Otherwise single clicks fall through to node/box selection logic below
     }
 
     // Check if clicking on a node
@@ -16699,8 +16701,18 @@ class BlueprintSystem {
 
         if (!overCommentHandle) {
           const node = this.findNodeAtPosition(pos.x, pos.y);
-          if (node && node.isPointInHeader(pos.x, pos.y)) {
-            this.canvas.style.cursor = "move";
+          if (node) {
+            const overButton =
+              (node.infoButtonBounds && pos.x >= node.infoButtonBounds.x && pos.x <= node.infoButtonBounds.x + node.infoButtonBounds.width && pos.y >= node.infoButtonBounds.y && pos.y <= node.infoButtonBounds.y + node.infoButtonBounds.height) ||
+              (node.editButtonBounds && pos.x >= node.editButtonBounds.x && pos.x <= node.editButtonBounds.x + node.editButtonBounds.width && pos.y >= node.editButtonBounds.y && pos.y <= node.editButtonBounds.y + node.editButtonBounds.height) ||
+              (node.openGraphButtonBounds && pos.x >= node.openGraphButtonBounds.x && pos.x <= node.openGraphButtonBounds.x + node.openGraphButtonBounds.width && pos.y >= node.openGraphButtonBounds.y && pos.y <= node.openGraphButtonBounds.y + node.openGraphButtonBounds.height);
+            if (overButton) {
+              this.canvas.style.cursor = "pointer";
+            } else if (node.isPointInHeader(pos.x, pos.y)) {
+              this.canvas.style.cursor = "move";
+            } else {
+              this.canvas.style.cursor = "default";
+            }
           } else {
             this.canvas.style.cursor = "default";
           }
@@ -17654,32 +17666,36 @@ class BlueprintSystem {
         ctx.font = "12px sans-serif";
         ctx.textAlign = "left";
 
-        // Word wrap the description
+        // Word wrap the description with newline support
         const maxWidth = comment.width - COMMENT_TEXT_MARGIN;
         const lineHeight = 16;
-        const words = comment.description.split(" ");
-        let line = "";
+        const paragraphs = comment.description.split("\n");
         let y = comment.y + 50;
 
-        for (let i = 0; i < words.length; i++) {
-          const testLine = line + words[i] + " ";
-          const metrics = ctx.measureText(testLine);
+        for (let p = 0; p < paragraphs.length; p++) {
+          if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
+          const words = paragraphs[p].split(" ");
+          let line = "";
 
-          if (metrics.width > maxWidth && i > 0) {
-            ctx.fillText(line, comment.x + 10, y);
-            line = words[i] + " ";
-            y += lineHeight;
+          for (let i = 0; i < words.length; i++) {
+            const testLine = line + words[i] + " ";
+            const metrics = ctx.measureText(testLine);
 
-            // Stop if we run out of space
-            if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
-          } else {
-            line = testLine;
+            if (metrics.width > maxWidth && i > 0) {
+              ctx.fillText(line, comment.x + 10, y);
+              line = words[i] + " ";
+              y += lineHeight;
+              if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
+            } else {
+              line = testLine;
+            }
           }
-        }
 
-        // Draw the last line
-        if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
-          ctx.fillText(line, comment.x + 10, y);
+          // Draw the last line of this paragraph
+          if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
+            ctx.fillText(line, comment.x + 10, y);
+            y += lineHeight;
+          }
         }
       }
     }
@@ -17815,6 +17831,99 @@ class BlueprintSystem {
         ctx.fill();
         ctx.stroke();
       });
+
+      // Pill node button (left side, circular) — skip for uniforms
+      if (!node.nodeType.isUniform) {
+        const btnSize = 20;
+        const btnX = node.x + 6;
+        const btnY = node.y + (node.height - btnSize) / 2;
+        const btnCX = btnX + btnSize / 2;
+        const btnCY = btnY + btnSize / 2;
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+        ctx.beginPath();
+        ctx.arc(btnCX, btnCY, btnSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (node.nodeType.isCustom) {
+          // Pencil icon for custom nodes
+          ctx.fillStyle = "#fff";
+          ctx.save();
+          const iconSize = 12;
+          const iconOffset = (btnSize - iconSize) / 2;
+          ctx.translate(btnX + iconOffset, btnY + iconOffset);
+          const scale = iconSize / 24;
+          ctx.scale(scale, scale);
+          ctx.beginPath();
+          ctx.moveTo(20.71, 7.04);
+          ctx.bezierCurveTo(21.1, 6.65, 21.1, 6, 20.71, 5.63);
+          ctx.lineTo(18.37, 3.29);
+          ctx.bezierCurveTo(18, 2.9, 17.35, 2.9, 16.96, 3.29);
+          ctx.lineTo(15.12, 5.12);
+          ctx.lineTo(18.87, 8.87);
+          ctx.moveTo(3, 17.25);
+          ctx.lineTo(3, 21);
+          ctx.lineTo(6.75, 21);
+          ctx.lineTo(17.81, 9.93);
+          ctx.lineTo(14.06, 6.18);
+          ctx.lineTo(3, 17.25);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+
+          if (!node.editButtonBounds) node.editButtonBounds = {};
+          node.editButtonBounds.x = btnX;
+          node.editButtonBounds.y = btnY;
+          node.editButtonBounds.width = btnSize;
+          node.editButtonBounds.height = btnSize;
+        } else if (node.nodeType.isFunctionCall && node.nodeType.targetGraphId) {
+          // Pencil icon for function/loop call nodes
+          ctx.fillStyle = "#fff";
+          ctx.save();
+          const iconSize = 12;
+          const iconOffset = (btnSize - iconSize) / 2;
+          ctx.translate(btnX + iconOffset, btnY + iconOffset);
+          const scale = iconSize / 24;
+          ctx.scale(scale, scale);
+          ctx.beginPath();
+          ctx.moveTo(20.71, 7.04);
+          ctx.bezierCurveTo(21.1, 6.65, 21.1, 6, 20.71, 5.63);
+          ctx.lineTo(18.37, 3.29);
+          ctx.bezierCurveTo(18, 2.9, 17.35, 2.9, 16.96, 3.29);
+          ctx.lineTo(15.12, 5.12);
+          ctx.lineTo(18.87, 8.87);
+          ctx.moveTo(3, 17.25);
+          ctx.lineTo(3, 21);
+          ctx.lineTo(6.75, 21);
+          ctx.lineTo(17.81, 9.93);
+          ctx.lineTo(14.06, 6.18);
+          ctx.lineTo(3, 17.25);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+
+          if (!node.openGraphButtonBounds) node.openGraphButtonBounds = {};
+          node.openGraphButtonBounds.x = btnX;
+          node.openGraphButtonBounds.y = btnY;
+          node.openGraphButtonBounds.width = btnSize;
+          node.openGraphButtonBounds.height = btnSize;
+        } else {
+          // Info icon for regular nodes
+          ctx.save();
+          ctx.fillStyle = "#fff";
+          ctx.font = "bold 14px serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("i", btnCX, btnCY);
+          ctx.restore();
+
+          if (!node.infoButtonBounds) node.infoButtonBounds = {};
+          node.infoButtonBounds.x = btnX;
+          node.infoButtonBounds.y = btnY;
+          node.infoButtonBounds.width = btnSize;
+          node.infoButtonBounds.height = btnSize;
+        }
+      }
     } else {
       // Regular nodes
       // Node body
@@ -17969,16 +18078,14 @@ class BlueprintSystem {
         ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
         ctx.fill();
 
-        // Info icon: white circle with colored "i"
+        // Info icon: white "i"
+        ctx.save();
         ctx.fillStyle = "#fff";
-        ctx.beginPath();
-        ctx.arc(btnCenterX, btnCenterY, 7, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = node.nodeType.color;
-        ctx.font = "bold 11px serif";
+        ctx.font = "bold 14px serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("i", btnCenterX, btnCenterY + 0.5);
+        ctx.fillText("i", btnCenterX, btnCenterY);
+        ctx.restore();
 
         if (!node.infoButtonBounds) {
           node.infoButtonBounds = {};
