@@ -16629,7 +16629,7 @@ blueprint.createNewFile();
 
 // Experimental build dialog
 async function showExperimentalDialog() {
-  const isExperimental = __IS_EXPERIMENTAL__;
+  const isExperimental = window.location.pathname.endsWith("/experimental/") || window.location.pathname.endsWith("/experimental");
 
   if (!isExperimental) {
     return;
@@ -16683,6 +16683,6 @@ async function showExperimentalDialog() {
   }
 }
 
-if (__IS_EXPERIMENTAL__) {
+if (window.location.pathname.endsWith("/experimental/") || window.location.pathname.endsWith("/experimental")) {
   setTimeout(showExperimentalDialog, 500);
 }

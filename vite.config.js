@@ -53,11 +53,7 @@ export default defineConfig({
     outDir: "dist",
     assetsInlineLimit: 0, // Don't inline assets, keep them as separate files
   },
-  define: {
-    __IS_EXPERIMENTAL__: JSON.stringify(
-      process.env.VITE_IS_EXPERIMENTAL === "true"
-    ),
-  },
+  define: {},
   plugins: [
     examplesPlugin(),
     viteStaticCopy({
