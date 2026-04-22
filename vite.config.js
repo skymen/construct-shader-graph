@@ -55,7 +55,7 @@ export default defineConfig({
   },
   define: {
     __IS_EXPERIMENTAL__: JSON.stringify(
-      process.env.VITE_IS_EXPERIMENTAL === "true"
+      process.env.VITE_IS_EXPERIMENTAL === "true",
     ),
   },
   plugins: [
