@@ -211,6 +211,14 @@ export const PORT_TYPES = {
     isGeneric: true,
     allowedTypes: ["float", "int", "bool", "vec2", "vec3", "vec4", "color"],
   },
+  ...(() => {
+    const ALL_ALLOWED = ["float", "int", "bool", "vec2", "vec3", "vec4", "color"];
+    const letters = {};
+    for (const ch of "UVWXYZABCDEFGHIJKLMNOPQRS") {
+      letters[ch] = { color: "#c084fc", name: ch, editable: false, isGeneric: true, allowedTypes: ALL_ALLOWED };
+    }
+    return letters;
+  })(),
   genType2Plus: {
     color: "#c084fc",
     name: "Vec2+",

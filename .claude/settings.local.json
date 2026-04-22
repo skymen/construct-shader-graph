@@ -4,7 +4,11 @@
       "Bash(npm run *)",
       "Bash(npm test *)",
       "Bash(npx vitest *)",
-      "Bash(UPDATE_GOLDEN=1 npx vitest run tests/21-golden-codegen.test.js)"
+      "Bash(UPDATE_GOLDEN=1 npx vitest run tests/21-golden-codegen.test.js)",
+      "Read(//Users/ossama/Downloads/**)",
+      "Bash(DEBUG_TESTS=1 npx vitest run tests/99-debug.test.js)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3002/)",
+      "Bash(pkill -f \"vite --port 3002\")"
     ]
   }
 }

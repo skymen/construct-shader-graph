@@ -10024,6 +10024,19 @@ class BlueprintSystem {
         handler: () => this.runRewriteSelectedFanout(),
         isEnabled: () => !!this.getSelectedFanoutCandidate(),
       },
+      {
+        label: "Turn Into Function",
+        menu: "Project",
+        action: "turnIntoFunction",
+        shortcut: "G",
+        handler: () => this.runTurnSelectionIntoFunction(),
+        isEnabled: () => {
+          if (this.selectedNodes.size === 0) return false;
+          return Array.from(this.selectedNodes).some(
+            (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable
+          );
+        },
+      },
       // Help menu
       {
         label: "Manual",
@@ -12126,6 +12139,276 @@ class BlueprintSystem {
         duration: 2400,
       });
     }
+  }
+
+  turnSelectionIntoFunction(name = "Untitled") {
+    const extractable = Array.from(this.selectedNodes).filter(
+      (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable
+    );
+    if (extractable.length === 0) return null;
+
+    const selectedSet = new Set(extractable);
+    const sourceGraph = this.activeGraph;
+    const sourceGraphId = this.activeGraphId;
+
+    // ── 1. Analyse boundary wires ────────────────────────────────────────
+    const incomingWires = [];
+    const outgoingWires = [];
+    const internalWires = [];
+
+    for (const wire of sourceGraph.wires) {
+      const startInside = selectedSet.has(wire.startPort.node);
+      const endInside = selectedSet.has(wire.endPort.node);
+      if (startInside && endInside) {
+        internalWires.push(wire);
+      } else if (startInside && !endInside) {
+        outgoingWires.push({ wire, internalPort: wire.startPort, externalPort: wire.endPort });
+      } else if (!startInside && endInside) {
+        incomingWires.push({ wire, externalPort: wire.startPort, internalPort: wire.endPort });
+      }
+    }
+
+    // ── 2. Build function contract ───────────────────────────────────────
+    const srcPortToContractInput = new Map();
+    const contractInputs = [];
+    const intPortToContractOutput = new Map();
+    const contractOutputs = [];
+    const mkId = (suffix) => `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const usedNames = new Set();
+
+    const uniqueName = (base) => {
+      let n = base;
+      let i = 2;
+      while (usedNames.has(n)) { n = `${base}_${i++}`; }
+      usedNames.add(n);
+      return n;
+    };
+
+    for (const entry of incomingWires) {
+      const srcPort = entry.externalPort;
+      if (srcPortToContractInput.has(srcPort)) continue;
+      const resolved = srcPort.getResolvedType();
+      const concreteType = this._resolveConcreteTypeForContract(resolved);
+      const portDef = {
+        id: mkId("in"),
+        name: uniqueName(entry.internalPort.name || `in_${contractInputs.length}`),
+        type: concreteType,
+      };
+      contractInputs.push(portDef);
+      srcPortToContractInput.set(srcPort, portDef);
+    }
+
+    for (const entry of outgoingWires) {
+      const intPort = entry.internalPort;
+      if (intPortToContractOutput.has(intPort)) continue;
+      const resolved = intPort.getResolvedType();
+      const concreteType = this._resolveConcreteTypeForContract(resolved);
+      const portDef = {
+        id: mkId("out"),
+        name: uniqueName(intPort.name || `out_${contractOutputs.length}`),
+        type: concreteType,
+      };
+      contractOutputs.push(portDef);
+      intPortToContractOutput.set(intPort, portDef);
+    }
+
+    // ── 3. Create the function graph ─────────────────────────────────────
+    const functionGraph = this.createGraph({
+      kind: "function",
+      name,
+      data: { contract: { inputs: contractInputs, outputs: contractOutputs }, notes: "" },
+    });
+    const handler = getHandler("function");
+    handler.bootstrapGraph(functionGraph, this);
+
+    const fnInputNode = functionGraph.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
+    const fnOutputNode = functionGraph.nodes.find((n) => n.nodeType === NODE_TYPES.functionOutput);
+
+    // ── 4. Copy nodes into the function body ─────────────────────────────
+    const oldToNewNode = new Map();
+    this._withGraph(functionGraph, () => {
+      for (const node of extractable) {
+        const newNode = new Node(node.x, node.y, this.nodeIdCounter++, node.nodeType);
+        newNode._blueprintSystem = this;
+        newNode._graph = functionGraph;
+        newNode.operation = node.operation;
+        newNode.customInput = node.customInput;
+        newNode.data = this.cloneNodeData(node.data);
+        newNode.selectedVariable = node.selectedVariable;
+        newNode.uniformId = node.uniformId;
+        newNode.uniformName = node.uniformName;
+        newNode.uniformDisplayName = node.uniformDisplayName;
+        newNode.uniformVariableName = node.uniformVariableName;
+        for (let i = 0; i < newNode.inputPorts.length && i < node.inputPorts.length; i++) {
+          if (node.inputPorts[i].value !== undefined) {
+            newNode.inputPorts[i].value = this.cloneValue(node.inputPorts[i].value);
+          }
+        }
+        functionGraph.nodes.push(newNode);
+        oldToNewNode.set(node, newNode);
+      }
+    });
+
+    // ── 5. Recreate internal wires in the function body ──────────────────
+    for (const wire of internalWires) {
+      const newSrcNode = oldToNewNode.get(wire.startPort.node);
+      const newDstNode = oldToNewNode.get(wire.endPort.node);
+      if (!newSrcNode || !newDstNode) continue;
+      const newSrcPort = newSrcNode.outputPorts[wire.startPort.index];
+      const newDstPort = newDstNode.inputPorts[wire.endPort.index];
+      if (!newSrcPort || !newDstPort) continue;
+      const newWire = new Wire(newSrcPort, newDstPort);
+      newSrcPort.connections.push(newWire);
+      newDstPort.connections.push(newWire);
+      functionGraph.wires.push(newWire);
+    }
+
+    // ── 6. Wire function inputs to body nodes ────────────────────────────
+    for (const entry of incomingWires) {
+      const contractDef = srcPortToContractInput.get(entry.externalPort);
+      const contractIdx = contractInputs.indexOf(contractDef);
+      const fnInPort = fnInputNode.outputPorts[contractIdx];
+      const newDstNode = oldToNewNode.get(entry.internalPort.node);
+      if (!newDstNode || !fnInPort) continue;
+      const newDstPort = newDstNode.inputPorts[entry.internalPort.index];
+      if (!newDstPort) continue;
+      const newWire = new Wire(fnInPort, newDstPort);
+      fnInPort.connections.push(newWire);
+      newDstPort.connections.push(newWire);
+      functionGraph.wires.push(newWire);
+    }
+
+    // ── 7. Wire body nodes to function outputs ───────────────────────────
+    for (const entry of outgoingWires) {
+      const contractDef = intPortToContractOutput.get(entry.internalPort);
+      const contractIdx = contractOutputs.indexOf(contractDef);
+      const fnOutPort = fnOutputNode.inputPorts[contractIdx];
+      const newSrcNode = oldToNewNode.get(entry.internalPort.node);
+      if (!newSrcNode || !fnOutPort) continue;
+      const newSrcPort = newSrcNode.outputPorts[entry.internalPort.index];
+      if (!newSrcPort) continue;
+      if (!fnOutPort.connections.some((w) => w.startPort === newSrcPort)) {
+        const newWire = new Wire(newSrcPort, fnOutPort);
+        newSrcPort.connections.push(newWire);
+        fnOutPort.connections.push(newWire);
+        functionGraph.wires.push(newWire);
+      }
+    }
+
+    for (const wire of functionGraph.wires) {
+      this.resolveGenericsForConnection(wire.startPort, wire.endPort);
+    }
+
+    this.history.initGraphState(functionGraph.id, this._exportGraphState(functionGraph));
+    this.openTabs && this.openTabs.add(functionGraph.id);
+
+    // ── 8. Build the caller node type ────────────────────────────────────
+    functionGraph.contractVersion = (functionGraph.contractVersion || 0) + 1;
+    handler.enforceBoundaryRules(functionGraph, this);
+    const callerType = handler.createCallerNodeType(functionGraph, this);
+
+    // ── 9. Mutate source graph in a transaction ──────────────────────────
+    let callerNode;
+    this.runMultiGraphTransaction([sourceGraphId], () => {
+      // Disconnect and remove selected nodes from source graph.
+      for (const node of extractable) {
+        for (const port of node.getAllPorts()) {
+          for (const wire of [...port.connections]) {
+            this.disconnectWire(wire);
+          }
+        }
+      }
+      sourceGraph.nodes = sourceGraph.nodes.filter((n) => !selectedSet.has(n));
+
+      // Place caller node.
+      let avgX = 0, avgY = 0;
+      for (const n of extractable) { avgX += n.x; avgY += n.y; }
+      avgX /= extractable.length;
+      avgY /= extractable.length;
+
+      this._withGraph(sourceGraph, () => {
+        callerNode = this.addNode(avgX, avgY, callerType);
+      });
+
+      // Rewire external inputs to caller.
+      for (let i = 0; i < contractInputs.length; i++) {
+        const contractDef = contractInputs[i];
+        const entry = incomingWires.find((e) => srcPortToContractInput.get(e.externalPort) === contractDef);
+        if (!entry) continue;
+        const srcPort = entry.externalPort;
+        const callerInPort = callerNode.inputPorts[i];
+        if (!callerInPort) continue;
+        const newWire = new Wire(srcPort, callerInPort);
+        srcPort.connections.push(newWire);
+        callerInPort.connections.push(newWire);
+        sourceGraph.wires.push(newWire);
+        this.resolveGenericsForConnection(srcPort, callerInPort);
+      }
+
+      // Rewire caller outputs to external destinations.
+      for (let i = 0; i < contractOutputs.length; i++) {
+        const contractDef = contractOutputs[i];
+        const matchingEntries = outgoingWires.filter(
+          (e) => intPortToContractOutput.get(e.internalPort) === contractDef
+        );
+        const callerOutPort = callerNode.outputPorts[i];
+        if (!callerOutPort) continue;
+        for (const entry of matchingEntries) {
+          const dstPort = entry.externalPort;
+          const newWire = new Wire(callerOutPort, dstPort);
+          callerOutPort.connections.push(newWire);
+          dstPort.connections.push(newWire);
+          sourceGraph.wires.push(newWire);
+          this.resolveGenericsForConnection(callerOutPort, dstPort);
+        }
+      }
+
+      this.clearSelection();
+    }, `Turn selection into function "${name}"`);
+
+    this.renderFunctionsList();
+    this.renderGraphTabBar();
+    this.onShaderChanged();
+    this.render();
+
+    return { functionGraph, callerNode };
+  }
+
+  runTurnSelectionIntoFunction() {
+    const name = prompt("Function name:", "Untitled");
+    if (!name) return;
+    try {
+      const result = this.turnSelectionIntoFunction(name);
+      if (!result) {
+        this.showNotification({
+          type: "warning",
+          title: "Turn Into Function",
+          message: "No extractable nodes in selection.",
+          duration: 2200,
+        });
+        return;
+      }
+      this.showNotification({
+        type: "success",
+        title: "Turn Into Function",
+        message: `Created function "${name}" with ${result.functionGraph.data.contract.inputs.length} input(s) and ${result.functionGraph.data.contract.outputs.length} output(s).`,
+        duration: 2500,
+      });
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "Turn Into Function Failed",
+        message: error.message,
+        duration: 2400,
+      });
+    }
+  }
+
+  _resolveConcreteTypeForContract(portType) {
+    if (isGenericType(portType)) {
+      return "float";
+    }
+    return portType;
   }
 
   runRewriteSelectedFanout() {
