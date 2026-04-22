@@ -3828,64 +3828,103 @@ body {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.85);
   z-index: 10000;
   justify-content: center;
   align-items: center;
+  backdrop-filter: blur(4px);
 }
 
 .experimental-modal {
-  background: #2a2a2a;
-  border: 2px solid #4a4a4a;
-  border-radius: 8px;
+  background: linear-gradient(145deg, #2a2a2a, #1e1e1e);
+  border: 1px solid rgba(255, 160, 0, 0.3);
+  border-radius: 12px;
   width: 90%;
-  max-width: 600px;
+  max-width: 520px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 30px rgba(255, 160, 0, 0.08);
 }
 
 .experimental-modal .modal-header {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 20px 25px;
-  border-bottom: 1px solid #4a4a4a;
+  padding: 24px 30px 18px;
+  background: linear-gradient(180deg, rgba(255, 160, 0, 0.08), transparent);
 }
 
 .experimental-modal .modal-header h2 {
   margin: 0;
-  color: #f0f0f0;
-  font-size: 20px;
+  color: #ffa000;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
 }
 
 .experimental-modal .modal-body {
-  padding: 20px 25px;
+  padding: 8px 30px 20px;
   overflow-y: auto;
-  color: #ccc;
-  line-height: 1.6;
+  color: #bbb;
+  line-height: 1.7;
+  font-size: 14px;
+}
+
+.experimental-modal .modal-body h2 {
+  color: #e0e0e0;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 16px 0 8px;
+}
+
+.experimental-modal .modal-body h3 {
+  color: #d0d0d0;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+
+.experimental-modal .modal-body ul {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+
+.experimental-modal .modal-body li {
+  margin: 4px 0;
+}
+
+.experimental-modal .modal-body strong {
+  color: #e0e0e0;
 }
 
 .experimental-modal .modal-footer {
   display: flex;
   justify-content: center;
-  padding: 15px 25px;
-  border-top: 1px solid #4a4a4a;
+  padding: 18px 30px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .experimental-modal .modal-footer .primary-btn {
-  background: #4a90e2;
-  color: #fff;
+  background: #ffa000;
+  color: #1a1a1a;
   border: none;
-  padding: 10px 30px;
-  border-radius: 6px;
+  padding: 10px 36px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
+  font-weight: 600;
+  transition: background 0.2s, transform 0.1s;
 }
 
 .experimental-modal .modal-footer .primary-btn:hover {
-  background: #357abd;
+  background: #ffb333;
+  transform: translateY(-1px);
+}
+
+.experimental-modal .modal-footer .primary-btn:active {
+  transform: translateY(0);
 }
 
 .manual-modal {
