@@ -465,11 +465,10 @@ export class HistoryManager {
     // Apply before state
     this.isApplyingUndoRedo = true;
     try {
-      // If this entry is part of a multi-graph transaction, undo sibling
-      // graphs FIRST so that node type lookups (e.g., function_call_ types)
-      // resolve against the restored contract.
       const host = this.blueprint.host || this.blueprint;
       if (undoEntry.transactionId && host.graphs) {
+        // Collect all graphs to restore (self + siblings).
+        const toRestore = [{ graph: this.blueprint, entry: undoEntry, isSelf: true }];
         for (const g of host.graphs.values()) {
           if (g.history === this) continue;
           const siblingStack = g.history.undoStack;
@@ -479,19 +478,37 @@ export class HistoryManager {
           if (idx !== -1) {
             const siblingEntry = siblingStack.splice(idx, 1)[0];
             g.history.redoStack.push(siblingEntry);
-            g.history.isApplyingUndoRedo = true;
+            toRestore.push({ graph: g, entry: siblingEntry, isSelf: false });
+          }
+        }
+
+        // Callable graphs (function/loopBody) own contracts that
+        // getNodeTypeFromKey depends on — restore them first so callers
+        // in other graphs rebuild with the correct port layout.
+        toRestore.sort((a, b) => {
+          const aCallable = (a.graph.kind === "function" || a.graph.kind === "loopBody") ? 0 : 1;
+          const bCallable = (b.graph.kind === "function" || b.graph.kind === "loopBody") ? 0 : 1;
+          return aCallable - bCallable;
+        });
+
+        for (const { graph, entry, isSelf } of toRestore) {
+          if (isSelf) {
+            this.blueprint.loadState(entry.beforeState);
+            this.currentState = entry.beforeState;
+          } else {
+            graph.history.isApplyingUndoRedo = true;
             try {
-              host._loadGraphState(g, siblingEntry.beforeState);
-              g.history.currentState = siblingEntry.beforeState;
+              host._loadGraphState(graph, entry.beforeState);
+              graph.history.currentState = entry.beforeState;
             } finally {
-              g.history.isApplyingUndoRedo = false;
+              graph.history.isApplyingUndoRedo = false;
             }
           }
         }
+      } else {
+        this.blueprint.loadState(undoEntry.beforeState);
+        this.currentState = undoEntry.beforeState;
       }
-
-      this.blueprint.loadState(undoEntry.beforeState);
-      this.currentState = undoEntry.beforeState;
 
       console.log(`Undid: ${undoEntry.description}`);
       return { success: true, description: undoEntry.description };
@@ -521,13 +538,9 @@ export class HistoryManager {
     // Apply after state
     this.isApplyingUndoRedo = true;
     try {
-      this.blueprint.loadState(redoEntry.afterState);
-      this.currentState = redoEntry.afterState;
-
-      // If this entry is part of a multi-graph transaction, also redo
-      // the matching entries on sibling graphs.
       const host = this.blueprint.host || this.blueprint;
       if (redoEntry.transactionId && host.graphs) {
+        const toRestore = [{ graph: this.blueprint, entry: redoEntry, isSelf: true }];
         for (const g of host.graphs.values()) {
           if (g.history === this) continue;
           const siblingStack = g.history.redoStack;
@@ -537,15 +550,34 @@ export class HistoryManager {
           if (idx !== -1) {
             const siblingEntry = siblingStack.splice(idx, 1)[0];
             g.history.undoStack.push(siblingEntry);
-            g.history.isApplyingUndoRedo = true;
+            toRestore.push({ graph: g, entry: siblingEntry, isSelf: false });
+          }
+        }
+
+        // Callable graphs first (same reason as undo).
+        toRestore.sort((a, b) => {
+          const aCallable = (a.graph.kind === "function" || a.graph.kind === "loopBody") ? 0 : 1;
+          const bCallable = (b.graph.kind === "function" || b.graph.kind === "loopBody") ? 0 : 1;
+          return aCallable - bCallable;
+        });
+
+        for (const { graph, entry, isSelf } of toRestore) {
+          if (isSelf) {
+            this.blueprint.loadState(entry.afterState);
+            this.currentState = entry.afterState;
+          } else {
+            graph.history.isApplyingUndoRedo = true;
             try {
-              host._loadGraphState(g, siblingEntry.afterState);
-              g.history.currentState = siblingEntry.afterState;
+              host._loadGraphState(graph, entry.afterState);
+              graph.history.currentState = entry.afterState;
             } finally {
-              g.history.isApplyingUndoRedo = false;
+              graph.history.isApplyingUndoRedo = false;
             }
           }
         }
+      } else {
+        this.blueprint.loadState(redoEntry.afterState);
+        this.currentState = redoEntry.afterState;
       }
 
       console.log(`Redid: ${redoEntry.description}`);

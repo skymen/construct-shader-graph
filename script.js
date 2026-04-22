@@ -14630,6 +14630,13 @@ class BlueprintSystem {
       graph.nodes.push(node);
     });
 
+    // Rebuild boundary-node ports from the restored contract so that wire
+    // restoration below can find the correct port indices.
+    if (graph.kind === "function" || graph.kind === "loopBody") {
+      const handler = getHandler(graph.kind);
+      if (handler) handler.enforceBoundaryRules(graph, this);
+    }
+
     // Restore wires
     stateData.wires.forEach((wireData) => {
       const startNode = nodeMap.get(wireData.startNodeId);
