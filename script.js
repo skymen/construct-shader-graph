@@ -16629,7 +16629,7 @@ blueprint.createNewFile();
 
 // Experimental build dialog
 async function showExperimentalDialog() {
-  const isExperimental = import.meta.env.VITE_IS_EXPERIMENTAL === "true";
+  const isExperimental = __IS_EXPERIMENTAL__;
 
   if (!isExperimental) {
     return;
@@ -16683,6 +16683,6 @@ async function showExperimentalDialog() {
   }
 }
 
-if (import.meta.env.VITE_IS_EXPERIMENTAL === "true") {
+if (__IS_EXPERIMENTAL__) {
   setTimeout(showExperimentalDialog, 500);
 }
