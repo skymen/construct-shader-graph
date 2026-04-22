@@ -4719,7 +4719,8 @@ body {
 }
 
 .contract-port-type {
-  flex: 0 0 auto;
+  flex: 0 0 90px;
+  min-width: 60px;
   background: #1a1a1a;
   border: 1px solid #4a4a4a;
   color: #fff;

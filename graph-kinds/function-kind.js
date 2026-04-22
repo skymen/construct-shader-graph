@@ -4,7 +4,7 @@
 
 import { FunctionInputNode } from "../nodes/FunctionInputNode.js";
 import { FunctionOutputNode } from "../nodes/FunctionOutputNode.js";
-import { toWGSLType } from "../nodes/PortTypes.js";
+import { toWGSLType, PORT_TYPES, isGenericType } from "../nodes/PortTypes.js";
 
 const CONCRETE_TYPE_OPTIONS = [
   { value: "float", label: "Float" },
@@ -18,11 +18,21 @@ const CONCRETE_TYPE_OPTIONS = [
   { value: "mat4",  label: "Mat4"  },
 ];
 
-const GENERIC_ALPHABET = "TU";
+const GENERIC_TYPE_OPTIONS = [
+  { value: "T",              label: "T" },
+  { value: "U",              label: "U" },
+  { value: "genType",        label: "genType" },
+  { value: "genType2OrLess", label: "genType2OrLess" },
+  { value: "genType3OrLess", label: "genType3OrLess" },
+  { value: "genType2Plus",   label: "genType2Plus" },
+  { value: "genType3Plus",   label: "genType3Plus" },
+  { value: "genIType",       label: "genIType" },
+  { value: "genBType",       label: "genBType" },
+  { value: "genMatType",     label: "genMatType" },
+];
 
-// A type is concrete if it's longer than one character (user generics are single letters).
 function isConcreteType(type) {
-  return typeof type === "string" && type.length > 1;
+  return typeof type === "string" && !isGenericType(type);
 }
 
 // Stable 6-char hex hash of a string.
@@ -66,8 +76,8 @@ export const functionKindHandler = {
   defaultPort(existingPorts) {
     const usedTypes = new Set((existingPorts || []).map((p) => p.type));
     let genericName = "T";
-    for (const letter of GENERIC_ALPHABET) {
-      if (!usedTypes.has(letter)) { genericName = letter; break; }
+    for (const opt of GENERIC_TYPE_OPTIONS) {
+      if (!usedTypes.has(opt.value)) { genericName = opt.value; break; }
     }
     const id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     return { id, name: "value", type: genericName };
@@ -144,10 +154,19 @@ export const functionKindHandler = {
       return isConcreteType(cp?.type) ? cp.type : "float";
     });
 
-    // Build generic bindings: letter -> concrete type
+    // Build generic bindings: letter -> concrete type (from inputs first)
     const bindings = {};
     contract.inputs.forEach((p, i) => {
       if (!isConcreteType(p.type)) bindings[p.type] = inputTypes[i] || "float";
+    });
+
+    // Also resolve from output port connections for generics not bound by inputs
+    contract.outputs.forEach((p, i) => {
+      if (isConcreteType(p.type) || bindings[p.type]) return;
+      const port = callerNode.outputPorts[i];
+      if (port && port.connections.length > 0) {
+        bindings[p.type] = port.connections[0].endPort.getResolvedType() || "float";
+      }
     });
 
     // Resolve output types using bindings
@@ -399,37 +418,35 @@ function buildPortRow(handler, graph, host, port, index, which) {
   });
   row.appendChild(nameInput);
 
-  // Type select
+  // Type select (concrete + generic in one dropdown)
   const typeSelect = document.createElement("select");
   typeSelect.className = "contract-port-type";
+
+  const concreteGroup = document.createElement("optgroup");
+  concreteGroup.label = "Concrete";
   for (const opt of CONCRETE_TYPE_OPTIONS) {
     const o = document.createElement("option");
     o.value = opt.value;
     o.textContent = opt.label;
-    typeSelect.appendChild(o);
+    concreteGroup.appendChild(o);
   }
-  const genericOpt = document.createElement("option");
-  genericOpt.value = "__generic__";
-  genericOpt.textContent = "Generic";
-  typeSelect.appendChild(genericOpt);
+  typeSelect.appendChild(concreteGroup);
 
-  const portIsGeneric = !isConcreteType(port.type);
-  typeSelect.value = portIsGeneric ? "__generic__" : port.type;
+  const genericGroup = document.createElement("optgroup");
+  genericGroup.label = "Generic";
+  for (const opt of GENERIC_TYPE_OPTIONS) {
+    const o = document.createElement("option");
+    o.value = opt.value;
+    o.textContent = opt.label;
+    genericGroup.appendChild(o);
+  }
+  typeSelect.appendChild(genericGroup);
+
+  typeSelect.value = port.type;
 
   typeSelect.addEventListener("change", () => {
-    const sel = typeSelect.value;
-    if (sel === "__generic__") {
-      if (!isConcreteType(port.type)) return; // already generic
-      // Prefer the letter this port used before going concrete, so a
-      // concrete→generic round-trip restores the original shared generic.
-      port.type = port._previousGeneric || pickFreeGenericLetter(graph);
-      delete port._previousGeneric;
-    } else {
-      if (port.type === sel) return;
-      // Remember the current generic letter so we can restore it on revert.
-      if (!isConcreteType(port.type)) port._previousGeneric = port.type;
-      port.type = sel;
-    }
+    if (typeSelect.value === port.type) return;
+    port.type = typeSelect.value;
     host.syncContractCallers(graph);
     host.renderContractEditor && host.renderContractEditor();
     host.render && host.render();
@@ -437,13 +454,8 @@ function buildPortRow(handler, graph, host, port, index, which) {
   });
   row.appendChild(typeSelect);
 
-  // Generic letter + resolved hint
-  if (portIsGeneric) {
-    const letter = document.createElement("span");
-    letter.className = "contract-port-role";
-    letter.textContent = port.type;
-    row.appendChild(letter);
-
+  // Resolved hint for generic ports
+  if (!isConcreteType(port.type)) {
     const resolved = resolveGenericType(graph, port, which);
     if (resolved && resolved !== port.type) {
       const hint = document.createElement("span");
@@ -517,19 +529,6 @@ function buildPortRow(handler, graph, host, port, index, which) {
   });
 
   return row;
-}
-
-// Pick a single-letter generic name not currently used anywhere in the contract.
-function pickFreeGenericLetter(graph) {
-  const used = new Set();
-  const contract = graph.data?.contract || { inputs: [], outputs: [] };
-  for (const p of [...(contract.inputs || []), ...(contract.outputs || [])]) {
-    if (!isConcreteType(p.type)) used.add(p.type);
-  }
-  for (const letter of GENERIC_ALPHABET) {
-    if (!used.has(letter)) return letter;
-  }
-  return "T";
 }
 
 // For a generic contract port, read the resolved type from the boundary node

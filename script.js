@@ -11306,6 +11306,21 @@ class BlueprintSystem {
         this.runRewriteSelectedFanout();
       }
     }
+    // G: Turn selection into function
+    else if (
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      (e.key === "g" || e.key === "G")
+    ) {
+      const hasExtractable = Array.from(this.selectedNodes).some(
+        (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable
+      );
+      if (this.selectedNodes.size > 0 && hasExtractable) {
+        e.preventDefault();
+        this.runTurnSelectionIntoFunction();
+      }
+    }
     // L: Toggle Preview Node
     else if (e.key === "l" || e.key === "L") {
       e.preventDefault();
@@ -12374,8 +12389,18 @@ class BlueprintSystem {
     return { functionGraph, callerNode };
   }
 
+  _nextFunctionName() {
+    let max = 0;
+    for (const g of this.graphs.values()) {
+      if (g.kind !== "function") continue;
+      const m = g.name.match(/^Function(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `Function${max + 1}`;
+  }
+
   runTurnSelectionIntoFunction() {
-    const name = prompt("Function name:", "Untitled");
+    const name = prompt("Function name:", this._nextFunctionName());
     if (!name) return;
     try {
       const result = this.turnSelectionIntoFunction(name);
