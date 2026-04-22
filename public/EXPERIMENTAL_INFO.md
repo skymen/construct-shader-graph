@@ -12,8 +12,7 @@ This build includes the new **Functions and Loop Bodies** system — a complete 
 
 ### UX Improvements & Bug Fixes
 
-- Double click on a comment's body to edit it
-- Comment text is now always visible
+- Double click on a comment's body to edit it, and comment text is now always rendered
 - Added manual entry for Swizzle node and types
 - Added buttons on nodes that opens their manual page
 - Fixed bug with float input shortcut
