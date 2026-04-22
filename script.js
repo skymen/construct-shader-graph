@@ -1081,6 +1081,7 @@ class BlueprintSystem {
     this.draggedNode = null;
     this.activeWire = null;
     this.hoveredPort = null;
+    this.hoveredNodeButton = null;
     this.draggedRerouteNode = null;
     this.draggedComment = null;
     this.resizingComment = null;
@@ -1948,6 +1949,7 @@ class BlueprintSystem {
       "draggedNode",
       "activeWire",
       "hoveredPort",
+      "hoveredNodeButton",
       "draggedRerouteNode",
       "draggedComment",
       "resizingComment",
@@ -16634,6 +16636,7 @@ class BlueprintSystem {
     }
 
     // Update cursor
+    this.hoveredNodeButton = null;
     const rerouteNode = this.findRerouteNodeAtPosition(pos.x, pos.y);
     if (rerouteNode) {
       this.canvas.style.cursor = "move";
@@ -16702,11 +16705,15 @@ class BlueprintSystem {
         if (!overCommentHandle) {
           const node = this.findNodeAtPosition(pos.x, pos.y);
           if (node) {
-            const overButton =
-              (node.infoButtonBounds && pos.x >= node.infoButtonBounds.x && pos.x <= node.infoButtonBounds.x + node.infoButtonBounds.width && pos.y >= node.infoButtonBounds.y && pos.y <= node.infoButtonBounds.y + node.infoButtonBounds.height) ||
-              (node.editButtonBounds && pos.x >= node.editButtonBounds.x && pos.x <= node.editButtonBounds.x + node.editButtonBounds.width && pos.y >= node.editButtonBounds.y && pos.y <= node.editButtonBounds.y + node.editButtonBounds.height) ||
-              (node.openGraphButtonBounds && pos.x >= node.openGraphButtonBounds.x && pos.x <= node.openGraphButtonBounds.x + node.openGraphButtonBounds.width && pos.y >= node.openGraphButtonBounds.y && pos.y <= node.openGraphButtonBounds.y + node.openGraphButtonBounds.height);
-            if (overButton) {
+            const hitBounds = (b) => b && pos.x >= b.x && pos.x <= b.x + b.width && pos.y >= b.y && pos.y <= b.y + b.height;
+            if (hitBounds(node.infoButtonBounds)) {
+              this.hoveredNodeButton = { node, type: "info" };
+            } else if (hitBounds(node.editButtonBounds)) {
+              this.hoveredNodeButton = { node, type: "edit" };
+            } else if (hitBounds(node.openGraphButtonBounds)) {
+              this.hoveredNodeButton = { node, type: "openGraph" };
+            }
+            if (this.hoveredNodeButton) {
               this.canvas.style.cursor = "pointer";
             } else if (node.isPointInHeader(pos.x, pos.y)) {
               this.canvas.style.cursor = "move";
@@ -17840,10 +17847,13 @@ class BlueprintSystem {
         const btnCX = btnX + btnSize / 2;
         const btnCY = btnY + btnSize / 2;
 
-        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-        ctx.beginPath();
-        ctx.arc(btnCX, btnCY, btnSize / 2, 0, Math.PI * 2);
-        ctx.fill();
+        const pillBtnType = node.nodeType.isCustom ? "edit" : (node.nodeType.isFunctionCall && node.nodeType.targetGraphId) ? "openGraph" : "info";
+        if (this.hoveredNodeButton?.node === node && this.hoveredNodeButton.type === pillBtnType) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.arc(btnCX, btnCY, btnSize / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
         if (node.nodeType.isCustom) {
           // Pencil icon for custom nodes
@@ -17908,13 +17918,13 @@ class BlueprintSystem {
           node.openGraphButtonBounds.width = btnSize;
           node.openGraphButtonBounds.height = btnSize;
         } else {
-          // Info icon for regular nodes
+          // Info icon for pill nodes
           ctx.save();
           ctx.fillStyle = "#fff";
-          ctx.font = "bold 14px serif";
+          ctx.font = "bold 14px sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
-          ctx.fillText("i", btnCX, btnCY);
+          ctx.fillText("?", btnCX, btnCY);
           ctx.restore();
 
           if (!node.infoButtonBounds) node.infoButtonBounds = {};
@@ -17971,11 +17981,13 @@ class BlueprintSystem {
         const buttonX = node.x + node.width - buttonSize - 5;
         const buttonY = node.y + 7;
 
-        // Button background
-        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-        ctx.beginPath();
-        ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
-        ctx.fill();
+        // Button background (only on hover)
+        if (this.hoveredNodeButton?.node === node && this.hoveredNodeButton.type === "edit") {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+          ctx.fill();
+        }
 
         // Edit icon (pencil) - SVG path scaled to fit button
         ctx.fillStyle = "#fff";
@@ -18026,10 +18038,12 @@ class BlueprintSystem {
         const buttonX = node.x + node.width - buttonSize - 5;
         const buttonY = node.y + 7;
 
-        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-        ctx.beginPath();
-        ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
-        ctx.fill();
+        if (this.hoveredNodeButton?.node === node && this.hoveredNodeButton.type === "openGraph") {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+          ctx.fill();
+        }
 
         // Pencil icon (same as custom nodes)
         ctx.fillStyle = "#fff";
@@ -18073,18 +18087,20 @@ class BlueprintSystem {
         const btnCenterX = buttonX + buttonSize / 2;
         const btnCenterY = buttonY + buttonSize / 2;
 
-        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-        ctx.beginPath();
-        ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
-        ctx.fill();
+        if (this.hoveredNodeButton?.node === node && this.hoveredNodeButton.type === "info") {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+          ctx.fill();
+        }
 
-        // Info icon: white "i"
+        // Info icon: white "?"
         ctx.save();
         ctx.fillStyle = "#fff";
-        ctx.font = "bold 14px serif";
+        ctx.font = "bold 14px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("i", btnCenterX, btnCenterY);
+        ctx.fillText("?", btnCenterX, btnCenterY);
         ctx.restore();
 
         if (!node.infoButtonBounds) {
