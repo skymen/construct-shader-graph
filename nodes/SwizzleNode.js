@@ -89,6 +89,27 @@ SwizzleNode.customInputConfig = {
   },
 };
 
+SwizzleNode.manual = {
+  description:
+    "Rearranges or extracts components from a vector using swizzle notation. Enter a pattern of 1–4 characters from one of the component sets: <code>xyzw</code> (position), <code>rgba</code> (color), or <code>stpq</code> (texture coordinates). You cannot mix component sets. The output type depends on the pattern length (1 char = float, 2 = vec2, 3 = vec3, 4 = vec4).",
+  html: `
+    <h3>Examples</h3>
+    <table class="manual-ports-table">
+      <thead><tr><th>Pattern</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>xy</code></td><td>Extract first two components as vec2</td></tr>
+        <tr><td><code>x</code></td><td>Extract the X component as float</td></tr>
+        <tr><td><code>zyx</code></td><td>Reverse a vec3</td></tr>
+        <tr><td><code>xxxx</code></td><td>Broadcast X to all four components (vec4)</td></tr>
+        <tr><td><code>rg</code></td><td>Same as <code>xy</code> using the color set</td></tr>
+      </tbody>
+    </table>
+    <div class="tip">
+      <strong>Tip:</strong> Component sets are interchangeable — <code>xy</code>, <code>rg</code>, and <code>st</code> all extract the same two components.
+    </div>
+  `,
+};
+
 // Function to determine output type based on custom input
 SwizzleNode.getCustomType = (node, port) => {
   // Only the output port has custom type

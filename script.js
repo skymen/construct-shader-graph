@@ -9656,6 +9656,12 @@ class BlueprintSystem {
     document.addEventListener("mousemove", (e) => this.onMouseMove(e));
     document.addEventListener("mouseup", (e) => this.onMouseUp(e));
 
+    // Clear pressed keys when window loses focus (prevents stuck keys)
+    window.addEventListener("blur", () => this.pressedKeys.clear());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.pressedKeys.clear();
+    });
+
     // Drag and drop for uniforms
     this.canvas.addEventListener("dragover", (e) => {
       e.preventDefault();
@@ -12559,7 +12565,11 @@ class BlueprintSystem {
     const sortedCategories = Object.keys(categories).sort();
 
     // Build the sidebar HTML
-    let sidebarHtml = "";
+    let sidebarHtml = `
+      <div class="manual-node-item manual-types-item" data-special="types" style="border-left-color: #c084fc; margin: 4px 8px 8px 8px; padding: 8px 10px;">
+        <span class="manual-node-name">Types Reference</span>
+      </div>
+    `;
     for (const category of sortedCategories) {
       const nodes = categories[category].sort((a, b) =>
         a.nodeType.name.localeCompare(b.nodeType.name),
@@ -12650,9 +12660,13 @@ class BlueprintSystem {
             .forEach((i) => i.classList.remove("active"));
           // Add active class to clicked item
           item.classList.add("active");
-          // Show node documentation
-          const nodeKey = item.dataset.nodeKey;
-          this.showNodeManualEntry(nodeKey);
+          // Show node or special documentation
+          if (item.dataset.special === "types") {
+            this.showTypesManualEntry();
+          } else {
+            const nodeKey = item.dataset.nodeKey;
+            this.showNodeManualEntry(nodeKey);
+          }
         });
       });
 
@@ -12878,6 +12892,63 @@ class BlueprintSystem {
     html += `</div>`;
 
     contentContainer.innerHTML = html;
+  }
+
+  showTypesManualEntry() {
+    const contentContainer = document.getElementById("manualContent");
+    const typeRows = Object.entries(PORT_TYPES)
+      .filter(([key, t]) => !t.isGeneric && !t.isComposite)
+      .map(([key, t]) => `
+        <tr>
+          <td><span class="manual-type-badge" style="background: ${t.color}40; color: ${t.color}; border-color: ${t.color}">${key}</span></td>
+          <td>${t.name}</td>
+          <td>${t.editable ? "Yes" : "No"}</td>
+          <td>${t.defaultValue !== undefined ? (Array.isArray(t.defaultValue) ? `(${t.defaultValue.join(", ")})` : String(t.defaultValue)) : "—"}</td>
+        </tr>
+      `).join("");
+
+    const genericRows = Object.entries(PORT_TYPES)
+      .filter(([key, t]) => t.isGeneric)
+      .map(([key, t]) => `
+        <tr>
+          <td><span class="manual-type-badge" style="background: ${t.color}40; color: ${t.color}; border-color: ${t.color}">${key}</span></td>
+          <td>${t.name}</td>
+          <td>${t.allowedTypes?.map(at => `<code>${at}</code>`).join(", ") || "—"}</td>
+        </tr>
+      `).join("");
+
+    contentContainer.innerHTML = `
+      <div class="manual-entry">
+        <div class="manual-entry-header" style="border-left-color: #c084fc">
+          <h2>Types Reference</h2>
+        </div>
+        <div class="manual-section">
+          <h3>Concrete Types</h3>
+          <p>These are the fundamental data types used by shader node ports.</p>
+          <table class="manual-ports-table">
+            <thead><tr><th>Type</th><th>Name</th><th>Editable</th><th>Default</th></tr></thead>
+            <tbody>${typeRows}</tbody>
+          </table>
+        </div>
+        <div class="manual-section">
+          <h3>Generic Types</h3>
+          <p>Generic types resolve to a concrete type at codegen time based on what is connected. When unconnected, they default to the first allowed type.</p>
+          <table class="manual-ports-table">
+            <thead><tr><th>Type</th><th>Name</th><th>Allowed Types</th></tr></thead>
+            <tbody>${genericRows}</tbody>
+          </table>
+        </div>
+        <div class="manual-section">
+          <h3>Composite Types</h3>
+          <p><strong>vector</strong> — accepts vec2, vec3, or vec4.<br>
+          <strong>any</strong> — accepts any type including scalar, vector, and texture.</p>
+        </div>
+        <div class="manual-section">
+          <h3>Type Compatibility</h3>
+          <p>Ports can be connected when their types are compatible: exact match, generic-to-concrete (if the concrete type is in the generic's allowed list), or composite-to-concrete (if the concrete type is in the composite's includes list). When two generic ports are connected, one must be a subset of the other.</p>
+        </div>
+      </div>
+    `;
   }
 
   async exportGLSL() {
@@ -15937,6 +16008,65 @@ class BlueprintSystem {
       }
     }
 
+    // Check if clicking on open-graph button for function/loop call nodes
+    if (
+      topNodeAtPointer?.nodeType.isFunctionCall &&
+      topNodeAtPointer.openGraphButtonBounds
+    ) {
+      const btn = topNodeAtPointer.openGraphButtonBounds;
+      if (
+        pos.x >= btn.x &&
+        pos.x <= btn.x + btn.width &&
+        pos.y >= btn.y &&
+        pos.y <= btn.y + btn.height
+      ) {
+        this.openGraphTab(topNodeAtPointer.nodeType.targetGraphId);
+        return;
+      }
+    }
+
+    // Check if clicking on info button (opens manual)
+    if (
+      topNodeAtPointer &&
+      !topNodeAtPointer.nodeType.isCustom &&
+      !topNodeAtPointer.nodeType.isFunctionCall &&
+      topNodeAtPointer.infoButtonBounds
+    ) {
+      const btn = topNodeAtPointer.infoButtonBounds;
+      if (
+        pos.x >= btn.x &&
+        pos.x <= btn.x + btn.width &&
+        pos.y >= btn.y &&
+        pos.y <= btn.y + btn.height
+      ) {
+        // Find the node key in NODE_TYPES
+        for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
+          if (nodeType === topNodeAtPointer.nodeType) {
+            this.showManualModal();
+            // After the modal is shown, select this node's entry
+            setTimeout(() => {
+              const categoriesContainer = document.getElementById("manualCategories");
+              categoriesContainer
+                .querySelectorAll(".manual-node-item")
+                .forEach((i) => i.classList.remove("active"));
+              const nodeItem = categoriesContainer.querySelector(
+                `[data-node-key="${key}"]`,
+              );
+              if (nodeItem) {
+                nodeItem.classList.add("active");
+                const category = nodeItem.closest(".manual-category");
+                if (category) category.classList.remove("collapsed");
+                nodeItem.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+              this.showNodeManualEntry(key);
+            }, 0);
+            break;
+          }
+        }
+        return;
+      }
+    }
+
     // Check if clicking on an operation dropdown
     if (topNodeAtPointer?.nodeType.hasOperation) {
       const dropdown = topNodeAtPointer.getOperationDropdownBounds();
@@ -16154,8 +16284,15 @@ class BlueprintSystem {
         return;
       }
 
-      // For clicks inside the comment body (not title bar or handles),
-      // don't intercept - let them fall through to node/box selection logic below
+      // Double-click on comment body (outside any node/port/wire) opens edit
+      if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+        const nodeAtPos = this.findNodeAtPosition(pos.x, pos.y);
+        if (!nodeAtPos) {
+          this.showCommentModal(comment);
+          return;
+        }
+      }
+      // Otherwise let single clicks fall through to node/box selection logic below
     }
 
     // Check if clicking on a node
@@ -17504,8 +17641,8 @@ class BlueprintSystem {
     // ctx.lineTo(iconCenterX + iconSize, iconCenterY - iconSize);
     // ctx.stroke();
 
-    // Title text (offset to make room for drag handle)
-    if (shouldDrawText) {
+    // Title text (offset to make room for drag handle) - always shown
+    {
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "left";
@@ -17772,6 +17909,84 @@ class BlueprintSystem {
         node.editButtonBounds.y = buttonY;
         node.editButtonBounds.width = buttonSize;
         node.editButtonBounds.height = buttonSize;
+      }
+
+      // Open-graph button for function/loop body call nodes
+      if (node.nodeType.isFunctionCall && node.nodeType.targetGraphId) {
+        const buttonSize = 20;
+        const buttonX = node.x + node.width - buttonSize - 5;
+        const buttonY = node.y + 7;
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+        ctx.beginPath();
+        ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+        ctx.fill();
+
+        // Pencil icon (same as custom nodes)
+        ctx.fillStyle = "#fff";
+        ctx.save();
+        const iconSize = 14;
+        const iconOffset = (buttonSize - iconSize) / 2;
+        ctx.translate(buttonX + iconOffset, buttonY + iconOffset);
+        const scale = iconSize / 24;
+        ctx.scale(scale, scale);
+        ctx.beginPath();
+        ctx.moveTo(20.71, 7.04);
+        ctx.bezierCurveTo(21.1, 6.65, 21.1, 6, 20.71, 5.63);
+        ctx.lineTo(18.37, 3.29);
+        ctx.bezierCurveTo(18, 2.9, 17.35, 2.9, 16.96, 3.29);
+        ctx.lineTo(15.12, 5.12);
+        ctx.lineTo(18.87, 8.87);
+        ctx.moveTo(3, 17.25);
+        ctx.lineTo(3, 21);
+        ctx.lineTo(6.75, 21);
+        ctx.lineTo(17.81, 9.93);
+        ctx.lineTo(14.06, 6.18);
+        ctx.lineTo(3, 17.25);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        if (!node.openGraphButtonBounds) {
+          node.openGraphButtonBounds = {};
+        }
+        node.openGraphButtonBounds.x = buttonX;
+        node.openGraphButtonBounds.y = buttonY;
+        node.openGraphButtonBounds.width = buttonSize;
+        node.openGraphButtonBounds.height = buttonSize;
+      }
+
+      // Info button for non-custom nodes (opens manual page)
+      if (!node.nodeType.isCustom && !node.nodeType.isFunctionCall) {
+        const buttonSize = 20;
+        const buttonX = node.x + node.width - buttonSize - 5;
+        const buttonY = node.y + 7;
+        const btnCenterX = buttonX + buttonSize / 2;
+        const btnCenterY = buttonY + buttonSize / 2;
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+        ctx.beginPath();
+        ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+        ctx.fill();
+
+        // Info icon: white circle with colored "i"
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(btnCenterX, btnCenterY, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = node.nodeType.color;
+        ctx.font = "bold 11px serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("i", btnCenterX, btnCenterY + 0.5);
+
+        if (!node.infoButtonBounds) {
+          node.infoButtonBounds = {};
+        }
+        node.infoButtonBounds.x = buttonX;
+        node.infoButtonBounds.y = buttonY;
+        node.infoButtonBounds.width = buttonSize;
+        node.infoButtonBounds.height = buttonSize;
       }
 
       // Operation dropdown (if node has operations)
