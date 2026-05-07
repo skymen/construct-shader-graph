@@ -392,6 +392,25 @@ describe("Bug 5: type change drops incompatible wires, keeps compatible ones", (
     expect(math.outputPorts[0].getResolvedType()).toBe("vec3");
   });
 
+  it("preserves unconnected generic port values during graph type propagation", () => {
+    const math = blueprint.addNode(0, 0, NODE_TYPES.math);
+    math.inputPorts[1].value = 7.5;
+
+    const floatNode = blueprint.addNode(0, 0, NODE_TYPES.floatInput);
+    connect(floatNode.outputPorts[0], math.inputPorts[0]);
+    expect(math.inputPorts[1].getResolvedType()).toBe("float");
+    expect(math.inputPorts[1].value).toBe(7.5);
+
+    const wire = math.inputPorts[0].connections[0];
+    blueprint.disconnectWire(wire);
+    expect(math.inputPorts[1].value).toBe(7.5);
+
+    const vec2 = blueprint.addNode(0, 0, NODE_TYPES.vec2);
+    connect(vec2.outputPorts[0], math.inputPorts[0]);
+    expect(math.inputPorts[1].getResolvedType()).toBe("vec2");
+    expect(math.inputPorts[1].value).toEqual([0.0, 0.0]);
+  });
+
   it("body-driven resolution change on a caller's output drops incompatible outgoing wires", () => {
     // Function graph: input T passthrough to output T. Body wire links them.
     const g = blueprint.createFunctionGraph({ name: "Fn" });

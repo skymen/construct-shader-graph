@@ -7,10 +7,10 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { bootstrap } from "./helpers/bootstrap.js";
 
-let blueprint;
+let blueprint, NODE_TYPES;
 
 beforeAll(async () => {
-  ({ blueprint } = await bootstrap());
+  ({ blueprint, NODE_TYPES } = await bootstrap());
 });
 
 beforeEach(() => {
@@ -57,5 +57,29 @@ describe("generateAllShaders", () => {
     expect(shadersAfter.webgl1).toBe(shadersBefore.webgl1);
     expect(shadersAfter.webgl2).toBe(shadersBefore.webgl2);
     expect(shadersAfter.webgpu).toBe(shadersBefore.webgpu);
+  });
+
+  it("emits SDF Gradient Color code for all shader targets", () => {
+    const output = blueprint.nodes.find((node) => node.nodeType === NODE_TYPES.output);
+    const circle = blueprint.addNode(0, 0, NODE_TYPES.circleSDF);
+    const gradient = blueprint.addNode(0, 0, NODE_TYPES.sdfGradientColor);
+
+    const Wire = globalThis.__sgWire;
+    const sdfWire = new Wire(circle.outputPorts[0], gradient.inputPorts[0]);
+    circle.outputPorts[0].connections.push(sdfWire);
+    gradient.inputPorts[0].connections.push(sdfWire);
+    blueprint.wires.push(sdfWire);
+    blueprint.resolveGenericsForConnection(circle.outputPorts[0], gradient.inputPorts[0]);
+
+    const outputWire = new Wire(gradient.outputPorts[0], output.inputPorts[0]);
+    gradient.outputPorts[0].connections.push(outputWire);
+    output.inputPorts[0].connections.push(outputWire);
+    blueprint.wires.push(outputWire);
+    blueprint.resolveGenericsForConnection(gradient.outputPorts[0], output.inputPorts[0]);
+
+    const shaders = blueprint.generateAllShaders();
+    expect(shaders.webgl1).toContain("outlineMask_");
+    expect(shaders.webgl2).toContain("innerColor_");
+    expect(shaders.webgpu).toContain("vec4<f32>");
   });
 });

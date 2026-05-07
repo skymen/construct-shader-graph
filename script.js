@@ -369,15 +369,25 @@ class Port {
 
     const resolvedType = this.getResolvedType();
     const portTypeInfo = PORT_TYPES[resolvedType];
+    const canReuseValueForResolvedType = () => {
+      if (this.value === undefined || !portTypeInfo?.editable) return false;
+      if (resolvedType === "float") return typeof this.value === "number";
+      if (resolvedType === "int") return Number.isInteger(this.value);
+      if (resolvedType === "bool") return typeof this.value === "boolean";
+      if (resolvedType === "vec2") return Array.isArray(this.value) && this.value.length === 2;
+      if (resolvedType === "vec3") return Array.isArray(this.value) && this.value.length === 3;
+      if (resolvedType === "vec4") return Array.isArray(this.value) && this.value.length === 4;
+      return false;
+    };
 
     // If the resolved type is editable and we don't have connections, make it editable
     if (portTypeInfo?.editable && this.connections.length === 0) {
-      if (!this.isEditable) {
-        this.isEditable = true;
-        // Initialize value if not already set
-        if (this.value === undefined) {
-          this.value = portTypeInfo.defaultValue;
-        }
+      this.isEditable = true;
+      // Generic ports can temporarily become non-editable during type
+      // propagation. Preserve the user's value when it still matches the
+      // newly resolved concrete type; only fall back to a default when needed.
+      if (!canReuseValueForResolvedType()) {
+        this.value = portTypeInfo.defaultValue;
       }
     } else if (this.connections.length > 0) {
       // If we have connections, we're not editable
@@ -385,7 +395,9 @@ class Port {
     } else if (!portTypeInfo?.editable && this.isEditable) {
       // If the resolved type is no longer editable, clear the value and mark as non-editable
       this.isEditable = false;
-      this.value = undefined;
+      if (!isGenericType(this.portType)) {
+        this.value = undefined;
+      }
     }
   }
 }

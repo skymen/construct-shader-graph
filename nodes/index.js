@@ -269,6 +269,7 @@ import { SDFRoundNode } from "./SDFRoundNode.js";
 import { SDFFillNode } from "./SDFFillNode.js";
 import { SDFStrokeNode } from "./SDFStrokeNode.js";
 import { SDFColorNode } from "./SDFColorNode.js";
+import { SDFGradientColorNode } from "./SDFGradientColorNode.js";
 
 // Import radial symmetry node
 import { RadialSymmetryNode } from "./RadialSymmetryNode.js";
@@ -580,6 +581,7 @@ export const NODE_TYPES = {
   sdfFill: SDFFillNode,
   sdfStroke: SDFStrokeNode,
   sdfColor: SDFColorNode,
+  sdfGradientColor: SDFGradientColorNode,
 
   // Radial symmetry
   radialSymmetry: RadialSymmetryNode,
