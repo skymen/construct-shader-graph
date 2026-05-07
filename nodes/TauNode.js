@@ -2,7 +2,7 @@ import { NodeType } from "./NodeType.js";
 import { NODE_COLORS } from "./PortTypes.js";
 
 export const TauNode = new NodeType(
-  "Tau",
+  "2Pi",
   [],
   [{ name: "Value", type: "float" }],
   NODE_COLORS.constants,
@@ -24,5 +24,5 @@ export const TauNode = new NodeType(
     },
   },
   "Constants",
-  ["tau", "constant", "math", "circle", "2pi"]
+  ["tau", "constant", "math", "circle", "2pi"],
 );

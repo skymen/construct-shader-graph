@@ -194,6 +194,10 @@ import { DrawFloatNode } from "./DrawFloatNode.js";
 import { SetVariableNode } from "./SetVariableNode.js";
 import { GetVariableNode } from "./GetVariableNode.js";
 
+// Import function boundary nodes
+import { FunctionInputNode } from "./FunctionInputNode.js";
+import { FunctionOutputNode } from "./FunctionOutputNode.js";
+
 // Import input nodes
 import { FloatInputNode } from "./FloatInputNode.js";
 import { IntInputNode } from "./IntInputNode.js";
@@ -265,6 +269,7 @@ import { SDFRoundNode } from "./SDFRoundNode.js";
 import { SDFFillNode } from "./SDFFillNode.js";
 import { SDFStrokeNode } from "./SDFStrokeNode.js";
 import { SDFColorNode } from "./SDFColorNode.js";
+import { SDFGradientColorNode } from "./SDFGradientColorNode.js";
 
 // Import radial symmetry node
 import { RadialSymmetryNode } from "./RadialSymmetryNode.js";
@@ -503,6 +508,10 @@ export const NODE_TYPES = {
   setVariable: SetVariableNode,
   getVariable: GetVariableNode,
 
+  // Function boundary nodes (visible only inside function/loopBody graphs)
+  functionInput: FunctionInputNode,
+  functionOutput: FunctionOutputNode,
+
   // Input nodes
   floatInput: FloatInputNode,
   intInput: IntInputNode,
@@ -572,6 +581,7 @@ export const NODE_TYPES = {
   sdfFill: SDFFillNode,
   sdfStroke: SDFStrokeNode,
   sdfColor: SDFColorNode,
+  sdfGradientColor: SDFGradientColorNode,
 
   // Radial symmetry
   radialSymmetry: RadialSymmetryNode,

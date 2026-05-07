@@ -42,11 +42,15 @@ describe("Variable Get / Set node coupling (single graph)", () => {
     expect(getNode).toBeTruthy();
 
     // Without anything connected to setNode, the resolved type falls back to
-    // the input's declared port type. Just verify the lookup path runs.
+    // the input's declared port type.
     const port = getNode.outputPorts[0];
     const resolved = getNode.nodeType.getCustomType(getNode, port);
-    expect(typeof resolved).toBe("string");
-    expect(resolved.length).toBeGreaterThan(0);
+    const validTypes = [
+      "float", "int", "bool", "vec2", "vec3", "vec4",
+      "mat2", "mat3", "mat4", "sampler2D",
+      "T", "U", "V",
+    ];
+    expect(validTypes).toContain(resolved);
   });
 
   it("REFACTOR CONTRACT: lookup is scoped to the owning graph (today: _blueprintSystem.nodes)", () => {
