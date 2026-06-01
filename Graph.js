@@ -17,6 +17,12 @@
 
 let __graphIdCounter = 1;
 
+function reserveGraphId(id) {
+  const match = typeof id === "string" && id.match(/^g_(\d+)$/);
+  if (!match) return;
+  __graphIdCounter = Math.max(__graphIdCounter, Number(match[1]) + 1);
+}
+
 export function makeDefaultShaderSettings() {
   return {
     name: "",
@@ -43,6 +49,7 @@ export class Graph {
   constructor(host, opts = {}) {
     this.host = host;
     this.id = opts.id || `g_${__graphIdCounter++}`;
+    reserveGraphId(this.id);
     this.name = opts.name || "Untitled";
 
     // Graph kind: 'main' | 'function' | 'loopBody'

@@ -240,6 +240,56 @@ describe("Save/load round-trip with function graphs", () => {
       expect(reloaded.data.contract.outputs[0].name).toBe("beta");
       expect(reloaded.data.notes).toBe("round-trip test");
     });
+
+    it("creating a function after load does not overwrite loaded g_N functions", async () => {
+      const payload = {
+        version: "1.0.0",
+        shaderSettings: {},
+        uniforms: [],
+        deprecatedUniforms: [],
+        uniformIdCounter: 1,
+        customNodes: [],
+        previewSettings: {},
+        camera: { x: 0, y: 0, zoom: 1 },
+        nodes: [],
+        wires: [],
+        comments: [],
+        nodeIdCounter: 1,
+        commentIdCounter: 1,
+        _additionalGraphs: [
+          {
+            id: "g_2",
+            name: "LoadedFirst",
+            kind: "function",
+            color: null,
+            data: {
+              contract: {
+                inputs: [{ id: "p1", name: "x", type: "float" }],
+                outputs: [{ id: "p2", name: "y", type: "float" }],
+              },
+              notes: "",
+            },
+            contractVersion: 1,
+            shaderSettings: {},
+            camera: { x: 0, y: 0, zoom: 1 },
+            nodes: [],
+            wires: [],
+            comments: [],
+            nodeIdCounter: 1,
+            commentIdCounter: 1,
+          },
+        ],
+      };
+
+      await blueprint.loadFromJSON(fakeFile(payload));
+
+      const created = blueprint.createFunctionGraph({ name: "CreatedAfterLoad" });
+
+      expect(created.id).not.toBe("g_2");
+      expect(blueprint.graphs.get("g_2")?.name).toBe("LoadedFirst");
+      expect([...blueprint.graphs.values()].some((g) => g.name === "CreatedAfterLoad")).toBe(true);
+      expect(blueprint.graphs.size).toBe(3);
+    });
   });
 
   describe("getCallableGraphs after load", () => {
