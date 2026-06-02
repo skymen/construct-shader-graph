@@ -149,31 +149,6 @@ export const PORT_TYPES = {
   // Special types
   texture: { color: "#90e24a", name: "Texture", editable: false },
 
-  // Composite types (for compatibility checking)
-  vector: {
-    color: "#e2a44a",
-    name: "Vector",
-    editable: false,
-    isComposite: true,
-    includes: ["vec2", "vec3", "vec4"],
-  },
-  any: {
-    color: "#888888",
-    name: "Any",
-    editable: false,
-    isComposite: true,
-    includes: [
-      "float",
-      "int",
-      "bool",
-      "vec2",
-      "vec3",
-      "vec4",
-      "texture",
-      "vector",
-    ],
-  },
-
   // Generic types (templates)
   genType,
   genType2: { ...genType }, // copy for when I want 2 separately handled genTypes in a node (like mix)
@@ -400,31 +375,6 @@ export function areTypesCompatible(
   if (isGenericType(actualInputType)) {
     const allowedTypes = getAllowedTypesForGeneric(actualInputType);
     return allowedTypes.includes(actualOutputType);
-  }
-
-  // Check if input type is a composite that includes the output type
-  const inputTypeDef = PORT_TYPES[actualInputType];
-  if (
-    inputTypeDef?.isComposite &&
-    inputTypeDef.includes.includes(actualOutputType)
-  ) {
-    return true;
-  }
-
-  // Check if output type is a composite that includes the input type
-  const outputTypeDef = PORT_TYPES[actualOutputType];
-  if (
-    outputTypeDef?.isComposite &&
-    outputTypeDef.includes.includes(actualInputType)
-  ) {
-    return true;
-  }
-
-  // Check if both are composites with overlapping types
-  if (inputTypeDef?.isComposite && outputTypeDef?.isComposite) {
-    return inputTypeDef.includes.some((type) =>
-      outputTypeDef.includes.includes(type)
-    );
   }
 
   return false;

@@ -315,7 +315,7 @@ class Port {
 
   getColor() {
     const resolvedType = this.getResolvedType();
-    return PORT_TYPES[resolvedType]?.color || PORT_TYPES.any.color;
+    return PORT_TYPES[resolvedType]?.color || "#888888";
   }
 
   canConnectTo(otherPort) {
@@ -13160,7 +13160,7 @@ class BlueprintSystem {
     const skipKeys = new Set(["T", "U"]);
     const typeRows = Object.entries(PORT_TYPES)
       .filter(
-        ([key, t]) => !t.isGeneric && !t.isComposite && !skipKeys.has(key),
+        ([key, t]) => !t.isGeneric && !skipKeys.has(key),
       )
       .map(
         ([key, t]) => `
@@ -15881,7 +15881,7 @@ class BlueprintSystem {
             if (customType) connectedType = customType;
           }
           const def = PORT_TYPES[connectedType];
-          if (def && !def.isComposite && !def.isGeneric) {
+          if (def && !def.isGeneric) {
             directConcreteTypes.add(connectedType);
           }
         }
@@ -15912,7 +15912,7 @@ class BlueprintSystem {
       const resolved = cn.resolveGenericType(cgt);
       if (resolved) {
         const def = PORT_TYPES[resolved];
-        if (def && !def.isComposite && !isGenericType(resolved)) {
+        if (def && !isGenericType(resolved)) {
           concreteTypes.add(resolved);
         }
       }
@@ -15957,34 +15957,11 @@ class BlueprintSystem {
     const outputType = outputPort.getResolvedType();
     const inputType = inputPort.getResolvedType();
 
-    // Determine the concrete type to use for resolution
-    // If one side is composite and the other is concrete, use the concrete type
-    const outputTypeDef = PORT_TYPES[outputType];
-    const inputTypeDef = PORT_TYPES[inputType];
-
-    let concreteTypeForOutput = inputType;
-    let concreteTypeForInput = outputType;
-
-    // If input is composite but output is concrete, use output's concrete type
-    if (inputTypeDef?.isComposite && !outputTypeDef?.isComposite) {
-      concreteTypeForOutput = outputType;
-    }
-
-    // If output is composite but input is concrete, use input's concrete type
-    if (outputTypeDef?.isComposite && !inputTypeDef?.isComposite) {
-      concreteTypeForInput = inputType;
-    }
-
-    // If both are composite, we can't resolve (shouldn't happen with proper filtering)
-    if (outputTypeDef?.isComposite && inputTypeDef?.isComposite) {
-      return;
-    }
-
     // Update output node's generics with the concrete type
     if (isGenericType(outputPort.portType)) {
       const wasUpdated = outputPort.node.updateResolvedGenerics(
         outputPort.portType,
-        concreteTypeForOutput,
+        inputType,
       );
 
       // Propagate resolution to connected generic ports
@@ -15992,7 +15969,7 @@ class BlueprintSystem {
         this.propagateGenericResolution(
           outputPort.node,
           outputPort.portType,
-          concreteTypeForOutput,
+          inputType,
         );
       }
 
@@ -16012,7 +15989,7 @@ class BlueprintSystem {
     if (isGenericType(inputPort.portType)) {
       const wasUpdated = inputPort.node.updateResolvedGenerics(
         inputPort.portType,
-        concreteTypeForInput,
+        outputType,
       );
 
       // Propagate resolution to connected generic ports
@@ -16020,7 +15997,7 @@ class BlueprintSystem {
         this.propagateGenericResolution(
           inputPort.node,
           inputPort.portType,
-          concreteTypeForInput,
+          outputType,
         );
       }
 
