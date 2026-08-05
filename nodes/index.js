@@ -41,6 +41,7 @@ import { StepNode } from "./StepNode.js";
 import { SmoothstepNode } from "./SmoothstepNode.js";
 import { CosNode } from "./CosNode.js";
 import { SinNode } from "./SinNode.js";
+import { OscillateNode } from "./OscillateNode.js";
 import { TanNode } from "./TanNode.js";
 import { AsinNode } from "./AsinNode.js";
 import { AcosNode } from "./AcosNode.js";
@@ -55,6 +56,7 @@ import { LengthNode } from "./LengthNode.js";
 import { DistanceNode } from "./DistanceNode.js";
 import { MultiplyVectorNode } from "./MultiplyVectorNode.js";
 import { RotateAroundPointNode } from "./RotateAroundPointNode.js";
+import { RotateAroundPointAspectNode } from "./RotateAroundPointAspectNode.js";
 import { Hash11Node } from "./Hash11Node.js";
 import { Hash21Node } from "./Hash21Node.js";
 import { Hash22Node } from "./Hash22Node.js";
@@ -82,6 +84,7 @@ import { LinearGradientNode } from "./LinearGradientNode.js";
 import { RadialGradientNode } from "./RadialGradientNode.js";
 import { GradientMapNode } from "./GradientMapNode.js";
 import { TextureFrontNode } from "./TextureFrontNode.js";
+import { TextureFrontClippedNode } from "./TextureFrontClippedNode.js";
 import { TextureBackNode } from "./TextureBackNode.js";
 import { TextureDepthNode } from "./TextureDepthNode.js";
 import { SamplerFrontNode } from "./SamplerFrontNode.js";
@@ -144,10 +147,14 @@ import { BuiltinLayoutCenterNode } from "./BuiltinLayoutCenterNode.js";
 import { BuiltinLayoutSizeNode } from "./BuiltinLayoutSizeNode.js";
 import { TexelSizeNode } from "./TexelSizeNode.js";
 import { PixelSizeNode } from "./PixelSizeNode.js";
+import { SrcOriginPixelSizeNode } from "./SrcOriginPixelSizeNode.js";
+import { AspectCorrectNode } from "./AspectCorrectNode.js";
 import { LayoutPixelSizeNode } from "./LayoutPixelSizeNode.js";
 import { SrcOriginToNormNode } from "./SrcOriginToNormNode.js";
 import { GetLayoutPosNode } from "./GetLayoutPosNode.js";
 import { FromLayoutPosNode } from "./FromLayoutPosNode.js";
+import { GetLayoutPosRotationSafeNode } from "./GetLayoutPosRotationSafeNode.js";
+import { FromLayoutPosRotationSafeNode } from "./FromLayoutPosRotationSafeNode.js";
 import { UnpremultiplyNode } from "./UnpremultiplyNode.js";
 import { PremultiplyNode } from "./PremultiplyNode.js";
 import { LinearizeDepthNode } from "./LinearizeDepthNode.js";
@@ -358,6 +365,7 @@ export const NODE_TYPES = {
   smoothstep: SmoothstepNode,
   cos: CosNode,
   sin: SinNode,
+  oscillate: OscillateNode,
   tan: TanNode,
   asin: AsinNode,
   acos: AcosNode,
@@ -372,6 +380,7 @@ export const NODE_TYPES = {
   distance: DistanceNode,
   multiplyVector: MultiplyVectorNode,
   rotateAroundPoint: RotateAroundPointNode,
+  rotateAroundPointAspect: RotateAroundPointAspectNode,
   hash11: Hash11Node,
   hash21: Hash21Node,
   hash22: Hash22Node,
@@ -399,6 +408,7 @@ export const NODE_TYPES = {
   radialGradient: RadialGradientNode,
   gradientMap: GradientMapNode,
   textureFront: TextureFrontNode,
+  textureFrontClipped: TextureFrontClippedNode,
   textureBack: TextureBackNode,
   textureDepth: TextureDepthNode,
   samplerFront: SamplerFrontNode,
@@ -458,10 +468,14 @@ export const NODE_TYPES = {
   builtinZFar: BuiltinZFarNode,
   texelSize: TexelSizeNode,
   pixelSize: PixelSizeNode,
+  srcOriginPixelSize: SrcOriginPixelSizeNode,
+  aspectCorrect: AspectCorrectNode,
   layoutPixelSize: LayoutPixelSizeNode,
   srcOriginToNorm: SrcOriginToNormNode,
   getLayoutPos: GetLayoutPosNode,
   fromLayoutPos: FromLayoutPosNode,
+  getLayoutPosRotationSafe: GetLayoutPosRotationSafeNode,
+  fromLayoutPosRotationSafe: FromLayoutPosRotationSafeNode,
   unpremultiply: UnpremultiplyNode,
   premultiply: PremultiplyNode,
   linearizeDepth: LinearizeDepthNode,

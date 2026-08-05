@@ -1241,7 +1241,6 @@ body {
 
 .sidebar-section-content {
   padding: 12px;
-  max-height: 2000px;
   overflow: hidden;
   transition: max-height 0.3s ease, padding 0.3s ease;
 }
@@ -2623,6 +2622,13 @@ body {
   color: #888;
   font-size: 11px;
   line-height: 1.4;
+}
+
+.preview-control-hint {
+  color: #888;
+  font-size: 11px;
+  line-height: 1.4;
+  flex-basis: 100%;
 }
 
 .script-tab-hint code {

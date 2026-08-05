@@ -9,6 +9,7 @@ npm run dev       # Dev server on port 3002
 npm run build     # Production build → dist/
 npm run test      # Run test suite (Vitest)
 npm run test:watch  # Watch mode
+npm run cli -- <cmd>  # Headless CLI (see cli/), e.g. `npm run cli -- validate x.c3sg`
 ```
 
 Run a single test file: `npx vitest run tests/codegen.test.js`
@@ -27,6 +28,22 @@ Run a single test file: `npx vitest run tests/codegen.test.js`
 | Code generation | Inside `script.js`: `generateShader()`, `calculateExecutionLevels()`, `generateVariableNames()` |
 | History | `HistoryManager.js` — snapshot-based undo/redo with 1-second coalescing |
 | Graph kinds | `graph-kinds/` — per-kind dispatch for `function` and `loopBody` graphs |
+| Headless boot | `headless/boot.js` — mounts `index.html` in jsdom and imports `script.js`; shared by tests and CLI |
+| CLI | `cli/` — thin transport over `shaderGraphAPI.call()`; see "CLI" below |
+
+### CLI
+
+`cli/` contains **no shader, graph or codegen logic**. Every command reduces to
+`read file → shaderGraphAPI.call(method, args) → write file`. If a command needs
+behaviour the app lacks, add it to `script.js` / `GlobalConsoleApi.js` first —
+then the app gains it too and the two cannot drift.
+
+- Two hosts, one `call(path, args)` interface: `cli/host/node.js` (jsdom + Vite
+  `ssrLoadModule`, used by everything) and `cli/host/browser.js` (Playwright +
+  the real app, used only by `preview`, which needs a GPU for the C3 runtime).
+- `csg api` is generated from `api.getManifest()` — new API methods need no CLI code.
+- `tests/28-cli-parity.test.js` asserts CLI output is byte-identical to the app's
+  own for every example. That is the guard against duplication creeping back in.
 
 ### Multi-Graph System
 

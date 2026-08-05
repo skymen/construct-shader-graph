@@ -1,0 +1,30 @@
+import { loadProject, saveProject, resolveOutput } from "./_common.js";
+import { out, style } from "../io.js";
+
+export const summary = "Auto-arrange nodes using the app's layout engine";
+export const usage = `csg arrange <file.c3sg> [options]
+
+  --all-graphs      Arrange every graph, not just the main one
+  --in-place        Write back over the input file
+  -o, --output <f>  Write the arranged project to <f>`;
+export const booleans = ["allGraphs", "inPlace"];
+export const aliases = { o: "output" };
+
+export async function run({ host, args, flags }) {
+  const input = await loadProject(host, args[0]);
+  const target = resolveOutput(input, flags, { verb: "arrange" });
+
+  const result = await host.call("layout.autoArrange", [
+    { allGraphs: !!flags.allGraphs },
+  ]);
+
+  await saveProject(host, target);
+
+  if (flags.allGraphs) {
+    for (const graph of result.graphs) {
+      out(`${style.dim("arranged")} ${graph.name} ${style.dim(`(${graph.kind})`)}`);
+    }
+  }
+  out(`${style.green("ok")}  wrote ${target}`);
+  return 0;
+}

@@ -863,6 +863,115 @@ function setupShaderErrorCapture() {
   }
 }
 
+// Force every non-tiled image to behave as a frame that was packed *rotated*
+// into a spritesheet.
+//
+// C3 packs a frame sideways when that saves atlas space, and the only trace of
+// it in the shader is indirect: srcOrigin becomes the frame's *transposed* box
+// and the quad's texture coords are rotated to compensate. Nothing tells the
+// fragment shader which way round it is, so anything that maps texture UV onto
+// layout/object space (getLayoutPos, fromLayoutPos, ...) comes out rotated 90
+// degrees and stretched by the frame's aspect ratio. There is no way to author
+// against that case without being able to reproduce it, hence this toggle.
+//
+// This is a faithful reproduction, not a fake: the frame is genuinely re-encoded
+// sideways into its own texture and the ImageInfo is put into exactly the state
+// C3's own loader produces for a rotated frame. So `IsCurrentTexRotated()` is
+// true, WebGL takes its forced pre-draw path, and WebGPU sets isSrcTexRotated -
+// all the real behaviour follows.
+{
+  const forceRotatedTexture =
+    new URLSearchParams(self.location.search).get("forceRotatedTexture") === "1";
+
+  if (forceRotatedTexture) {
+    const ImageInfo = self.C3.ImageInfo;
+    const origLoadStaticTexture = ImageInfo.prototype.LoadStaticTexture;
+    const origGetTexture = ImageInfo.prototype.GetTexture;
+    const origReleaseTexture = ImageInfo.prototype.ReleaseTexture;
+    const origReplaceWith = ImageInfo.prototype.ReplaceWith;
+
+    // Re-encode the frame sideways and adopt C3's rotated-frame state for it.
+    // The maths mirrors ImageInfo.ExtractImageToCanvas, which un-rotates a real
+    // rotated frame - this is that transform run backwards, so a round trip
+    // through both is the identity.
+    async function packRotated(info, renderer, opts) {
+      const w = info.GetWidth();
+      const h = info.GetHeight();
+      if (!(w > 0) || !(h > 0)) return;
+
+      const upright = await info.ExtractImageToCanvas();
+      const canvas = self.C3.CreateCanvas(h, w);
+      const ctx = canvas.getContext("2d");
+      ctx.translate(h, 0);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(upright, 0, 0);
+
+      const texture = await renderer.CreateStaticTextureAsync(
+        canvas,
+        Object.assign({}, opts),
+      );
+
+      info._forcedRotatedTexture = texture;
+      info._isRotated = true;
+      info._offsetX = 0;
+      info._offsetY = 0;
+      // C3's own formula, for a sheet that is exactly this one frame: the box
+      // is transposed (h x w), then normalised against the sheet size.
+      info._rcTex.set(0, 0, 1, 1);
+      info._quadTex.setFromRect(info._rcTex);
+      info._quadTex.rotatePointsAnticlockwise();
+    }
+
+    ImageInfo.prototype.LoadStaticTexture = async function (renderer, opts) {
+      const texture = await origLoadStaticTexture.call(this, renderer, opts);
+      if (!texture) return texture;
+
+      // A tiled background derives its own texture rect and ignores the frame
+      // quad entirely, so rotating it would just shift the backdrop for no
+      // reason. IsTiled() only covers dynamically loaded ones; a wrap mode
+      // other than clamp-to-edge is what identifies the rest.
+      const wraps = [opts?.wrapX, opts?.wrapY].filter(Boolean);
+      const isTiled =
+        (this._imageAsset && this._imageAsset.IsTiled()) ||
+        wraps.some((wrap) => wrap !== "clamp-to-edge");
+      if (isTiled) return texture;
+
+      try {
+        await packRotated(this, renderer, opts);
+      } catch (e) {
+        sendErrorToParent(
+          `Force-rotated texture failed: ${e && e.message ? e.message : e}`,
+          "error",
+        );
+      }
+      return texture;
+    };
+
+    ImageInfo.prototype.GetTexture = function () {
+      return this._forcedRotatedTexture || origGetTexture.call(this);
+    };
+
+    ImageInfo.prototype.ReleaseTexture = function () {
+      const texture = this._forcedRotatedTexture;
+      if (texture) {
+        this._forcedRotatedTexture = null;
+        texture.GetRenderer().DeleteTexture(texture);
+      }
+      return origReleaseTexture.call(this);
+    };
+
+    // "Load image from URL" builds a fresh ImageInfo and folds it into the
+    // frame's one. Hand the rotated texture over with it, or the frame keeps
+    // rotated coords while sampling the upright texture.
+    ImageInfo.prototype.ReplaceWith = function (other) {
+      const result = origReplaceWith.call(this, other);
+      this._forcedRotatedTexture = other._forcedRotatedTexture || null;
+      other._forcedRotatedTexture = null;
+      return result;
+    };
+  }
+}
+
 {
   self.C3.WorldInfo = class extends self.C3.WorldInfo {
     Init(t) {

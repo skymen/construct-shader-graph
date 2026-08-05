@@ -936,6 +936,7 @@ const COMMENT_HANDLE_OPACITY = "ff"; // 0xaa = 170 decimal, ~67% opacity (170/25
 const COMMENT_TITLE_HEIGHT = 31;
 const COMMENT_TEXT_MARGIN = 20;
 const COMMENT_DRAG_HANDLE_SIZE = 24; // Size of the drag handle icon
+const COMMENT_FIT_PADDING = 30; // Gap left around nodes when fitting a comment to them
 
 // Wire insertion constants
 const WIRE_INSERTION_THRESHOLD = 30; // Distance threshold for detecting wire insertion
@@ -1192,6 +1193,7 @@ class BlueprintSystem {
       autoRotate: true,
       samplingMode: "trilinear",
       shaderLanguage: "webgpu",
+      forceRotatedTexture: false,
       spriteTextureUrl: null,
       shapeTextureUrl: null,
       bgTextureUrl: null,
@@ -5450,6 +5452,17 @@ class BlueprintSystem {
       this.updatePreview(); // Reload preview with new shader language
     });
 
+    // Force rotated spritesheet frame (requires reload)
+    const forceRotatedTextureCheckbox = document.getElementById(
+      "forceRotatedTextureCheckbox",
+    );
+    if (forceRotatedTextureCheckbox) {
+      forceRotatedTextureCheckbox.addEventListener("change", (e) => {
+        this.previewSettings.forceRotatedTexture = e.target.checked;
+        this.updatePreview(); // Reload preview with the rotated frame
+      });
+    }
+
     // Reset preview settings button
     const resetPreviewSettingsBtn = document.getElementById(
       "resetPreviewSettingsBtn",
@@ -6175,6 +6188,9 @@ class BlueprintSystem {
     const params = new URLSearchParams();
     params.set("samplingMode", this.previewSettings.samplingMode);
     params.set("shaderLanguage", this.previewSettings.shaderLanguage);
+    if (this.previewSettings.forceRotatedTexture) {
+      params.set("forceRotatedTexture", "1");
+    }
 
     // Reload iframe with query parameters
     this.previewReady = false;
@@ -9682,6 +9698,56 @@ class BlueprintSystem {
     this.render();
   }
 
+  // Create a comment sized to enclose the given nodes. The title bar is drawn
+  // inside the comment's own rect, so it gets its own room above the nodes
+  // rather than overlapping the topmost row.
+  createCommentAroundNodes(nodes, options = {}) {
+    const list = (nodes || []).filter(Boolean);
+    if (list.length === 0) {
+      throw new Error("createCommentAroundNodes requires at least one node");
+    }
+
+    const padding = Number.isFinite(options.padding)
+      ? options.padding
+      : COMMENT_FIT_PADDING;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const node of list) {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + node.width);
+      maxY = Math.max(maxY, node.y + node.height);
+    }
+
+    const comment = new Comment(
+      minX - padding,
+      minY - padding - COMMENT_TITLE_HEIGHT,
+      maxX - minX + padding * 2,
+      maxY - minY + padding * 2 + COMMENT_TITLE_HEIGHT,
+      this.commentIdCounter++,
+    );
+    if (options.title !== undefined) comment.title = String(options.title);
+    if (options.description !== undefined) {
+      comment.description = String(options.description);
+    }
+    if (options.color) comment.color = String(options.color);
+
+    this.comments.push(comment);
+    this.history.pushState("Add Comment");
+    this.render();
+
+    return comment;
+  }
+
+  // "Comment Selection" action: fit a comment around whatever is selected.
+  commentSelection() {
+    if (this.selectedNodes.size === 0) return null;
+    return this.createCommentAroundNodes([...this.selectedNodes]);
+  }
+
   selectNodeType(key, nodeType) {
     const rect = this.canvas.getBoundingClientRect();
     // Convert screen coordinates to world coordinates
@@ -10231,6 +10297,14 @@ class BlueprintSystem {
           this.nodes.some(
             (node) => this.getNodeTypeKey(node.nodeType) !== "output",
           ),
+      },
+      {
+        label: "Comment Selection",
+        menu: "Project",
+        action: "commentSelection",
+        shortcut: "Shift+C",
+        handler: () => this.commentSelection(),
+        isEnabled: () => this.selectedNodes.size > 0,
       },
       {
         label: "Turn Into Variable",
@@ -10924,6 +10998,275 @@ class BlueprintSystem {
     this.autoLayoutEngine.autoArrange(selectedOnly);
   }
 
+  // Insert reroute points so no wire is drawn across a node it does not
+  // connect to, and every wire arrives at its input port heading right.
+  // Auto-arrange places nodes; it does not route the wires between them, so a
+  // straight line from a port often runs straight over whatever sits between.
+  routeWiresAroundNodes(options = {}) {
+    const margin = Number.isFinite(options.margin) ? options.margin : 24;
+    const clearance = Number.isFinite(options.clearance)
+      ? options.clearance
+      : 18;
+
+    const rects = this.nodes.map((node) => ({
+      node,
+      x: node.x - clearance,
+      y: node.y - clearance,
+      w: node.width + clearance * 2,
+      h: node.height + clearance * 2,
+    }));
+
+    const hitsRect = (seg, r) => {
+      const inside = (px, py) =>
+        px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+      if (inside(seg.x1, seg.y1) || inside(seg.x2, seg.y2)) return true;
+      const sign = (ax, ay, bx, by, cx, cy) =>
+        Math.sign((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
+      const cross = (p, q) =>
+        sign(p.x1, p.y1, p.x2, p.y2, q.x1, q.y1) !==
+          sign(p.x1, p.y1, p.x2, p.y2, q.x2, q.y2) &&
+        sign(q.x1, q.y1, q.x2, q.y2, p.x1, p.y1) !==
+          sign(q.x1, q.y1, q.x2, q.y2, p.x2, p.y2);
+      return [
+        { x1: r.x, y1: r.y, x2: r.x + r.w, y2: r.y },
+        { x1: r.x + r.w, y1: r.y, x2: r.x + r.w, y2: r.y + r.h },
+        { x1: r.x + r.w, y1: r.y + r.h, x2: r.x, y2: r.y + r.h },
+        { x1: r.x, y1: r.y + r.h, x2: r.x, y2: r.y },
+      ].some((edge) => cross(seg, edge));
+    };
+
+    const countHits = (points, skip) => {
+      let hits = 0;
+      for (let i = 0; i + 1 < points.length; i++) {
+        const seg = {
+          x1: points[i].x,
+          y1: points[i].y,
+          x2: points[i + 1].x,
+          y2: points[i + 1].y,
+        };
+        for (const r of rects) {
+          if (skip.has(r.node.id)) continue;
+          if (hitsRect(seg, r)) hits++;
+        }
+      }
+      return hits;
+    };
+
+    // Drop points that add nothing: duplicates and straight-through corners.
+    const simplify = (points) => {
+      const out = [];
+      for (const p of points) {
+        const prev = out[out.length - 1];
+        if (prev && Math.abs(prev.x - p.x) < 1 && Math.abs(prev.y - p.y) < 1) {
+          continue;
+        }
+        out.push(p);
+      }
+      return out;
+    };
+
+    // Crossing another wire is much less objectionable than being drawn over a
+    // node, but among detours that clear every node it is the tiebreak.
+    const otherSegments = () => {
+      const out = [];
+      for (const w of this.wires) {
+        const pts = w.getPoints();
+        for (let i = 0; i + 1 < pts.length; i++) {
+          out.push({
+            wire: w,
+            x1: pts[i].x,
+            y1: pts[i].y,
+            x2: pts[i + 1].x,
+            y2: pts[i + 1].y,
+          });
+        }
+      }
+      return out;
+    };
+    const segCross = (p, q) => {
+      const sign = (ax, ay, bx, by, cx, cy) =>
+        Math.sign((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
+      return (
+        sign(p.x1, p.y1, p.x2, p.y2, q.x1, q.y1) !==
+          sign(p.x1, p.y1, p.x2, p.y2, q.x2, q.y2) &&
+        sign(q.x1, q.y1, q.x2, q.y2, p.x1, p.y1) !==
+          sign(q.x1, q.y1, q.x2, q.y2, p.x2, p.y2)
+      );
+    };
+    const countCrossings = (points, self) => {
+      const others = otherSegments().filter((s) => s.wire !== self);
+      let n = 0;
+      for (let i = 0; i + 1 < points.length; i++) {
+        const seg = {
+          x1: points[i].x,
+          y1: points[i].y,
+          x2: points[i + 1].x,
+          y2: points[i + 1].y,
+        };
+        for (const o of others) if (segCross(seg, o)) n++;
+      }
+      return n;
+    };
+
+    let routed = 0;
+    for (const wire of this.wires) {
+      const skip = new Set([wire.startPort.node.id, wire.endPort.node.id]);
+      wire.rerouteNodes = [];
+
+      const start = wire.getStartPos();
+      const end = wire.getEndPos();
+      const straight = [start, end];
+      if (countHits(straight, skip) === 0 && end.x >= start.x) continue;
+
+      const exitX = start.x + margin;
+      const entryX = end.x - margin;
+
+      // Lanes worth trying: the two port heights, the midpoint, and just clear
+      // of every node that sits in the horizontal band the wire has to cross.
+      const lo = Math.min(exitX, entryX);
+      const hi = Math.max(exitX, entryX);
+      const band = rects.filter(
+        (r) => !skip.has(r.node.id) && r.x + r.w > lo && r.x < hi,
+      );
+      const lanes = [start.y, end.y, (start.y + end.y) / 2];
+      if (band.length > 0) {
+        lanes.push(Math.min(...band.map((r) => r.y)) - margin);
+        lanes.push(Math.max(...band.map((r) => r.y + r.h)) + margin);
+        const sorted = [...band].sort((a, b) => a.y - b.y);
+        for (let i = 0; i + 1 < sorted.length; i++) {
+          const gapTop = sorted[i].y + sorted[i].h;
+          const gapBottom = sorted[i + 1].y;
+          if (gapBottom - gapTop > margin * 2) {
+            lanes.push((gapTop + gapBottom) / 2);
+          }
+        }
+      }
+
+      // Also scan the band at a fixed step, so a wire boxed in by neighbours
+      // still has somewhere to go.
+      if (band.length > 0) {
+        const top = Math.min(...band.map((r) => r.y)) - margin * 2;
+        const bottom = Math.max(...band.map((r) => r.y + r.h)) + margin * 2;
+        const step = Math.max(40, (bottom - top) / 24);
+        for (let y = top; y <= bottom; y += step) lanes.push(y);
+      }
+
+      let best = null;
+      for (const lane of lanes) {
+        const points = simplify([
+          start,
+          { x: exitX, y: start.y },
+          { x: exitX, y: lane },
+          { x: entryX, y: lane },
+          { x: entryX, y: end.y },
+          end,
+        ]);
+        const hits = countHits(points, skip);
+        const score = hits * 1000 + countCrossings(points, wire);
+        if (best === null || score < best.score) best = { hits, score, points };
+        if (score === 0) break;
+      }
+
+      if (!best) continue;
+      const inner = best.points.slice(1, -1);
+      // A detour that helps nothing is just more clutter than the straight line.
+      const straightHits = countHits(straight, skip);
+      const straightScore =
+        straightHits * 1000 + countCrossings(straight, wire);
+      if (best.score >= straightScore && end.x >= start.x) continue;
+      for (const p of inner) wire.addRerouteNode(p.x, p.y);
+      routed++;
+    }
+
+    this.render();
+    return { ok: true, routed, wires: this.wires.length };
+  }
+
+  // Park each Set Variable beside the node it stores, instead of wherever the
+  // dependency levels put it. A Set Variable has no outgoing wires, so moving
+  // one cannot disturb anything downstream, and it turns the one wire it does
+  // have into a short stub.
+  snapVariableNodesToSources(options = {}) {
+    const gap = Number.isFinite(options.gap) ? options.gap : 60;
+    // Placed Set Variables count as obstacles too: a node with two stored
+    // outputs would otherwise stack both of them in the same spot.
+    const obstacles = this.nodes.filter(
+      (node) => this.getNodeTypeKey(node.nodeType) !== "setVariable",
+    );
+
+    let moved = 0;
+    for (const node of this.nodes) {
+      if (this.getNodeTypeKey(node.nodeType) !== "setVariable") continue;
+      const wire = node.inputPorts[0]?.connections?.[0];
+      if (!wire) continue;
+      const source = wire.startPort.node;
+
+      let x = source.x + source.width + gap;
+      let y = wire.startPort.getPosition().y - node.height / 2;
+
+      // Slide down past anything already sitting there.
+      const collides = (px, py) =>
+        obstacles.some(
+          (o) =>
+            o !== node &&
+            px < o.x + o.width + 20 &&
+            px + node.width + 20 > o.x &&
+            py < o.y + o.height + 20 &&
+            py + node.height + 20 > o.y,
+        );
+      let guard = 0;
+      while (collides(x, y) && guard++ < 40) y += 50;
+
+      if (node.x !== x || node.y !== y) {
+        node.x = x;
+        node.y = y;
+        moved++;
+      }
+      obstacles.push(node);
+    }
+
+    this.render();
+    return { ok: true, moved };
+  }
+
+  snapVariableNodesAllGraphs(options = {}) {
+    let moved = 0;
+    for (const graph of this.graphs.values()) {
+      this._withGraph(graph, () => {
+        moved += this.snapVariableNodesToSources(options).moved;
+      });
+    }
+    return { ok: true, moved };
+  }
+
+  routeWiresAllGraphs(options = {}) {
+    let routed = 0;
+    for (const graph of this.graphs.values()) {
+      this._withGraph(graph, () => {
+        routed += this.routeWiresAroundNodes(options).routed;
+      });
+    }
+    return { ok: true, routed };
+  }
+
+  // Arrange every graph, not just the active one. Selection is cleared per
+  // graph first: autoArrange() silently switches to selection-only mode when
+  // anything is selected, which would otherwise arrange a subset.
+  autoArrangeAllGraphs(options = {}) {
+    const arranged = [];
+    for (const graph of this.graphs.values()) {
+      this._withGraph(graph, () => {
+        graph.selectedNodes.forEach((node) => (node.isSelected = false));
+        graph.selectedNodes.clear();
+        if (graph.nodes.length === 0) return;
+        this.autoArrange(options);
+        arranged.push({ id: graph.id, name: graph.name, kind: graph.kind });
+      });
+    }
+    this.render();
+    return arranged;
+  }
+
   debugAutoArrange() {
     // If there's a selection, arrange only selected nodes
     // Otherwise, arrange all nodes
@@ -11516,6 +11859,19 @@ class BlueprintSystem {
     else if (e.shiftKey && (e.key === "P" || e.key === "p")) {
       e.preventDefault();
       this.resetPreviewPosition();
+    }
+    // Shift + C: Comment the selection. The bare-C binding above requires
+    // !shiftKey, so Center View lets this through.
+    else if (
+      e.shiftKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      (e.key === "C" || e.key === "c")
+    ) {
+      if (this.selectedNodes.size > 0) {
+        e.preventDefault();
+        this.commentSelection();
+      }
     }
     // R: Reload Preview
     else if (!e.ctrlKey && !e.metaKey && (e.key === "r" || e.key === "R")) {
@@ -13215,47 +13571,73 @@ class BlueprintSystem {
     `;
   }
 
-  async exportGLSL() {
+  // Build the .c3addon contents without delivering them anywhere. Returns
+  // null when the graph has no output node. Splitting this out from
+  // exportGLSL() is what lets non-browser callers (the CLI) produce the exact
+  // same bundle the download button produces.
+  buildAddonBundle() {
     const shaders = this.generateAllShaders();
-    if (!shaders) {
-      alert("No output node found. Cannot generate shader.");
-      return;
-    }
+    if (!shaders) return null;
 
-    // Create ZIP file
-    const zip = new JSZip();
-
-    for (const target of ["webgl1", "webgl2", "webgpu"]) {
-      console.log(`Generated ${target.toUpperCase()} Shader:`);
-      console.log(shaders[target]);
-      console.log("---");
-    }
-
-    // Add shader files to ZIP
-    zip.file("effect.fx", shaders.webgl1);
-    zip.file("effect.webgl2.fx", shaders.webgl2);
-    zip.file("effect.wgsl", shaders.webgpu);
-
-    // Generate addon.json
-    const addonJson = this.generateAddonJson();
-    zip.file("addon.json", JSON.stringify(addonJson, null, "\t"));
-
-    // Generate lang/en-US.json
-    const langJson = this.generateLangJson();
-    zip.file("lang/en-US.json", JSON.stringify(langJson, null, "\t"));
-
-    // Generate and download ZIP
-    const blob = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-
-    // Use sanitized name for the download filename with version
     const addonId = this.sanitizeAddonId(
       this.shaderSettings.name || "MyEffect",
     );
     const version = this.shaderSettings.version || "0.0.0.0";
-    a.download = `${addonId}-${version}.c3addon`;
+
+    return {
+      filename: `${addonId}-${version}.c3addon`,
+      addonId,
+      version,
+      files: {
+        "effect.fx": shaders.webgl1,
+        "effect.webgl2.fx": shaders.webgl2,
+        "effect.wgsl": shaders.webgpu,
+        "addon.json": JSON.stringify(this.generateAddonJson(), null, "\t"),
+        "lang/en-US.json": JSON.stringify(
+          this.generateLangJson(),
+          null,
+          "\t",
+        ),
+      },
+    };
+  }
+
+  // Zip a bundle from buildAddonBundle(). `type` is passed straight to JSZip,
+  // so callers pick "blob" in a browser and "nodebuffer"/"uint8array" outside.
+  async zipAddonBundle(bundle, type = "blob") {
+    const zip = new JSZip();
+    for (const [path, content] of Object.entries(bundle.files)) {
+      zip.file(path, content);
+    }
+    return zip.generateAsync({ type });
+  }
+
+  async exportGLSL() {
+    const bundle = this.buildAddonBundle();
+    if (!bundle) {
+      alert("No output node found. Cannot generate shader.");
+      return;
+    }
+
+    for (const target of ["webgl1", "webgl2", "webgpu"]) {
+      console.log(`Generated ${target.toUpperCase()} Shader:`);
+      console.log(
+        bundle.files[
+          target === "webgl1"
+            ? "effect.fx"
+            : target === "webgl2"
+              ? "effect.webgl2.fx"
+              : "effect.wgsl"
+        ],
+      );
+      console.log("---");
+    }
+
+    const blob = await this.zipAddonBundle(bundle, "blob");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = bundle.filename;
 
     document.body.appendChild(a);
     a.click();
@@ -13271,15 +13653,13 @@ class BlueprintSystem {
       .replace(/^_+|_+$/g, "");
   }
 
-  bumpVersionAndExport(bumpType) {
-    // Parse current version (X.X.X.X format)
-    const currentVersion = this.shaderSettings.version || "0.0.0.0";
-    const parts = currentVersion.split(".").map((n) => parseInt(n, 10) || 0);
-
-    // Ensure we have exactly 4 parts
+  // Bump one component of an X.X.X.X version string, resetting the lower ones.
+  bumpVersionString(version, bumpType) {
+    const parts = String(version || "0.0.0.0")
+      .split(".")
+      .map((n) => parseInt(n, 10) || 0);
     while (parts.length < 4) parts.push(0);
 
-    // Bump the appropriate part and reset lower parts
     switch (bumpType) {
       case "major":
         parts[0]++;
@@ -13301,8 +13681,14 @@ class BlueprintSystem {
         break;
     }
 
-    // Update the version in settings
-    const newVersion = parts.join(".");
+    return parts.join(".");
+  }
+
+  bumpVersionAndExport(bumpType) {
+    const newVersion = this.bumpVersionString(
+      this.shaderSettings.version,
+      bumpType,
+    );
     this.shaderSettings.version = newVersion;
 
     // Update the version input field if it exists
@@ -13439,6 +13825,7 @@ class BlueprintSystem {
       autoRotate: true,
       samplingMode: "trilinear",
       shaderLanguage: "webgpu",
+      forceRotatedTexture: false,
       spriteTextureUrl: null,
       shapeTextureUrl: null,
       bgTextureUrl: null,
@@ -13483,6 +13870,12 @@ class BlueprintSystem {
     if (autoRotateGroup) autoRotateGroup.style.display = "none";
     if (samplingModeSelect) samplingModeSelect.value = "trilinear";
     if (shaderLanguageSelect) shaderLanguageSelect.value = "webgpu";
+    const forceRotatedTextureCheckbox = document.getElementById(
+      "forceRotatedTextureCheckbox",
+    );
+    if (forceRotatedTextureCheckbox) {
+      forceRotatedTextureCheckbox.checked = false;
+    }
     if (showBackgroundCubeCheckbox) showBackgroundCubeCheckbox.checked = true;
     if (spriteScaleSlider) spriteScaleSlider.value = 1;
     if (spriteScaleValue) spriteScaleValue.textContent = "1.00";
@@ -13658,23 +14051,9 @@ class BlueprintSystem {
     this.selectedNodes.clear();
     this.selectedRerouteNodes.clear();
 
-    // Reset shader settings to defaults
-    this.shaderSettings = {
-      name: "",
-      version: "0.0.0.0",
-      author: "",
-      website: "",
-      documentation: "",
-      description: "",
-      category: "color",
-      blendsBackground: false,
-      crossSampling: false,
-      preservesOpaqueness: true,
-      animated: false,
-      isDeprecated: false,
-      extendBoxH: 0,
-      extendBoxV: 0,
-    };
+    // Reset shader settings to defaults. Shares makeDefaultShaderSettings with
+    // Graph.js so a new project cannot end up missing newer settings keys.
+    this.shaderSettings = makeDefaultShaderSettings();
     this.updateShaderSettingsUI();
 
     // Clear uniforms
@@ -14910,6 +15289,7 @@ class BlueprintSystem {
       variableName,
       autoLayout = true,
       recordHistory = true,
+      allowSingle = false,
     } = options;
     const node = this.nodes.find((entry) => entry.id === Number(nodeId));
     if (!node) {
@@ -14922,13 +15302,23 @@ class BlueprintSystem {
     if (!outputPort) {
       throw new Error(`Output port not found on node ${node.id}`);
     }
-    if (outputPort.connections.length <= 1) {
+    // A single consumer is still worth routing when the wire would otherwise
+    // run the width of the graph: the Get node lands next to whoever reads it.
+    if (outputPort.connections.length < 1) {
+      throw new Error(
+        `Node ${node.id} output '${outputPort.name}' is not connected to anything`,
+      );
+    }
+    if (outputPort.connections.length <= 1 && !allowSingle) {
       throw new Error(
         `Node ${node.id} output '${outputPort.name}' does not fan out`,
       );
     }
 
-    if (this.isSimpleFanoutDuplicationCandidate(node, outputPort)) {
+    if (
+      !allowSingle &&
+      this.isSimpleFanoutDuplicationCandidate(node, outputPort)
+    ) {
       return this.duplicateFanoutNode({
         nodeId,
         outputIndex,
@@ -15486,6 +15876,13 @@ class BlueprintSystem {
     if (shaderLanguageSelect) {
       shaderLanguageSelect.value =
         this.previewSettings.shaderLanguage || "webgpu";
+    }
+    const forceRotatedTextureCheckbox = document.getElementById(
+      "forceRotatedTextureCheckbox",
+    );
+    if (forceRotatedTextureCheckbox) {
+      forceRotatedTextureCheckbox.checked =
+        !!this.previewSettings.forceRotatedTexture;
     }
     if (showBackgroundCubeCheckbox) {
       showBackgroundCubeCheckbox.checked =

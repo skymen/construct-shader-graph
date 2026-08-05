@@ -4,6 +4,7 @@ const API_VERSION = "1.0.0";
 const API_NAMESPACE = "shaderGraphAPI";
 const API_ALIAS = "sg";
 const PREVIEWABLE_TYPES = new Set(["float", "vec2", "vec3", "vec4"]);
+const SHADER_TARGETS = ["webgl1", "webgl2", "webgpu"];
 const PREVIEW_SETTING_KEYS = new Set([
   "effectTarget",
   "object",
@@ -11,6 +12,7 @@ const PREVIEW_SETTING_KEYS = new Set([
   "autoRotate",
   "samplingMode",
   "shaderLanguage",
+  "forceRotatedTexture",
   "spriteTextureUrl",
   "shapeTextureUrl",
   "bgTextureUrl",
@@ -566,6 +568,60 @@ async function runAiDebugCheck(bp, api, options = {}) {
     warnings,
     screenshot,
   };
+}
+
+function serializeComment(comment) {
+  return {
+    id: comment.id,
+    x: comment.x,
+    y: comment.y,
+    width: comment.width,
+    height: comment.height,
+    title: comment.title,
+    description: comment.description,
+    color: comment.color,
+  };
+}
+
+function getCommentById(bp, commentId) {
+  const comment = bp.comments.find((entry) => entry.id === Number(commentId));
+  assert(comment, `Comment ${commentId} not found`);
+  return comment;
+}
+
+function serializeGraph(bp, graph) {
+  return {
+    id: graph.id,
+    name: graph.name,
+    kind: graph.kind,
+    isMain: graph.id === bp.mainGraphId,
+    isActive: graph.id === bp.activeGraphId,
+    nodeCount: graph.nodes.length,
+    wireCount: graph.wires.length,
+    commentCount: graph.comments.length,
+    contractVersion: graph.contractVersion,
+  };
+}
+
+function listGraphs(bp) {
+  return [...bp.graphs.values()].map((graph) => serializeGraph(bp, graph));
+}
+
+// Resolve a graph by id, by name, or by the literal "main"/"active".
+function resolveGraphRef(bp, graphRef) {
+  if (graphRef == null || graphRef === "active") return bp.activeGraph;
+  if (graphRef === "main") return bp.mainGraph;
+
+  const ref = String(graphRef);
+  if (bp.graphs.has(ref)) return bp.graphs.get(ref);
+
+  const byName = [...bp.graphs.values()].filter((g) => g.name === ref);
+  assert(byName.length > 0, `Graph '${ref}' not found`);
+  assert(
+    byName.length === 1,
+    `Graph name '${ref}' is ambiguous (${byName.length} matches); use the graph id`,
+  );
+  return byName[0];
 }
 
 function serializeCamera(bp) {
@@ -1158,7 +1214,14 @@ function importGraphIR(bp, ir, options = {}) {
 
 function rewriteFanoutAsVariable(
   bp,
-  { nodeId, outputIndex = 0, outputName, variableName, autoLayout = true } = {},
+  {
+    nodeId,
+    outputIndex = 0,
+    outputName,
+    variableName,
+    autoLayout = true,
+    allowSingle = false,
+  } = {},
 ) {
   assert(
     Number.isInteger(Number(nodeId)),
@@ -1170,9 +1233,15 @@ function rewriteFanoutAsVariable(
       ? node.outputPorts.find((port) => port.name === outputName)
       : node.outputPorts[Number(outputIndex) || 0];
   assert(outputPort, `Output port not found on node ${node.id}`);
+  // A single consumer is still worth routing when the wire would otherwise run
+  // the width of the graph: the Get node lands next to whoever reads it.
   assert(
-    outputPort.connections.length > 1,
-    `Node ${node.id} output '${outputPort.name}' does not fan out`,
+    outputPort.connections.length > 1 || allowSingle,
+    `Node ${node.id} output '${outputPort.name}' does not fan out (pass allowSingle to route it anyway)`,
+  );
+  assert(
+    outputPort.connections.length > 0,
+    `Node ${node.id} output '${outputPort.name}' is not connected to anything`,
   );
 
   const connections = [...outputPort.connections];
@@ -1264,6 +1333,307 @@ function rewriteFanoutAsVariable(
     setNodeId: setNode.id,
     getNodeIds: createdGetNodes.map((entry) => entry.id),
     replacedConnectionCount: connections.length,
+  };
+}
+
+// Nodes that eventually reach an Output or a Set Variable. Anything else is
+// dead: it costs graph area and reading effort and emits no code.
+function collectLiveNodeIds(bp) {
+  const live = new Set();
+  const stack = [];
+
+  bp.nodes.forEach((node) => {
+    const typeKey = bp.getNodeTypeKey(node.nodeType);
+    if (typeKey === "output" || typeKey === "setVariable") {
+      live.add(node.id);
+      stack.push(node);
+    }
+  });
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    node.inputPorts.forEach((port) => {
+      port.connections.forEach((wire) => {
+        const upstream = wire.startPort.node;
+        if (!live.has(upstream.id)) {
+          live.add(upstream.id);
+          stack.push(upstream);
+        }
+      });
+    });
+  }
+
+  return live;
+}
+
+// A wire's full polyline, including any reroute points.
+function wirePoints(wire) {
+  if (typeof wire.getPoints === "function") return wire.getPoints();
+  const a = wire.startPort.node;
+  const b = wire.endPort.node;
+  return [
+    { x: a.x + a.width, y: a.y + a.height / 2 },
+    { x: b.x, y: b.y + b.height / 2 },
+  ];
+}
+
+function segmentsOf(wire) {
+  const pts = wirePoints(wire);
+  const out = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    out.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
+  }
+  return out;
+}
+
+function segmentsCross(p, q) {
+  const d = (ax, ay, bx, by, cx, cy) =>
+    Math.sign((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
+  const d1 = d(p.x1, p.y1, p.x2, p.y2, q.x1, q.y1);
+  const d2 = d(p.x1, p.y1, p.x2, p.y2, q.x2, q.y2);
+  const d3 = d(q.x1, q.y1, q.x2, q.y2, p.x1, p.y1);
+  const d4 = d(q.x1, q.y1, q.x2, q.y2, p.x2, p.y2);
+  return d1 !== d2 && d3 !== d4;
+}
+
+// Does a segment enter a rectangle? Used to find wires drawn over nodes they
+// have nothing to do with, which is the thing that actually looks broken.
+function segmentHitsRect(seg, rect) {
+  const { x, y, w, h } = rect;
+  const inside = (px, py) => px >= x && px <= x + w && py >= y && py <= y + h;
+  if (inside(seg.x1, seg.y1) || inside(seg.x2, seg.y2)) return true;
+  const edges = [
+    { x1: x, y1: y, x2: x + w, y2: y },
+    { x1: x + w, y1: y, x2: x + w, y2: y + h },
+    { x1: x + w, y1: y + h, x2: x, y2: y + h },
+    { x1: x, y1: y + h, x2: x, y2: y },
+  ];
+  return edges.some((edge) => segmentsCross(seg, edge));
+}
+
+// The name normalizeFanoutsForLayout would invent for this port. A Set
+// Variable still carrying it means nobody named the value.
+function autoVariableNameFor(bp, node) {
+  const wire = node.inputPorts[0]?.connections?.[0];
+  if (!wire) return null;
+  const source = wire.startPort.node;
+  return bp.sanitizeGraphLocalId(
+    `${source.title}_${wire.startPort.name}`,
+    "graph_value",
+  );
+}
+
+/**
+ * Readability audit. Everything here is something that makes a graph harder to
+ * read but that codegen is perfectly happy with, so none of it shows up in
+ * graph.validate.
+ */
+function auditGraph(bp, options = {}) {
+  const maxFanout = Number.isFinite(options.maxFanout) ? options.maxFanout : 2;
+  // Roughly four node widths: past that a wire reads as a haul across the
+  // canvas rather than a local connection.
+  const maxWireLength = Number.isFinite(options.maxWireLength)
+    ? options.maxWireLength
+    : 700;
+  const issues = [];
+
+  const live = collectLiveNodeIds(bp);
+  for (const node of bp.nodes) {
+    const typeKey = bp.getNodeTypeKey(node.nodeType);
+    if (typeKey === "output" || live.has(node.id)) continue;
+    issues.push({
+      kind: "deadNode",
+      nodeId: node.id,
+      typeKey,
+      message: `"${node.title}" reaches neither the Output nor a Set Variable`,
+    });
+  }
+
+  // Comment coverage. Membership is geometric, so a node the author meant to
+  // include but that drifted out is indistinguishable from one never grouped -
+  // both read the same way and both are reported.
+  if (bp.comments.length > 0) {
+    for (const node of bp.nodes) {
+      const owners = bp.comments.filter((c) => c.containsNode(node));
+      if (owners.length === 0) {
+        issues.push({
+          kind: "uncommentedNode",
+          nodeId: node.id,
+          typeKey: bp.getNodeTypeKey(node.nodeType),
+          message: `"${node.title}" is not inside any comment`,
+        });
+      } else if (owners.length > 1) {
+        issues.push({
+          kind: "multiCommentedNode",
+          nodeId: node.id,
+          commentIds: owners.map((c) => c.id),
+          message: `"${node.title}" is inside ${owners.length} comments at once`,
+        });
+      }
+    }
+  }
+
+  for (let i = 0; i < bp.comments.length; i++) {
+    for (let j = i + 1; j < bp.comments.length; j++) {
+      const a = bp.comments[i];
+      const b = bp.comments[j];
+      const ox = Math.max(
+        0,
+        Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x),
+      );
+      const oy = Math.max(
+        0,
+        Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y),
+      );
+      const frac =
+        (ox * oy) / Math.max(1, Math.min(a.width * a.height, b.width * b.height));
+      if (frac > 0.25) {
+        issues.push({
+          kind: "overlappingComments",
+          commentIds: [a.id, b.id],
+          overlapFraction: Number(frac.toFixed(3)),
+          message: `"${a.title}" and "${b.title}" overlap by ${Math.round(frac * 100)}%`,
+        });
+      }
+    }
+  }
+
+  for (const node of bp.nodes) {
+    if (bp.getNodeTypeKey(node.nodeType) !== "setVariable") continue;
+    const auto = autoVariableNameFor(bp, node);
+    if (auto && node.customInput === auto) {
+      issues.push({
+        kind: "autoNamedVariable",
+        nodeId: node.id,
+        name: node.customInput,
+        message: `Variable "${node.customInput}" still has the name auto-arrange generated; say what the value means`,
+      });
+    }
+  }
+
+  // Fan-out that was never routed through a variable is the main source of
+  // long crossing wires.
+  for (const node of bp.nodes) {
+    for (const port of node.outputPorts) {
+      const targets = new Set(
+        port.connections.map((wire) => wire.endPort.node.id),
+      );
+      if (targets.size > maxFanout) {
+        issues.push({
+          kind: "unroutedFanout",
+          nodeId: node.id,
+          port: port.name,
+          targets: targets.size,
+          message: `"${node.title}.${port.name}" feeds ${targets.size} nodes directly; route it through a named variable`,
+        });
+      }
+    }
+  }
+
+  // What actually reads as broken: a wire drawn straight over a node it has
+  // nothing to do with, and a wire arriving at a port from the right instead
+  // of cleanly from the left. Leaving a comment is fine as long as the wire
+  // itself is clean, so that is only counted, never reported.
+  const rects = bp.nodes.map((node) => ({
+    id: node.id,
+    title: node.title,
+    x: node.x,
+    y: node.y,
+    w: node.width,
+    h: node.height,
+  }));
+
+  for (const wire of bp.wires) {
+    const from = wire.startPort.node;
+    const to = wire.endPort.node;
+    const segs = segmentsOf(wire);
+    const hit = new Set();
+    for (const seg of segs) {
+      for (const rect of rects) {
+        if (rect.id === from.id || rect.id === to.id) continue;
+        if (segmentHitsRect(seg, rect)) hit.add(rect.title);
+      }
+    }
+    if (hit.size > 0) {
+      issues.push({
+        kind: "wireOverNode",
+        fromNodeId: from.id,
+        toNodeId: to.id,
+        over: [...hit],
+        message: `"${from.title}.${wire.startPort.name}" -> "${to.title}.${wire.endPort.name}" is drawn over ${[...hit].slice(0, 3).join(", ")}${hit.size > 3 ? ` and ${hit.size - 3} more` : ""}`,
+      });
+    }
+
+    // A wire that travels a long way is a diagonal sweeping across the graph
+    // even when it happens to miss every node. The fix is a variable: the Get
+    // node lands beside whoever reads it.
+    // Straight-line port-to-port distance, not the routed polyline: reroute
+    // points are the cure for a bad wire, so they must not count as the
+    // disease.
+    const ends = wirePoints(wire);
+    const span = Math.hypot(
+      ends[ends.length - 1].x - ends[0].x,
+      ends[ends.length - 1].y - ends[0].y,
+    );
+    if (span > maxWireLength) {
+      issues.push({
+        kind: "longWire",
+        fromNodeId: from.id,
+        toNodeId: to.id,
+        length: Math.round(span),
+        message: `"${from.title}.${wire.startPort.name}" -> "${to.title}.${wire.endPort.name}" runs ${Math.round(span)}px; route it through a named variable`,
+      });
+    }
+
+    // The last leg should approach the input port heading right.
+    const pts = wirePoints(wire);
+    const last = pts[pts.length - 2];
+    const end = pts[pts.length - 1];
+    if (last && end && last.x > end.x) {
+      issues.push({
+        kind: "backwardEntry",
+        fromNodeId: from.id,
+        toNodeId: to.id,
+        message: `"${from.title}.${wire.startPort.name}" -> "${to.title}.${wire.endPort.name}" enters the port from the right`,
+      });
+    }
+  }
+
+  let crossStageWires = 0;
+  if (bp.comments.length > 0) {
+    const commentOf = (node) => bp.comments.find((c) => c.containsNode(node));
+    for (const wire of bp.wires) {
+      const from = commentOf(wire.startPort.node);
+      const to = commentOf(wire.endPort.node);
+      if (from && to && from !== to) crossStageWires++;
+    }
+  }
+
+  const segments = bp.wires.flatMap((wire) => segmentsOf(wire));
+  let crossings = 0;
+  for (let i = 0; i < segments.length; i++) {
+    for (let j = i + 1; j < segments.length; j++) {
+      if (segmentsCross(segments[i], segments[j])) crossings++;
+    }
+  }
+
+  const backward = issues.filter((i) => i.kind === "backwardEntry").length;
+
+  return {
+    ok: issues.length === 0,
+    stats: {
+      nodes: bp.nodes.length,
+      wires: bp.wires.length,
+      comments: bp.comments.length,
+      deadNodes: issues.filter((i) => i.kind === "deadNode").length,
+      uncommentedNodes: issues.filter((i) => i.kind === "uncommentedNode").length,
+      crossStageWires,
+      wireOverNode: issues.filter((i) => i.kind === "wireOverNode").length,
+      longWires: issues.filter((i) => i.kind === "longWire").length,
+      crossings,
+      backwardEntries: backward,
+    },
+    issues,
   };
 }
 
@@ -1610,6 +1980,12 @@ function syncPreviewSettings(bp, patch) {
     shouldUpdateUi = true;
   }
 
+  if (patch.forceRotatedTexture !== undefined) {
+    bp.previewSettings.forceRotatedTexture = !!patch.forceRotatedTexture;
+    shouldReload = true;
+    shouldUpdateUi = true;
+  }
+
   [
     ["spriteTextureUrl", "sprite"],
     ["shapeTextureUrl", "shape"],
@@ -1826,6 +2202,36 @@ const API_METHOD_DESCRIPTORS = [
     returns: { type: "object", description: "Batch execution results." },
   },
   {
+    path: "graph.validate",
+    description:
+      "Check the project without a preview: call-DAG and contract errors, lint warnings, and whether codegen succeeds.",
+    mutates: false,
+    args: [],
+    returns: {
+      type: "object",
+      description: "Validation result with ok, errors, warnings, and graphs.",
+    },
+  },
+  {
+    path: "graph.audit",
+    description:
+      "Audit graph readability: dead nodes, comment coverage, auto-named variables, unrouted fan-out, wire crossings.",
+    mutates: false,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description:
+          "Optional maxFanout (direct consumers allowed before a variable is expected) and maxWireLength.",
+      },
+    ],
+    returns: {
+      type: "object",
+      description: "Audit result with ok, stats, and a list of issues.",
+    },
+  },
+  {
     path: "graph.validateIR",
     description: "Validate a declarative graph IR before mutating the graph.",
     mutates: false,
@@ -1994,6 +2400,76 @@ const API_METHOD_DESCRIPTORS = [
     returns: {
       type: "object",
       description: "Export result with the active version.",
+    },
+  },
+  {
+    path: "projects.buildAddonBundle",
+    description:
+      "Build the .c3addon file contents in memory without downloading them.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional version or bumpVersion applied before building.",
+      },
+    ],
+    returns: {
+      type: "object",
+      description:
+        "Bundle with filename, addonId, version, and a files map of path to contents.",
+    },
+  },
+  {
+    path: "projects.create",
+    description:
+      "Start a fresh project, optionally applying shader settings to it.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional shaderSettings patch to apply to the new project.",
+      },
+    ],
+    returns: {
+      type: "object",
+      description: "New project's shader settings and graph list.",
+    },
+  },
+  {
+    path: "projects.getAddonJson",
+    description:
+      "Get the addon manifest for the current project without generating shader code.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "addon.json contents." },
+  },
+  {
+    path: "projects.getSaveData",
+    description: "Get the project save object that a .c3sg file contains.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Serializable project save data." },
+  },
+  {
+    path: "projects.loadSaveData",
+    description:
+      "Replace the current project with save data from a .c3sg file body.",
+    mutates: true,
+    args: [
+      {
+        name: "json",
+        type: "string|object",
+        required: true,
+        description: "Project save data as a JSON string or object.",
+      },
+    ],
+    returns: {
+      type: "object",
+      description: "Load result with the shader name and graph list.",
     },
   },
   {
@@ -2513,9 +2989,18 @@ const API_METHOD_DESCRIPTORS = [
   },
   {
     path: "shader.getGeneratedCode",
-    description: "Generate shader code for the current graph.",
+    description:
+      "Generate shader code. Defaults to the whole shader from the main graph; given a function or loop-body graph, returns that graph's declarations instead.",
     mutates: false,
-    args: [],
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description:
+          "Optional graph (id, name, 'main' or 'active') and target (webgl1, webgl2, webgpu, all).",
+      },
+    ],
     returns: { type: "object", description: "Generated shaders payload." },
   },
   {
@@ -2648,20 +3133,150 @@ const API_METHOD_DESCRIPTORS = [
   },
   {
     path: "layout.autoArrange",
-    description: "Auto-arrange the full graph or a subset of nodes.",
+    description:
+      "Auto-arrange the active graph, a subset of its nodes, or every graph in the project.",
     mutates: true,
     args: [
       {
         name: "options",
         type: "object",
         required: false,
-        description: "Optional nodeIds array to arrange only selected nodes.",
+        description:
+          "Optional nodeIds array to arrange only those nodes, or allGraphs to arrange every graph.",
       },
     ],
     returns: {
       type: "object",
       description: "Arrangement status and resulting camera state.",
     },
+  },
+  {
+    path: "layout.tidyVariables",
+    description:
+      "Move each Set Variable node next to the node whose output it stores.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional gap and allGraphs.",
+      },
+    ],
+    returns: { type: "object", description: "How many nodes were moved." },
+  },
+  {
+    path: "layout.routeWires",
+    description:
+      "Insert reroute points so wires are not drawn over unrelated nodes and enter their ports from the left.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional margin, clearance, and allGraphs.",
+      },
+    ],
+    returns: { type: "object", description: "How many wires were rerouted." },
+  },
+  {
+    path: "graphs.list",
+    description: "List every graph in the project.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized graph summaries." },
+  },
+  {
+    path: "graphs.get",
+    description: "Get one graph by id, by name, or by 'main' / 'active'.",
+    mutates: false,
+    args: [
+      {
+        name: "graphRef",
+        type: "string",
+        required: true,
+        description: "Graph id, graph name, 'main', or 'active'.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized graph summary." },
+  },
+  {
+    path: "graphs.getActive",
+    description: "Get the graph currently open in the editor.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Serialized graph summary." },
+  },
+  {
+    path: "graphs.setActive",
+    description: "Open a graph in the editor.",
+    mutates: true,
+    args: [
+      {
+        name: "graphRef",
+        type: "string",
+        required: true,
+        description: "Graph id, graph name, 'main', or 'active'.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized graph summary." },
+  },
+  {
+    path: "comments.list",
+    description: "List the comments in the active graph.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized comments." },
+  },
+  {
+    path: "comments.create",
+    description: "Create a comment sized to enclose a set of nodes.",
+    mutates: true,
+    args: [
+      {
+        name: "input",
+        type: "object",
+        required: true,
+        description:
+          "nodeIds array plus optional title, description, color, and padding.",
+      },
+    ],
+    returns: { type: "object", description: "The created comment." },
+  },
+  {
+    path: "comments.edit",
+    description: "Patch a comment's text, color, position, or size.",
+    mutates: true,
+    args: [
+      {
+        name: "commentId",
+        type: "number",
+        required: true,
+        description: "Target comment id.",
+      },
+      {
+        name: "patch",
+        type: "object",
+        required: true,
+        description: "Any of title, description, color, x, y, width, height.",
+      },
+    ],
+    returns: { type: "object", description: "The updated comment." },
+  },
+  {
+    path: "comments.delete",
+    description: "Delete a comment from the active graph.",
+    mutates: true,
+    args: [
+      {
+        name: "commentId",
+        type: "number",
+        required: true,
+        description: "Target comment id.",
+      },
+    ],
+    returns: { type: "object", description: "Deletion status." },
   },
   {
     path: "selection.get",
@@ -3501,6 +4116,8 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "customNodes",
           "ai",
           "graph",
+          "graphs",
+          "comments",
           "nodes",
           "nodeTypes",
           "ports",
@@ -3782,6 +4399,95 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           version: blueprint.shaderSettings.version,
         };
       },
+
+      buildAddonBundle(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "projects.buildAddonBundle options must be an object",
+        );
+        if (options.version !== undefined) {
+          options.version = validateVersionString(options.version);
+        }
+        if (options.bumpVersion !== undefined) {
+          options.bumpVersion = validateBumpVersion(options.bumpVersion);
+        }
+        assert(
+          !(options.version !== undefined && options.bumpVersion !== undefined),
+          "projects.buildAddonBundle accepts either version or bumpVersion, not both",
+        );
+
+        if (options.version) {
+          blueprint.shaderSettings.version = options.version;
+          blueprint.updateShaderSettingsUI();
+        } else if (options.bumpVersion) {
+          blueprint.shaderSettings.version = blueprint.bumpVersionString(
+            blueprint.shaderSettings.version,
+            options.bumpVersion,
+          );
+          blueprint.updateShaderSettingsUI();
+        }
+
+        const bundle = blueprint.buildAddonBundle();
+        assert(
+          bundle,
+          "Failed to build the addon bundle. Make sure the graph has an Output node and valid connections.",
+        );
+        return bundle;
+      },
+
+      // Start a fresh project: the same blank slate the app's New File action
+      // produces, which is a main graph with the default nodes in it. Optional
+      // shader settings are applied on top so a project can be created and
+      // named in one call.
+      create(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "projects.create options must be an object",
+        );
+
+        blueprint.createNewFile();
+
+        if (options.shaderSettings !== undefined) {
+          assertPlainObject(
+            options.shaderSettings,
+            "projects.create shaderSettings must be an object",
+          );
+          api.shader.updateInfo(options.shaderSettings);
+        }
+
+        return {
+          ok: true,
+          shaderSettings: cloneValue(blueprint.shaderSettings),
+          graphs: listGraphs(blueprint),
+        };
+      },
+
+      // The addon manifest on its own, without generating any shader code.
+      // Useful for checking parameter identity on a project that does not
+      // currently compile.
+      getAddonJson() {
+        return blueprint.generateAddonJson();
+      },
+
+      getSaveData() {
+        return blueprint._buildSaveData();
+      },
+
+      async loadSaveData(json) {
+        assert(
+          typeof json === "string" || isPlainObject(json),
+          "projects.loadSaveData requires a JSON string or object",
+        );
+        const text = typeof json === "string" ? json : JSON.stringify(json);
+        // loadFromJSON takes anything with a .text() method, so the whole
+        // load path (including format migrations) is reused verbatim.
+        await blueprint.loadFromJSON({ text: async () => text });
+        return {
+          ok: true,
+          shaderName: blueprint.shaderSettings?.name || null,
+          graphs: listGraphs(blueprint),
+        };
+      },
     },
 
     customNodes: {
@@ -3839,6 +4545,59 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
     },
 
     graph: {
+      // Whole-project health check that needs no preview: call-DAG and
+      // function-contract errors, lint warnings, and whether codegen actually
+      // succeeds for all three targets. ai.runDebugCheck is the superset that
+      // also consults the running preview.
+      validate() {
+        const errors = blueprint._validateCallDAG().map((entry) => ({
+          ...entry,
+          source: "callDAG",
+        }));
+
+        let generated = null;
+        try {
+          generated = blueprint.generateAllShaders();
+        } catch (error) {
+          errors.push({
+            message: `Code generation threw: ${error.message}`,
+            source: "codegen",
+          });
+        }
+        if (!generated && errors.length === 0) {
+          errors.push({
+            message:
+              "Code generation failed. Make sure the graph has an Output node and valid connections.",
+            source: "codegen",
+          });
+        }
+
+        const warnings = getAiWarnings(blueprint);
+
+        return {
+          ok: errors.length === 0,
+          errors,
+          warnings,
+          targets: generated ? Object.keys(generated) : [],
+          graphs: listGraphs(blueprint),
+        };
+      },
+
+      // Readability audit: dead nodes, comment coverage, unnamed variables,
+      // unrouted fan-out, wire crossings. All things codegen accepts happily,
+      // so none of it is covered by graph.validate.
+      audit(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "graph.audit options must be an object",
+        );
+        assertOptionalFiniteNumber(
+          options.maxFanout,
+          "graph.audit maxFanout must be a finite number",
+        );
+        return auditGraph(blueprint, options);
+      },
+
       validateIR(ir) {
         if (typeof blueprint.validateGraphIR === "function") {
           return blueprint.validateGraphIR(ir);
@@ -3903,6 +4662,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         assertOptionalString(
           options.outputName,
           "graph.rewriteFanoutAsVariable outputName must be a string",
+        );
+        assertOptionalBoolean(
+          options.allowSingle,
+          "graph.rewriteFanoutAsVariable allowSingle must be a boolean",
         );
         assertOptionalString(
           options.variableName,
@@ -4628,12 +5391,45 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         return cloneValue(blueprint.shaderSettings);
       },
 
-      getGeneratedCode() {
-        const shaders = blueprint.generateAllShaders();
-        assert(
-          shaders,
-          "Failed to generate shaders. Make sure the graph has an Output node and valid connections.",
+      // With no options this generates the whole shader from the main graph.
+      // Given a function/loopBody graph it returns that graph's declarations
+      // instead - the same thing View Code shows when a subgraph is open.
+      getGeneratedCode(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "shader.getGeneratedCode options must be an object",
         );
+        assertOptionalOneOf(
+          options.target,
+          [...SHADER_TARGETS, "all"],
+          `shader.getGeneratedCode target must be one of ${SHADER_TARGETS.join(", ")} or all`,
+        );
+
+        const graph =
+          options.graph === undefined && options.graphId === undefined
+            ? blueprint.mainGraph
+            : resolveGraphRef(blueprint, options.graph ?? options.graphId);
+
+        let shaders;
+        if (graph === blueprint.mainGraph) {
+          shaders = blueprint.generateAllShaders();
+          assert(
+            shaders,
+            "Failed to generate shaders. Make sure the graph has an Output node and valid connections.",
+          );
+        } else {
+          shaders = {};
+          for (const target of SHADER_TARGETS) {
+            shaders[target] = blueprint._generateCallableGraphPreview(
+              graph,
+              target,
+            );
+          }
+        }
+
+        if (options.target && options.target !== "all") {
+          return { [options.target]: shaders[options.target] };
+        }
         return shaders;
       },
     },
@@ -4758,6 +5554,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           patch.showBackgroundCube,
           "preview.updateSettings showBackgroundCube must be a boolean",
         );
+        assertOptionalBoolean(
+          patch.forceRotatedTexture,
+          "preview.updateSettings forceRotatedTexture must be a boolean",
+        );
         [
           "spriteScale",
           "shapeScale",
@@ -4856,6 +5656,51 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
     },
 
     layout: {
+      // Park each Set Variable beside the node it stores. The layout places it
+      // by dependency level, which can be the far side of the graph.
+      tidyVariables(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "layout.tidyVariables options must be an object",
+        );
+        assertOptionalFiniteNumber(
+          options.gap,
+          "layout.tidyVariables gap must be a finite number",
+        );
+        assertOptionalBoolean(
+          options.allGraphs,
+          "layout.tidyVariables allGraphs must be a boolean",
+        );
+        return options.allGraphs
+          ? blueprint.snapVariableNodesAllGraphs(options)
+          : blueprint.snapVariableNodesToSources(options);
+      },
+
+      // Insert reroute points so wires stop being drawn over unrelated nodes
+      // and arrive at their ports heading right. Run after autoArrange: it
+      // places nodes and leaves the wires to find their own way.
+      routeWires(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "layout.routeWires options must be an object",
+        );
+        assertOptionalFiniteNumber(
+          options.margin,
+          "layout.routeWires margin must be a finite number",
+        );
+        assertOptionalFiniteNumber(
+          options.clearance,
+          "layout.routeWires clearance must be a finite number",
+        );
+        assertOptionalBoolean(
+          options.allGraphs,
+          "layout.routeWires allGraphs must be a boolean",
+        );
+        return options.allGraphs
+          ? blueprint.routeWiresAllGraphs(options)
+          : blueprint.routeWiresAroundNodes(options);
+      },
+
       autoArrange(options = {}) {
         assertOptionalPlainObject(
           options,
@@ -4873,6 +5718,23 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
             );
           });
         }
+        assertOptionalBoolean(
+          options.allGraphs,
+          "layout.autoArrange allGraphs must be a boolean",
+        );
+        assert(
+          !(options.allGraphs && Array.isArray(options.nodeIds)),
+          "layout.autoArrange cannot combine allGraphs with nodeIds",
+        );
+
+        if (options.allGraphs) {
+          return {
+            ok: true,
+            graphs: blueprint.autoArrangeAllGraphs(),
+            camera: serializeCamera(blueprint),
+          };
+        }
+
         if (Array.isArray(options.nodeIds) && options.nodeIds.length > 0) {
           const ids = new Set(options.nodeIds.map((id) => Number(id)));
           blueprint.selectedNodes.clear();
@@ -4889,6 +5751,101 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           ok: true,
           camera: serializeCamera(blueprint),
         };
+      },
+    },
+
+    graphs: {
+      list() {
+        return listGraphs(blueprint);
+      },
+
+      get(graphRef) {
+        return serializeGraph(blueprint, resolveGraphRef(blueprint, graphRef));
+      },
+
+      getActive() {
+        return serializeGraph(blueprint, blueprint.activeGraph);
+      },
+
+      setActive(graphRef) {
+        const graph = resolveGraphRef(blueprint, graphRef);
+        blueprint.setActiveGraph(graph.id);
+        return serializeGraph(blueprint, graph);
+      },
+    },
+
+    comments: {
+      list() {
+        return blueprint.comments.map((comment) => serializeComment(comment));
+      },
+
+      // Fit a comment around a set of nodes. This is the same sizing the
+      // "Comment Selection" action uses.
+      create(input = {}) {
+        assertPlainObject(input, "comments.create requires an input object");
+        assert(
+          Array.isArray(input.nodeIds) && input.nodeIds.length > 0,
+          "comments.create requires a non-empty nodeIds array",
+        );
+        assertOptionalString(
+          input.title,
+          "comments.create title must be a string",
+        );
+        assertOptionalString(
+          input.description,
+          "comments.create description must be a string",
+        );
+        assertOptionalString(
+          input.color,
+          "comments.create color must be a string",
+        );
+        assertOptionalFiniteNumber(
+          input.padding,
+          "comments.create padding must be a finite number",
+        );
+
+        const nodes = input.nodeIds.map((nodeId) =>
+          getNodeById(blueprint, nodeId),
+        );
+        const comment = blueprint.createCommentAroundNodes(nodes, {
+          title: input.title,
+          description: input.description,
+          color: input.color,
+          padding: input.padding,
+        });
+
+        return serializeComment(comment);
+      },
+
+      edit(commentId, patch = {}) {
+        assertPlainObject(patch, "comments.edit patch must be an object");
+        const comment = getCommentById(blueprint, commentId);
+        for (const key of ["title", "description", "color"]) {
+          if (patch[key] !== undefined) {
+            assertOptionalString(patch[key], `comments.edit ${key} must be a string`);
+            comment[key] = patch[key];
+          }
+        }
+        for (const key of ["x", "y", "width", "height"]) {
+          if (patch[key] !== undefined) {
+            assertFiniteNumber(
+              patch[key],
+              `comments.edit ${key} must be a finite number`,
+            );
+            comment[key] = patch[key];
+          }
+        }
+        pushHistory(blueprint, "Edit comment");
+        blueprint.render();
+        return serializeComment(comment);
+      },
+
+      delete(commentId) {
+        const comment = getCommentById(blueprint, commentId);
+        blueprint.comments.splice(blueprint.comments.indexOf(comment), 1);
+        pushHistory(blueprint, "Delete comment");
+        blueprint.render();
+        return { ok: true, deletedId: comment.id };
       },
     },
 

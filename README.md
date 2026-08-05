@@ -42,6 +42,79 @@ The built files will be in the `dist/` directory.
 npm run preview
 ```
 
+## Command Line
+
+`csg` drives the same editor headlessly, so anything it reports is what the app
+would report. It is a transport over the app's own API rather than a second
+implementation — see [`cli/`](cli/).
+
+```bash
+npm run cli -- <command>      # no setup
+npm link && csg <command>     # or install `csg` globally
+```
+
+| Command | What it does |
+|---|---|
+| `csg create <f>` | New project file with the default starting nodes. `--name`, `--author`, and every shader setting as a flag. |
+| `csg lint <f>` | Readability audit: dead nodes, comment coverage, auto-named variables, unrouted fan-out, wire crossings. |
+| `csg validate <f>` | Call-DAG errors, contract errors, lint warnings, codegen check. Exits non-zero on failure. |
+| `csg arrange <f>` | Auto-arrange with the app's layout engine. `--all-graphs`, `--in-place`, `-o`. |
+| | Follow it with `layout.tidyVariables` and `layout.routeWires` to park variable nodes and route wires around obstacles. |
+| `csg codegen <f>` | Generate shader code. `--target`, and `--graph` to emit one function graph's declarations. |
+| `csg export <f>` | Build the `.c3addon`. `--bump`, `--version`, `--unpacked`. |
+| `csg comment <f>` | Fit a comment around nodes: `--nodes 3,4,5 --title "..."`. Run `arrange` first — see below. |
+| `csg preview <f>` | Render the preview to a PNG in a headless browser (needs Playwright). |
+| `csg run <s.js> <f>` | Run a script against a live `sg`. `-e` for an inline expression, `--write` to save. |
+| `csg repl [f]` | Interactive REPL with `sg`, `blueprint` and `NODE_TYPES` in scope. |
+| `csg diff <a> <b>` | Compare two projects by structure and by generated code. |
+| `csg paramid <f>` | Check uniform paramIds against a `--baseline` addon or project. |
+| `csg api <method>` | Call any API method. `--list` enumerates them. |
+
+Examples:
+
+```bash
+csg create shader.c3sg --name "My Effect" --author "Me" --animated
+csg validate shader.c3sg --warnings-as-errors     # does it compile?
+csg lint shader.c3sg                              # can a human read it?
+csg arrange shader.c3sg --all-graphs --in-place
+csg codegen shader.c3sg --target webgl1
+csg preview shader.c3sg -o shot.png --sprite-texture sprite.png
+csg paramid shader.c3sg --baseline published-1.2.0.0.c3addon
+csg run -e 'sg.nodes.search({ query: "noise" })' shader.c3sg
+```
+
+Four things worth knowing:
+
+- **`csg lint` is not `csg validate`.** `validate` asks whether the shader
+  compiles; `lint` asks whether the graph is readable afterwards. Codegen is
+  perfectly happy with dead nodes, variables named `math_result`, and wires
+  crossing the whole canvas, so none of that shows up in `validate`.
+
+- **Arrange before you comment.** A comment is fitted to where its nodes are at
+  the moment it is created and does not follow them afterwards, so arranging
+  later leaves it the wrong size and around the wrong nodes. Always
+  `csg arrange … --in-place` first, then `csg comment`.
+
+- **`csg preview` really compiles the shader.** It runs the Construct 3 runtime
+  in headless Chromium, so a compile error on any backend fails the command.
+  Nothing else in the CLI can detect that — jsdom has no GPU. Install it with
+  `npm install --save-optional playwright && npx playwright install chromium`;
+  every other command works without it.
+- **`--language webgpu` relaunches the browser.** WebGL runs on ANGLE/SwiftShader,
+  but C3 refuses a fallback WebGPU adapter, so SwiftShader is no use there and
+  the host switches to installed Chrome (or a windowed Chromium) to get a real
+  one. Without that, asking for WebGPU does not fail — it silently renders on
+  WebGL2 and reports success, so a WebGPU-only bug looks fixed when it was never
+  exercised.
+- **`--force-rotated-texture` reproduces rotated spritesheet frames.** C3 packs
+  some frames sideways, which turns any texture-UV-to-layout mapping 90 degrees;
+  the flag (and the matching preview checkbox) puts every non-tiled image into
+  that state so the case is testable. See
+  `nodes/GetLayoutPosRotationSafeNode.js`.
+- **`csg api --list` is generated from `api.getManifest()`.** A method added to
+  `GlobalConsoleApi.js` is reachable from the CLI immediately, with no code
+  written in `cli/`.
+
 ## Usage
 
 ### Creating Nodes

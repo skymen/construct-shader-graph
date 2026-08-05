@@ -22,6 +22,14 @@ const CONCRETE_TYPE_OPTIONS = [
 
 const GENERIC_ALPHABET = "TUVWXYZABCDEFGHIJKLMNOPQRS";
 
+// GLSL ES 1.00 (WebGL 1) Appendix A restricts a for loop to a single index
+// compared against a *constant expression*, so `_i < someUniform` will not
+// compile. A conditional break inside the body is allowed, so a dynamic count
+// becomes a constant-bounded loop that breaks early. This is the cap it runs
+// to; iterations past it never execute. Override per node with
+// `nodes.edit(id, { data: { maxIterations: N } })`.
+const WEBGL1_MAX_LOOP_ITERATIONS = 64;
+
 function isConcreteType(type) {
   return typeof type === "string" && type.length > 1;
 }
@@ -445,8 +453,27 @@ export const loopBodyKindHandler = {
         code += `    ${accTypes[i]} ${v} = ${initAccVars[i]};\n`;
       });
 
-      // For loop
-      code += `    for (int _i = 0; _i < ${countVar}; _i++) {\n`;
+      // For loop. WebGL2 takes a computed bound directly; WebGL1 does not.
+      if (target === "webgl1") {
+        // A Count left at its literal is already a constant expression, so it
+        // can be the bound as-is and the loop runs exactly that many times.
+        const literalCount = /^[0-9]+$/.test(String(countVar).trim())
+          ? String(countVar).trim()
+          : null;
+        if (literalCount) {
+          code += `    for (int _i = 0; _i < ${literalCount}; _i++) {\n`;
+        } else {
+          const cap = Number.isFinite(callerNode.data?.maxIterations)
+            ? Math.max(1, Math.floor(callerNode.data.maxIterations))
+            : WEBGL1_MAX_LOOP_ITERATIONS;
+          code += `    // WebGL1 cannot compare a loop index against a computed value,\n`;
+          code += `    // so the loop runs to a constant cap and breaks out early.\n`;
+          code += `    for (int _i = 0; _i < ${cap}; _i++) {\n`;
+          code += `        if (_i >= ${countVar}) { break; }\n`;
+        }
+      } else {
+        code += `    for (int _i = 0; _i < ${countVar}; _i++) {\n`;
+      }
 
       if (singleOut) {
         code += `        ${accVars[0]} = ${fnName}(${bodyArgs([...accVars, ...argVars])});\n`;
