@@ -1,0 +1,60 @@
+{
+	"name": "shape3dTexture",
+	"plugin-id": "Sprite",
+	"sid": 885944422042270,
+	"isGlobal": false,
+	"editorNewInstanceIsReplica": true,
+	"instanceVariables": [],
+	"behaviorTypes": [],
+	"effectTypes": [],
+	"animations": {
+		"items": [
+			{
+				"frames": [
+					{
+						"width": 120,
+						"height": 120,
+						"originX": 0.5041666666666667,
+						"originY": 0.5041666666666667,
+						"originalSource": "",
+						"exportFormat": "lossless",
+						"exportQuality": 0.8,
+						"fileType": "image/png",
+						"imageSpriteId": 5086226,
+						"collisionPoly": {
+							"points": [
+								0.041666666666666664,
+								0,
+								0.5041666666666667,
+								0,
+								0.9333333333333333,
+								0,
+								0.9583333333333334,
+								0.5041666666666667,
+								0.8333333333333335,
+								1,
+								0.5041666666666667,
+								1,
+								0.19166666666666668,
+								1,
+								0,
+								0.5041666666666667
+							]
+						},
+						"useCollisionPoly": true,
+						"duration": 1,
+						"tag": ""
+					}
+				],
+				"sid": 917079611271898,
+				"name": "Animation 1",
+				"isLooping": false,
+				"isPingPong": false,
+				"repeatCount": 1,
+				"repeatTo": 0,
+				"speed": 5
+			}
+		],
+		"subfolders": []
+	}
+}

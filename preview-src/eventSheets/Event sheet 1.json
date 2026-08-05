@@ -1,0 +1,362 @@
+{
+	"name": "Event sheet 1",
+	"events": [
+		{
+			"eventType": "block",
+			"conditions": [
+				{
+					"id": "on-dropped-files",
+					"objectClass": "FileSystem",
+					"sid": 541070742764655
+				}
+			],
+			"actions": [
+				{
+					"id": "split-string",
+					"objectClass": "ValidImageFileFormats",
+					"sid": 186462950128152,
+					"parameters": {
+						"string": "\"png,webp,jpg,jpeg,avif\"",
+						"separator": "\",\"",
+						"type": "string"
+					}
+				},
+				{
+					"id": "log",
+					"objectClass": "Browser",
+					"sid": 543042109338015,
+					"parameters": {
+						"type": "log",
+						"message": "FileSystem.FileNameAt(0)"
+					}
+				},
+				{
+					"id": "log",
+					"objectClass": "Browser",
+					"sid": 224300336932950,
+					"parameters": {
+						"type": "log",
+						"message": "tokenat(FileSystem.FileNameAt(0), tokencount(FileSystem.FileNameAt(0), \".\") - 1, \".\")"
+					}
+				}
+			],
+			"sid": 734595586917442,
+			"children": [
+				{
+					"eventType": "block",
+					"conditions": [
+						{
+							"id": "contains-value",
+							"objectClass": "ValidImageFileFormats",
+							"sid": 963461404832838,
+							"parameters": {
+								"value": "tokenat(FileSystem.FileNameAt(0), tokencount(FileSystem.FileNameAt(0), \".\") - 1, \".\")"
+							}
+						}
+					],
+					"actions": [
+						{
+							"id": "read-binary-file",
+							"objectClass": "FileSystem",
+							"sid": 494094164256531,
+							"parameters": {
+								"picker-tag": "\"<dropped-files>\"",
+								"folder-path": "FileSystem.FileNameAt(0)",
+								"file-tag": "\"loading-image\"",
+								"data": "BinaryData"
+							}
+						}
+					],
+					"sid": 414998820408132
+				}
+			]
+		},
+		{
+			"eventType": "block",
+			"conditions": [
+				{
+					"id": "on-file-operation-complete",
+					"objectClass": "FileSystem",
+					"sid": 690702350537716,
+					"parameters": {
+						"file-tag": "\"loading-image\""
+					}
+				}
+			],
+			"actions": [],
+			"sid": 997625792856741,
+			"children": [
+				{
+					"eventType": "block",
+					"conditions": [
+						{
+							"id": "is-visible",
+							"objectClass": "Piggy",
+							"sid": 207595494765546
+						}
+					],
+					"actions": [
+						{
+							"callFunction": "loadSpriteUrl",
+							"sid": 774025539342139,
+							"parameters": [
+								"BinaryData.GetURL",
+								true
+							]
+						}
+					],
+					"sid": 480036262873813
+				},
+				{
+					"eventType": "block",
+					"conditions": [
+						{
+							"id": "is-visible",
+							"objectClass": "shape3d",
+							"sid": 851813176560794
+						}
+					],
+					"actions": [
+						{
+							"callFunction": "loadShapeUrl",
+							"sid": 196037541613391,
+							"parameters": [
+								"BinaryData.GetURL",
+								true
+							]
+						}
+					],
+					"sid": 435873934365785
+				}
+			]
+		},
+		{
+			"functionName": "loadSpriteUrl",
+			"functionDescription": "",
+			"functionCategory": "",
+			"functionReturnType": "none",
+			"functionCopyPicked": false,
+			"functionIsAsync": true,
+			"functionParameters": [
+				{
+					"name": "url",
+					"type": "string",
+					"initialValue": "",
+					"comment": "",
+					"sid": 799969856455017
+				},
+				{
+					"name": "fromDrop",
+					"type": "boolean",
+					"initialValue": "false",
+					"comment": "",
+					"sid": 271259234259138
+				}
+			],
+			"eventType": "function-block",
+			"conditions": [],
+			"actions": [
+				{
+					"id": "load-image-from-url",
+					"objectClass": "Piggy",
+					"sid": 988949234082952,
+					"parameters": {
+						"uri": "url",
+						"size": "resize-to-image-size",
+						"cross-origin": "anonymous"
+					}
+				}
+			],
+			"sid": 709667096523628,
+			"children": [
+				{
+					"eventType": "block",
+					"conditions": [
+						{
+							"id": "compare-boolean-eventvar",
+							"objectClass": "System",
+							"sid": 105088532060618,
+							"parameters": {
+								"variable": "fromDrop"
+							}
+						}
+					],
+					"actions": [
+						{
+							"type": "script",
+							"language": "javascript",
+							"script": [
+								"globalThis.updatePreviewSpriteUrl(localVars.url)"
+							]
+						}
+					],
+					"sid": 901270954934039
+				},
+				{
+					"eventType": "block",
+					"conditions": [],
+					"actions": [
+						{
+							"id": "wait-for-previous-actions",
+							"objectClass": "System",
+							"sid": 702323169728172
+						}
+					],
+					"sid": 404272771670162
+				}
+			]
+		},
+		{
+			"functionName": "loadShapeUrl",
+			"functionDescription": "",
+			"functionCategory": "",
+			"functionReturnType": "none",
+			"functionCopyPicked": false,
+			"functionIsAsync": true,
+			"functionParameters": [
+				{
+					"name": "url",
+					"type": "string",
+					"initialValue": "",
+					"comment": "",
+					"sid": 625996287915966
+				},
+				{
+					"name": "fromDrop",
+					"type": "boolean",
+					"initialValue": "false",
+					"comment": "",
+					"sid": 931813671531123
+				}
+			],
+			"eventType": "function-block",
+			"conditions": [],
+			"actions": [
+				{
+					"id": "load-image-from-url",
+					"objectClass": "shape3dTexture",
+					"sid": 365619551977825,
+					"parameters": {
+						"uri": "url",
+						"size": "resize-to-image-size",
+						"cross-origin": "anonymous"
+					}
+				}
+			],
+			"sid": 382226207251422,
+			"children": [
+				{
+					"eventType": "block",
+					"conditions": [
+						{
+							"id": "compare-boolean-eventvar",
+							"objectClass": "System",
+							"sid": 654405460633294,
+							"parameters": {
+								"variable": "fromDrop"
+							}
+						}
+					],
+					"actions": [
+						{
+							"type": "script",
+							"language": "javascript",
+							"script": [
+								"globalThis.updatePreviewShapeUrl(localVars.url)"
+							]
+						}
+					],
+					"sid": 992482809636170
+				},
+				{
+					"eventType": "block",
+					"conditions": [],
+					"actions": [
+						{
+							"id": "wait-for-previous-actions",
+							"objectClass": "System",
+							"sid": 755942638625223
+						}
+					],
+					"sid": 177705131683727
+				}
+			]
+		},
+		{
+			"functionName": "loadBgUrl",
+			"functionDescription": "",
+			"functionCategory": "",
+			"functionReturnType": "none",
+			"functionCopyPicked": false,
+			"functionIsAsync": true,
+			"functionParameters": [
+				{
+					"name": "url",
+					"type": "string",
+					"initialValue": "",
+					"comment": "",
+					"sid": 805301708531457
+				},
+				{
+					"name": "fromDrop",
+					"type": "boolean",
+					"initialValue": "false",
+					"comment": "",
+					"sid": 893207991194947
+				}
+			],
+			"eventType": "function-block",
+			"conditions": [],
+			"actions": [
+				{
+					"id": "load-image-from-url",
+					"objectClass": "background",
+					"sid": 234803466798891,
+					"parameters": {
+						"uri": "url",
+						"cross-origin": "anonymous"
+					}
+				}
+			],
+			"sid": 126042424455064,
+			"children": [
+				{
+					"eventType": "block",
+					"conditions": [
+						{
+							"id": "compare-boolean-eventvar",
+							"objectClass": "System",
+							"sid": 581267620734072,
+							"parameters": {
+								"variable": "fromDrop"
+							}
+						}
+					],
+					"actions": [
+						{
+							"type": "script",
+							"language": "javascript",
+							"script": [
+								"globalThis.updatePreviewBgUrl(localVars.url)"
+							]
+						}
+					],
+					"sid": 167118195007614
+				},
+				{
+					"eventType": "block",
+					"conditions": [],
+					"actions": [
+						{
+							"id": "wait-for-previous-actions",
+							"objectClass": "System",
+							"sid": 148088466902941
+						}
+					],
+					"sid": 986166432404608
+				}
+			]
+		}
+	],
+	"sid": 821318690588231
+}
