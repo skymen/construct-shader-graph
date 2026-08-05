@@ -1,30 +1,15 @@
 import { NODE_TYPES } from "./nodes/index.js";
+import {
+  PREVIEW_SETTINGS,
+  PREVIEW_SETTING_KEYS,
+  coercePreviewSetting,
+} from "./preview-settings.js";
 
 const API_VERSION = "1.0.0";
 const API_NAMESPACE = "shaderGraphAPI";
 const API_ALIAS = "sg";
 const PREVIEWABLE_TYPES = new Set(["float", "vec2", "vec3", "vec4"]);
 const SHADER_TARGETS = ["webgl1", "webgl2", "webgpu"];
-const PREVIEW_SETTING_KEYS = new Set([
-  "effectTarget",
-  "object",
-  "cameraMode",
-  "autoRotate",
-  "samplingMode",
-  "shaderLanguage",
-  "forceRotatedTexture",
-  "spriteTextureUrl",
-  "shapeTextureUrl",
-  "bgTextureUrl",
-  "showBackgroundCube",
-  "spriteScale",
-  "shapeScale",
-  "roomScale",
-  "bgOpacity",
-  "bg3dOpacity",
-  "zoomLevel",
-  "startupScript",
-]);
 
 function cloneValue(value) {
   if (value === undefined) {
@@ -1381,7 +1366,12 @@ function segmentsOf(wire) {
   const pts = wirePoints(wire);
   const out = [];
   for (let i = 0; i + 1 < pts.length; i++) {
-    out.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
+    out.push({
+      x1: pts[i].x,
+      y1: pts[i].y,
+      x2: pts[i + 1].x,
+      y2: pts[i + 1].y,
+    });
   }
   return out;
 }
@@ -1486,7 +1476,8 @@ function auditGraph(bp, options = {}) {
         Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y),
       );
       const frac =
-        (ox * oy) / Math.max(1, Math.min(a.width * a.height, b.width * b.height));
+        (ox * oy) /
+        Math.max(1, Math.min(a.width * a.height, b.width * b.height));
       if (frac > 0.25) {
         issues.push({
           kind: "overlappingComments",
@@ -1626,7 +1617,8 @@ function auditGraph(bp, options = {}) {
       wires: bp.wires.length,
       comments: bp.comments.length,
       deadNodes: issues.filter((i) => i.kind === "deadNode").length,
-      uncommentedNodes: issues.filter((i) => i.kind === "uncommentedNode").length,
+      uncommentedNodes: issues.filter((i) => i.kind === "uncommentedNode")
+        .length,
       crossStageWires,
       wireOverNode: issues.filter((i) => i.kind === "wireOverNode").length,
       longWires: issues.filter((i) => i.kind === "longWire").length,
@@ -1873,152 +1865,59 @@ function applyNodePatch(bp, node, patch) {
   node.recalculateHeight();
 }
 
+// Apply a validated patch to the host's preview settings, then push whatever
+// changed to the running preview. Everything the loop needs - the coercion, the
+// command name, whether it reloads - comes from PREVIEW_SETTINGS.
+//
+// Two passes on purpose: every value has to be stored before anything is sent,
+// because a descriptor's `apply` may read sibling keys. The scale axes do -
+// setSpriteScale resolves {x, y} out of three keys, and sending it while only
+// the first of them had landed would push a half-applied patch.
 function syncPreviewSettings(bp, patch) {
   let shouldReload = false;
-  let shouldUpdateUi = false;
+  const changed = new Set();
 
-  if (patch.effectTarget !== undefined) {
-    const target = patch.effectTarget;
-    bp.previewSettings.effectTarget = target;
-    shouldUpdateUi = true;
+  for (const d of PREVIEW_SETTINGS) {
+    if (patch[d.key] === undefined) continue;
 
-    if (target === "sprite") {
-      bp.previewSettings.object = "sprite";
-    } else if (target === "shape3D" && bp.previewSettings.object === "sprite") {
-      bp.previewSettings.object = "box";
+    const value = coercePreviewSetting(d, patch[d.key]);
+    bp.previewSettings[d.key] = value;
+    changed.add(d.key);
+
+    // effectTarget and object imply each other; a link mutates its sibling in
+    // place and names it so it gets resent too.
+    if (d.link) {
+      for (const key of d.link(bp.previewSettings, value)) changed.add(key);
     }
 
-    if (bp.previewReady) {
-      bp.sendPreviewCommand("setEffectTarget", target);
-      bp.sendPreviewCommand("setObject", bp.previewSettings.object);
+    if (d.reload === true || (d.reload === "whenEmpty" && !value)) {
+      shouldReload = true;
     }
   }
 
-  if (patch.object !== undefined) {
-    const object = patch.object;
-    bp.previewSettings.object = object;
-    shouldUpdateUi = true;
+  if (!changed.size) return;
 
-    if (
-      object === "sprite" &&
-      bp.previewSettings.effectTarget !== "sprite" &&
-      bp.previewSettings.effectTarget !== "layout" &&
-      bp.previewSettings.effectTarget !== "layer"
-    ) {
-      bp.previewSettings.effectTarget = "sprite";
-      if (bp.previewReady) {
-        bp.sendPreviewCommand("setEffectTarget", "sprite");
+  if (bp.previewReady) {
+    // Keys that resolve into one command (the scale axes) send it once for the
+    // whole patch, not once per key.
+    const sentGroups = new Set();
+    for (const d of PREVIEW_SETTINGS) {
+      if (!changed.has(d.key)) continue;
+      if (d.reload === true) continue;
+      if (d.applyGroup) {
+        if (sentGroups.has(d.applyGroup)) continue;
+        sentGroups.add(d.applyGroup);
       }
-    } else if (
-      object !== "sprite" &&
-      bp.previewSettings.effectTarget === "sprite"
-    ) {
-      bp.previewSettings.effectTarget = "shape3D";
-      if (bp.previewReady) {
-        bp.sendPreviewCommand("setEffectTarget", "shape3D");
-      }
-    }
-
-    if (bp.previewReady) {
-      bp.sendPreviewCommand("setObject", object);
+      bp.applyPreviewSetting(d, bp.previewSettings[d.key], target(bp));
     }
   }
 
-  if (patch.cameraMode !== undefined) {
-    bp.previewSettings.cameraMode = patch.cameraMode;
-    shouldUpdateUi = true;
-    if (bp.previewReady) {
-      bp.sendPreviewCommand("setCameraMode", patch.cameraMode);
-    }
-  }
+  bp.updatePreviewSettingsUI();
+  if (shouldReload) bp.updatePreview();
+}
 
-  if (patch.autoRotate !== undefined) {
-    bp.previewSettings.autoRotate = !!patch.autoRotate;
-    shouldUpdateUi = true;
-    if (bp.previewReady) {
-      bp.sendPreviewCommand("setAutoRotate", !!patch.autoRotate);
-    }
-  }
-
-  if (patch.showBackgroundCube !== undefined) {
-    bp.previewSettings.showBackgroundCube = !!patch.showBackgroundCube;
-    shouldUpdateUi = true;
-    if (bp.previewReady) {
-      bp.sendPreviewCommand(
-        "setShowBackgroundCube",
-        !!patch.showBackgroundCube,
-      );
-    }
-  }
-
-  [
-    ["spriteScale", "setSpriteScale"],
-    ["shapeScale", "setShapeScale"],
-    ["roomScale", "setRoomScale"],
-    ["bgOpacity", "setBgOpacity"],
-    ["bg3dOpacity", "setBg3dOpacity"],
-    ["zoomLevel", "setZoomLevel"],
-  ].forEach(([key, command]) => {
-    if (patch[key] !== undefined) {
-      bp.previewSettings[key] = Number(patch[key]);
-      shouldUpdateUi = true;
-      if (bp.previewReady) {
-        bp.sendPreviewCommand(command, bp.previewSettings[key]);
-      }
-    }
-  });
-
-  if (patch.samplingMode !== undefined) {
-    bp.previewSettings.samplingMode = patch.samplingMode;
-    shouldReload = true;
-    shouldUpdateUi = true;
-  }
-
-  if (patch.shaderLanguage !== undefined) {
-    bp.previewSettings.shaderLanguage = patch.shaderLanguage;
-    shouldReload = true;
-    shouldUpdateUi = true;
-  }
-
-  if (patch.forceRotatedTexture !== undefined) {
-    bp.previewSettings.forceRotatedTexture = !!patch.forceRotatedTexture;
-    shouldReload = true;
-    shouldUpdateUi = true;
-  }
-
-  [
-    ["spriteTextureUrl", "sprite"],
-    ["shapeTextureUrl", "shape"],
-    ["bgTextureUrl", "bg"],
-  ].forEach(([key, type]) => {
-    if (patch[key] !== undefined) {
-      bp.previewSettings[key] = patch[key] || null;
-      shouldUpdateUi = true;
-      if (patch[key]) {
-        if (bp.previewReady) {
-          bp.loadPreviewTexture(type, patch[key]);
-        }
-      } else {
-        shouldReload = true;
-      }
-    }
-  });
-
-  if (patch.startupScript !== undefined) {
-    bp.previewSettings.startupScript = String(patch.startupScript || "");
-    shouldUpdateUi = true;
-    if (bp.previewReady && bp.previewSettings.startupScript) {
-      bp.sendStartupScript(bp.previewSettings.startupScript);
-    }
-  }
-
-  if (shouldUpdateUi) {
-    bp.updatePreviewSettingsUI();
-  }
-
-  if (shouldReload) {
-    bp.updatePreview();
-  }
+function target(bp) {
+  return bp.defaultPreviewTarget?.() ?? null;
 }
 
 function getPreviewNodeState(bp) {
@@ -2431,7 +2330,8 @@ const API_METHOD_DESCRIPTORS = [
         name: "options",
         type: "object",
         required: false,
-        description: "Optional shaderSettings patch to apply to the new project.",
+        description:
+          "Optional shaderSettings patch to apply to the new project.",
       },
     ],
     returns: {
@@ -2884,7 +2784,10 @@ const API_METHOD_DESCRIPTORS = [
         description: "Uniform id to delete.",
       },
     ],
-    returns: { type: "object", description: "Deprecation status and uniform id." },
+    returns: {
+      type: "object",
+      description: "Deprecation status and uniform id.",
+    },
   },
   {
     path: "uniforms.reorder",
@@ -4739,124 +4642,124 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           blueprint.activeGraph ||
           null;
         const runCreate = () => {
-        const typeKey = input.typeKey || input.type;
-        assertNonEmptyString(
-          typeKey,
-          "nodes.create requires a non-empty type or typeKey string",
-        );
-        assertOptionalFiniteNumber(
-          input.x,
-          "nodes.create x must be a finite number",
-        );
-        assertOptionalFiniteNumber(
-          input.y,
-          "nodes.create y must be a finite number",
-        );
-        assertOptionalPlainObject(
-          input.position,
-          "nodes.create position must be an object",
-        );
-        if (input.position) {
-          assertOptionalFiniteNumber(
-            input.position.x,
-            "nodes.create position.x must be a finite number",
+          const typeKey = input.typeKey || input.type;
+          assertNonEmptyString(
+            typeKey,
+            "nodes.create requires a non-empty type or typeKey string",
           );
           assertOptionalFiniteNumber(
-            input.position.y,
-            "nodes.create position.y must be a finite number",
+            input.x,
+            "nodes.create x must be a finite number",
           );
-        }
-        assertOptionalPlainObject(
-          input.patch,
-          "nodes.create patch must be an object",
-        );
-        assertOptionalString(
-          input.operation,
-          "nodes.create operation must be a string",
-        );
-        assertOptionalString(
-          input.customInput,
-          "nodes.create customInput must be a string",
-        );
-        assertOptionalString(
-          input.selectedVariable,
-          "nodes.create selectedVariable must be a string",
-        );
-        assertOptionalBoolean(
-          input.select,
-          "nodes.create select must be a boolean",
-        );
-
-        if (typeKey === "output") {
-          assert(
-            !blueprint.nodes.some(
-              (node) => blueprint.getNodeTypeKey(node.nodeType) === "output",
-            ),
-            "Only one Output node can exist",
+          assertOptionalFiniteNumber(
+            input.y,
+            "nodes.create y must be a finite number",
           );
-        }
-
-        const nodeType = blueprint.getNodeTypeFromKey(typeKey);
-        assert(nodeType, `Unknown node type '${typeKey}'`);
-
-        const fallbackPosition = worldCenter(blueprint);
-        let node;
-
-        if (typeKey.startsWith("uniform_")) {
-          const uniformId = Number(typeKey.replace("uniform_", ""));
-          const uniform = getUniformById(blueprint, uniformId);
-          node = blueprint.createUniformNode(
-            uniform,
-            input.x ?? input.position?.x ?? fallbackPosition.x,
-            input.y ?? input.position?.y ?? fallbackPosition.y,
+          assertOptionalPlainObject(
+            input.position,
+            "nodes.create position must be an object",
           );
-        } else {
-          node = blueprint.addNode(
-            input.x ?? input.position?.x ?? fallbackPosition.x,
-            input.y ?? input.position?.y ?? fallbackPosition.y,
-            nodeType,
+          if (input.position) {
+            assertOptionalFiniteNumber(
+              input.position.x,
+              "nodes.create position.x must be a finite number",
+            );
+            assertOptionalFiniteNumber(
+              input.position.y,
+              "nodes.create position.y must be a finite number",
+            );
+          }
+          assertOptionalPlainObject(
+            input.patch,
+            "nodes.create patch must be an object",
           );
-          blueprint.updateDependencyList();
-          blueprint.onShaderChanged();
-        }
+          assertOptionalString(
+            input.operation,
+            "nodes.create operation must be a string",
+          );
+          assertOptionalString(
+            input.customInput,
+            "nodes.create customInput must be a string",
+          );
+          assertOptionalString(
+            input.selectedVariable,
+            "nodes.create selectedVariable must be a string",
+          );
+          assertOptionalBoolean(
+            input.select,
+            "nodes.create select must be a boolean",
+          );
 
-        assignMissingWireIds(blueprint);
+          if (typeKey === "output") {
+            assert(
+              !blueprint.nodes.some(
+                (node) => blueprint.getNodeTypeKey(node.nodeType) === "output",
+              ),
+              "Only one Output node can exist",
+            );
+          }
 
-        if (input.patch) {
-          applyNodePatch(blueprint, node, input.patch);
-        }
+          const nodeType = blueprint.getNodeTypeFromKey(typeKey);
+          assert(nodeType, `Unknown node type '${typeKey}'`);
 
-        if (input.operation !== undefined) {
-          applyNodePatch(blueprint, node, { operation: input.operation });
-        }
+          const fallbackPosition = worldCenter(blueprint);
+          let node;
 
-        if (input.customInput !== undefined) {
-          applyNodePatch(blueprint, node, { customInput: input.customInput });
-        }
+          if (typeKey.startsWith("uniform_")) {
+            const uniformId = Number(typeKey.replace("uniform_", ""));
+            const uniform = getUniformById(blueprint, uniformId);
+            node = blueprint.createUniformNode(
+              uniform,
+              input.x ?? input.position?.x ?? fallbackPosition.x,
+              input.y ?? input.position?.y ?? fallbackPosition.y,
+            );
+          } else {
+            node = blueprint.addNode(
+              input.x ?? input.position?.x ?? fallbackPosition.x,
+              input.y ?? input.position?.y ?? fallbackPosition.y,
+              nodeType,
+            );
+            blueprint.updateDependencyList();
+            blueprint.onShaderChanged();
+          }
 
-        if (input.selectedVariable !== undefined) {
-          applyNodePatch(blueprint, node, {
-            selectedVariable: input.selectedVariable,
-          });
-        }
+          assignMissingWireIds(blueprint);
 
-        if (input.inputValues !== undefined) {
-          applyNodePatch(blueprint, node, { inputValues: input.inputValues });
-        }
+          if (input.patch) {
+            applyNodePatch(blueprint, node, input.patch);
+          }
 
-        if (input.gradientStops !== undefined) {
-          applyNodePatch(blueprint, node, {
-            gradientStops: input.gradientStops,
-          });
-        }
+          if (input.operation !== undefined) {
+            applyNodePatch(blueprint, node, { operation: input.operation });
+          }
 
-        if (input.select) {
-          blueprint.clearSelection();
-          blueprint.selectNode(node, false);
-        }
+          if (input.customInput !== undefined) {
+            applyNodePatch(blueprint, node, { customInput: input.customInput });
+          }
 
-        pushHistory(blueprint, `Create node (${node.title})`);
-        return serializeNode(blueprint, node);
+          if (input.selectedVariable !== undefined) {
+            applyNodePatch(blueprint, node, {
+              selectedVariable: input.selectedVariable,
+            });
+          }
+
+          if (input.inputValues !== undefined) {
+            applyNodePatch(blueprint, node, { inputValues: input.inputValues });
+          }
+
+          if (input.gradientStops !== undefined) {
+            applyNodePatch(blueprint, node, {
+              gradientStops: input.gradientStops,
+            });
+          }
+
+          if (input.select) {
+            blueprint.clearSelection();
+            blueprint.selectNode(node, false);
+          }
+
+          pushHistory(blueprint, `Create node (${node.title})`);
+          return serializeNode(blueprint, node);
         };
         if (
           targetGraph &&
@@ -5239,7 +5142,9 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         }
 
         if (patch.paramId !== undefined) {
-          const requestedParamId = blueprint.sanitizeUniformParamId(patch.paramId);
+          const requestedParamId = blueprint.sanitizeUniformParamId(
+            patch.paramId,
+          );
           assert(requestedParamId, "Uniform paramId cannot be empty");
           assert(
             !blueprint.isUniformParamIdTaken(requestedParamId, uniform.id),
@@ -5305,7 +5210,9 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         const restoredUniform = getUniformById(blueprint, uniform.id);
         return serializeUniform(
           restoredUniform,
-          blueprint.uniforms.findIndex((entry) => entry.id === restoredUniform.id),
+          blueprint.uniforms.findIndex(
+            (entry) => entry.id === restoredUniform.id,
+          ),
         );
       },
 
@@ -5512,76 +5419,39 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           );
         });
 
-        assertOptionalOneOf(
-          patch.effectTarget,
-          ["sprite", "shape3D", "layout", "layer"],
-          "preview.updateSettings effectTarget must be one of sprite, shape3D, layout, or layer",
-        );
-        assertOptionalOneOf(
-          patch.object,
-          [
-            "sprite",
-            "box",
-            "sphere",
-            "cylinder",
-            "capsule",
-            "cone",
-            "torus",
-            "plane",
-          ],
-          "preview.updateSettings object must be a supported preview object",
-        );
-        assertOptionalOneOf(
-          patch.cameraMode,
-          ["2d", "perspective", "orthographic"],
-          "preview.updateSettings cameraMode must be 2d, perspective, or orthographic",
-        );
-        assertOptionalOneOf(
-          patch.samplingMode,
-          ["trilinear", "bilinear", "nearest"],
-          "preview.updateSettings samplingMode must be trilinear, bilinear, or nearest",
-        );
-        assertOptionalOneOf(
-          patch.shaderLanguage,
-          ["webgpu", "webgl2", "webgl1"],
-          "preview.updateSettings shaderLanguage must be webgpu, webgl2, or webgl1",
-        );
-        assertOptionalBoolean(
-          patch.autoRotate,
-          "preview.updateSettings autoRotate must be a boolean",
-        );
-        assertOptionalBoolean(
-          patch.showBackgroundCube,
-          "preview.updateSettings showBackgroundCube must be a boolean",
-        );
-        assertOptionalBoolean(
-          patch.forceRotatedTexture,
-          "preview.updateSettings forceRotatedTexture must be a boolean",
-        );
-        [
-          "spriteScale",
-          "shapeScale",
-          "roomScale",
-          "bgOpacity",
-          "bg3dOpacity",
-          "zoomLevel",
-        ].forEach((key) => {
-          assertOptionalFiniteNumber(
-            patch[key],
-            `preview.updateSettings ${key} must be a finite number`,
-          );
-        });
-        [
-          "spriteTextureUrl",
-          "shapeTextureUrl",
-          "bgTextureUrl",
-          "startupScript",
-        ].forEach((key) => {
-          assertOptionalString(
-            patch[key],
-            `preview.updateSettings ${key} must be a string`,
-          );
-        });
+        for (const d of PREVIEW_SETTINGS) {
+          const value = patch[d.key];
+          if (value === undefined) continue;
+          const where = `preview.updateSettings ${d.key}`;
+
+          switch (d.kind) {
+            case "enum":
+              assertOptionalOneOf(
+                value,
+                d.values,
+                `${where} must be one of ${d.values.join(", ")}`,
+              );
+              break;
+            case "bool":
+              assertOptionalBoolean(value, `${where} must be a boolean`);
+              break;
+            case "number":
+              assertOptionalFiniteNumber(
+                value,
+                `${where} must be a finite number`,
+              );
+              break;
+            case "color":
+              assertOptionalString(value, `${where} must be a string`);
+              assert(
+                /^#[0-9a-fA-F]{6}$/.test(value),
+                `${where} must be a #rrggbb hex colour`,
+              );
+              break;
+            default:
+              assertOptionalString(value, `${where} must be a string`);
+          }
+        }
 
         syncPreviewSettings(blueprint, patch);
         return cloneValue(blueprint.previewSettings);
@@ -5822,7 +5692,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         const comment = getCommentById(blueprint, commentId);
         for (const key of ["title", "description", "color"]) {
           if (patch[key] !== undefined) {
-            assertOptionalString(patch[key], `comments.edit ${key} must be a string`);
+            assertOptionalString(
+              patch[key],
+              `comments.edit ${key} must be a string`,
+            );
             comment[key] = patch[key];
           }
         }

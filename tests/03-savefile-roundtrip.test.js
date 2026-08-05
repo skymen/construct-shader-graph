@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { bootstrap } from "./helpers/bootstrap.js";
+import { makeDefaultPreviewSettings } from "../preview-settings.js";
 
 let blueprint;
 
@@ -123,5 +124,42 @@ describe(".c3sg save/load round-trip", () => {
     await blueprint.loadFromJSON(fakeFile(payload));
     expect(blueprint.nodes.length).toBe(payload.nodes.length);
     expect(blueprint.wires.length).toBe(payload.wires.length);
+  });
+});
+
+describe("preview settings survive a round-trip", () => {
+  it("restores every stored preview setting", async () => {
+    Object.assign(blueprint.previewSettings, {
+      cameraMode: "perspective",
+      object: "prism",
+      objectScale: 2.5,
+      bgOpacity: 0.4,
+      startupScript: "sprite.opacity = 0.5;",
+    });
+    const payload = buildSavePayload(blueprint);
+    const expected = { ...blueprint.previewSettings };
+
+    blueprint.createNewFile();
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    expect(blueprint.previewSettings).toEqual(expected);
+  });
+
+  it("fills a legacy payload's missing keys from the defaults, not from the previously open file", async () => {
+    // The merge used to be over the *current* settings, so a setting from the
+    // file you had open leaked into a file that never had one.
+    blueprint.previewSettings.cameraMode = "perspective";
+    blueprint.previewSettings.objectScale = 3;
+
+    const payload = buildSavePayload(blueprint);
+    payload.previewSettings = { spriteScale: 1.6 };
+
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    // spriteScale is the pre-merge name for objectScale.
+    expect(blueprint.previewSettings).toEqual({
+      ...makeDefaultPreviewSettings(),
+      objectScale: 1.6,
+    });
   });
 });

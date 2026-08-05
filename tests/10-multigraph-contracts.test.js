@@ -15,7 +15,8 @@
 // fileHandle, transient interaction state, all *IdCounter fields.
 //
 // Shared on host: customNodes (single library), clipboard, canvas/DOM,
-// previewIframe + previewSettings, mcpBridge, NODE_TYPES.
+// previewTargets (and the previewIframe/previewReady accessors over them) +
+// previewSettings, mcpBridge, NODE_TYPES.
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { bootstrap } from "./helpers/bootstrap.js";

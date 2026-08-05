@@ -1,6 +1,6 @@
 {
 	"projectFormatVersion": 1,
-	"savedWithRelease": 48000,
+	"savedWithRelease": 49700,
 	"name": "test shader",
 	"runtime": "c3",
 	"useWorker": "dom",
@@ -240,7 +240,6 @@
 		"authorWebsite": "",
 		"appId": "",
 		"pixelRounding": false,
-		"zAxisScale": "regular",
 		"fov": 1.0471975511965976,
 		"useLoaderLayout": false,
 		"fullscreenMode": "scale-outer",
@@ -281,6 +280,7 @@
 		"loaderStyle": "none",
 		"preloadSounds": true,
 		"uidAllocationMode": "increment",
+		"zAxisScale": "regular",
 		"cordovaiOSScheme": "app",
 		"cordovaAndroidScheme": "https",
 		"exportFileStructure": "folders",

@@ -30,6 +30,7 @@ Run a single test file: `npx vitest run tests/codegen.test.js`
 | Graph kinds | `graph-kinds/` — per-kind dispatch for `function` and `loopBody` graphs |
 | Headless boot | `headless/boot.js` — mounts `index.html` in jsdom and imports `script.js`; shared by tests and CLI |
 | CLI | `cli/` — thin transport over `shaderGraphAPI.call()`; see "CLI" below |
+| Preview runtime | `preview/` — **generated** Construct 3 export loaded in an iframe; `preview-src/` is the project it came from. See "Preview" below |
 
 ### CLI
 
@@ -44,6 +45,19 @@ then the app gains it too and the two cannot drift.
 - `csg api` is generated from `api.getManifest()` — new API methods need no CLI code.
 - `tests/28-cli-parity.test.js` asserts CLI output is byte-identical to the app's
   own for every example. That is the guard against duplication creeping back in.
+
+### Preview
+
+`preview/` is a **generated** Construct 3 web export. `preview-src/` is the Construct
+project it came from — that is the source of truth. Preview behaviour lives in
+`preview-src/scripts/main.js`; Construct copies script files verbatim on export, so it and
+`preview/scripts/project/main.js` must stay byte-identical
+(`tests/31-preview-source-parity.test.js` enforces it). Edit the source file, copy it over
+the export, done — no re-export needed for script-only changes.
+
+Changing project **structure** (object types, layout, event sheet, project properties) does
+need a re-export from the Construct editor, which only a human can run. See
+`preview-src/README.md` for that path and for the positional-index hazard it carries.
 
 ### Multi-Graph System
 

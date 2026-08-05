@@ -2624,11 +2624,41 @@ body {
   line-height: 1.4;
 }
 
-.preview-control-hint {
-  color: #888;
+/* Shared hover tooltip, driven by setupTooltips() from any [data-tooltip].
+   Fixed-position and parented to <body> so a scrolling panel cannot clip it. */
+#ui-tooltip {
+  position: fixed;
+  z-index: 10000;
+  top: 0;
+  left: 0;
+  max-width: 260px;
+  padding: 6px 9px;
+  background: #1c1c1c;
+  border: 1px solid #4a4a4a;
+  border-radius: 5px;
+  color: #ddd;
   font-size: 11px;
   line-height: 1.4;
-  flex-basis: 100%;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+#ui-tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+[data-tooltip] {
+  cursor: help;
+}
+
+/* A hint that there is something to hover, without spending a line on it. */
+.preview-control-group label[data-tooltip] {
+  text-decoration: underline dotted rgba(255, 255, 255, 0.3);
+  text-underline-offset: 3px;
 }
 
 .script-tab-hint code {
@@ -2664,6 +2694,27 @@ body {
 
 .script-editor::placeholder {
   color: #555;
+}
+
+/* Groups of related controls inside one tab. The tab itself is a wrapping
+   flex row, so a section is a full-width row that wraps its own controls. */
+.preview-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.preview-section-title {
+  width: 100%;
+  color: #888;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid #333;
+  padding-bottom: 4px;
+  margin-bottom: -2px;
 }
 
 .preview-control-group {
@@ -2706,6 +2757,107 @@ body {
   cursor: pointer;
   width: 14px;
   height: 14px;
+}
+
+/* A scale control that splits into per-axis rows. The label and the link toggle
+   get their own row so every axis slider below them is exactly the same width,
+   linked or not. */
+.preview-scale-group {
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.preview-scale-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+}
+
+.scale-axis-row {
+  flex-basis: 100%;
+}
+
+.scale-axis-chip {
+  color: #888;
+  font-size: 10px;
+  font-weight: 600;
+  width: 10px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* The link toggle: a real checkbox for state and keyboard, wearing an SVG.
+   Whole chain when the axes move together, broken chain when they do not. */
+.scale-lock {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.scale-lock input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+
+.scale-lock-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
+  fill: none;
+  stroke: #8a8a8a;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  transition: stroke 0.15s ease;
+}
+
+.scale-lock:hover .scale-lock-icon {
+  stroke: #ccc;
+}
+
+/* Exactly one of the two icons is shown at a time. */
+.scale-lock-broken,
+.scale-lock input[type="checkbox"]:checked ~ .scale-lock-linked {
+  display: block;
+}
+
+.scale-lock-linked,
+.scale-lock input[type="checkbox"]:checked ~ .scale-lock-broken {
+  display: none;
+}
+
+.scale-lock input[type="checkbox"]:checked ~ .scale-lock-icon {
+  stroke: #4a9eff;
+}
+
+/* Keyboard focus only - the input is visually hidden, so a ring left over from
+   a mouse click would read as a stuck state. */
+.scale-lock:has(input:focus-visible) {
+  outline: 1px solid #4a9eff;
+}
+
+.preview-control-group input[type="color"] {
+  background: #00000077;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  width: 34px;
+  height: 24px;
+  padding: 2px;
+  cursor: pointer;
+  outline: none;
+}
+
+.preview-control-group input[type="color"]:hover {
+  border-color: #6a6a6a;
+}
+
+.preview-control-group input[type="color"]:focus {
+  border-color: #4a9eff;
 }
 
 /* Preview Slider Controls */

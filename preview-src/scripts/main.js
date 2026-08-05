@@ -174,13 +174,37 @@ let shaderDataPromise = (async () => {
 runOnStartup(async (runtime) => {
   globalThis.loadSpriteUrl = (url) => {
     runtime.callFunction("loadSpriteUrl", url, false);
-    // After loading, update the base size based on the new sprite dimensions
-    setTimeout(() => {
-      if (piggy) {
-        // Store new base size (accounting for current scale)
-        baseObjectSize.sprite.w = piggy.width;
-        baseObjectSize.sprite.h = piggy.height;
-        applySpriteScale();
+
+    // C3's "load image from URL" resizes the sprite to the image's natural
+    // size, asynchronously. This used to read the size back after a fixed 10ms
+    // and lost that race: it captured the still-*scaled* size as the new base,
+    // and C3's resize then landed on top and threw the scale away entirely -
+    // load a texture and the sprite came out at the image's raw pixel size no
+    // matter where the scale sliders were.
+    //
+    // So take the base size from the image itself, and wait for the instance to
+    // actually be at it before re-applying the scale on top.
+    const image = new Image();
+    image.onerror = () =>
+      sendErrorToParent("Preview sprite texture failed to load", "warning");
+    image.onload = () => {
+      const width = image.naturalWidth;
+      const height = image.naturalHeight;
+      if (!piggy || !(width > 0) || !(height > 0)) return;
+
+      let ticksWaited = 0;
+      const reapplyWhenResized = () => {
+        const resized =
+          Math.abs(piggy.width - width) < 0.5 &&
+          Math.abs(piggy.height - height) < 0.5;
+        // Bail out after a couple of seconds rather than ticking forever, in
+        // case the load action is ever changed to keep the current size.
+        if (!resized && ++ticksWaited < 120) return;
+
+        runtime.removeEventListener("tick", reapplyWhenResized);
+        baseObjectSize.sprite.w = width;
+        baseObjectSize.sprite.h = height;
+        applyObjectScale();
 
         // Report size change to parent
         if (window !== window.parent) {
@@ -193,8 +217,10 @@ runOnStartup(async (runtime) => {
             "*",
           );
         }
-      }
-    }, 10);
+      };
+      runtime.addEventListener("tick", reapplyWhenResized);
+    };
+    image.src = url;
   };
   globalThis.loadShapeUrl = (url) => {
     runtime.callFunction("loadShapeUrl", url, false);
@@ -274,8 +300,9 @@ let dragStartScrollX = 0;
 let dragStartScrollY = 0;
 
 // Scale state
-let spriteScale = 1;
-let shapeScale = 1;
+// One scale for whichever object is showing, per axis. The command still
+// accepts a plain number for the uniform case, because an older host sends one.
+let objectScale = { x: 1, y: 1, z: 1 };
 let roomScale = 1;
 let baseObjectSize = { sprite: { w: 80, h: 130 }, shape: 100 };
 let baseBackground3dSize = 240;
@@ -284,6 +311,13 @@ let baseBackgroundSize = 240;
 // Opacity state
 let bgOpacity = 0.15;
 let bg3dOpacity = 0.15;
+
+// Rendering state
+let anisotropicFiltering = "auto";
+
+// Object appearance state
+let objectColor = "#ffffff";
+let objectAngle = 0;
 
 // Promise that waits for shader data from parent window
 function waitForShaderData() {
@@ -349,8 +383,12 @@ async function OnBeforeProjectStart(rt) {
   runtime.addEventListener("tick", updateCamera);
 
   if (window !== window.parent) {
-    // Signal that project is ready for parameter updates
-    window.parent.postMessage({ type: "projectReady" }, "*");
+    // Signal that project is ready for parameter updates. The command list
+    // lets the host notice it is talking to a stale cached preview.
+    window.parent.postMessage(
+      { type: "projectReady", commands: Object.keys(PREVIEW_COMMANDS) },
+      "*",
+    );
 
     window.addEventListener("message", (event) => {
       if (event.data && event.data.type === "updateParam") {
@@ -514,28 +552,31 @@ function setShowBackgroundCube(visible) {
   }
 }
 
-function setSpriteScale(scale) {
-  spriteScale = scale;
-  applySpriteScale();
-}
-
-function applySpriteScale() {
-  if (piggy) {
-    piggy.width = baseObjectSize.sprite.w * spriteScale;
-    piggy.height = baseObjectSize.sprite.h * spriteScale;
+function setObjectScale(scale) {
+  if (typeof scale === "number") {
+    objectScale = { x: scale, y: scale, z: scale };
+  } else {
+    // An axis the sender left out falls back to X - a pre-merge host sends
+    // {x, y} with no depth.
+    const axis = (value, fallback) =>
+      Number.isFinite(Number(value)) ? Number(value) : fallback;
+    const x = axis(scale.x, 1);
+    objectScale = { x, y: axis(scale.y, x), z: axis(scale.z, x) };
   }
+  applyObjectScale();
 }
 
-function setShapeScale(scale) {
-  shapeScale = scale;
-  applyShapeScale();
-}
-
-function applyShapeScale() {
+function applyObjectScale() {
+  // Both objects get it; setObject only ever shows one of them at a time. The
+  // sprite has no depth, so Z simply does not reach it.
+  if (piggy) {
+    piggy.width = baseObjectSize.sprite.w * objectScale.x;
+    piggy.height = baseObjectSize.sprite.h * objectScale.y;
+  }
   if (shape3D) {
-    shape3D.width = baseObjectSize.shape * shapeScale;
-    shape3D.height = baseObjectSize.shape * shapeScale;
-    shape3D.depth = baseObjectSize.shape * shapeScale;
+    shape3D.width = baseObjectSize.shape * objectScale.x;
+    shape3D.height = baseObjectSize.shape * objectScale.y;
+    shape3D.depth = baseObjectSize.shape * objectScale.z;
   }
 }
 
@@ -550,6 +591,59 @@ function setBg3dOpacity(opacity) {
   bg3dOpacity = opacity;
   if (background3d) {
     background3d.opacity = opacity;
+  }
+}
+
+function hexToRgb01(hex) {
+  const match = /^#?([0-9a-fA-F]{6})$/.exec(String(hex ?? ""));
+  const packed = match ? parseInt(match[1], 16) : 0xffffff;
+  return [
+    ((packed >> 16) & 255) / 255,
+    ((packed >> 8) & 255) / 255,
+    (packed & 255) / 255,
+  ];
+}
+
+function setObjectColor(hex) {
+  objectColor = hex;
+  applyObjectColor();
+}
+
+function applyObjectColor() {
+  // C3 multiplies this into the object's vertex colour before the effect
+  // runs, so samplerFront sees the tinted pixels - which is the point.
+  const rgb = hexToRgb01(objectColor);
+  if (piggy) piggy.colorRgb = rgb;
+  if (shape3D) shape3D.colorRgb = rgb;
+}
+
+function setObjectAngle(degrees) {
+  objectAngle = degrees;
+  applyObjectAngle();
+}
+
+function applyObjectAngle() {
+  // Z axis only - a 3D shape instance exposes no other rotation. The camera
+  // orbit in setupCameraControls covers the other two axes.
+  if (piggy) piggy.angleDegrees = objectAngle;
+  if (shape3D) shape3D.angleDegrees = objectAngle;
+}
+
+function setAnisotropicFiltering(mode) {
+  anisotropicFiltering = mode;
+  applyAnisotropicFiltering();
+}
+
+function applyAnisotropicFiltering() {
+  if (!runtime) return;
+
+  // The runtime re-parameterises every texture it already holds, so this takes
+  // effect without a reload. It throws on a mode string it does not know -
+  // report that rather than taking the preview down with it.
+  try {
+    runtime.anisotropicFiltering = anisotropicFiltering;
+  } catch (error) {
+    sendErrorToParent(`Anisotropic filtering: ${error.message}`, "warning");
   }
 }
 
@@ -583,42 +677,36 @@ function applyRoomScale() {
   cameraDistance = baseCameraDistance * roomScale;
 }
 
+// Every command the host can send, in one table so the list can be handed to
+// the host on startup. That is what lets the host tell a stale cached preview
+// from a current one instead of quietly dropping commands it does not know.
+const PREVIEW_COMMANDS = {
+  setEffectTarget,
+  setObject,
+  setCameraMode,
+  setAutoRotate,
+  setShowBackgroundCube,
+  setObjectColor,
+  setObjectAngle,
+  setObjectScale,
+  setRoomScale,
+  setBgOpacity,
+  setBg3dOpacity,
+  setZoomLevel,
+  setAnisotropicFiltering,
+
+  // Pre-merge names for the scale. Kept so a host page that has not been
+  // reloaded since the sprite and shape scales were merged still works.
+  setSpriteScale: setObjectScale,
+  setShapeScale: setObjectScale,
+};
+
 function handlePreviewCommand(command, value) {
-  switch (command) {
-    case "setEffectTarget":
-      setEffectTarget(value);
-      break;
-    case "setObject":
-      setObject(value);
-      break;
-    case "setCameraMode":
-      setCameraMode(value);
-      break;
-    case "setAutoRotate":
-      setAutoRotate(value);
-      break;
-    case "setShowBackgroundCube":
-      setShowBackgroundCube(value);
-      break;
-    case "setSpriteScale":
-      setSpriteScale(value);
-      break;
-    case "setShapeScale":
-      setShapeScale(value);
-      break;
-    case "setRoomScale":
-      setRoomScale(value);
-      break;
-    case "setBgOpacity":
-      setBgOpacity(value);
-      break;
-    case "setBg3dOpacity":
-      setBg3dOpacity(value);
-      break;
-    case "setZoomLevel":
-      setZoomLevel(value);
-      break;
-  }
+  const handler = PREVIEW_COMMANDS[command];
+  // An unknown command means the host is newer than this preview. Dropping it
+  // is the only safe thing to do here; the host spots the mismatch from the
+  // command list sent with projectReady and tells the user to reload.
+  if (handler) handler(value);
 }
 
 function setupCameraControls() {

@@ -518,9 +518,10 @@
             <div id="preview-controls" class="preview-controls-hidden">
               <!-- Tab Navigation -->
               <div class="preview-tabs">
-                <button class="preview-tab active" data-tab="display">
-                  Display
+                <button class="preview-tab active" data-tab="object">
+                  Object
                 </button>
+                <button class="preview-tab" data-tab="scene">Scene</button>
                 <button class="preview-tab" data-tab="textures">
                   Textures
                 </button>
@@ -530,10 +531,13 @@
                 <button class="preview-tab" data-tab="script">Script</button>
               </div>
 
-              <!-- Display Tab -->
-              <div class="preview-tab-content active" data-tab="display">
+              <!-- Object Tab -->
+              <div class="preview-tab-content active" data-tab="object">
                 <div class="preview-control-group">
-                  <label>Effect Target:</label>
+                  <label
+                    data-tooltip="Which thing the effect is applied to. Layout and Layer apply it to everything behind it."
+                    >Effect Target:</label
+                  >
                   <select id="effectTargetSelect">
                     <option value="sprite">Sprite</option>
                     <option value="shape3D">3D Shape</option>
@@ -542,7 +546,9 @@
                   </select>
                 </div>
                 <div class="preview-control-group">
-                  <label>Object:</label>
+                  <label data-tooltip="Which object to show the effect on."
+                    >Object:</label
+                  >
                   <select id="objectSelect">
                     <option value="sprite">Sprite</option>
                     <option value="box">Box</option>
@@ -554,7 +560,145 @@
                   </select>
                 </div>
                 <div class="preview-control-group">
-                  <label>Camera:</label>
+                  <label
+                    for="objectColorInput"
+                    data-tooltip="Tints the object before the effect runs, so the shader samples the tinted pixels."
+                    >Color:</label
+                  >
+                  <input type="color" id="objectColorInput" value="#ffffff" />
+                </div>
+                <div class="preview-control-group preview-slider-group">
+                  <label
+                    data-tooltip="Spins the object around the Z axis. Drag inside the preview to orbit the camera on the other two."
+                    >Rotation:</label
+                  >
+                  <div class="preview-slider-container">
+                    <input
+                      type="range"
+                      id="objectAngleSlider"
+                      min="0"
+                      max="360"
+                      step="1"
+                      value="0"
+                    />
+                    <span
+                      id="objectAngleValue"
+                      class="editable-slider-value"
+                      data-slider="objectAngleSlider"
+                      data-precision="0"
+                      >0</span
+                    >
+                  </div>
+                </div>
+                <div class="preview-control-group preview-scale-group">
+                  <div class="preview-scale-header">
+                    <label
+                      data-tooltip="Scales whichever object is showing. Unlink to size the axes separately; Z only applies to a 3D shape."
+                      >Scale:</label
+                    >
+                    <label class="scale-lock" title="Link the axes">
+                      <input
+                        type="checkbox"
+                        id="objectScaleLinkedCheckbox"
+                        checked
+                      />
+                      <svg
+                        class="scale-lock-icon scale-lock-linked"
+                        viewBox="0 0 16 16"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M6.4 9.6 9.6 6.4M5.9 8.1 4.3 9.7a2.3 2.3 0 1 0 3.2 3.2l1.6-1.6M10.1 7.9l1.6-1.6a2.3 2.3 0 1 0-3.2-3.2L6.9 4.7"
+                        />
+                      </svg>
+                      <svg
+                        class="scale-lock-icon scale-lock-broken"
+                        viewBox="0 0 16 16"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M5.9 8.1 4.3 9.7a2.3 2.3 0 1 0 3.2 3.2l.7-.7M10.1 7.9l1.6-1.6a2.3 2.3 0 1 0-3.2-3.2l-.7.7"
+                        />
+                        <path
+                          d="M2.6 5.1 4 4.4M11.4 12.9 12 11.5M8 1.4v1.2M8 13.4v1.2"
+                        />
+                      </svg>
+                    </label>
+                  </div>
+                  <div class="preview-slider-container scale-axis-row">
+                    <span
+                      class="scale-axis-chip"
+                      id="objectScaleXChip"
+                      style="display: none"
+                      >X</span
+                    >
+                    <input
+                      type="range"
+                      id="objectScaleSlider"
+                      min="0.1"
+                      max="3"
+                      step="0.05"
+                      value="1"
+                    />
+                    <span
+                      id="objectScaleValue"
+                      class="editable-slider-value"
+                      data-slider="objectScaleSlider"
+                      >1.00</span
+                    >
+                  </div>
+                  <div
+                    class="preview-slider-container scale-axis-row"
+                    id="objectScaleYRow"
+                    style="display: none"
+                  >
+                    <span class="scale-axis-chip">Y</span>
+                    <input
+                      type="range"
+                      id="objectScaleYSlider"
+                      min="0.1"
+                      max="3"
+                      step="0.05"
+                      value="1"
+                    />
+                    <span
+                      id="objectScaleYValue"
+                      class="editable-slider-value"
+                      data-slider="objectScaleYSlider"
+                      >1.00</span
+                    >
+                  </div>
+                  <div
+                    class="preview-slider-container scale-axis-row"
+                    id="objectScaleZRow"
+                    style="display: none"
+                  >
+                    <span class="scale-axis-chip">Z</span>
+                    <input
+                      type="range"
+                      id="objectScaleZSlider"
+                      min="0.1"
+                      max="3"
+                      step="0.05"
+                      value="1"
+                    />
+                    <span
+                      id="objectScaleZValue"
+                      class="editable-slider-value"
+                      data-slider="objectScaleZSlider"
+                      >1.00</span
+                    >
+                  </div>
+                </div>
+              </div>
+
+              <!-- Scene Tab -->
+              <div class="preview-tab-content" data-tab="scene">
+                <div class="preview-control-group">
+                  <label
+                    data-tooltip="2D looks straight at the object. Perspective and orthographic orbit it in 3D - drag inside the preview to move the camera."
+                    >Camera:</label
+                  >
                   <select id="cameraModeSelect">
                     <option value="2d">2D</option>
                     <option value="perspective">Perspective</option>
@@ -578,45 +722,10 @@
                   </label>
                 </div>
                 <div class="preview-control-group preview-slider-group">
-                  <label>Sprite Scale:</label>
-                  <div class="preview-slider-container">
-                    <input
-                      type="range"
-                      id="spriteScaleSlider"
-                      min="0.1"
-                      max="3"
-                      step="0.05"
-                      value="1"
-                    />
-                    <span
-                      id="spriteScaleValue"
-                      class="editable-slider-value"
-                      data-slider="spriteScaleSlider"
-                      >1.00</span
-                    >
-                  </div>
-                </div>
-                <div class="preview-control-group preview-slider-group">
-                  <label>Shape Scale:</label>
-                  <div class="preview-slider-container">
-                    <input
-                      type="range"
-                      id="shapeScaleSlider"
-                      min="0.1"
-                      max="3"
-                      step="0.05"
-                      value="1"
-                    />
-                    <span
-                      id="shapeScaleValue"
-                      class="editable-slider-value"
-                      data-slider="shapeScaleSlider"
-                      >1.00</span
-                    >
-                  </div>
-                </div>
-                <div class="preview-control-group preview-slider-group">
-                  <label>Room Scale:</label>
+                  <label
+                    data-tooltip="Size of the room the object sits in. In perspective mode, also moves the camera out to match."
+                    >Room Scale:</label
+                  >
                   <div class="preview-slider-container">
                     <input
                       type="range"
@@ -818,6 +927,21 @@
                   </select>
                 </div>
                 <div class="preview-control-group">
+                  <label
+                    data-tooltip="Sharpens mipmapped textures viewed at a steep angle. Only does anything with trilinear sampling."
+                    >Anisotropic:</label
+                  >
+                  <select id="anisotropicFilteringSelect">
+                    <option value="auto">Auto</option>
+                    <option value="off">Off</option>
+                    <option value="2x">2x</option>
+                    <option value="3x">3x</option>
+                    <option value="4x">4x</option>
+                    <option value="8x">8x</option>
+                    <option value="16x">16x</option>
+                  </select>
+                </div>
+                <div class="preview-control-group">
                   <label>Shader Language:</label>
                   <select id="shaderLanguageSelect">
                     <option value="webgpu">WebGPU</option>
@@ -826,15 +950,12 @@
                   </select>
                 </div>
                 <div class="preview-control-group">
-                  <label for="forceRotatedTextureCheckbox"
+                  <label
+                    for="forceRotatedTextureCheckbox"
+                    data-tooltip="Packs the frame sideways, like C3 does when it saves atlas space. Breaks effects that assume the texture is upright."
                     >Rotated in spritesheet:</label
                   >
                   <input type="checkbox" id="forceRotatedTextureCheckbox" />
-                  <span class="preview-control-hint"
-                    >Packs the frame sideways, like C3 does when it saves atlas
-                    space. Breaks effects that assume the texture is
-                    upright.</span
-                  >
                 </div>
                 <div class="preview-control-group">
                   <button
@@ -1589,6 +1710,10 @@
         </div>
       </div>
     </div>
+
+    <!-- Shared hover tooltip. Lives on <body> so it is never clipped by a
+         panel's overflow; setupTooltips() drives it from any [data-tooltip]. -->
+    <div id="ui-tooltip" role="tooltip" aria-hidden="true"></div>
 
     <script type="module" src="script.js"></script>
   </body>

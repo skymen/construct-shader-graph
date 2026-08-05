@@ -36,6 +36,12 @@ import JSZip from "jszip";
 import { HistoryManager } from "./HistoryManager.js";
 import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
 import { Graph, makeDefaultShaderSettings } from "./Graph.js";
+import {
+  PREVIEW_SETTINGS,
+  makeDefaultPreviewSettings,
+  migratePreviewSettings,
+  effectiveObjectScale,
+} from "./preview-settings.js";
 import { languageManager } from "./LanguageManager.js";
 import { installGlobalConsoleApi } from "./GlobalConsoleApi.js";
 import {
@@ -374,9 +380,12 @@ class Port {
       if (resolvedType === "float") return typeof this.value === "number";
       if (resolvedType === "int") return Number.isInteger(this.value);
       if (resolvedType === "bool") return typeof this.value === "boolean";
-      if (resolvedType === "vec2") return Array.isArray(this.value) && this.value.length === 2;
-      if (resolvedType === "vec3") return Array.isArray(this.value) && this.value.length === 3;
-      if (resolvedType === "vec4") return Array.isArray(this.value) && this.value.length === 4;
+      if (resolvedType === "vec2")
+        return Array.isArray(this.value) && this.value.length === 2;
+      if (resolvedType === "vec3")
+        return Array.isArray(this.value) && this.value.length === 3;
+      if (resolvedType === "vec4")
+        return Array.isArray(this.value) && this.value.length === 4;
       return false;
     };
 
@@ -1065,6 +1074,33 @@ class Comment {
   }
 }
 
+// One preview iframe and whether its runtime has booted.
+//
+// There is exactly one today, but every path that talks to the preview takes a
+// target rather than reaching for `this.previewIframe`, so a second window
+// (issue #78) is a push onto `previewTargets` rather than a rewrite. What that
+// would still need: the preview console and error tracking are host-global and
+// would have to be tagged per target.
+class PreviewTarget {
+  constructor(iframe) {
+    this.iframe = iframe;
+    this.ready = false;
+  }
+
+  post(message) {
+    this.iframe?.contentWindow?.postMessage(message, "*");
+  }
+
+  send(command, value) {
+    this.post({ type: "previewCommand", command, value });
+  }
+
+  // Does this target own the window a postMessage came from?
+  owns(source) {
+    return !!this.iframe && source === this.iframe.contentWindow;
+  }
+}
+
 class BlueprintSystem {
   constructor(canvas) {
     this.canvas = canvas;
@@ -1176,7 +1212,9 @@ class BlueprintSystem {
     // Custom Nodes (host-level: shared across graphs; declared above)
     this.editingCustomNode = null;
 
-    // Preview
+    // Preview. `previewTargets` must exist before previewIframe/previewReady
+    // are touched - both are accessors that proxy previewTargets[0].
+    this.previewTargets = [];
     this.previewIframe = null;
     this.previewReady = false;
     this.previewNeedsUpdate = true;
@@ -1185,27 +1223,9 @@ class BlueprintSystem {
     this.previewNode = null;
     this.previewAnimationTime = 0;
 
-    // Preview settings (not part of undo/redo)
-    this.previewSettings = {
-      effectTarget: "sprite",
-      object: "sprite",
-      cameraMode: "2d",
-      autoRotate: true,
-      samplingMode: "trilinear",
-      shaderLanguage: "webgpu",
-      forceRotatedTexture: false,
-      spriteTextureUrl: null,
-      shapeTextureUrl: null,
-      bgTextureUrl: null,
-      showBackgroundCube: true,
-      spriteScale: 1,
-      shapeScale: 1,
-      roomScale: 1,
-      bgOpacity: 0.15,
-      bg3dOpacity: 0.15,
-      zoomLevel: 1,
-      startupScript: "",
-    };
+    // Preview settings (not part of undo/redo). Described once in
+    // preview-settings.js; see PREVIEW_SETTINGS there before adding a key.
+    this.previewSettings = makeDefaultPreviewSettings();
 
     // Unified host-level undo/redo history (shared across all graphs).
     this.history = new HistoryManager(this);
@@ -1492,7 +1512,6 @@ class BlueprintSystem {
       const labels = document.querySelectorAll(selector);
       labels.forEach((label) => {
         const text = label.childNodes[0];
-        debugger;
         if (text) {
           text.textContent = t(textKey);
         }
@@ -1508,6 +1527,14 @@ class BlueprintSystem {
       "Object:",
     );
     updateLabel(
+      "#preview-controls .preview-control-group:has(#objectColorInput) > label",
+      "Color:",
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#objectAngleSlider) > label",
+      "Rotation:",
+    );
+    updateLabel(
       "#preview-controls .preview-control-group:has(#cameraModeSelect) > label",
       "Camera:",
     );
@@ -1518,6 +1545,10 @@ class BlueprintSystem {
     updateLabel(
       "#preview-controls .preview-control-group:has(#samplingModeSelect) > label",
       "Sampling:",
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#anisotropicFilteringSelect) > label",
+      "Anisotropic:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#shaderLanguageSelect) > label",
@@ -1564,6 +1595,15 @@ class BlueprintSystem {
       samplingModeSelect.options[0].text = t("Trilinear");
       samplingModeSelect.options[1].text = t("Bilinear");
       samplingModeSelect.options[2].text = t("Nearest");
+    }
+
+    const anisotropicFilteringSelect = document.getElementById(
+      "anisotropicFilteringSelect",
+    );
+    if (anisotropicFilteringSelect) {
+      // Only the first two options are words; 2x..16x need no translating.
+      anisotropicFilteringSelect.options[0].text = t("Auto");
+      anisotropicFilteringSelect.options[1].text = t("Off");
     }
 
     const shaderLanguageSelect = document.getElementById(
@@ -1947,6 +1987,38 @@ class BlueprintSystem {
 
   get activeGraph() {
     return this.graphs ? this.graphs.get(this.activeGraphId) : null;
+  }
+
+  // The preview is host-level, and today there is exactly one of it.
+  // `previewIframe` / `previewReady` are kept as properties so the ~40 call
+  // sites that read them carry on working; both proxy previewTargets[0].
+  defaultPreviewTarget() {
+    return this.previewTargets[0] ?? null;
+  }
+
+  // Which target did this postMessage come from?
+  targetForSource(source) {
+    return this.previewTargets.find((target) => target.owns(source)) ?? null;
+  }
+
+  get previewIframe() {
+    return this.previewTargets[0]?.iframe ?? null;
+  }
+
+  set previewIframe(iframe) {
+    if (this.previewTargets[0]) {
+      this.previewTargets[0].iframe = iframe;
+    } else {
+      this.previewTargets[0] = new PreviewTarget(iframe);
+    }
+  }
+
+  get previewReady() {
+    return !!this.previewTargets[0]?.ready;
+  }
+
+  set previewReady(ready) {
+    if (this.previewTargets[0]) this.previewTargets[0].ready = !!ready;
   }
 
   _installGraphDelegation() {
@@ -3265,7 +3337,6 @@ class BlueprintSystem {
       this.closeGradientEditor();
     });
     this.gradientEditorSaveBtn.addEventListener("click", () => {
-      debugger;
       this.saveGradientEditor();
     });
     document.addEventListener("mousemove", (e) => {
@@ -5443,6 +5514,16 @@ class BlueprintSystem {
       this.updatePreview(); // Reload preview with new sampling mode
     });
 
+    // Anisotropic filtering (live - the runtime re-parameterises the textures
+    // it already holds, so no reload)
+    const anisotropicFilteringSelect = document.getElementById(
+      "anisotropicFilteringSelect",
+    );
+    anisotropicFilteringSelect.addEventListener("change", (e) => {
+      this.previewSettings.anisotropicFiltering = e.target.value;
+      this.sendPreviewCommand("setAnisotropicFiltering", e.target.value);
+    });
+
     // Shader language select (requires reload)
     const shaderLanguageSelect = document.getElementById(
       "shaderLanguageSelect",
@@ -5500,25 +5581,27 @@ class BlueprintSystem {
       this.sendPreviewCommand("setShowBackgroundCube", e.target.checked);
     });
 
-    // Sprite Scale Slider
-    const spriteScaleSlider = document.getElementById("spriteScaleSlider");
-    const spriteScaleValue = document.getElementById("spriteScaleValue");
-    spriteScaleSlider.addEventListener("input", (e) => {
-      const scale = parseFloat(e.target.value);
-      this.previewSettings.spriteScale = scale;
-      spriteScaleValue.textContent = scale.toFixed(2);
-      this.sendPreviewCommand("setSpriteScale", scale);
+    // Object colour
+    const objectColorInput = document.getElementById("objectColorInput");
+    objectColorInput.addEventListener("input", (e) => {
+      this.previewSettings.objectColor = e.target.value;
+      this.sendPreviewCommand("setObjectColor", e.target.value);
     });
 
-    // Shape Scale Slider
-    const shapeScaleSlider = document.getElementById("shapeScaleSlider");
-    const shapeScaleValue = document.getElementById("shapeScaleValue");
-    shapeScaleSlider.addEventListener("input", (e) => {
-      const scale = parseFloat(e.target.value);
-      this.previewSettings.shapeScale = scale;
-      shapeScaleValue.textContent = scale.toFixed(2);
-      this.sendPreviewCommand("setShapeScale", scale);
+    // Object rotation
+    const objectAngleSlider = document.getElementById("objectAngleSlider");
+    const objectAngleValue = document.getElementById("objectAngleValue");
+    objectAngleSlider.addEventListener("input", (e) => {
+      const angle = parseFloat(e.target.value);
+      this.previewSettings.objectAngle = angle;
+      objectAngleValue.textContent = angle.toFixed(0);
+      this.sendPreviewCommand("setObjectAngle", angle);
     });
+
+    // One scale for whichever object is showing: a uniform slider plus a link
+    // toggle that splits it into per-axis rows. See preview-settings.js for why
+    // the base key stays a plain number.
+    this.setupScaleControls();
 
     // Room Scale Slider
     const roomScaleSlider = document.getElementById("roomScaleSlider");
@@ -5552,6 +5635,9 @@ class BlueprintSystem {
 
     // Setup editable slider values
     this.setupEditableSliderValues();
+
+    // Hover tooltips (app-wide, but the preview panel is what needs them most)
+    this.setupTooltips();
 
     // Screenshot preview button
     const screenshotPreviewBtn = document.getElementById(
@@ -5597,68 +5683,20 @@ class BlueprintSystem {
         // Preview is requesting shader data, send it
         this.sendShaderDataToPreview();
       } else if (event.data && event.data.type === "projectReady") {
-        this.previewReady = true;
+        const target =
+          this.targetForSource(event.source) ?? this.defaultPreviewTarget();
+        if (!target) return;
+
+        target.ready = true;
         this.resetPreviewErrors(); // Reset error count on new load
         this.clearPreviewConsole(); // Clear console on new load
-        this.sendUniformValuesToPreview();
+        this.warnIfPreviewIsStale(event.data.commands);
+        this.sendUniformValuesToPreview(target);
 
-        // Send saved preview settings
-        this.sendPreviewCommand(
-          "setEffectTarget",
-          this.previewSettings.effectTarget,
-        );
-        this.sendPreviewCommand("setObject", this.previewSettings.object);
-        this.sendPreviewCommand(
-          "setCameraMode",
-          this.previewSettings.cameraMode,
-        );
-        this.sendPreviewCommand(
-          "setAutoRotate",
-          this.previewSettings.autoRotate,
-        );
-        this.sendPreviewCommand(
-          "setShowBackgroundCube",
-          this.previewSettings.showBackgroundCube,
-        );
-        this.sendPreviewCommand("setBgOpacity", this.previewSettings.bgOpacity);
-        this.sendPreviewCommand(
-          "setBg3dOpacity",
-          this.previewSettings.bg3dOpacity,
-        );
-        this.sendPreviewCommand("setZoomLevel", this.previewSettings.zoomLevel);
-
-        // Load textures if they exist
-        if (this.previewSettings.spriteTextureUrl) {
-          this.loadPreviewTexture(
-            "sprite",
-            this.previewSettings.spriteTextureUrl,
-          );
-        }
-        if (this.previewSettings.shapeTextureUrl) {
-          this.loadPreviewTexture(
-            "shape",
-            this.previewSettings.shapeTextureUrl,
-          );
-        }
-        if (this.previewSettings.bgTextureUrl) {
-          this.loadPreviewTexture("bg", this.previewSettings.bgTextureUrl);
-        }
-
-        // Apply scale values after textures are loaded
-        this.sendPreviewCommand(
-          "setSpriteScale",
-          this.previewSettings.spriteScale,
-        );
-        this.sendPreviewCommand(
-          "setShapeScale",
-          this.previewSettings.shapeScale,
-        );
-        this.sendPreviewCommand("setRoomScale", this.previewSettings.roomScale);
-
-        // Execute startup script if present
-        if (this.previewSettings.startupScript) {
-          this.sendStartupScript(this.previewSettings.startupScript);
-        }
+        // Send saved preview settings. Order comes from PREVIEW_SETTINGS -
+        // textures before scales, because loading a sprite texture re-derives
+        // the sprite's base size in the preview.
+        this.applyPreviewSettingsTo(target);
       } else if (event.data && event.data.type === "shaderError") {
         const severity = event.data.severity;
         const message = event.data.message;
@@ -5763,6 +5801,105 @@ class BlueprintSystem {
     });
   }
 
+  // Wire one scale control: the uniform/X slider, the per-axis sliders, and the
+  // chain toggle between them. `name` is "sprite" or "shape"; `axes` are the
+  // extra axis suffixes ("Y", or "Y" and "Z").
+  // Wire the object scale: the uniform/X slider, the Y and Z sliders, and the
+  // link toggle between them.
+  setupScaleControls() {
+    const send = () =>
+      this.sendPreviewCommand(
+        "setObjectScale",
+        effectiveObjectScale(this.previewSettings),
+      );
+
+    // The base slider doubles as X, so it has no axis suffix.
+    for (const suffix of ["", "Y", "Z"]) {
+      const key = `objectScale${suffix}`;
+      const slider = document.getElementById(`${key}Slider`);
+      const valueEl = document.getElementById(`${key}Value`);
+      slider.addEventListener("input", (e) => {
+        const scale = parseFloat(e.target.value);
+        this.previewSettings[key] = scale;
+        valueEl.textContent = scale.toFixed(2);
+        send();
+      });
+    }
+
+    const linkedCheckbox = document.getElementById("objectScaleLinkedCheckbox");
+    linkedCheckbox.addEventListener("change", (e) => {
+      const linked = e.target.checked;
+      // Seed the per-axis values from the uniform one before revealing them,
+      // so unlocking never makes the object jump.
+      if (!linked) {
+        for (const suffix of ["Y", "Z"]) {
+          this.previewSettings[`objectScale${suffix}`] =
+            this.previewSettings.objectScale;
+        }
+      }
+      this.previewSettings.objectScaleLinked = linked;
+      this.updatePreviewSettingsUI();
+      send();
+    });
+  }
+
+  // One hover tooltip shared by every [data-tooltip] in the app. Delegated, so
+  // markup added later needs no extra wiring, and parented to <body> so a
+  // scrolling panel cannot clip it.
+  setupTooltips() {
+    const tooltip = document.getElementById("ui-tooltip");
+    if (!tooltip) return;
+
+    let anchor = null;
+
+    const hide = () => {
+      anchor = null;
+      tooltip.classList.remove("visible");
+    };
+
+    const show = (el) => {
+      const text = el.dataset.tooltip;
+      if (!text) return;
+
+      anchor = el;
+      tooltip.textContent = text;
+      tooltip.classList.add("visible");
+
+      // Measure once the text has landed, then keep the box on screen: centred
+      // over the anchor, above it unless that would clip, otherwise below.
+      const target = el.getBoundingClientRect();
+      const box = tooltip.getBoundingClientRect();
+      const margin = 8;
+
+      const left = Math.max(
+        margin,
+        Math.min(
+          window.innerWidth - box.width - margin,
+          target.left + target.width / 2 - box.width / 2,
+        ),
+      );
+      const above = target.top - box.height - 6;
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${above < margin ? target.bottom + 6 : above}px`;
+    };
+
+    document.addEventListener("mouseover", (e) => {
+      const el = e.target.closest?.("[data-tooltip]");
+      if (el && el !== anchor) show(el);
+    });
+
+    document.addEventListener("mouseout", (e) => {
+      // Moving between an anchor's own children is not leaving it.
+      if (anchor && !anchor.contains(e.relatedTarget)) hide();
+    });
+
+    // The tooltip is position:fixed, so anything scrolling underneath would
+    // otherwise strand it next to nothing.
+    document.addEventListener("scroll", hide, true);
+    window.addEventListener("blur", hide);
+  }
+
   setupEditableSliderValues() {
     const editableValues = document.querySelectorAll(".editable-slider-value");
 
@@ -5801,9 +5938,13 @@ class BlueprintSystem {
             Math.min(parseFloat(slider.max), value),
           );
 
-          // Update slider and span
+          // Update slider and span. Whole-number sliders (rotation) carry
+          // data-precision="0" so the readout does not come back as "45.00".
+          const precision = Number(valueSpan.dataset.precision ?? 2);
           slider.value = value;
-          valueSpan.textContent = value.toFixed(2);
+          valueSpan.textContent = value.toFixed(
+            Number.isFinite(precision) ? precision : 2,
+          );
           valueSpan.style.display = "";
 
           // Trigger slider input event
@@ -5871,8 +6012,8 @@ class BlueprintSystem {
     }
   }
 
-  loadPreviewTexture(type, url) {
-    if (!this.previewIframe || !this.previewReady) return;
+  loadPreviewTexture(type, url, target = this.defaultPreviewTarget()) {
+    if (!target?.ready) return;
 
     let functionName;
     if (type === "sprite") {
@@ -5883,14 +6024,7 @@ class BlueprintSystem {
       functionName = "loadBgUrl";
     }
 
-    this.previewIframe.contentWindow.postMessage(
-      {
-        type: "callFunction",
-        function: functionName,
-        url: url,
-      },
-      "*",
-    );
+    target.post({ type: "callFunction", function: functionName, url: url });
   }
 
   clearTexture(type) {
@@ -6184,12 +6318,18 @@ class BlueprintSystem {
     // Cache the shader data for when preview requests it
     this.cachedShaderData = this.buildShaderData(shaders);
 
-    // Build query params for settings that require reload
+    // Build query params for settings that require reload. These are the
+    // descriptors marked `reload: true`, which the runtime reads before it
+    // boots and so cannot receive as a command.
     const params = new URLSearchParams();
-    params.set("samplingMode", this.previewSettings.samplingMode);
-    params.set("shaderLanguage", this.previewSettings.shaderLanguage);
-    if (this.previewSettings.forceRotatedTexture) {
-      params.set("forceRotatedTexture", "1");
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.reload !== true || !d.queryParam) continue;
+      const value = this.previewSettings[d.key];
+      if (d.kind === "bool") {
+        if (value) params.set(d.queryParam, "1");
+      } else {
+        params.set(d.queryParam, value);
+      }
     }
 
     // Reload iframe with query parameters
@@ -6239,45 +6379,75 @@ class BlueprintSystem {
     };
   }
 
-  sendShaderDataToPreview() {
-    if (!this.previewIframe || !this.cachedShaderData) return;
+  sendShaderDataToPreview(target = this.defaultPreviewTarget()) {
+    if (!target || !this.cachedShaderData) return;
 
-    this.previewIframe.contentWindow.postMessage(
-      {
-        type: "shaderData",
-        shaderData: this.cachedShaderData,
-      },
-      "*",
+    target.post({ type: "shaderData", shaderData: this.cachedShaderData });
+  }
+
+  sendPreviewCommand(command, value, target = this.defaultPreviewTarget()) {
+    target?.send(command, value);
+  }
+
+  // The preview iframe reports which commands it understands when it boots.
+  // If it cannot answer for something the settings table wants to send, the two
+  // are out of step - almost always a browser still holding cached preview code
+  // - and the setting would otherwise just silently do nothing.
+  warnIfPreviewIsStale(supportedCommands) {
+    const wanted = new Set(
+      PREVIEW_SETTINGS.map((d) => d.command).filter(Boolean),
+    );
+
+    // A preview old enough not to send the list at all is stale by definition.
+    const missing = Array.isArray(supportedCommands)
+      ? [...wanted].filter((command) => !supportedCommands.includes(command))
+      : [...wanted];
+
+    if (!missing.length) return;
+
+    this.handlePreviewError(
+      `The preview is running older code and ignores: ${missing.join(", ")}. ` +
+        `Reload the page to pick up the current preview.`,
+      "warning",
     );
   }
 
-  sendPreviewCommand(command, value) {
-    if (!this.previewIframe) return;
-
-    this.previewIframe.contentWindow.postMessage(
-      {
-        type: "previewCommand",
-        command: command,
-        value: value,
-      },
-      "*",
-    );
+  // Push one setting to one preview. The only place that knows how a descriptor
+  // turns into a message.
+  applyPreviewSetting(d, value, target, settings = this.previewSettings) {
+    if (!target) return;
+    if (d.apply) {
+      d.apply(this, target, value, settings, d);
+      return;
+    }
+    if (d.command) target.send(d.command, value);
   }
 
-  sendStartupScript(script) {
-    if (!this.previewIframe || !script) return;
+  // Push a whole settings object to one preview, in PREVIEW_SETTINGS order.
+  // Called when a preview finishes booting and after a reset.
+  applyPreviewSettingsTo(target, settings = this.previewSettings) {
+    if (!target) return;
 
-    this.previewIframe.contentWindow.postMessage(
-      {
-        type: "runStartupScript",
-        script: script,
-      },
-      "*",
-    );
+    const sentGroups = new Set();
+    for (const d of PREVIEW_SETTINGS) {
+      // Reload-only settings reach the runtime through the iframe URL instead.
+      if (d.reload === true) continue;
+      if (d.applyGroup) {
+        if (sentGroups.has(d.applyGroup)) continue;
+        sentGroups.add(d.applyGroup);
+      }
+      this.applyPreviewSetting(d, settings[d.key], target, settings);
+    }
   }
 
-  sendUniformValuesToPreview() {
-    if (!this.previewReady || !this.previewIframe) return;
+  sendStartupScript(script, target = this.defaultPreviewTarget()) {
+    if (!target || !script) return;
+
+    target.post({ type: "runStartupScript", script: script });
+  }
+
+  sendUniformValuesToPreview(target = this.defaultPreviewTarget()) {
+    if (!target?.ready) return;
     // Preview reflects the main graph's uniforms.
     const uniforms = this.uniforms;
 
@@ -6292,14 +6462,7 @@ class BlueprintSystem {
         value = [value.r, value.g, value.b];
       }
 
-      this.previewIframe.contentWindow.postMessage(
-        {
-          type: "updateParam",
-          index: index,
-          value: value,
-        },
-        "*",
-      );
+      target.post({ type: "updateParam", index: index, value: value });
     });
   }
 
@@ -13515,9 +13678,7 @@ class BlueprintSystem {
     const contentContainer = document.getElementById("manualContent");
     const skipKeys = new Set(["T", "U"]);
     const typeRows = Object.entries(PORT_TYPES)
-      .filter(
-        ([key, t]) => !t.isGeneric && !skipKeys.has(key),
-      )
+      .filter(([key, t]) => !t.isGeneric && !skipKeys.has(key))
       .map(
         ([key, t]) => `
         <tr>
@@ -13593,11 +13754,7 @@ class BlueprintSystem {
         "effect.webgl2.fx": shaders.webgl2,
         "effect.wgsl": shaders.webgpu,
         "addon.json": JSON.stringify(this.generateAddonJson(), null, "\t"),
-        "lang/en-US.json": JSON.stringify(
-          this.generateLangJson(),
-          null,
-          "\t",
-        ),
+        "lang/en-US.json": JSON.stringify(this.generateLangJson(), null, "\t"),
       },
     };
   }
@@ -13817,109 +13974,13 @@ class BlueprintSystem {
   }
 
   resetPreviewSettings() {
-    // Reset preview settings to defaults
-    this.previewSettings = {
-      effectTarget: "sprite",
-      object: "sprite",
-      cameraMode: "2d",
-      autoRotate: true,
-      samplingMode: "trilinear",
-      shaderLanguage: "webgpu",
-      forceRotatedTexture: false,
-      spriteTextureUrl: null,
-      shapeTextureUrl: null,
-      bgTextureUrl: null,
-      showBackgroundCube: true,
-      spriteScale: 1,
-      shapeScale: 1,
-      roomScale: 1,
-      bgOpacity: 0.15,
-      bg3dOpacity: 0.15,
-      zoomLevel: 1,
-      startupScript: "",
-    };
+    // Reset preview settings to defaults, then let the table push them to both
+    // the panel and the running preview.
+    this.previewSettings = makeDefaultPreviewSettings();
+    this.updatePreviewSettingsUI();
 
-    // Update UI elements
-    const effectTargetSelect = document.getElementById("effectTargetSelect");
-    const objectSelect = document.getElementById("objectSelect");
-    const cameraModeSelect = document.getElementById("cameraModeSelect");
-    const autoRotateCheckbox = document.getElementById("autoRotateCheckbox");
-    const autoRotateGroup = document.getElementById("autoRotateGroup");
-    const samplingModeSelect = document.getElementById("samplingModeSelect");
-    const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect",
-    );
-    const showBackgroundCubeCheckbox = document.getElementById(
-      "showBackgroundCubeCheckbox",
-    );
-    const spriteScaleSlider = document.getElementById("spriteScaleSlider");
-    const spriteScaleValue = document.getElementById("spriteScaleValue");
-    const shapeScaleSlider = document.getElementById("shapeScaleSlider");
-    const shapeScaleValue = document.getElementById("shapeScaleValue");
-    const roomScaleSlider = document.getElementById("roomScaleSlider");
-    const roomScaleValue = document.getElementById("roomScaleValue");
-    const bgOpacitySlider = document.getElementById("bgOpacitySlider");
-    const bgOpacityValue = document.getElementById("bgOpacityValue");
-    const bg3dOpacitySlider = document.getElementById("bg3dOpacitySlider");
-    const bg3dOpacityValue = document.getElementById("bg3dOpacityValue");
-
-    if (effectTargetSelect) effectTargetSelect.value = "sprite";
-    if (objectSelect) objectSelect.value = "sprite";
-    if (cameraModeSelect) cameraModeSelect.value = "2d";
-    if (autoRotateCheckbox) autoRotateCheckbox.checked = true;
-    if (autoRotateGroup) autoRotateGroup.style.display = "none";
-    if (samplingModeSelect) samplingModeSelect.value = "trilinear";
-    if (shaderLanguageSelect) shaderLanguageSelect.value = "webgpu";
-    const forceRotatedTextureCheckbox = document.getElementById(
-      "forceRotatedTextureCheckbox",
-    );
-    if (forceRotatedTextureCheckbox) {
-      forceRotatedTextureCheckbox.checked = false;
-    }
-    if (showBackgroundCubeCheckbox) showBackgroundCubeCheckbox.checked = true;
-    if (spriteScaleSlider) spriteScaleSlider.value = 1;
-    if (spriteScaleValue) spriteScaleValue.textContent = "1.00";
-    if (shapeScaleSlider) shapeScaleSlider.value = 1;
-    if (shapeScaleValue) shapeScaleValue.textContent = "1.00";
-    if (roomScaleSlider) roomScaleSlider.value = 1;
-    if (roomScaleValue) roomScaleValue.textContent = "1.00";
-    if (bgOpacitySlider) bgOpacitySlider.value = 0.15;
-    if (bgOpacityValue) bgOpacityValue.textContent = "0.15";
-    if (bg3dOpacitySlider) bg3dOpacitySlider.value = 0.15;
-    if (bg3dOpacityValue) bg3dOpacityValue.textContent = "0.15";
-
-    // Reset startup script
-    const startupScriptTextarea = document.getElementById(
-      "previewStartupScript",
-    );
-    if (startupScriptTextarea) startupScriptTextarea.value = "";
-
-    // Reset texture preview UI
-    this.updateTexturePreview(
-      "spriteTexturePreview",
-      "clearSpriteTextureBtn",
-      null,
-    );
-    this.updateTexturePreview(
-      "shapeTexturePreview",
-      "clearShapeTextureBtn",
-      null,
-    );
-    this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", null);
-
-    // Send commands to preview iframe if ready
     if (this.previewReady) {
-      this.sendPreviewCommand("setEffectTarget", "sprite");
-      this.sendPreviewCommand("setObject", "sprite");
-      this.sendPreviewCommand("setCameraMode", "2d");
-      this.sendPreviewCommand("setAutoRotate", true);
-      this.sendPreviewCommand("setShowBackgroundCube", true);
-      this.sendPreviewCommand("setSpriteScale", 1);
-      this.sendPreviewCommand("setShapeScale", 1);
-      this.sendPreviewCommand("setRoomScale", 1);
-      this.sendPreviewCommand("setBgOpacity", 0.15);
-      this.sendPreviewCommand("setBg3dOpacity", 0.15);
-      this.sendPreviewCommand("setZoomLevel", 1);
+      this.applyPreviewSettingsTo(this.defaultPreviewTarget());
       // Reload preview to clear textures
       this.updatePreview();
     }
@@ -14486,9 +14547,12 @@ class BlueprintSystem {
         this.renderCustomNodesList();
       }
       if (data.previewSettings) {
+        // Merge over the defaults, not over the current session's settings -
+        // otherwise a setting from the previously open file leaks into a file
+        // that never had it.
         this.previewSettings = {
-          ...this.previewSettings,
-          ...data.previewSettings,
+          ...makeDefaultPreviewSettings(),
+          ...migratePreviewSettings(data.previewSettings),
         };
         this.updatePreviewSettingsUI();
       }
@@ -15828,125 +15892,38 @@ class BlueprintSystem {
   }
 
   updatePreviewSettingsUI() {
-    // Update preview control UI elements
-    const effectTargetSelect = document.getElementById("effectTargetSelect");
-    const objectSelect = document.getElementById("objectSelect");
-    const cameraModeSelect = document.getElementById("cameraModeSelect");
-    const autoRotateCheckbox = document.getElementById("autoRotateCheckbox");
-    const autoRotateGroup = document.getElementById("autoRotateGroup");
-    const samplingModeSelect = document.getElementById("samplingModeSelect");
-    const showBackgroundCubeCheckbox = document.getElementById(
-      "showBackgroundCubeCheckbox",
-    );
-    const spriteScaleSlider = document.getElementById("spriteScaleSlider");
-    const spriteScaleValue = document.getElementById("spriteScaleValue");
-    const shapeScaleSlider = document.getElementById("shapeScaleSlider");
-    const shapeScaleValue = document.getElementById("shapeScaleValue");
-    const roomScaleSlider = document.getElementById("roomScaleSlider");
-    const roomScaleValue = document.getElementById("roomScaleValue");
-    const bgOpacitySlider = document.getElementById("bgOpacitySlider");
-    const bgOpacityValue = document.getElementById("bgOpacityValue");
-    const bg3dOpacitySlider = document.getElementById("bg3dOpacitySlider");
-    const bg3dOpacityValue = document.getElementById("bg3dOpacityValue");
+    // State -> DOM for every preview control. Driven by PREVIEW_SETTINGS, so a
+    // new setting needs no code here at all.
+    for (const d of PREVIEW_SETTINGS) {
+      const value = this.previewSettings[d.key] ?? d.default;
+      this._writeSettingToDom(d, value);
+      d.onUi?.(this, value, this.previewSettings);
+    }
+  }
 
-    if (effectTargetSelect) {
-      effectTargetSelect.value = this.previewSettings.effectTarget;
-    }
-    if (objectSelect) {
-      objectSelect.value = this.previewSettings.object;
-    }
-    if (cameraModeSelect) {
-      cameraModeSelect.value = this.previewSettings.cameraMode;
+  _writeSettingToDom(d, value) {
+    if (!d.dom) return;
 
-      // Show/hide auto rotate based on camera mode
-      if (autoRotateGroup) {
-        autoRotateGroup.style.display =
-          this.previewSettings.cameraMode === "2d" ? "none" : "flex";
-      }
-    }
-    if (autoRotateCheckbox) {
-      autoRotateCheckbox.checked = this.previewSettings.autoRotate;
-    }
-    if (samplingModeSelect) {
-      samplingModeSelect.value = this.previewSettings.samplingMode;
-    }
-    const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect",
-    );
-    if (shaderLanguageSelect) {
-      shaderLanguageSelect.value =
-        this.previewSettings.shaderLanguage || "webgpu";
-    }
-    const forceRotatedTextureCheckbox = document.getElementById(
-      "forceRotatedTextureCheckbox",
-    );
-    if (forceRotatedTextureCheckbox) {
-      forceRotatedTextureCheckbox.checked =
-        !!this.previewSettings.forceRotatedTexture;
-    }
-    if (showBackgroundCubeCheckbox) {
-      showBackgroundCubeCheckbox.checked =
-        this.previewSettings.showBackgroundCube !== false;
-    }
-    if (spriteScaleSlider) {
-      const spriteScale = this.previewSettings.spriteScale || 1;
-      spriteScaleSlider.value = spriteScale;
-      if (spriteScaleValue) {
-        spriteScaleValue.textContent = spriteScale.toFixed(2);
-      }
-    }
-    if (shapeScaleSlider) {
-      const shapeScale = this.previewSettings.shapeScale || 1;
-      shapeScaleSlider.value = shapeScale;
-      if (shapeScaleValue) {
-        shapeScaleValue.textContent = shapeScale.toFixed(2);
-      }
-    }
-    if (roomScaleSlider) {
-      const roomScale = this.previewSettings.roomScale || 1;
-      roomScaleSlider.value = roomScale;
-      if (roomScaleValue) {
-        roomScaleValue.textContent = roomScale.toFixed(2);
-      }
-    }
-    if (bgOpacitySlider) {
-      const bgOpacity = this.previewSettings.bgOpacity ?? 0.15;
-      bgOpacitySlider.value = bgOpacity;
-      if (bgOpacityValue) {
-        bgOpacityValue.textContent = bgOpacity.toFixed(2);
-      }
-    }
-    if (bg3dOpacitySlider) {
-      const bg3dOpacity = this.previewSettings.bg3dOpacity ?? 0.15;
-      bg3dOpacitySlider.value = bg3dOpacity;
-      if (bg3dOpacityValue) {
-        bg3dOpacityValue.textContent = bg3dOpacity.toFixed(2);
-      }
-    }
+    const el = d.dom.el ? document.getElementById(d.dom.el) : null;
 
-    // Update texture previews
-    this.updateTexturePreview(
-      "spriteTexturePreview",
-      "clearSpriteTextureBtn",
-      this.previewSettings.spriteTextureUrl,
-    );
-    this.updateTexturePreview(
-      "shapeTexturePreview",
-      "clearShapeTextureBtn",
-      this.previewSettings.shapeTextureUrl,
-    );
-    this.updateTexturePreview(
-      "bgTexturePreview",
-      "clearBgTextureBtn",
-      this.previewSettings.bgTextureUrl,
-    );
-
-    // Update startup script textarea
-    const startupScriptTextarea = document.getElementById(
-      "previewStartupScript",
-    );
-    if (startupScriptTextarea) {
-      startupScriptTextarea.value = this.previewSettings.startupScript || "";
+    switch (d.kind) {
+      case "bool":
+        if (el) el.checked = !!value;
+        break;
+      case "number": {
+        if (el) el.value = value;
+        const valueEl = d.dom.valueEl && document.getElementById(d.dom.valueEl);
+        if (valueEl) {
+          valueEl.textContent = Number(value).toFixed(d.precision ?? 2);
+        }
+        break;
+      }
+      case "texture":
+        this.updateTexturePreview(d.dom.previewEl, d.dom.clearBtnEl, value);
+        break;
+      default:
+        // enum, string, color
+        if (el) el.value = value ?? "";
     }
   }
 
@@ -19576,7 +19553,9 @@ blueprint.createNewFile();
 
 // Experimental build dialog
 async function showExperimentalDialog() {
-  const isExperimental = window.location.pathname.endsWith("/experimental/") || window.location.pathname.endsWith("/experimental");
+  const isExperimental =
+    window.location.pathname.endsWith("/experimental/") ||
+    window.location.pathname.endsWith("/experimental");
 
   if (!isExperimental) {
     return;
@@ -19598,28 +19577,49 @@ async function showExperimentalDialog() {
       .replace(/\*(.*?)\*/g, "<em>$1</em>")
       .replace(/`([^`]+)`/g, "<code>$1</code>");
 
-    html = html.split("\n").reduce((acc, line) => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("### ")) {
-        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
-        acc.result += `<h3>${trimmed.slice(4)}</h3>`;
-      } else if (trimmed.startsWith("## ")) {
-        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
-        acc.result += `<h2>${trimmed.slice(3)}</h2>`;
-      } else if (trimmed.startsWith("# ")) {
-        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
-        acc.result += `<h1>${trimmed.slice(2)}</h1>`;
-      } else if (trimmed.startsWith("- ")) {
-        if (!acc.inList) { acc.result += "<ul>"; acc.inList = true; }
-        acc.result += `<li>${trimmed.slice(2)}</li>`;
-      } else if (trimmed === "") {
-        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
-      } else {
-        if (acc.inList) { acc.result += "</ul>"; acc.inList = false; }
-        acc.result += `<p>${trimmed}</p>`;
-      }
-      return acc;
-    }, { result: "", inList: false });
+    html = html.split("\n").reduce(
+      (acc, line) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("### ")) {
+          if (acc.inList) {
+            acc.result += "</ul>";
+            acc.inList = false;
+          }
+          acc.result += `<h3>${trimmed.slice(4)}</h3>`;
+        } else if (trimmed.startsWith("## ")) {
+          if (acc.inList) {
+            acc.result += "</ul>";
+            acc.inList = false;
+          }
+          acc.result += `<h2>${trimmed.slice(3)}</h2>`;
+        } else if (trimmed.startsWith("# ")) {
+          if (acc.inList) {
+            acc.result += "</ul>";
+            acc.inList = false;
+          }
+          acc.result += `<h1>${trimmed.slice(2)}</h1>`;
+        } else if (trimmed.startsWith("- ")) {
+          if (!acc.inList) {
+            acc.result += "<ul>";
+            acc.inList = true;
+          }
+          acc.result += `<li>${trimmed.slice(2)}</li>`;
+        } else if (trimmed === "") {
+          if (acc.inList) {
+            acc.result += "</ul>";
+            acc.inList = false;
+          }
+        } else {
+          if (acc.inList) {
+            acc.result += "</ul>";
+            acc.inList = false;
+          }
+          acc.result += `<p>${trimmed}</p>`;
+        }
+        return acc;
+      },
+      { result: "", inList: false },
+    );
     if (html.inList) html.result += "</ul>";
     html = html.result;
 
@@ -19644,6 +19644,9 @@ async function showExperimentalDialog() {
   }
 }
 
-if (window.location.pathname.endsWith("/experimental/") || window.location.pathname.endsWith("/experimental")) {
+if (
+  window.location.pathname.endsWith("/experimental/") ||
+  window.location.pathname.endsWith("/experimental")
+) {
   setTimeout(showExperimentalDialog, 500);
 }
