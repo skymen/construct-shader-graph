@@ -432,10 +432,8 @@ class Node {
     this.y = y;
     this.nodeType = nodeType;
     this.title = nodeType.name; // Keep original name for logic
-    // Only translate node name if noTranslation.name is not set
-    this.displayTitle = nodeType.noTranslation?.name
-      ? nodeType.name
-      : languageManager.getNodeName(nodeType.name); // Translated name for display
+    // displayTitle is derived below, once the ports exist, by
+    // refreshDisplayNames() — one definition shared with onLanguageChanged.
     this.headerColor = nodeType.color;
     this.isSelected = false;
 
@@ -469,71 +467,75 @@ class Node {
       (outputDef, index) => new Port(this, "output", index, outputDef),
     );
 
-    // Determine if this is a variable node (pill-shaped)
-    // Variable nodes: no inputs, has outputs, and no special UI elements
-    this.isVariable =
+    // Names and shape, all derived from the node type.
+    this.refreshDisplayNames();
+    this.applyShapeMetrics();
+
+    this.isDragging = false;
+    this.dragOffsetX = 0;
+    this.dragOffsetY = 0;
+  }
+
+  // Is this a "variable" node — the small pill shape, drawn with no header bar?
+  // Nothing on the left to hang inputs off, and no in-node widgets to make room
+  // for.
+  computeIsVariable() {
+    const nodeType = this.nodeType;
+    return (
       nodeType.inputs.length === 0 &&
       nodeType.outputs.length > 0 &&
       !nodeType.hasOperation &&
       !nodeType.hasCustomInput &&
       !nodeType.hasVariableDropdown &&
-      !nodeType.hasCustomEditor;
+      !nodeType.hasCustomEditor
+    );
+  }
 
-    // Variable nodes are smaller and pill-shaped
+  // Recompute isVariable + width + height from the current node type and ports.
+  // Called by the constructor and by refreshShape(); this used to be inline in
+  // the constructor, which is why a node whose type changed under it kept the
+  // shape it was born with.
+  applyShapeMetrics() {
+    this.isVariable = this.computeIsVariable();
+
     if (this.isVariable) {
-      // Dynamic width based on variable name length
+      // Pill: width tracks the title, height is fixed.
       const minWidth = 120;
       const maxWidth = 160;
       const baseWidth = 80; // Base width for padding and port
       const charWidth = 7; // Approximate width per character
 
-      // Calculate width based on title length
       const titleWidth = baseWidth + this.title.length * charWidth;
       this.width = Math.min(Math.max(minWidth, titleWidth), maxWidth);
       this.height = 35;
     } else {
       this.width = 180;
-      // Calculate height based on number of ports and their extra heights
-      const maxPorts = Math.max(
-        this.inputPorts.length,
-        this.outputPorts.length,
-      );
-
-      // Calculate extra height from input ports' value boxes
-      let extraHeight = 0;
-      this.inputPorts.forEach((port) => {
-        extraHeight += port.getExtraHeight();
-      });
-
-      // Add extra space for operation dropdown if node has operations
-      const dropdownSpace = nodeType.hasOperation ? 30 : 0;
-      // Add extra space for custom input if node has it
-      const hasLabel =
-        nodeType.hasCustomInput && nodeType.customInputConfig.label;
-      const customInputSpace = nodeType.hasCustomInput
-        ? hasLabel
-          ? 45
-          : 30
-        : 0;
-      // Add extra space for variable dropdown if node has it
-      const variableDropdownSpace = nodeType.hasVariableDropdown ? 45 : 0;
-      const customEditorSpace = nodeType.hasCustomEditor
-        ? (nodeType.customEditorConfig?.height || 38) + 28
-        : 0;
-      this.height =
-        50 +
-        dropdownSpace +
-        customInputSpace +
-        variableDropdownSpace +
-        customEditorSpace +
-        maxPorts * 40 +
-        extraHeight +
-        10;
+      this.recalculateHeight();
     }
+  }
 
-    this.isDragging = false;
-    this.dragOffsetX = 0;
-    this.dragOffsetY = 0;
+  // Re-derive everything display-related from the current node type: the name,
+  // the header colour and the shape. Call this after swapping node.nodeType on
+  // a live instance — editing a custom node, renaming a function, renaming a
+  // uniform. Pass `title` when the name itself changed.
+  refreshShape({ title } = {}) {
+    if (title !== undefined) this.title = title;
+    if (this.nodeType.color) this.headerColor = this.nodeType.color;
+    this.refreshDisplayNames();
+    this.applyShapeMetrics();
+  }
+
+  // Re-translate the node name and port names. Shared with onLanguageChanged so
+  // there is one definition of how a display name is derived.
+  refreshDisplayNames() {
+    this.displayTitle = this.nodeType.noTranslation?.name
+      ? this.title
+      : languageManager.getNodeName(this.title);
+    this.getAllPorts().forEach((port) => {
+      port.displayName = this.nodeType.noTranslation?.ports
+        ? port.name
+        : languageManager.getPortDisplayName(port.name);
+    });
   }
 
   isPointInside(px, py) {
@@ -1517,19 +1519,7 @@ class BlueprintSystem {
 
   onLanguageChanged() {
     // Update all existing nodes with new translations
-    this.nodes.forEach((node) => {
-      // Skip node name translation if noTranslation.name is set
-      node.displayTitle = node.nodeType.noTranslation?.name
-        ? node.title
-        : languageManager.getNodeName(node.title);
-      // Update port display names
-      node.getAllPorts().forEach((port) => {
-        // Skip port translation if noTranslation.ports is set on the node type
-        port.displayName = node.nodeType.noTranslation?.ports
-          ? port.name
-          : languageManager.getPortDisplayName(port.name);
-      });
-    });
+    this.nodes.forEach((node) => node.refreshDisplayNames());
 
     // Update search results if menu is open
     if (this.searchMenu.classList.contains("visible")) {
@@ -1922,6 +1912,15 @@ class BlueprintSystem {
     return this.graphs ? this.graphs.get(this.activeGraphId) : null;
   }
 
+  // The project's name, for filenames and addon ids. Reads the MAIN graph's
+  // settings for the same reason generateAllShaders does: one project ships one
+  // addon, and `this.shaderSettings` delegates to whatever graph is open — a
+  // subgraph's default name is "", which used to degrade saved filenames to
+  // "blueprint.c3sg" whenever you saved from inside a function.
+  get projectName() {
+    return this.mainGraph?.shaderSettings?.name || "";
+  }
+
   // Previews are host-level and there can be several. The first one is the
   // default: it is what the scripting API, the CLI and the save file mean when
   // they say "the preview" without naming one.
@@ -2016,8 +2015,9 @@ class BlueprintSystem {
       "camera",
       "isPanning",
       "panStart",
-      // file
-      "fileHandle",
+      // NOTE: fileHandle is NOT delegated. One project is one file, so the
+      // handle belongs to the host; delegating it meant a subgraph saw null
+      // and Save re-opened the file picker.
       // shader settings (uniforms are host-level, not delegated)
       "shaderSettings",
       // preview pin
@@ -2041,6 +2041,48 @@ class BlueprintSystem {
         },
       });
     }
+  }
+
+  // Every node in the project, not just the open graph.
+  //
+  // `this.nodes` delegates to activeGraph, so host-level operations that patch
+  // or remove node instances — editing a custom node, renaming a uniform —
+  // silently skipped every other graph when written against it.
+  *allNodes() {
+    for (const graph of this.graphs.values()) {
+      // Copy, so callers can remove nodes while iterating.
+      for (const node of [...graph.nodes]) yield { node, graph };
+    }
+  }
+
+  // Remove every node matching `predicate`, in every graph, along with its
+  // wires. Returns the graph ids that actually changed, for the caller to feed
+  // to runMultiGraphTransaction.
+  //
+  // Writes go to `graph` directly rather than through the delegating `this.*`
+  // accessors, which would only ever hit the active graph — the bug this
+  // helper exists to avoid. disconnectWire is already graph-agnostic (it finds
+  // the owning graph via node._graph), so it needs no wrapper.
+  _removeNodesAllGraphs(predicate) {
+    const graphIds = new Set();
+    let removed = 0;
+
+    for (const graph of this.graphs.values()) {
+      const doomed = graph.nodes.filter((node) => predicate(node, graph));
+      if (doomed.length === 0) continue;
+
+      for (const node of doomed) {
+        node.getAllPorts().forEach((port) => {
+          [...port.connections].forEach((wire) => this.disconnectWire(wire));
+        });
+        graph.selectedNodes.delete(node);
+      }
+      graph.nodes = graph.nodes.filter((node) => !doomed.includes(node));
+      graphIds.add(graph.id);
+      removed += doomed.length;
+    }
+
+    return { removed, graphIds: [...graphIds] };
   }
 
   // Run `fn()` with all delegated per-graph reads/writes routed to `graph`
@@ -2236,7 +2278,9 @@ class BlueprintSystem {
 
     node.inputPorts = reconcile(node.inputPorts, inputDefs, "input");
     node.outputPorts = reconcile(node.outputPorts, outputDefs, "output");
-    node.recalculateHeight();
+    // Not just the height: dropping the last input turns a node into a pill and
+    // adding one turns it back, and recalculateHeight() bails out on pills.
+    node.applyShapeMetrics();
     return { droppedWires };
   }
 
@@ -2860,9 +2904,9 @@ class BlueprintSystem {
         if (!node.nodeType.isFunctionCall) continue;
         if (node.nodeType.targetGraphId !== graph.id) continue;
 
-        // Update the node type (and the cached header color).
+        // Update the node type. Name, colour and shape are re-derived from it
+        // after the ports are reconciled, below.
         node.nodeType = newType;
-        node.headerColor = newType.color;
 
         // Reconcile ports against the new caller node type — wires survive for
         // ports whose (contractPortId, name, type) are unchanged.  Use the
@@ -2881,6 +2925,12 @@ class BlueprintSystem {
             contractPortId: p.contractPortId || p.id,
           })),
         );
+
+        // The caller draws `displayTitle || title`, both frozen at construction
+        // — so without this a renamed function kept its old name on every
+        // caller node, in this graph and every other one. (#114)
+        node.refreshShape({ title: newType.name });
+
         totalDropped += droppedWires;
         affectedCount++;
       }
@@ -2900,6 +2950,58 @@ class BlueprintSystem {
     }
   }
 
+  // Abandon whatever the pointer was in the middle of on `graph`.
+  //
+  // Interaction state (draggedNode, dragStartPositions, the box-select fields,
+  // ...) is per-graph and delegated, so leaving a graph mid-drag stranded it in
+  // a state no mouseup would ever clear: the cleanup in onMouseUp runs against
+  // whichever graph is active *by then*. Coming back, the first mousemove found
+  // draggedNode still set and snapped the whole selection to the cursor.
+  //
+  // Writes go to `graph` directly, never through `this` — the caller is
+  // typically switching away from this graph, so the delegating accessors would
+  // point at the wrong one.
+  _cancelActiveInteraction(graph = this.activeGraph) {
+    if (this.autoPanInterval) {
+      clearInterval(this.autoPanInterval);
+      this.autoPanInterval = null;
+    }
+    if (!graph) return;
+
+    // These own live DOM <input>s, so they need their real teardown rather than
+    // just nulling the field. They read the delegated `this.editingPort` /
+    // `this.editingCustomInput`, which is why this runs before activeGraphId
+    // changes.
+    if (this.editingPort) this.cancelEditingPort();
+    if (this.editingCustomInput) this.cancelEditingCustomInput();
+
+    if (graph.draggedNode) graph.draggedNode.isDragging = false;
+    graph.nodes.forEach((n) => {
+      n.isDragging = false;
+    });
+    graph.draggedNode = null;
+    graph.draggedRerouteNode = null;
+    graph.draggedComment = null;
+    graph.resizingComment = null;
+    graph.dragStartPositions?.clear();
+
+    graph.isBoxSelecting = false;
+    graph.boxSelectStart = null;
+    graph.boxSelectEnd = null;
+    graph.boxSelectInitialNodes = new Set();
+    graph.boxSelectInitialRerouteNodes = new Set();
+
+    graph.activeWire = null;
+    graph.highlightedWire = null;
+    graph.hoveredPort = null;
+    graph.hoveredNodeButton = null;
+    graph.pendingButtonClick = null;
+    graph.pendingCustomEditorClick = null;
+    graph.isPanning = false;
+
+    if (this.canvas) this.canvas.style.cursor = "default";
+  }
+
   // Switch the editor's active graph. Sidebars/UI are refreshed if available.
   setActiveGraph(id) {
     if (!this.graphs.has(id)) {
@@ -2907,11 +3009,10 @@ class BlueprintSystem {
     }
     if (id === this.activeGraphId) return;
 
-    // Cancel any in-flight auto-pan tied to the previous active graph.
-    if (this.autoPanInterval) {
-      clearInterval(this.autoPanInterval);
-      this.autoPanInterval = null;
-    }
+    // Whatever the pointer was doing belongs to the graph we're leaving; no
+    // mouseup will ever land on it once we've switched away.
+    this._cancelActiveInteraction(this.activeGraph);
+
     this.activeGraphId = id;
     this.openTabs.add(id);
 
@@ -4340,33 +4441,29 @@ class BlueprintSystem {
 
     const uniform = this.uniforms[uniformIndex];
 
-    // Find all nodes using this uniform
-    const nodesToDelete = this.nodes.filter((node) => node.uniformId === id);
+    // Nodes for this uniform can be in any graph, not just the open one — a
+    // leftover node in a subgraph would keep emitting a uniform that no longer
+    // gets declared.
+    const isUniformNode = (node) => node.uniformId === id;
+    const affectedGraphIds = [];
+    for (const graph of this.graphs.values()) {
+      if (graph.nodes.some(isUniformNode)) affectedGraphIds.push(graph.id);
+    }
 
-    // Remove wires connected to these nodes
-    nodesToDelete.forEach((node) => {
-      const connectedWires = [];
-      node.getAllPorts().forEach((port) => {
-        connectedWires.push(...port.connections);
-      });
-      connectedWires.forEach((wire) => {
-        this.disconnectWire(wire);
-      });
-    });
-
-    // Remove the nodes
-    this.nodes = this.nodes.filter((node) => node.uniformId !== id);
+    if (affectedGraphIds.length > 0) {
+      // One undo entry covering every graph the nodes were removed from.
+      this.runMultiGraphTransaction(
+        affectedGraphIds,
+        () => this._removeNodesAllGraphs(isUniformNode),
+        "Deprecate uniform",
+      );
+    }
 
     // Deprecate the uniform instead of deleting it forever
     this.uniforms.splice(uniformIndex, 1);
     this.deprecatedUniforms.push({
       ...this.cloneUniformRecord(uniform),
       isDeprecated: true,
-    });
-
-    // Clear selection if any deleted nodes were selected
-    nodesToDelete.forEach((node) => {
-      this.selectedNodes.delete(node);
     });
 
     this.renderUniformList();
@@ -7562,22 +7659,41 @@ class BlueprintSystem {
   }
 
   updateCustomNodeInstances(customNode) {
-    // Find all nodes in the graph that use this custom node
+    // Custom nodes are a host-level library, so instances of one can live in
+    // any graph — walk them all, not just the open one.
     const customNodeKey = `custom_${customNode.id}`;
-    const affectedNodes = this.nodes.filter((node) => {
-      const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
-      return nodeTypeKey === customNodeKey;
-    });
+    const affected = [];
+    const affectedGraphIds = new Set();
+    for (const { node, graph } of this.allNodes()) {
+      if (this.getNodeTypeKey(node.nodeType) === customNodeKey) {
+        affected.push(node);
+        affectedGraphIds.add(graph.id);
+      }
+    }
+    if (affected.length === 0) return;
 
-    affectedNodes.forEach((node) => {
+    // Rebuilding ports can drop wires in graphs the user isn't looking at, so
+    // undo has to cover all of them, not just the active one.
+    this.runMultiGraphTransaction(
+      [...affectedGraphIds],
+      () => this._updateCustomNodeInstancesImpl(customNode, affected),
+      `Edit custom node "${customNode.name}"`,
+    );
+
+    this.render();
+    this.updateDependencyList();
+    this.onShaderChanged();
+  }
+
+  _updateCustomNodeInstancesImpl(customNode, affected) {
+    affected.forEach((node) => {
       // Store old port counts
       const oldInputCount = node.inputPorts.length;
       const oldOutputCount = node.outputPorts.length;
 
-      // Update the node type
+      // Update the node type. The name, colour and shape are re-derived from
+      // it once the ports are rebuilt, at the end of this block.
       node.nodeType = this.createNodeTypeFromCustomNode(customNode);
-      node.title = customNode.name;
-      node.headerColor = customNode.color;
 
       // Recreate ports
       const oldInputPorts = [...node.inputPorts];
@@ -7669,12 +7785,11 @@ class BlueprintSystem {
         port.updateEditability();
       });
 
-      // Recalculate node height
-      node.recalculateHeight();
+      // Re-derive name, colour and shape from the new node type. Height alone
+      // is not enough: gaining or losing the last input flips the node between
+      // pill and box, and recalculateHeight() refuses to touch a pill.
+      node.refreshShape({ title: customNode.name });
     });
-
-    this.render();
-    this.updateDependencyList();
   }
 
   // ---------- Phase 4: graph tab bar ----------
@@ -8104,28 +8219,26 @@ class BlueprintSystem {
   }
 
   deleteCustomNode(id) {
-    // Check if any nodes in the graph use this custom node
+    // Instances can be in any graph, not just the open one.
     const customNodeKey = `custom_${id}`;
-    const hasInstances = this.nodes.some((node) => {
-      const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
-      return nodeTypeKey === customNodeKey;
-    });
+    const isInstance = (node) =>
+      this.getNodeTypeKey(node.nodeType) === customNodeKey;
 
-    if (hasInstances) {
-      // Remove all instances
-      this.nodes = this.nodes.filter((node) => {
-        const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
-        if (nodeTypeKey === customNodeKey) {
-          // Disconnect all wires
-          node.getAllPorts().forEach((port) => {
-            [...port.connections].forEach((wire) => this.disconnectWire(wire));
-          });
-          return false;
-        }
-        return true;
-      });
+    const affectedGraphIds = [];
+    for (const graph of this.graphs.values()) {
+      if (graph.nodes.some(isInstance)) affectedGraphIds.push(graph.id);
+    }
+
+    if (affectedGraphIds.length > 0) {
+      // One undo entry covering every graph we removed instances from.
+      this.runMultiGraphTransaction(
+        affectedGraphIds,
+        () => this._removeNodesAllGraphs(isInstance),
+        "Delete custom node",
+      );
       this.render();
       this.updateDependencyList();
+      this.onShaderChanged();
     }
 
     this.customNodes = this.customNodes.filter((n) => n.id !== id);
@@ -8228,7 +8341,7 @@ class BlueprintSystem {
           );
           uniform.variableName = newVariableName;
 
-          this.updateUniformNodeNames(oldVariableName, newVariableName);
+          this.updateUniformNodeNames(uniform.id, oldVariableName);
           this.onShaderChanged();
           this.history.pushState("Rename uniform");
           this.renderUniformList(); // Re-render to show new variable name
@@ -8615,10 +8728,10 @@ class BlueprintSystem {
     node.uniformDisplayName = uniform.name; // Store display name
     node.uniformVariableName = uniform.variableName; // Store variable name
     node.uniformId = uniform.id;
-    node.isVariable = true; // Make it look like a variable node
 
-    // Update node title to show display name
-    node.title = uniform.name;
+    // Show the display name, and size the pill to it. (These node types have no
+    // inputs and one output, so isVariable comes out true on its own.)
+    node.refreshShape({ title: uniform.name });
 
     this.nodes.push(node);
     this.render();
@@ -8626,27 +8739,60 @@ class BlueprintSystem {
     return node;
   }
 
-  updateUniformNodeNames(oldVariableName, newVariableName) {
-    // Update all nodes that reference this uniform
-    // Find the uniform to get both names
-    const uniform = this.uniforms.find(
-      (u) => u.variableName === newVariableName,
-    );
+  // Push a uniform's current name onto every node that references it.
+  //
+  // Matched by uniformId, not by the old variable name: name-matching meant a
+  // node that got missed once could never be found again. `legacyVariableName`
+  // is the fallback for nodes saved before uniformId was persisted.
+  //
+  // Not cosmetic — UniformFloatNode/UniformColorNode emit node.uniformName
+  // directly into the shader, so a node left stale in a subgraph generates a
+  // reference to an identifier that no longer exists.
+  updateUniformNodeNames(uniformId, legacyVariableName = null) {
+    const uniform = this.uniforms.find((u) => u.id === uniformId);
     if (!uniform) return;
 
-    this.nodes.forEach((node) => {
-      if (node.uniformName === oldVariableName) {
-        node.uniformName = newVariableName;
+    const matches = (node) =>
+      node.uniformId !== undefined
+        ? node.uniformId === uniformId
+        : legacyVariableName != null && node.uniformName === legacyVariableName;
+
+    const affected = [];
+    const affectedGraphIds = new Set();
+    for (const { node, graph } of this.allNodes()) {
+      if (!matches(node)) continue;
+      affected.push(node);
+      affectedGraphIds.add(graph.id);
+    }
+    if (affected.length === 0) return;
+
+    const apply = () => {
+      affected.forEach((node) => {
+        node.uniformId = uniform.id;
+        node.uniformName = uniform.variableName;
         node.uniformDisplayName = uniform.name;
-        node.uniformVariableName = newVariableName;
-        node.title = uniform.name;
+        node.uniformVariableName = uniform.variableName;
         node.nodeType = {
           ...node.nodeType,
           name: uniform.name,
           paramId: uniform.paramId,
         };
-      }
-    });
+        node.refreshShape({ title: uniform.name });
+      });
+    };
+
+    // A rename touches several graphs, so it needs one unified undo entry.
+    // runTransaction is a no-op while undo/redo is being applied, so do the
+    // mutation directly in that case.
+    if (this.history?.isApplyingUndoRedo) {
+      apply();
+    } else {
+      this.runMultiGraphTransaction(
+        [...affectedGraphIds],
+        apply,
+        "Rename uniform",
+      );
+    }
     this.render();
   }
 
@@ -14751,7 +14897,10 @@ class BlueprintSystem {
         uniformDisplayName: node.uniformDisplayName,
         uniformVariableName: node.uniformVariableName,
         uniformId: node.uniformId,
-        isVariable: node.isVariable,
+        // NOTE: isVariable is deliberately not saved. It is derived from the
+        // node type, and persisting it meant a stale pill/box shape survived a
+        // save/load — the constructor computed the right one and the loader
+        // then overwrote it with the wrong one.
         inputPorts: node.inputPorts.map((port) => ({
           name: port.name,
           portType: port.portType,
@@ -14843,8 +14992,8 @@ class BlueprintSystem {
     // Try to use File System Access API if available
     if ("showSaveFilePicker" in window) {
       try {
-        const filename = this.shaderSettings.name
-          ? `${this.sanitizeAddonId(this.shaderSettings.name)}.c3sg`
+        const filename = this.projectName
+          ? `${this.sanitizeAddonId(this.projectName)}.c3sg`
           : "blueprint.c3sg";
 
         // If we have an existing file handle, try to reuse it
@@ -14909,8 +15058,8 @@ class BlueprintSystem {
     const a = document.createElement("a");
     a.href = url;
 
-    const filename = this.shaderSettings.name
-      ? `${this.sanitizeAddonId(this.shaderSettings.name)}.c3sg`
+    const filename = this.projectName
+      ? `${this.sanitizeAddonId(this.projectName)}.c3sg`
       : "blueprint.c3sg";
     a.download = filename;
 
@@ -15023,8 +15172,22 @@ class BlueprintSystem {
             };
           }
         }
-        if (nodeData.isVariable !== undefined)
-          node.isVariable = nodeData.isVariable;
+        // Nodes whose type comes from a live source — the custom-node library,
+        // a callable graph, a uniform — take their name from that source, not
+        // from the file. The type was rebuilt correctly above; trusting the
+        // saved title here is what made a renamed function look un-renamed
+        // again after a reload.
+        if (
+          node.nodeType.isCustom ||
+          node.nodeType.isFunctionCall ||
+          node.nodeType.isUniform ||
+          node.uniformId !== undefined
+        ) {
+          node.title = node.nodeType.name;
+        }
+        // isVariable/width/height are derived, never restored. Re-derive them
+        // now that the final node type and title are in place.
+        node.refreshShape();
 
         nodeData.inputPorts.forEach((portData, index) => {
           if (node.inputPorts[index] && portData.value !== undefined) {
@@ -15100,6 +15263,10 @@ class BlueprintSystem {
   }
 
   async loadFromJSON(file) {
+    // Callers set this.fileHandle before loading, because the recent-files
+    // entry below needs it. If the load fails we hand it back, so Save doesn't
+    // end up pointing at a file we never successfully opened.
+    const previousFileHandle = this.fileHandle;
     try {
       const text = await file.text();
       const data = JSON.parse(text);
@@ -15232,6 +15399,7 @@ class BlueprintSystem {
         await this.addRecentFile(this.fileHandle, data.previewScreenshot);
       }
     } catch (error) {
+      this.fileHandle = previousFileHandle;
       console.error("Failed to load blueprint:", error);
       this.showNotification({
         type: "error",
@@ -17812,6 +17980,23 @@ class BlueprintSystem {
     // Store last mouse event for auto-panning
     this.lastMouseEvent = e;
 
+    // A drag recorded with no button held means we never saw the mouseup —
+    // it landed on a modal, devtools, another window, or a graph switch. Drop
+    // it instead of teleporting the selection to the cursor on the next move.
+    if (
+      e.buttons === 0 &&
+      (this.draggedNode ||
+        this.draggedRerouteNode ||
+        this.draggedComment ||
+        this.resizingComment ||
+        this.isBoxSelecting ||
+        this.isPanning)
+    ) {
+      this._cancelActiveInteraction();
+      this.render();
+      return;
+    }
+
     // Handle panning
     if (this.isPanning) {
       const rect = this.canvas.getBoundingClientRect();
@@ -18212,13 +18397,25 @@ class BlueprintSystem {
       const dx = pos.x - this.lastClickPos.x;
       const dy = pos.y - this.lastClickPos.y;
       if (dx * dx + dy * dy < 25) {
-        if (pending.type === "edit") {
-          const customNode = this.customNodes.find(
-            (cn) => cn.id === pending.node.nodeType.customNodeId,
-          );
-          if (customNode) this.showCustomNodeModal(customNode);
-        } else if (pending.type === "openGraph") {
-          this.openGraphTab(pending.node.nodeType.targetGraphId);
+        if (pending.type === "edit" || pending.type === "openGraph") {
+          // Both of these take the pointer off the canvas — a modal, or another
+          // graph entirely. The mousedown that armed them also started a drag
+          // (the buttons live inside the node header), and the cleanup further
+          // down this handler would run against the wrong graph once we've
+          // switched. Cancel here and stop, rather than falling through.
+          // Cancel, not commit: the pointer never moved, so there is no move to
+          // record.
+          this._cancelActiveInteraction();
+          if (pending.type === "edit") {
+            const customNode = this.customNodes.find(
+              (cn) => cn.id === pending.node.nodeType.customNodeId,
+            );
+            if (customNode) this.showCustomNodeModal(customNode);
+          } else {
+            this.openGraphTab(pending.node.nodeType.targetGraphId);
+          }
+          this.render();
+          return;
         } else if (pending.type === "info") {
           for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
             if (nodeType === pending.node.nodeType) {

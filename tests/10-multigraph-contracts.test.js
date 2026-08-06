@@ -12,11 +12,12 @@
 //
 // The Graph instance owns: nodes, wires, comments, uniforms, shaderSettings,
 // camera, selectedNodes, selectedRerouteNodes, history, previewNode,
-// fileHandle, transient interaction state, all *IdCounter fields.
+// transient interaction state, all *IdCounter fields.
 //
 // Shared on host: customNodes (single library), clipboard, canvas/DOM,
-// previewTargets (and the previewIframe/previewReady accessors over them) +
-// previewSettings, mcpBridge, NODE_TYPES.
+// fileHandle (one project is one file), previewTargets (and the
+// previewIframe/previewReady accessors over them) + previewSettings,
+// mcpBridge, NODE_TYPES.
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { bootstrap } from "./helpers/bootstrap.js";

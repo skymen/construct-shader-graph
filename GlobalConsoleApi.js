@@ -5148,7 +5148,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           );
 
           uniform.variableName = nextVariableName;
-          blueprint.updateUniformNodeNames(oldVariableName, nextVariableName);
+          blueprint.updateUniformNodeNames(uniform.id, oldVariableName);
         }
 
         if (patch.paramId !== undefined) {

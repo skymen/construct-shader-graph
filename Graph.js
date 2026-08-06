@@ -91,6 +91,10 @@ export class Graph {
     this.draggedNode = null;
     this.activeWire = null;
     this.hoveredPort = null;
+    // Both of these are delegated by the host but used to be declared only
+    // there, so they existed on the main graph alone.
+    this.hoveredNodeButton = null;
+    this.pendingButtonClick = null;
     this.draggedRerouteNode = null;
     this.draggedComment = null;
     this.resizingComment = null;
@@ -107,8 +111,9 @@ export class Graph {
     this.isPanning = false;
     this.panStart = { x: 0, y: 0 };
 
-    // File handle (per-graph; not yet used for non-main graphs)
-    this.fileHandle = null;
+    // NOTE: no fileHandle here. One project is one file, so the handle is
+    // host-level. It used to live here and be delegated, which meant saving
+    // while a subgraph was open found a null handle and re-opened the picker.
 
     // Shader settings (per-graph; each graph is its own shader)
     this.shaderSettings = makeDefaultShaderSettings();
