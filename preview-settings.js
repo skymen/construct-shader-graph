@@ -117,22 +117,69 @@ const applyTexture = (bp, target, value, _settings, d) => {
 // r497 runtime added 3D rotation to ordinary world instances - and X and Y ride
 // in their own keys.
 
-// --- canvas size -------------------------------------------------------------
+// --- rendering resolution ----------------------------------------------------
 //
-// Does exactly what Construct's "System: Set canvas size" action does. The
-// preview project runs `scale-outer`, where that action changes the *design
-// viewport* rather than the number of device pixels: the canvas keeps filling
-// the panel, and what moves is world-units-per-pixel. So a larger number means
-// the object covers a smaller fraction of the canvas and the effect runs over
-// fewer pixels - which is the effective-resolution knob a shader author wants,
-// and matches what they would get shipping into a game with that window size.
+// How many pixels the effect actually runs over. Construct decides that from its
+// fullscreen scaling quality, which is why `fullscreenQuality` is a control of
+// its own: at "high" the draw surface is the canvas's device size and the
+// viewport only moves world-units-per-pixel; at "low" the draw surface *is* the
+// viewport, and the scene is rendered small and upscaled. Only the second is a
+// resolution, which is what the old canvas-size control got wrong.
+//
+// **A preset is one number: pixels across the 240x240 design view.** That is not
+// the canvas size, and the canvas size is the useless one - the project runs
+// `scale-outer`, so a square viewport of 256 makes a canvas of 405x256 on a wide
+// panel, and 405x256 cannot be compared against "256". The extra pixels the
+// panel's shape buys are spent *outside* the design view, never on it, so the
+// view itself renders at exactly the number asked for. That is what the preview
+// measures and reports back.
+//
+// Construct still refuses to render larger than the canvas, silently returning
+// to "high" quality when the request does not fit, which is the other reason the
+// preview reports what it truly ended up with rather than the request.
 
-export function effectiveCanvasSize(s) {
-  return { w: s.canvasWidth, h: s.canvasHeight };
+// `size` is the pixel count across the design view. The two without one are the
+// special cases: `native` leaves the project's viewport alone, `custom` reads
+// canvasWidth/Height as a literal viewport. The ids double as the <select>'s
+// option values, which tests/30 pins.
+export const RESOLUTION_PRESETS = [
+  { id: "native" },
+  { id: "64", size: 64 },
+  { id: "128", size: 128 },
+  { id: "256", size: 256 },
+  { id: "512", size: 512 },
+  { id: "1024", size: 1024 },
+  { id: "custom" },
+];
+
+const RESOLUTION_PRESETS_BY_ID = new Map(
+  RESOLUTION_PRESETS.map((p) => [p.id, p]),
+);
+
+export function effectiveRenderResolution(s) {
+  const preset = RESOLUTION_PRESETS_BY_ID.get(s.renderResolution);
+  if (!preset || preset.id === "native") return { mode: "native" };
+  if (preset.id === "custom") {
+    return { mode: "custom", w: s.canvasWidth, h: s.canvasHeight };
+  }
+  return { mode: "preset", w: preset.size, h: preset.size };
 }
 
-const applyCanvasSize = (bp, target, _value, settings) =>
-  target.send("setCanvasSize", effectiveCanvasSize(settings));
+const applyRenderResolution = (bp, target, _value, settings) =>
+  target.send("setRenderResolution", effectiveRenderResolution(settings));
+
+// Picking a resolution while the quality is "high" would do nothing visible -
+// the draw surface would stay the canvas's - so choosing one turns the quality
+// down, and going back to Native turns it up. Both are ordinary settings
+// afterwards: set the quality by hand and it stays until the resolution moves
+// again. Same mechanism as effectTarget/object, for the same reason: two
+// controls that cannot be read independently should not be set independently.
+export function linkRenderResolution(settings, value) {
+  const wanted = value === "native" ? "high" : "low";
+  if (settings.fullscreenQuality === wanted) return [];
+  settings.fullscreenQuality = wanted;
+  return ["fullscreenQuality"];
+}
 
 // --- object offset -----------------------------------------------------------
 //
@@ -186,6 +233,15 @@ function syncScaleAxisRows(settings) {
   );
 }
 
+// The two number boxes only mean anything for the Custom preset, so they only
+// exist then. Driven from the `renderResolution` hook, the same way the scale's
+// per-axis rows are driven from `objectScaleLinked`.
+function syncCustomResolutionRow(settings) {
+  const row = document.getElementById("customResolutionRow");
+  if (row)
+    row.style.display = settings.renderResolution === "custom" ? "" : "none";
+}
+
 export const PREVIEW_SETTINGS = [
   {
     key: "effectTarget",
@@ -228,6 +284,25 @@ export const PREVIEW_SETTINGS = [
   {
     // Declared before the camera and the scales: it moves every instance in the
     // layout, so the scene geometry has to settle first.
+    key: "renderResolution",
+    default: "native",
+    kind: "enum",
+    values: RESOLUTION_PRESETS.map((p) => p.id),
+    command: "setRenderResolution",
+    apply: applyRenderResolution,
+    applyGroup: "renderResolution",
+    dom: { el: "renderResolutionSelect" },
+    label: "Resolution:",
+    section: "technical",
+    link: linkRenderResolution,
+    onUi: (bp, _value, settings) => syncCustomResolutionRow(settings),
+    cli: {
+      flag: "renderResolution",
+      arg: "<p>",
+      help: "native | 64 | 256 | custom | ...",
+    },
+  },
+  {
     key: "canvasWidth",
     default: 240,
     kind: "number",
@@ -235,13 +310,16 @@ export const PREVIEW_SETTINGS = [
     max: 4096,
     step: 1,
     precision: 0,
-    command: "setCanvasSize",
-    apply: applyCanvasSize,
-    applyGroup: "canvasSize",
+    command: "setRenderResolution",
+    apply: applyRenderResolution,
+    applyGroup: "renderResolution",
     dom: { el: "canvasWidthInput" },
-    label: "Resolution:",
     section: "technical",
-    cli: { flag: "canvasWidth", arg: "<n>", help: "Canvas width in pixels" },
+    cli: {
+      flag: "canvasWidth",
+      arg: "<n>",
+      help: "Custom resolution width in pixels",
+    },
   },
   {
     key: "canvasHeight",
@@ -251,12 +329,35 @@ export const PREVIEW_SETTINGS = [
     max: 4096,
     step: 1,
     precision: 0,
-    command: "setCanvasSize",
-    apply: applyCanvasSize,
-    applyGroup: "canvasSize",
+    command: "setRenderResolution",
+    apply: applyRenderResolution,
+    applyGroup: "renderResolution",
     dom: { el: "canvasHeightInput" },
     section: "technical",
-    cli: { flag: "canvasHeight", arg: "<n>", help: "Canvas height in pixels" },
+    cli: {
+      flag: "canvasHeight",
+      arg: "<n>",
+      help: "Custom resolution height in pixels",
+    },
+  },
+  {
+    // Construct's own project property, and the switch that decides whether the
+    // resolution above is a resolution at all. Declared after it so a patch
+    // naming both ends on the quality the caller asked for rather than the one
+    // the resolution's link implies.
+    key: "fullscreenQuality",
+    default: "high",
+    kind: "enum",
+    values: ["high", "low"],
+    command: "setFullscreenQuality",
+    dom: { el: "fullscreenQualitySelect" },
+    label: "Fullscreen Quality:",
+    section: "technical",
+    cli: {
+      flag: "fullscreenQuality",
+      arg: "<q>",
+      help: "high | low",
+    },
   },
   {
     key: "cameraMode",
@@ -289,14 +390,22 @@ export const PREVIEW_SETTINGS = [
     cli: { flag: "autoRotate", help: "Stop the auto rotation" },
   },
   {
-    key: "showBackgroundCube",
-    default: true,
-    kind: "bool",
-    command: "setShowBackgroundCube",
-    dom: { el: "showBackgroundCubeCheckbox" },
-    label: "Show 3D Background",
+    // Which backdrop is behind the object. `auto` is the historical intent -
+    // the tiled 2D background for the 2D camera, the room cube for the 3D ones
+    // - and the other three override the camera mode rather than fight it.
+    key: "backgroundMode",
+    default: "auto",
+    kind: "enum",
+    values: ["auto", "none", "2d", "3d"],
+    command: "setBackgroundMode",
+    dom: { el: "backgroundModeSelect" },
+    label: "Background:",
     section: "scene",
-    cli: { flag: "backgroundCube", help: "Hide the background cube" },
+    cli: {
+      flag: "backgroundMode",
+      arg: "<m>",
+      help: "auto | none | 2d | 3d",
+    },
   },
   {
     key: "bgOpacity",
@@ -710,10 +819,15 @@ export const PREVIEW_TEXTURES_BY_TYPE = new Map(
 
 // Keys that used to exist, and what they became. `spriteScale` and `shapeScale`
 // were merged into one `objectScale`; a file that carries both keeps the sprite
-// one, since the sprite is the default object.
+// one, since the sprite is the default object. The third entry carries a value
+// transform as well as a name: `showBackgroundCube` was a bool where
+// `backgroundMode` is an enum, and off meant "no backdrop at all" - in 2D camera
+// mode the checkbox governed nothing, so there is no old file where it meant
+// "hide the cube but keep the tiled one".
 const LEGACY_PREVIEW_SETTINGS = [
   ["spriteScale", "objectScale"],
   ["shapeScale", "objectScale"],
+  ["showBackgroundCube", "backgroundMode", (on) => (on ? "auto" : "none")],
 ];
 
 // Fold a saved previewSettings blob onto the current key set. Unknown keys that
@@ -722,9 +836,11 @@ const LEGACY_PREVIEW_SETTINGS = [
 export function migratePreviewSettings(saved = {}) {
   const migrated = { ...saved };
 
-  for (const [from, to] of LEGACY_PREVIEW_SETTINGS) {
+  for (const [from, to, transform] of LEGACY_PREVIEW_SETTINGS) {
     if (migrated[from] === undefined) continue;
-    if (migrated[to] === undefined) migrated[to] = migrated[from];
+    if (migrated[to] === undefined) {
+      migrated[to] = transform ? transform(migrated[from]) : migrated[from];
+    }
     delete migrated[from];
   }
 

@@ -43,7 +43,8 @@ import {
   effectiveObjectScale,
   effectiveObjectAngle,
   effectiveObjectOffset,
-  effectiveCanvasSize,
+  effectiveRenderResolution,
+  linkRenderResolution,
   PREVIEW_SETTINGS_BY_KEY,
   PREVIEW_TEXTURES_BY_TYPE,
 } from "./preview-settings.js";
@@ -1552,8 +1553,20 @@ class BlueprintSystem {
       "Auto Rotate",
     );
     updateLabel(
-      "#preview-controls .preview-control-group:has(#canvasWidthInput) > label",
+      "#preview-controls .preview-control-group:has(#backgroundModeSelect) > label",
+      "Background:",
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#renderResolutionSelect) > label",
       "Resolution:",
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#canvasWidthInput) > label",
+      "Custom:",
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#fullscreenQualitySelect) > label",
+      "Fullscreen Quality:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#samplingModeSelect) > label",
@@ -1606,6 +1619,38 @@ class BlueprintSystem {
       cameraModeSelect.options[1].text = t("Perspective");
       cameraModeSelect.options[2].text = t("Orthographic");
     }
+
+    const backgroundModeSelect = document.getElementById(
+      "backgroundModeSelect",
+    );
+    if (backgroundModeSelect) {
+      backgroundModeSelect.options[0].text = t("Auto");
+      backgroundModeSelect.options[1].text = t("None");
+      backgroundModeSelect.options[2].text = t("2D Background");
+      backgroundModeSelect.options[3].text = t("3D Room");
+    }
+
+    const renderResolutionSelect = document.getElementById(
+      "renderResolutionSelect",
+    );
+    if (renderResolutionSelect) {
+      // Only the first and last are words; the pixel counts need no translating.
+      renderResolutionSelect.options[0].text = t("Native");
+      renderResolutionSelect.options[
+        renderResolutionSelect.options.length - 1
+      ].text = t("Custom");
+    }
+
+    const fullscreenQualitySelect = document.getElementById(
+      "fullscreenQualitySelect",
+    );
+    if (fullscreenQualitySelect) {
+      fullscreenQualitySelect.options[0].text = t("High");
+      fullscreenQualitySelect.options[1].text = t("Low");
+    }
+
+    // Rebuilt rather than translated in place - it is a sentence, not a label.
+    this.showRenderSize();
 
     const samplingModeSelect = document.getElementById("samplingModeSelect");
     if (samplingModeSelect) {
@@ -5601,13 +5646,13 @@ class BlueprintSystem {
       });
     });
 
-    // Show/Hide 3D Background Cube
-    const showBackgroundCubeCheckbox = document.getElementById(
-      "showBackgroundCubeCheckbox",
+    // Which backdrop sits behind the object
+    const backgroundModeSelect = document.getElementById(
+      "backgroundModeSelect",
     );
-    showBackgroundCubeCheckbox.addEventListener("change", (e) => {
-      this.previewSettings.showBackgroundCube = e.target.checked;
-      this.sendPreviewCommand("setShowBackgroundCube", e.target.checked);
+    backgroundModeSelect.addEventListener("change", (e) => {
+      this.previewSettings.backgroundMode = e.target.value;
+      this.sendPreviewCommand("setBackgroundMode", e.target.value);
     });
 
     // Object colour
@@ -5632,7 +5677,7 @@ class BlueprintSystem {
       effectiveObjectOffset,
     );
 
-    this.setupCanvasSizeControls();
+    this.setupRenderResolutionControls();
 
     // One scale for whichever object is showing: a uniform slider plus a link
     // toggle that splits it into per-axis rows. See preview-settings.js for why
@@ -5748,6 +5793,8 @@ class BlueprintSystem {
       } else if (event.data && event.data.type === "updatePreviewBgUrl") {
         console.log("Received updatePreviewBgUrl message", event.data);
         this.handleTextureUpdate("bg", event.data.url);
+      } else if (event.data && event.data.type === "renderSizeChanged") {
+        this.showRenderSize(event.data);
       } else if (event.data && event.data.type === "zoomLevelChanged") {
         this.previewSettings.zoomLevel = event.data.zoomLevel;
       } else if (event.data && event.data.type === "spriteSizeChanged") {
@@ -5789,17 +5836,42 @@ class BlueprintSystem {
     }
   }
 
-  // Wire one scale control: the uniform/X slider, the per-axis sliders, and the
-  // chain toggle between them. `name` is "sprite" or "shape"; `axes` are the
-  // extra axis suffixes ("Y", or "Y" and "Z").
-  // Wire the object scale: the uniform/X slider, the Y and Z sliders, and the
-  // link toggle between them.
-  setupCanvasSizeControls() {
+  // Wire the rendering resolution: the preset dropdown, and the two number
+  // boxes that only exist for the Custom preset.
+  setupRenderResolutionControls() {
     const send = () =>
       this.sendPreviewCommand(
-        "setCanvasSize",
-        effectiveCanvasSize(this.previewSettings),
+        "setRenderResolution",
+        effectiveRenderResolution(this.previewSettings),
       );
+
+    const select = document.getElementById("renderResolutionSelect");
+    select.addEventListener("change", (e) => {
+      this.previewSettings.renderResolution = e.target.value;
+      // Picking a resolution turns the fullscreen quality down, since otherwise
+      // it would render at the panel's size and the choice would do nothing.
+      // Through the descriptor so the UI and the scripting API cannot disagree
+      // about when that happens.
+      for (const key of linkRenderResolution(
+        this.previewSettings,
+        e.target.value,
+      )) {
+        this.sendPreviewCommand(
+          PREVIEW_SETTINGS_BY_KEY.get(key).command,
+          this.previewSettings[key],
+        );
+      }
+      // Reveals or hides the two Custom boxes, through the descriptor's own
+      // onUi hook - the same route the scale's link toggle takes.
+      this.updatePreviewSettingsUI();
+      send();
+    });
+
+    const qualitySelect = document.getElementById("fullscreenQualitySelect");
+    qualitySelect.addEventListener("change", (e) => {
+      this.previewSettings.fullscreenQuality = e.target.value;
+      this.sendPreviewCommand("setFullscreenQuality", e.target.value);
+    });
 
     for (const key of ["canvasWidth", "canvasHeight"]) {
       const input = document.getElementById(`${key}Input`);
@@ -5818,6 +5890,35 @@ class BlueprintSystem {
         send();
       });
     }
+  }
+
+  // Pixels across the 240x240 design view, as the preview measured them - the
+  // same units the presets are in, so the two can be compared. Worth showing
+  // because it is not always the number that was asked for: a request larger
+  // than the panel is quietly refused, and at High quality the resolution is
+  // ignored altogether. Kept so updateUIText can redraw it on a language change.
+  showRenderSize(size = this.lastRenderSize) {
+    const readout = document.getElementById("renderSizeReadout");
+    if (!readout) return;
+
+    this.lastRenderSize = size;
+    if (!size) {
+      readout.textContent = "";
+      return;
+    }
+
+    const t = (key) => languageManager.getUIText(key);
+    const asked = this.previewSettings.renderResolution;
+    // Flag the two ways the number can fail to be the one on the dropdown.
+    const note =
+      size.quality === "high" && !size.isNative
+        ? ` (${t("full quality")})`
+        : asked !== "native" &&
+            asked !== "custom" &&
+            size.pixels !== Number(asked)
+          ? ` (${t("capped by the panel")})`
+          : "";
+    readout.textContent = `${t("Rendering the view at")} ${size.pixels} px${note}`;
   }
 
   // Rotation and offset are the same shape: three whole-number sliders whose

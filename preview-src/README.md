@@ -47,6 +47,23 @@ WebGL1). Those shift between Construct releases — `C3.WorldInfo.Init`'s index 
 from `t[12]` to `t[13]` once. The override sanity-checks the shapes it finds and reports a
 warning to the editor's preview console if they no longer look right.
 
+## Known: the room mirrors its texture
+
+`background3d` is one 3D Shape box with **back-face culling on and a negative width**, both
+set in the project. That is what makes it a room: inverting the winding is the only way the
+far walls survive culling while the near ones do not. Inverting a box means negating an odd
+number of its axes, and every such inversion is a mirror — so four of the six walls show
+their texture backwards, and the other two swap sides.
+
+There is no fix on the script side. Turning culling off does not help (you would still be
+looking at the back of an outward-facing quad, and the near walls would occlude everything),
+and no combination of negative axes both inverts and preserves the image. Only **six
+inward-facing wall instances instead of one box** would, which is a structural change and
+therefore a re-export.
+
+It is invisible with the stock 2×2 checker, which is symmetric under a flip; it shows once a
+custom **Background Texture** is loaded. Issue #62, left alone deliberately.
+
 ## History
 
 Brought into the repo on 2026-08-05. The export had drifted ahead of the source by three

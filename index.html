@@ -826,14 +826,17 @@
                   </label>
                 </div>
                 <div class="preview-control-group">
-                  <label>
-                    <input
-                      type="checkbox"
-                      id="showBackgroundCubeCheckbox"
-                      checked
-                    />
-                    Show 3D Background
-                  </label>
+                  <label
+                    for="backgroundModeSelect"
+                    data-tooltip="Which backdrop sits behind the object. Auto follows the camera: the flat tiled background in 2D, the room cube in 3D."
+                    >Background:</label
+                  >
+                  <select id="backgroundModeSelect">
+                    <option value="auto">Auto</option>
+                    <option value="none">None</option>
+                    <option value="2d">2D Background</option>
+                    <option value="3d">3D Room</option>
+                  </select>
                 </div>
                 <div class="preview-control-group preview-slider-group">
                   <label
@@ -1077,10 +1080,26 @@
               <div class="preview-tab-content" data-tab="technical">
                 <div class="preview-control-group">
                   <label
-                    for="canvasWidthInput"
-                    data-tooltip='Does what Construct&apos;s "Set canvas size" action does: it changes how much of the layout the canvas shows. The canvas still fills the panel, so a bigger number makes the object cover fewer pixels - exactly as it would in a game with that window size.'
+                    for="renderResolutionSelect"
+                    data-tooltip="How many pixels the effect actually runs over. The scene is rendered at this size and upscaled to fill the panel, so the number sets the panel's short side and the long side follows its aspect. Native renders at the panel's own resolution; nothing can render larger than that."
                     >Resolution:</label
                   >
+                  <select id="renderResolutionSelect">
+                    <option value="native">Native</option>
+                    <option value="64">64</option>
+                    <option value="128">128</option>
+                    <option value="256">256</option>
+                    <option value="512">512</option>
+                    <option value="1024">1024</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+                <div
+                  class="preview-control-group"
+                  id="customResolutionRow"
+                  style="display: none"
+                >
+                  <label for="canvasWidthInput">Custom:</label>
                   <div class="canvas-size-inputs">
                     <input
                       type="number"
@@ -1100,6 +1119,20 @@
                       value="240"
                     />
                   </div>
+                </div>
+                <div class="preview-control-group">
+                  <label
+                    for="fullscreenQualitySelect"
+                    data-tooltip="Construct's own project property. High renders at the display's full resolution and ignores the resolution above. Low renders at that resolution and upscales, which is what picking one turns this to."
+                    >Fullscreen Quality:</label
+                  >
+                  <select id="fullscreenQualitySelect">
+                    <option value="high">High</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+                <div class="preview-control-group">
+                  <span id="renderSizeReadout" class="preview-readout"></span>
                 </div>
                 <div class="preview-control-group">
                   <label>Sampling:</label>

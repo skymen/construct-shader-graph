@@ -2793,6 +2793,15 @@ body {
   text-shadow: 0 0 4px rgba(0, 0, 0, 1);
 }
 
+/* What the preview reports back, rather than what was asked for. Quiet: it is
+   there to be checked, not read every time. */
+.preview-readout {
+  color: #aaa;
+  font-size: 11px;
+  font-style: italic;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+}
+
 /* A scale control that splits into per-axis rows. The label and the link toggle
    get their own row so every axis slider below them is exactly the same width,
    linked or not. */

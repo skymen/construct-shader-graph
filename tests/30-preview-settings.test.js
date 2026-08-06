@@ -19,7 +19,7 @@ import {
   effectiveObjectScale,
   effectiveObjectAngle,
   effectiveObjectOffset,
-  effectiveCanvasSize,
+  effectiveRenderResolution,
   PREVIEW_MODELS,
   migratePreviewSettings,
 } from "../preview-settings.js";
@@ -356,10 +356,33 @@ describe("object offset", () => {
   });
 });
 
-describe("canvas resolution (#84)", () => {
-  it("resolves the two keys into one size", () => {
-    api.preview.updateSettings({ canvasWidth: 480, canvasHeight: 320 });
-    expect(effectiveCanvasSize(blueprint.previewSettings)).toEqual({
+describe("rendering resolution (#84)", () => {
+  it("leaves Construct alone on the native preset", () => {
+    // No w/h at all: the preview reads that as "restore full quality", and a
+    // stray size here would put it back on a fixed render surface.
+    api.preview.updateSettings({ renderResolution: "native" });
+    expect(effectiveRenderResolution(blueprint.previewSettings)).toEqual({
+      mode: "native",
+    });
+  });
+
+  it("resolves a preset into a square size", () => {
+    api.preview.updateSettings({ renderResolution: "256" });
+    expect(effectiveRenderResolution(blueprint.previewSettings)).toEqual({
+      mode: "preset",
+      w: 256,
+      h: 256,
+    });
+  });
+
+  it("resolves the two custom keys into one size", () => {
+    api.preview.updateSettings({
+      renderResolution: "custom",
+      canvasWidth: 480,
+      canvasHeight: 320,
+    });
+    expect(effectiveRenderResolution(blueprint.previewSettings)).toEqual({
+      mode: "custom",
       w: 480,
       h: 320,
     });
@@ -371,18 +394,86 @@ describe("canvas resolution (#84)", () => {
     expect(document.getElementById("canvasHeightInput").value).toBe("128");
   });
 
+  it("shows the custom boxes only for the custom preset", () => {
+    api.preview.updateSettings({ renderResolution: "256" });
+    expect(document.getElementById("customResolutionRow").style.display).toBe(
+      "none",
+    );
+    api.preview.updateSettings({ renderResolution: "custom" });
+    expect(document.getElementById("customResolutionRow").style.display).toBe(
+      "",
+    );
+  });
+
   it("rejects a non-numeric size", () => {
     expect(() => api.preview.updateSettings({ canvasWidth: "big" })).toThrow(
       /finite number/,
     );
   });
 
+  it("rejects a preset it has no size for", () => {
+    expect(() =>
+      api.preview.updateSettings({ renderResolution: "4k" }),
+    ).toThrow();
+  });
+
+  it("turns the fullscreen quality down when a resolution is picked", () => {
+    // At high quality the draw surface is the panel's, so the resolution would
+    // be set and do nothing - the exact trap the old canvas-size control was.
+    api.preview.updateSettings({ renderResolution: "256" });
+    expect(blueprint.previewSettings.fullscreenQuality).toBe("low");
+
+    api.preview.updateSettings({ renderResolution: "native" });
+    expect(blueprint.previewSettings.fullscreenQuality).toBe("high");
+  });
+
+  it("lets a patch naming both keep the quality it asked for", () => {
+    api.preview.updateSettings({
+      renderResolution: "256",
+      fullscreenQuality: "high",
+    });
+    expect(blueprint.previewSettings.fullscreenQuality).toBe("high");
+  });
+
+  it("leaves a hand-set quality alone until the resolution moves again", () => {
+    api.preview.updateSettings({ renderResolution: "256" });
+    api.preview.updateSettings({ fullscreenQuality: "high" });
+    expect(blueprint.previewSettings.fullscreenQuality).toBe("high");
+  });
+
   it("is a live command, not an iframe reload", () => {
     // A reload would throw away every texture the user has loaded, which is why
     // this one does not travel in the query string the way sampling does.
-    const d = PREVIEW_SETTINGS.find((x) => x.key === "canvasWidth");
-    expect(d.reload).toBeFalsy();
-    expect(d.command).toBe("setCanvasSize");
+    for (const key of ["renderResolution", "canvasWidth", "canvasHeight"]) {
+      const d = PREVIEW_SETTINGS.find((x) => x.key === key);
+      expect(d.reload, key).toBeFalsy();
+      expect(d.command, key).toBe("setRenderResolution");
+    }
+  });
+});
+
+describe("background mode (#62)", () => {
+  it("offers the camera-following default and the three overrides", () => {
+    const d = PREVIEW_SETTINGS.find((x) => x.key === "backgroundMode");
+    expect(d.default).toBe("auto");
+    expect(d.values).toEqual(["auto", "none", "2d", "3d"]);
+    expect(d.command).toBe("setBackgroundMode");
+  });
+
+  it("writes the select", () => {
+    api.preview.updateSettings({ backgroundMode: "2d" });
+    expect(document.getElementById("backgroundModeSelect").value).toBe("2d");
+  });
+
+  it("carries an old file's checkbox over", () => {
+    // false meant "no backdrop": in 2D camera mode the checkbox governed
+    // nothing, so there is no old file where it meant "hide only the cube".
+    expect(migratePreviewSettings({ showBackgroundCube: false })).toEqual({
+      backgroundMode: "none",
+    });
+    expect(migratePreviewSettings({ showBackgroundCube: true })).toEqual({
+      backgroundMode: "auto",
+    });
   });
 });
 
@@ -558,14 +649,18 @@ describe("what a patch actually sends", () => {
     expect(offsetCommands[0].value).toEqual({ x: 25, y: -10, z: 40 });
   });
 
-  it("sends one fully-resolved canvas size per patch, not one per axis", () => {
-    api.preview.updateSettings({ canvasWidth: 480, canvasHeight: 320 });
+  it("sends one fully-resolved resolution per patch, not one per key", () => {
+    api.preview.updateSettings({
+      renderResolution: "custom",
+      canvasWidth: 480,
+      canvasHeight: 320,
+    });
 
     const sizeCommands = target.sent.filter(
-      (m) => m.command === "setCanvasSize",
+      (m) => m.command === "setRenderResolution",
     );
     expect(sizeCommands).toHaveLength(1);
-    expect(sizeCommands[0].value).toEqual({ w: 480, h: 320 });
+    expect(sizeCommands[0].value).toEqual({ mode: "custom", w: 480, h: 320 });
   });
 
   it("sends one fully-resolved rotation command per patch, not one per axis", () => {

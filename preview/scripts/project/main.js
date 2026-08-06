@@ -284,6 +284,8 @@ let runtime;
 
 // Camera state
 let cameraMode = "2d";
+// auto | none | 2d | 3d. See applyBackgroundVisibility.
+let backgroundMode = "auto";
 let autoRotate = true;
 let cameraAzimuth = 0; // Horizontal angle (around Z axis)
 let cameraPolar = Math.PI / 4; // Vertical angle from Z axis (45 degrees)
@@ -311,12 +313,27 @@ let dragStartScrollY = 0;
 let objectScale = { x: 1, y: 1, z: 1 };
 let roomScale = 1;
 let baseObjectSize = { sprite: { w: 80, h: 130 }, shape: 100 };
-
-// Canvas size state. The project ships a 240x240 viewport and everything in the
-// layout is placed for it; changing it re-derives all of these. See
+// Layout units per design unit. Everything placed for the 240x240 project - the
+// room, the camera distance, the object - is multiplied by this so a change of
+// rendering resolution only changes pixel density, never the framing. See
 // applyCanvasSize.
+let viewportScale = 1;
+
+// Rendering resolution state. The project ships a 240x240 viewport and
+// everything in the layout is placed for it; changing it re-derives all of
+// these. See applyCanvasSize.
 const DESIGN_CANVAS_SIZE = 240;
+// "native" leaves the project's viewport alone. "preset" is a single number:
+// pixels across the square design view, which is a square viewport of the same
+// number. "custom" is an explicit viewport, taken literally.
+let resolutionMode = "native";
+let resolutionPixels = DESIGN_CANVAS_SIZE;
 let canvasSize = { w: DESIGN_CANVAS_SIZE, h: DESIGN_CANVAS_SIZE };
+// Construct's own fullscreen scaling quality. "high" renders at the canvas's
+// device size and ignores the viewport entirely; "low" renders at the viewport
+// and upscales. Exposed on its own because it is a project property a real game
+// ships with, and it visibly changes how that game looks.
+let fullscreenQuality = "high";
 let baseBackground3dSize = DESIGN_CANVAS_SIZE;
 let baseBackgroundSize = { w: DESIGN_CANVAS_SIZE, h: DESIGN_CANVAS_SIZE };
 
@@ -399,11 +416,19 @@ async function OnBeforeProjectStart(rt) {
 
   warnIfNotRotatable3D();
 
+  // The layout ships with both backdrops visible, which z-fights until the host
+  // sends its settings. Settle it before the first frame.
+  applyBackgroundVisibility();
+
   // Setup camera controls
   setupCameraControls();
 
   // Start camera update loop
   runtime.addEventListener("tick", updateCamera);
+
+  // The rendered size depends on the panel as well as the request, so a panel
+  // drag changes it without anything being sent.
+  runtime.addEventListener("resize", reportRenderSize);
 
   if (window !== window.parent) {
     // Signal that project is ready for parameter updates. The command list
@@ -604,10 +629,10 @@ function setCameraMode(mode) {
   cameraMode = mode;
   const cam = camera;
 
-  //   background.isVisible = mode === "2d";
-  //   background3d.isVisible = mode !== "2d";
-  background.isVisible = false;
-  background3d.isVisible = true;
+  // Visibility is derived, never assigned here. Setting it from the camera mode
+  // is what made the Background control look broken: whichever backdrop the user
+  // picked was overwritten on the next camera change. See issue #62.
+  applyBackgroundVisibility();
 
   if (mode === "2d") {
     // Reset to 2D mode
@@ -642,9 +667,25 @@ function setAutoRotate(enabled) {
   }
 }
 
-function setShowBackgroundCube(visible) {
+function setBackgroundMode(mode) {
+  backgroundMode = mode;
+  applyBackgroundVisibility();
+}
+
+// The two backdrops are alternatives, never both: the tiled one sits on the room
+// cube's back wall, so showing them together z-fights. `auto` picks the one that
+// suits the camera - the flat tile for the 2D camera, the room for the 3D ones -
+// and the other three modes say so outright.
+function applyBackgroundVisibility() {
+  const wants2d = backgroundMode === "2d";
+  const wants3d = backgroundMode === "3d";
+  const auto = backgroundMode === "auto";
+
+  if (background) {
+    background.isVisible = wants2d || (auto && cameraMode === "2d");
+  }
   if (background3d) {
-    background3d.isVisible = visible;
+    background3d.isVisible = wants3d || (auto && cameraMode !== "2d");
   }
 }
 
@@ -663,20 +704,26 @@ function setObjectScale(scale) {
 }
 
 function applyObjectScale() {
+  // The base sizes are in design units - the sprite's is the texture's own pixel
+  // size - so they go through the viewport scale like everything else in the
+  // scene. Without it, a 64x64 render surface leaves a 100-unit object rattling
+  // around inside a 64-unit room.
+  const scale = viewportScale;
+
   // Both objects get it; setObject only ever shows one of them at a time. The
   // sprite has no depth, so Z simply does not reach it.
   if (piggy) {
-    piggy.width = baseObjectSize.sprite.w * objectScale.x;
-    piggy.height = baseObjectSize.sprite.h * objectScale.y;
+    piggy.width = baseObjectSize.sprite.w * objectScale.x * scale;
+    piggy.height = baseObjectSize.sprite.h * objectScale.y * scale;
   }
   // The 3D shape and the imported model are both sized off the same base, so a
   // model reads at the same size as a box at the same scale. The model's
   // axis-scale-mode is "fit", so its own proportions are preserved inside this.
   for (const instance of [shape3D, model]) {
     if (!instance) continue;
-    instance.width = baseObjectSize.shape * objectScale.x;
-    instance.height = baseObjectSize.shape * objectScale.y;
-    instance.depth = baseObjectSize.shape * objectScale.z;
+    instance.width = baseObjectSize.shape * objectScale.x * scale;
+    instance.height = baseObjectSize.shape * objectScale.y * scale;
+    instance.depth = baseObjectSize.shape * objectScale.z * scale;
   }
 }
 
@@ -828,17 +875,37 @@ function setRoomScale(scale) {
 }
 
 function applyRoomScale() {
-  // Scale background 3D cube
+  // Scale background 3D cube.
+  //
+  // The negative width is not a typo, and it is in the project too: the room is
+  // one box seen from the inside, and back-face culling only leaves the far
+  // walls standing if the winding is inverted. Inverting a box means negating an
+  // odd number of its axes, and that is a mirror - so the walls' texture reads
+  // backwards. There is no scaling that avoids it, and turning culling off does
+  // not either, since you would still be looking at the back of an
+  // outward-facing quad. Only six inward-facing walls would fix it, which is a
+  // project-structure change. It is invisible with the stock checker and shows
+  // up once a custom background texture is loaded. See issue #62.
   if (background3d) {
     background3d.width = -1 * baseBackground3dSize * roomScale;
     background3d.height = baseBackground3dSize * roomScale;
     background3d.depth = baseBackground3dSize * roomScale;
   }
 
-  // Scale 2D background (tiled)
+  // The 2D background is a tiled one, so the room scale goes into the tile size
+  // rather than the quad. Scaling the quad instead left it smaller than the
+  // viewport below 1, with the layer colour showing around it - and it made
+  // "room scale" mean something different in each camera mode.
+  //
+  // The viewport scale has to be in there too. A tile is a fixed number of
+  // *layout units*, and a smaller render resolution means fewer layout units
+  // across the view - so without this the checker grew every time the resolution
+  // dropped, which is not something a resolution is allowed to change.
   if (background) {
-    background.width = baseBackgroundSize.w * roomScale;
-    background.height = baseBackgroundSize.h * roomScale;
+    background.width = baseBackgroundSize.w;
+    background.height = baseBackgroundSize.h;
+    background.imageScaleX = roomScale * viewportScale;
+    background.imageScaleY = roomScale * viewportScale;
   }
 
   // Update camera distance for 3D modes
@@ -848,48 +915,80 @@ function applyRoomScale() {
   applyObjectPosition();
 }
 
-function setCanvasSize(size) {
-  const axis = (value, fallback) =>
-    Number.isFinite(Number(value)) && Number(value) > 0
-      ? Math.round(Number(value))
-      : fallback;
+const positiveInt = (value, fallback) =>
+  Number.isFinite(Number(value)) && Number(value) > 0
+    ? Math.round(Number(value))
+    : fallback;
 
+function setRenderResolution(resolution) {
+  resolutionMode = resolution?.mode === "native" ? "native" : resolution?.mode;
+  if (resolutionMode !== "preset" && resolutionMode !== "custom") {
+    resolutionMode = "native";
+  }
+
+  // A preset is one number - the pixels across the square view - because the
+  // viewport it becomes depends on the panel's shape at the time.
+  resolutionPixels = positiveInt(resolution?.w, DESIGN_CANVAS_SIZE);
   canvasSize = {
-    w: axis(size && size.w, DESIGN_CANVAS_SIZE),
-    h: axis(size && size.h, DESIGN_CANVAS_SIZE),
+    w: positiveInt(resolution?.w, DESIGN_CANVAS_SIZE),
+    h: positiveInt(resolution?.h, DESIGN_CANVAS_SIZE),
   };
+  applyCanvasSize();
+}
+
+function setFullscreenQuality(quality) {
+  fullscreenQuality = quality === "low" ? "low" : "high";
   applyCanvasSize();
 }
 
 function applyCanvasSize() {
   if (!internalRuntime) return;
 
+  // A preset is a square viewport, and at low quality that is exactly its own
+  // number of pixels across the view: scale-outer keeps the whole viewport
+  // visible and gives the draw surface one pixel per layout unit, so the extra
+  // canvas the panel's aspect buys is spent *outside* the square, not on it.
+  // Shaping the viewport like the panel instead would put the square across the
+  // panel's long axis and silently zoom the whole scene in.
+  if (resolutionMode === "preset") {
+    canvasSize = { w: resolutionPixels, h: resolutionPixels };
+  } else if (resolutionMode === "native") {
+    canvasSize = { w: DESIGN_CANVAS_SIZE, h: DESIGN_CANVAS_SIZE };
+  }
   const { w, h } = canvasSize;
 
-  // Construct's own "Set canvas size" action, called with the runtime it wants
-  // on `this`. Its body touches nothing else, so this stays faithful even if
-  // Construct changes what the action does. Under this project's scale-outer
-  // fullscreen mode that means the *design viewport* changes, not the number of
-  // device pixels: the object covers a different fraction of the canvas, so the
-  // effect really does run over more or fewer pixels.
-  const setCanvasSizeAct = self.C3?.Plugins?.System?.Acts?.SetCanvasSize;
-  if (typeof setCanvasSizeAct === "function") {
-    setCanvasSizeAct.call({ _runtime: internalRuntime }, w, h);
-  } else {
+  // Two of Construct's own System actions, called with the runtime they want on
+  // `this`. Neither body touches anything else, so this stays faithful even if
+  // Construct changes what they do.
+  //
+  // The quality is what decides whether the viewport is a resolution at all. At
+  // "high" the draw surface is the canvas's device size and the viewport only
+  // moves world-units-per-pixel; at "low" the draw surface *is* the viewport,
+  // and the scene is rendered small and upscaled.
+  const acts = self.C3?.Plugins?.System?.Acts;
+  if (
+    typeof acts?.SetCanvasSize !== "function" ||
+    typeof acts?.SetFullscreenQuality !== "function"
+  ) {
     sendErrorToParent(
-      "Construct's Set canvas size action is missing from this runtime - " +
-        "the preview resolution control cannot work.",
+      "Construct's Set canvas size / Set fullscreen quality actions are " +
+        "missing from this runtime - the preview resolution control cannot work.",
       "warning",
     );
     return;
   }
 
-  // Everything in the layout was placed for a 240x240 viewport, so the scene has
-  // to follow the viewport or the object drifts off-centre and the room stops
-  // enclosing the view. The object's own size is deliberately left alone - that
-  // it covers fewer pixels at a larger viewport is the point of the control.
+  const system = { _runtime: internalRuntime };
+  acts.SetFullscreenQuality.call(system, fullscreenQuality === "low" ? 0 : 1);
+  acts.SetCanvasSize.call(system, w, h);
+
+  // Everything in the layout was placed for a 240x240 viewport, so the whole
+  // scene follows the viewport - room, camera distance and object alike. That is
+  // what makes this a resolution control and not a zoom: the picture is the
+  // same at every setting, and only the number of pixels drawing it changes.
   const centreX = w / 2;
   const centreY = h / 2;
+  viewportScale = Math.max(w, h) / DESIGN_CANVAS_SIZE;
 
   if (background3d) {
     background3d.x = centreX;
@@ -903,15 +1002,53 @@ function applyCanvasSize() {
   baseBackgroundSize = { w, h };
   baseBackground3dSize = Math.max(w, h);
   // Keep the 3D framing: the camera sits back in proportion to the room.
-  baseCameraDistance = 300 * (Math.max(w, h) / DESIGN_CANVAS_SIZE);
+  baseCameraDistance = 300 * viewportScale;
   targetPosition.x = centreX;
   targetPosition.y = centreY;
   scrollX = centreX;
   scrollY = centreY;
 
+  applyObjectScale();
   // Re-places the object too, via applyObjectPosition.
   applyRoomScale();
   if (layout && cameraMode === "2d") layout.scrollTo(scrollX, scrollY);
+
+  reportRenderSize();
+}
+
+// What the effect is *actually* running over, measured the same way the control
+// asks for it: pixels across the square view, not pixels across the canvas.
+//
+// Those differ, and the canvas number is the useless one. The panel is not
+// square, so its size carries its own aspect ratio in it - 396x251 tells you
+// nothing you can compare against "256". The room is the 240x240 design view, so
+// its width in pixels is the like-for-like number, and it is what the presets
+// are chosen to hit.
+//
+// Reported rather than assumed because Construct can refuse: it never renders
+// larger than the canvas, and silently returns to full quality when the request
+// does not fit.
+function reportRenderSize() {
+  if (window === window.parent) return;
+
+  const canvasManager = internalRuntime?.GetCanvasManager?.();
+  const viewportWidth = internalRuntime?.GetViewportWidth?.();
+  if (!canvasManager || !viewportWidth) return;
+
+  // Pixels per layout unit, times the design view's width in layout units. Not
+  // the room's - the room grows with Room Scale, and that is a zoom, not a
+  // resolution.
+  const pixelsPerUnit = canvasManager.GetDrawWidth() / viewportWidth;
+
+  window.parent.postMessage(
+    {
+      type: "renderSizeChanged",
+      pixels: Math.round(DESIGN_CANVAS_SIZE * viewportScale * pixelsPerUnit),
+      isNative: resolutionMode === "native",
+      quality: fullscreenQuality,
+    },
+    "*",
+  );
 }
 
 // Every command the host can send, in one table so the list can be handed to
@@ -922,7 +1059,7 @@ const PREVIEW_COMMANDS = {
   setObject,
   setCameraMode,
   setAutoRotate,
-  setShowBackgroundCube,
+  setBackgroundMode,
   setObjectColor,
   setObjectAngle,
   setObjectOffset,
@@ -932,12 +1069,18 @@ const PREVIEW_COMMANDS = {
   setBg3dOpacity,
   setZoomLevel,
   setAnisotropicFiltering,
-  setCanvasSize,
+  setRenderResolution,
+  setFullscreenQuality,
 
   // Pre-merge names for the scale. Kept so a host page that has not been
   // reloaded since the sprite and shape scales were merged still works.
   setSpriteScale: setObjectScale,
   setShapeScale: setObjectScale,
+  // Same, for the canvas-size control this replaced. That one only ever moved
+  // the design viewport, which is what "custom" still does.
+  setCanvasSize: (size) => setRenderResolution({ mode: "custom", ...size }),
+  setShowBackgroundCube: (visible) =>
+    setBackgroundMode(visible ? "auto" : "none"),
 };
 
 function handlePreviewCommand(command, value) {
@@ -1356,8 +1499,8 @@ function setupShaderErrorCapture() {
 
       // The only place the export hands us a C3.Runtime. The scripting API
       // deliberately keeps it private - IRuntime's viewport getters are frozen
-      // read-only snapshots and nothing exposes a setter - so setCanvasSize
-      // needs this reference. See applyCanvasSize.
+      // read-only snapshots and nothing exposes a setter - so the resolution
+      // control needs this reference. See applyCanvasSize.
       internalRuntime = this;
 
       const shader = self["C3_Shaders"]["skymen_Placeholdereffect"];

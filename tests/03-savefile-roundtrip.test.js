@@ -46,10 +46,13 @@ function buildSavePayload(bp) {
       uniformId: node.uniformId,
       isVariable: node.isVariable,
       inputPorts: node.inputPorts.map((p) => ({
-        name: p.name, portType: p.portType, value: p.value,
+        name: p.name,
+        portType: p.portType,
+        value: p.value,
       })),
       outputPorts: node.outputPorts.map((p) => ({
-        name: p.name, portType: p.portType,
+        name: p.name,
+        portType: p.portType,
       })),
     })),
     wires: bp.wires.map((wire) => ({
@@ -60,8 +63,14 @@ function buildSavePayload(bp) {
       rerouteNodes: wire.rerouteNodes.map((rn) => ({ x: rn.x, y: rn.y })),
     })),
     comments: bp.comments.map((c) => ({
-      id: c.id, x: c.x, y: c.y, width: c.width, height: c.height,
-      title: c.title, description: c.description, color: c.color,
+      id: c.id,
+      x: c.x,
+      y: c.y,
+      width: c.width,
+      height: c.height,
+      title: c.title,
+      description: c.description,
+      color: c.color,
     })),
     nodeIdCounter: bp.nodeIdCounter,
     uniformIdCounter: bp.uniformIdCounter,
@@ -145,7 +154,7 @@ describe("preview settings survive a round-trip", () => {
     expect(blueprint.previewSettings).toEqual(expected);
   });
 
-  it("restores the rotation axes, the offset and the canvas size", async () => {
+  it("restores the rotation axes, the offset, the resolution and the backdrop", async () => {
     Object.assign(blueprint.previewSettings, {
       objectAngle: 15,
       objectAngleX: 55,
@@ -153,8 +162,10 @@ describe("preview settings survive a round-trip", () => {
       objectOffsetX: 25,
       objectOffsetY: -10,
       objectOffsetZ: 40,
+      renderResolution: "custom",
       canvasWidth: 480,
       canvasHeight: 320,
+      backgroundMode: "2d",
     });
     const payload = buildSavePayload(blueprint);
 
@@ -168,8 +179,24 @@ describe("preview settings survive a round-trip", () => {
       objectOffsetX: 25,
       objectOffsetY: -10,
       objectOffsetZ: 40,
+      renderResolution: "custom",
       canvasWidth: 480,
       canvasHeight: 320,
+      backgroundMode: "2d",
+    });
+  });
+
+  it("turns a file's background checkbox into a background mode", async () => {
+    // showBackgroundCube was a bool. Off meant no backdrop at all - in 2D camera
+    // mode it governed nothing - so it lands on "none", not on "2d".
+    const payload = buildSavePayload(blueprint);
+    payload.previewSettings = { showBackgroundCube: false };
+
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    expect(blueprint.previewSettings).toEqual({
+      ...makeDefaultPreviewSettings(),
+      backgroundMode: "none",
     });
   });
 
@@ -187,7 +214,7 @@ describe("preview settings survive a round-trip", () => {
       objectAngle: 90,
     });
     expect(blueprint.previewSettings.objectAngleX).toBe(0);
-    expect(blueprint.previewSettings.canvasWidth).toBe(240);
+    expect(blueprint.previewSettings.renderResolution).toBe("native");
   });
 
   it("fills a legacy payload's missing keys from the defaults, not from the previously open file", async () => {
