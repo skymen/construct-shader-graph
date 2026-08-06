@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { ROOT } from "../headless/boot.js";
-import { PREVIEW_SETTINGS } from "../preview-settings.js";
+import { PREVIEW_SETTINGS, PREVIEW_MODELS } from "../preview-settings.js";
 
 const SOURCE = path.join(ROOT, "preview-src", "scripts", "main.js");
 const EXPORT = path.join(ROOT, "preview", "scripts", "project", "main.js");
@@ -38,6 +38,39 @@ describe("preview source parity", () => {
 
     expect(scripts.items.map((item) => item.name)).toEqual(["main.js"]);
     expect(scripts.subfolders).toEqual([]);
+  });
+
+  it("defines every texture loader the settings table names", () => {
+    // Textures do not travel as a previewCommand - the host posts a callFunction
+    // naming a global in the preview. A typo there fails exactly as silently as
+    // an unknown command would.
+    const source = fs.readFileSync(SOURCE, "utf-8");
+    const defined = new Set(
+      [...source.matchAll(/globalThis\.(\w+)\s*=/g)].map((m) => m[1]),
+    );
+    const wanted = PREVIEW_SETTINGS.map((d) => d.previewFunction).filter(
+      Boolean,
+    );
+
+    expect(wanted.length).toBeGreaterThanOrEqual(3);
+    expect(wanted.filter((fn) => !defined.has(fn))).toEqual([]);
+  });
+
+  it("agrees with the preview on which objects are imported 3D models", () => {
+    // The host offers these as `object` values; the preview decides from its own
+    // copy of the list whether to show the 3D Shape or the imported model. A
+    // name in only one of them is a dropdown entry that silently shows nothing.
+    const source = fs.readFileSync(SOURCE, "utf-8");
+    const table = source.slice(
+      source.indexOf("const MODEL_OBJECTS = new Set(["),
+      source.indexOf("function setObject("),
+    );
+    expect(table, "MODEL_OBJECTS set not found").toBeTruthy();
+
+    const inPreview = [...table.matchAll(/"([\w-]+)"/g)].map((m) => m[1]);
+
+    expect(inPreview.length).toBeGreaterThanOrEqual(4);
+    expect([...inPreview].sort()).toEqual([...PREVIEW_MODELS].sort());
   });
 
   it("implements every command the settings table sends", () => {

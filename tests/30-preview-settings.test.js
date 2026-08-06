@@ -17,6 +17,10 @@ import {
   PREVIEW_SETTING_KEYS,
   makeDefaultPreviewSettings,
   effectiveObjectScale,
+  effectiveObjectAngle,
+  effectiveObjectOffset,
+  effectiveCanvasSize,
+  PREVIEW_MODELS,
   migratePreviewSettings,
 } from "../preview-settings.js";
 
@@ -68,12 +72,14 @@ describe("the settings table is the single source of truth", () => {
     expect(checked).toBeGreaterThanOrEqual(5);
   });
 
-  it("gives every number descriptor slider bounds that match its markup", () => {
+  it("gives every number descriptor bounds that match its markup", () => {
+    // Covers both the sliders and the typed boxes - the resolution inputs are
+    // `type="number"` because a 16-4096 range slider would be unusable.
     let checked = 0;
     for (const d of PREVIEW_SETTINGS) {
       if (d.kind !== "number" || !d.dom?.el) continue;
       const el = document.getElementById(d.dom.el);
-      if (el.type !== "range") continue;
+      if (el.type !== "range" && el.type !== "number") continue;
       expect(Number(el.min), `${d.key} min`).toBe(d.min);
       expect(Number(el.max), `${d.key} max`).toBe(d.max);
       checked++;
@@ -92,6 +98,13 @@ describe("the settings table is the single source of truth", () => {
       "anisotropicFilteringSelect",
     ]) {
       const selector = `#preview-controls .preview-control-group:has(#${id}) > label`;
+      expect(document.querySelectorAll(selector).length, id).toBe(1);
+    }
+
+    // Rotation and offset put their label inside the axis group's header rather
+    // than directly under the control group, so they need their own shape.
+    for (const id of ["objectAngleSlider", "objectOffsetXSlider"]) {
+      const selector = `#preview-controls .preview-control-group:has(#${id}) .preview-scale-header > label`;
       expect(document.querySelectorAll(selector).length, id).toBe(1);
     }
   });
@@ -187,10 +200,21 @@ describe("preview.updateSettings validation", () => {
     );
   });
 
-  it("rejects shapes that do not exist", () => {
-    // The API used to validate `object` against sphere/cylinder/cone/... none
-    // of which the preview's Shape3D can be.
-    expect(() => api.preview.updateSettings({ object: "sphere" })).toThrow();
+  it("accepts the imported 3D models", () => {
+    for (const model of PREVIEW_MODELS) {
+      expect(api.preview.updateSettings({ object: model }).object).toBe(model);
+    }
+  });
+
+  it("rejects objects that do not exist", () => {
+    // The API used to validate `object` against a list of shapes the preview
+    // has never had - sphere, cylinder, cone, torus, capsule, plane - while
+    // rejecting the real ones. Six of those six are now genuine imported models,
+    // so the guard is these two: never a Shape3D solid, never a model.
+    expect(() => api.preview.updateSettings({ object: "plane" })).toThrow();
+    expect(() =>
+      api.preview.updateSettings({ object: "dodecahedron" }),
+    ).toThrow();
   });
 
   it("rejects an unknown key", () => {
@@ -245,6 +269,120 @@ describe("the settings added in this batch", () => {
   it("shows the rotation readout as whole degrees", () => {
     api.preview.updateSettings({ objectAngle: 90 });
     expect(document.getElementById("objectAngleValue").textContent).toBe("90");
+  });
+});
+
+describe("object rotation (#129)", () => {
+  it("keeps objectAngle as the Z axis, a plain number", () => {
+    // Old .c3sg files and preview.updateSettings({objectAngle: 90}) callers name
+    // only this key, so it has to keep meaning what it always meant.
+    api.preview.updateSettings({ objectAngle: 90 });
+    expect(typeof blueprint.previewSettings.objectAngle).toBe("number");
+    expect(effectiveObjectAngle(blueprint.previewSettings).z).toBe(90);
+  });
+
+  it("resolves the three keys into one vector", () => {
+    api.preview.updateSettings({
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectAngle: 15,
+    });
+    expect(effectiveObjectAngle(blueprint.previewSettings)).toEqual({
+      x: 55,
+      y: 30,
+      z: 15,
+    });
+  });
+
+  it("rejects a non-numeric angle", () => {
+    expect(() => api.preview.updateSettings({ objectAngleX: "abc" })).toThrow(
+      /finite number/,
+    );
+  });
+
+  it("writes each axis into its own slider and readout", () => {
+    api.preview.updateSettings({
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectAngle: 15,
+    });
+    for (const [id, value] of [
+      ["objectAngleX", "55"],
+      ["objectAngleY", "30"],
+      ["objectAngle", "15"],
+    ]) {
+      expect(document.getElementById(`${id}Slider`).value, id).toBe(value);
+      expect(document.getElementById(`${id}Value`).textContent, id).toBe(value);
+    }
+  });
+});
+
+describe("object offset", () => {
+  it("resolves the three keys into one vector", () => {
+    api.preview.updateSettings({
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+    });
+    expect(effectiveObjectOffset(blueprint.previewSettings)).toEqual({
+      x: 25,
+      y: -10,
+      z: 40,
+    });
+  });
+
+  it("accepts a negative offset, since it is measured from the centre", () => {
+    // The whole range is -50..50; a validator that rejected negatives would
+    // silently halve the control.
+    expect(
+      api.preview.updateSettings({ objectOffsetX: -50 }).objectOffsetX,
+    ).toBe(-50);
+  });
+
+  it("writes each axis into its own slider and readout", () => {
+    api.preview.updateSettings({
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+    });
+    for (const [id, value] of [
+      ["objectOffsetX", "25"],
+      ["objectOffsetY", "-10"],
+      ["objectOffsetZ", "40"],
+    ]) {
+      expect(document.getElementById(`${id}Slider`).value, id).toBe(value);
+      expect(document.getElementById(`${id}Value`).textContent, id).toBe(value);
+    }
+  });
+});
+
+describe("canvas resolution (#84)", () => {
+  it("resolves the two keys into one size", () => {
+    api.preview.updateSettings({ canvasWidth: 480, canvasHeight: 320 });
+    expect(effectiveCanvasSize(blueprint.previewSettings)).toEqual({
+      w: 480,
+      h: 320,
+    });
+  });
+
+  it("writes both boxes", () => {
+    api.preview.updateSettings({ canvasWidth: 512, canvasHeight: 128 });
+    expect(document.getElementById("canvasWidthInput").value).toBe("512");
+    expect(document.getElementById("canvasHeightInput").value).toBe("128");
+  });
+
+  it("rejects a non-numeric size", () => {
+    expect(() => api.preview.updateSettings({ canvasWidth: "big" })).toThrow(
+      /finite number/,
+    );
+  });
+
+  it("is a live command, not an iframe reload", () => {
+    // A reload would throw away every texture the user has loaded, which is why
+    // this one does not travel in the query string the way sampling does.
+    const d = PREVIEW_SETTINGS.find((x) => x.key === "canvasWidth");
+    expect(d.reload).toBeFalsy();
+    expect(d.command).toBe("setCanvasSize");
   });
 });
 
@@ -404,6 +542,44 @@ describe("what a patch actually sends", () => {
     );
     expect(scaleCommands).toHaveLength(1);
     expect(scaleCommands[0].value).toEqual({ x: 2, y: 0.5, z: 3 });
+  });
+
+  it("sends one fully-resolved offset per patch, not one per axis", () => {
+    api.preview.updateSettings({
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+    });
+
+    const offsetCommands = target.sent.filter(
+      (m) => m.command === "setObjectOffset",
+    );
+    expect(offsetCommands).toHaveLength(1);
+    expect(offsetCommands[0].value).toEqual({ x: 25, y: -10, z: 40 });
+  });
+
+  it("sends one fully-resolved canvas size per patch, not one per axis", () => {
+    api.preview.updateSettings({ canvasWidth: 480, canvasHeight: 320 });
+
+    const sizeCommands = target.sent.filter(
+      (m) => m.command === "setCanvasSize",
+    );
+    expect(sizeCommands).toHaveLength(1);
+    expect(sizeCommands[0].value).toEqual({ w: 480, h: 320 });
+  });
+
+  it("sends one fully-resolved rotation command per patch, not one per axis", () => {
+    api.preview.updateSettings({
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectAngle: 15,
+    });
+
+    const angleCommands = target.sent.filter(
+      (m) => m.command === "setObjectAngle",
+    );
+    expect(angleCommands).toHaveLength(1);
+    expect(angleCommands[0].value).toEqual({ x: 55, y: 30, z: 15 });
   });
 
   it("sends the sibling that a linked setting dragged along", () => {

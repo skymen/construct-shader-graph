@@ -41,6 +41,11 @@ import {
   makeDefaultPreviewSettings,
   migratePreviewSettings,
   effectiveObjectScale,
+  effectiveObjectAngle,
+  effectiveObjectOffset,
+  effectiveCanvasSize,
+  PREVIEW_SETTINGS_BY_KEY,
+  PREVIEW_TEXTURES_BY_TYPE,
 } from "./preview-settings.js";
 import { languageManager } from "./LanguageManager.js";
 import { installGlobalConsoleApi } from "./GlobalConsoleApi.js";
@@ -1531,8 +1536,12 @@ class BlueprintSystem {
       "Color:",
     );
     updateLabel(
-      "#preview-controls .preview-control-group:has(#objectAngleSlider) > label",
+      "#preview-controls .preview-control-group:has(#objectAngleSlider) .preview-scale-header > label",
       "Rotation:",
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#objectOffsetXSlider) .preview-scale-header > label",
+      "Offset:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#cameraModeSelect) > label",
@@ -1541,6 +1550,10 @@ class BlueprintSystem {
     updateLabel(
       "#preview-controls .preview-control-group:has(#autoRotateCheckbox) label",
       "Auto Rotate",
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#canvasWidthInput) > label",
+      "Resolution:",
     );
     updateLabel(
       "#preview-controls .preview-control-group:has(#samplingModeSelect) > label",
@@ -1561,6 +1574,10 @@ class BlueprintSystem {
     updateLabel(
       "#preview-controls .preview-control-group:has(#shapeTextureInput) > label",
       "Shape Texture:",
+    );
+    updateLabel(
+      "#preview-controls .preview-control-group:has(#modelTextureInput) > label",
+      "Model Texture:",
     );
 
     // Preview select options
@@ -1634,6 +1651,16 @@ class BlueprintSystem {
     if (clearShapeTextureBtn)
       clearShapeTextureBtn.title = t("Clear shape texture");
 
+    const modelTextureBtn = document.getElementById("modelTextureBtn");
+    if (modelTextureBtn)
+      modelTextureBtn.title = t("Replace the 3D model's grid texture");
+
+    const clearModelTextureBtn = document.getElementById(
+      "clearModelTextureBtn",
+    );
+    if (clearModelTextureBtn)
+      clearModelTextureBtn.title = t("Back to the grid texture");
+
     const resetPreviewSettingsBtn = document.getElementById(
       "resetPreviewSettingsBtn",
     );
@@ -1651,6 +1678,8 @@ class BlueprintSystem {
 
     updateTexturePreview("spriteTexturePreview");
     updateTexturePreview("shapeTexturePreview");
+    updateTexturePreview("modelTexturePreview");
+    updateTexturePreview("bgTexturePreview");
 
     // Sidebar sections
     const shaderInfoHeader = document.querySelector(
@@ -5588,15 +5617,22 @@ class BlueprintSystem {
       this.sendPreviewCommand("setObjectColor", e.target.value);
     });
 
-    // Object rotation
-    const objectAngleSlider = document.getElementById("objectAngleSlider");
-    const objectAngleValue = document.getElementById("objectAngleValue");
-    objectAngleSlider.addEventListener("input", (e) => {
-      const angle = parseFloat(e.target.value);
-      this.previewSettings.objectAngle = angle;
-      objectAngleValue.textContent = angle.toFixed(0);
-      this.sendPreviewCommand("setObjectAngle", angle);
-    });
+    // Object rotation, one slider per axis. See preview-settings.js for why the
+    // Z key stays the unsuffixed `objectAngle`.
+    this.setupAxisSliders(
+      ["objectAngleX", "objectAngleY", "objectAngle"],
+      "setObjectAngle",
+      effectiveObjectAngle,
+    );
+
+    // Object offset, as a percentage of the room size.
+    this.setupAxisSliders(
+      ["objectOffsetX", "objectOffsetY", "objectOffsetZ"],
+      "setObjectOffset",
+      effectiveObjectOffset,
+    );
+
+    this.setupCanvasSizeControls();
 
     // One scale for whichever object is showing: a uniform slider plus a link
     // toggle that splits it into per-axis rows. See preview-settings.js for why
@@ -5731,74 +5767,26 @@ class BlueprintSystem {
   }
 
   setupTextureControls() {
-    const spriteTextureInput = document.getElementById("spriteTextureInput");
-    const spriteTextureBtn = document.getElementById("spriteTextureBtn");
-    const clearSpriteTextureBtn = document.getElementById(
-      "clearSpriteTextureBtn",
-    );
-    const spriteTexturePreview = document.getElementById(
-      "spriteTexturePreview",
-    );
+    // One wiring per texture descriptor. The ids follow from the type, so
+    // adding a texture is a descriptor and some markup, not another copy of
+    // these three listeners.
+    for (const [type, d] of PREVIEW_TEXTURES_BY_TYPE) {
+      const input = document.getElementById(`${type}TextureInput`);
+      const button = document.getElementById(`${type}TextureBtn`);
+      const clearButton = document.getElementById(d.dom.clearBtnEl);
+      if (!input || !button || !clearButton) continue;
 
-    const shapeTextureInput = document.getElementById("shapeTextureInput");
-    const shapeTextureBtn = document.getElementById("shapeTextureBtn");
-    const clearShapeTextureBtn = document.getElementById(
-      "clearShapeTextureBtn",
-    );
-    const shapeTexturePreview = document.getElementById("shapeTexturePreview");
+      button.addEventListener("click", () => input.click());
 
-    const bgTextureInput = document.getElementById("bgTextureInput");
-    const bgTextureBtn = document.getElementById("bgTextureBtn");
-    const clearBgTextureBtn = document.getElementById("clearBgTextureBtn");
-    const bgTexturePreview = document.getElementById("bgTexturePreview");
+      input.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) this.loadTextureFromFile(file, type);
+        // Let the same file be picked twice in a row.
+        e.target.value = "";
+      });
 
-    // Sprite texture button
-    spriteTextureBtn.addEventListener("click", () => {
-      spriteTextureInput.click();
-    });
-
-    spriteTextureInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        this.loadTextureFromFile(file, "sprite");
-      }
-    });
-
-    clearSpriteTextureBtn.addEventListener("click", () => {
-      this.clearTexture("sprite");
-    });
-
-    // Shape texture button
-    shapeTextureBtn.addEventListener("click", () => {
-      shapeTextureInput.click();
-    });
-
-    shapeTextureInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        this.loadTextureFromFile(file, "shape");
-      }
-    });
-
-    clearShapeTextureBtn.addEventListener("click", () => {
-      this.clearTexture("shape");
-    });
-
-    // Background texture button
-    bgTextureBtn.addEventListener("click", () => {
-      bgTextureInput.click();
-    });
-
-    bgTextureInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        this.loadTextureFromFile(file, "bg");
-      }
-    });
-
-    clearBgTextureBtn.addEventListener("click", () => {
-      this.clearTexture("bg");
-    });
+      clearButton.addEventListener("click", () => this.clearTexture(type));
+    }
   }
 
   // Wire one scale control: the uniform/X slider, the per-axis sliders, and the
@@ -5806,6 +5794,50 @@ class BlueprintSystem {
   // extra axis suffixes ("Y", or "Y" and "Z").
   // Wire the object scale: the uniform/X slider, the Y and Z sliders, and the
   // link toggle between them.
+  setupCanvasSizeControls() {
+    const send = () =>
+      this.sendPreviewCommand(
+        "setCanvasSize",
+        effectiveCanvasSize(this.previewSettings),
+      );
+
+    for (const key of ["canvasWidth", "canvasHeight"]) {
+      const input = document.getElementById(`${key}Input`);
+      const d = PREVIEW_SETTINGS_BY_KEY.get(key);
+      // Typed, so it has to survive an empty box and a value outside the range
+      // without posting a nonsense viewport at the runtime.
+      input.addEventListener("change", () => {
+        const size = Math.round(Number(input.value));
+        if (!Number.isFinite(size)) {
+          input.value = this.previewSettings[key];
+          return;
+        }
+        const clamped = Math.min(Math.max(size, d.min), d.max);
+        input.value = clamped;
+        this.previewSettings[key] = clamped;
+        send();
+      });
+    }
+  }
+
+  // Rotation and offset are the same shape: three whole-number sliders whose
+  // keys resolve into a single command, so one send per drag rather than three.
+  setupAxisSliders(keys, command, resolve) {
+    const send = () =>
+      this.sendPreviewCommand(command, resolve(this.previewSettings));
+
+    for (const key of keys) {
+      const slider = document.getElementById(`${key}Slider`);
+      const valueEl = document.getElementById(`${key}Value`);
+      slider.addEventListener("input", (e) => {
+        const value = parseFloat(e.target.value);
+        this.previewSettings[key] = value;
+        valueEl.textContent = value.toFixed(0);
+        send();
+      });
+    }
+  }
+
   setupScaleControls() {
     const send = () =>
       this.sendPreviewCommand(
@@ -5979,24 +6011,11 @@ class BlueprintSystem {
   }
 
   setTextureUrl(type, url) {
-    if (type === "sprite") {
-      this.previewSettings.spriteTextureUrl = url;
-      this.updateTexturePreview(
-        "spriteTexturePreview",
-        "clearSpriteTextureBtn",
-        url,
-      );
-    } else if (type === "shape") {
-      this.previewSettings.shapeTextureUrl = url;
-      this.updateTexturePreview(
-        "shapeTexturePreview",
-        "clearShapeTextureBtn",
-        url,
-      );
-    } else if (type === "bg") {
-      this.previewSettings.bgTextureUrl = url;
-      this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", url);
-    }
+    const d = PREVIEW_TEXTURES_BY_TYPE.get(type);
+    if (!d) return;
+
+    this.previewSettings[d.key] = url;
+    this.updateTexturePreview(d.dom.previewEl, d.dom.clearBtnEl, url);
   }
 
   updateTexturePreview(previewId, clearBtnId, url) {
@@ -6015,39 +6034,17 @@ class BlueprintSystem {
   loadPreviewTexture(type, url, target = this.defaultPreviewTarget()) {
     if (!target?.ready) return;
 
-    let functionName;
-    if (type === "sprite") {
-      functionName = "loadSpriteUrl";
-    } else if (type === "shape") {
-      functionName = "loadShapeUrl";
-    } else if (type === "bg") {
-      functionName = "loadBgUrl";
-    }
+    const d = PREVIEW_TEXTURES_BY_TYPE.get(type);
+    if (!d) return;
 
-    target.post({ type: "callFunction", function: functionName, url: url });
+    target.post({ type: "callFunction", function: d.previewFunction, url });
   }
 
   clearTexture(type) {
-    if (type === "sprite") {
-      this.previewSettings.spriteTextureUrl = null;
-      this.updateTexturePreview(
-        "spriteTexturePreview",
-        "clearSpriteTextureBtn",
-        null,
-      );
-    } else if (type === "shape") {
-      this.previewSettings.shapeTextureUrl = null;
-      this.updateTexturePreview(
-        "shapeTexturePreview",
-        "clearShapeTextureBtn",
-        null,
-      );
-    } else if (type === "bg") {
-      this.previewSettings.bgTextureUrl = null;
-      this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", null);
-    }
+    this.setTextureUrl(type, null);
 
-    // Clearing requires a reload
+    // Clearing requires a reload: there is no "unload" command, the preview only
+    // knows how to replace a texture with another one.
     this.updatePreview();
   }
 

@@ -145,6 +145,51 @@ describe("preview settings survive a round-trip", () => {
     expect(blueprint.previewSettings).toEqual(expected);
   });
 
+  it("restores the rotation axes, the offset and the canvas size", async () => {
+    Object.assign(blueprint.previewSettings, {
+      objectAngle: 15,
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+      canvasWidth: 480,
+      canvasHeight: 320,
+    });
+    const payload = buildSavePayload(blueprint);
+
+    blueprint.createNewFile();
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    expect(blueprint.previewSettings).toMatchObject({
+      objectAngle: 15,
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+      canvasWidth: 480,
+      canvasHeight: 320,
+    });
+  });
+
+  it("gives a file that predates the new axes their defaults", async () => {
+    // A .c3sg written before 3D rotation and the resolution control names only
+    // objectAngle. Everything it does not name has to come back as the default
+    // that reproduces today's rendering, not as whatever was on screen.
+    const payload = buildSavePayload(blueprint);
+    payload.previewSettings = { objectAngle: 90 };
+
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    expect(blueprint.previewSettings).toEqual({
+      ...makeDefaultPreviewSettings(),
+      objectAngle: 90,
+    });
+    expect(blueprint.previewSettings.objectAngleX).toBe(0);
+    expect(blueprint.previewSettings.canvasWidth).toBe(240);
+  });
+
   it("fills a legacy payload's missing keys from the defaults, not from the previously open file", async () => {
     // The merge used to be over the *current* settings, so a setting from the
     // file you had open leaked into a file that never had one.

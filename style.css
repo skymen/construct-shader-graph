@@ -2759,6 +2759,40 @@ body {
   height: 14px;
 }
 
+/* Canvas resolution: two number boxes with a multiplication sign between them.
+   A 16-4096 range slider would be unusable, so these are typed, not dragged. */
+.canvas-size-inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.canvas-size-inputs input[type="number"] {
+  background: #00000077;
+  border: 1px solid #4a4a4a;
+  color: #ffffff;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 58px;
+  outline: none;
+}
+
+.canvas-size-inputs input[type="number"]:hover {
+  border-color: #6a6a6a;
+}
+
+.canvas-size-inputs input[type="number"]:focus {
+  border-color: #4a9eff;
+}
+
+.canvas-size-separator {
+  color: #aaa;
+  font-size: 12px;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+}
+
 /* A scale control that splits into per-axis rows. The label and the link toggle
    get their own row so every axis slider below them is exactly the same width,
    linked or not. */

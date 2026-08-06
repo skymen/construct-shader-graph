@@ -43,6 +43,13 @@
 		},
 		{
 			"type": "plugin",
+			"id": "Model3D",
+			"name": "3D model",
+			"author": "Scirra",
+			"bundled": false
+		},
+		{
+			"type": "plugin",
 			"id": "Mouse",
 			"name": "Mouse",
 			"author": "Scirra",
@@ -91,7 +98,8 @@
 			"ValidImageFileFormats",
 			"BinaryData",
 			"shape3dTexture",
-			"Browser"
+			"Browser",
+			"model"
 		],
 		"subfolders": []
 	},
@@ -228,7 +236,16 @@
 		"subfolders": []
 	},
 	"models3d": {
-		"items": [],
+		"items": [
+			"capsule",
+			"cone",
+			"cylinder",
+			"sphere",
+			"suzanne",
+			"teapot",
+			"torus-knot",
+			"torus"
+		],
 		"subfolders": []
 	},
 	"properties": {

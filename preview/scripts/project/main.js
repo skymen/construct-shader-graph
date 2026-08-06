@@ -225,6 +225,11 @@ runOnStartup(async (runtime) => {
   globalThis.loadShapeUrl = (url) => {
     runtime.callFunction("loadShapeUrl", url, false);
   };
+  globalThis.loadModelUrl = (url) => {
+    // Not an event-sheet function like the others: the scripting API takes any
+    // URL, data: included, and replaces the mesh's image directly.
+    applyModelTexture(url);
+  };
   globalThis.loadBgUrl = (url) => {
     runtime.callFunction("loadBgUrl", url, false);
   };
@@ -269,6 +274,7 @@ runOnStartup(async (runtime) => {
 
 let piggy;
 let shape3D;
+let model;
 let background;
 let background3d;
 let camera;
@@ -305,8 +311,17 @@ let dragStartScrollY = 0;
 let objectScale = { x: 1, y: 1, z: 1 };
 let roomScale = 1;
 let baseObjectSize = { sprite: { w: 80, h: 130 }, shape: 100 };
-let baseBackground3dSize = 240;
-let baseBackgroundSize = 240;
+
+// Canvas size state. The project ships a 240x240 viewport and everything in the
+// layout is placed for it; changing it re-derives all of these. See
+// applyCanvasSize.
+const DESIGN_CANVAS_SIZE = 240;
+let canvasSize = { w: DESIGN_CANVAS_SIZE, h: DESIGN_CANVAS_SIZE };
+let baseBackground3dSize = DESIGN_CANVAS_SIZE;
+let baseBackgroundSize = { w: DESIGN_CANVAS_SIZE, h: DESIGN_CANVAS_SIZE };
+
+// Set once, in the C3.Runtime._LoadDataJson override at the bottom of this file.
+let internalRuntime = null;
 
 // Opacity state
 let bgOpacity = 0.15;
@@ -317,7 +332,12 @@ let anisotropicFiltering = "auto";
 
 // Object appearance state
 let objectColor = "#ffffff";
-let objectAngle = 0;
+// Percent of the room size, from its centre. The room is the background cube,
+// which is a cube, so one size covers all three axes and +-50% is a wall.
+let objectOffset = { x: 0, y: 0, z: 0 };
+// Degrees per axis. Like the scale, the command still accepts a plain number -
+// that is a pre-3D host sending the Z angle on its own.
+let objectAngle = { x: 0, y: 0, z: 0 };
 
 // Promise that waits for shader data from parent window
 function waitForShaderData() {
@@ -370,11 +390,14 @@ async function OnBeforeProjectStart(rt) {
 
   piggy = runtime.objects.Piggy.getFirstInstance();
   shape3D = runtime.objects.shape3d.getFirstInstance();
+  model = runtime.objects.model?.getFirstInstance();
   background = runtime.objects.background.getFirstInstance();
   background3d = runtime.objects.background3d.getFirstInstance();
   camera = runtime.objects.camera;
   layout = runtime.layout;
   layer = piggy.layer;
+
+  warnIfNotRotatable3D();
 
   // Setup camera controls
   setupCameraControls();
@@ -463,6 +486,7 @@ function runStartupScript(script) {
 function updateParam(runtime, index, value) {
   piggy.effects[0].setParameter(index, value);
   shape3D.effects[0].setParameter(index, value);
+  if (model?.effects[0]) model.effects[0].setParameter(index, value);
   layout.effects[0].setParameter(index, value);
   layer.effects[0].setParameter(index, value);
 }
@@ -470,6 +494,7 @@ function updateParam(runtime, index, value) {
 function setEffectTarget(target) {
   piggy.effects[0].isActive = false;
   shape3D.effects[0].isActive = false;
+  if (model?.effects[0]) model.effects[0].isActive = false;
   layout.effects[0].isActive = false;
   layer.effects[0].isActive = false;
 
@@ -478,7 +503,10 @@ function setEffectTarget(target) {
       piggy.effects[0].isActive = true;
       break;
     case "shape3D":
+      // "shape3D" means "the 3D object", and setObject shows exactly one of the
+      // built-in shape and the imported model, so both get switched on.
       shape3D.effects[0].isActive = true;
+      if (model?.effects[0]) model.effects[0].isActive = true;
       break;
     case "layout":
       layout.effects[0].isActive = true;
@@ -489,18 +517,86 @@ function setEffectTarget(target) {
   }
 }
 
+// Imported 3D models, as opposed to the 3D Shape plugin's built-in solids. The
+// names are the ones the models were imported under; preview-settings.js lists
+// the same set in the `object` enum and tests/31 asserts the two agree.
+const MODEL_OBJECTS = new Set([
+  "sphere",
+  "torus",
+  "cylinder",
+  "cone",
+  "capsule",
+  "torus-knot",
+  "suzanne",
+  "teapot",
+]);
+
 function setObject(object) {
-  // "sprite", "box", "prism", "wedge", "pyramid", "corner-out" and "corner-in"
+  // "sprite", one of the 3D Shape solids, or one of MODEL_OBJECTS
   piggy.isVisible = false;
   shape3D.isVisible = false;
+  if (model) model.isVisible = false;
 
   if (object === "sprite") {
     piggy.isVisible = true;
     targetPosition.z = 0;
-  } else {
-    shape3D.isVisible = true;
-    shape3D.shape = object;
-    targetPosition.z = 60;
+    return;
+  }
+
+  targetPosition.z = 60;
+
+  if (MODEL_OBJECTS.has(object)) {
+    if (!model) {
+      sendErrorToParent(
+        `The preview has no 3D model object, so "${object}" cannot be shown. ` +
+          `Reload the page to pick up the current preview.`,
+        "warning",
+      );
+      return;
+    }
+    model.isVisible = true;
+    if (model.modelName !== object) model.loadModel(object);
+    // loadModel rebuilds the mesh, which drops whatever texture was on the old
+    // one, so put it back.
+    applyModelTexture(modelTextureUrl);
+    return;
+  }
+
+  shape3D.isVisible = true;
+  shape3D.shape = object;
+}
+
+// The model's texture, kept so switching model can restore it.
+let modelTextureUrl = null;
+
+// Replaces the grid texture the models are imported with. Only works because
+// they *are* imported with one: C3 fixes at import time whether a mesh samples a
+// texture at all (AnimatedMesh.DrawMesh gates on the baked content type), so a
+// material-free model would ignore this and report success anyway.
+function applyModelTexture(url) {
+  modelTextureUrl = url || modelTextureUrl;
+  if (!model || !modelTextureUrl) return;
+
+  // Per-mesh, and these models are single-mesh by construction - see
+  // preview-src/models/README.md.
+  for (const mesh of model.getAllMeshes()) {
+    model
+      .loadTextureFromURL(modelTextureUrl, mesh, "instance")
+      .then((ok) => {
+        // Resolves false rather than rejecting when the mesh refuses it.
+        if (!ok) {
+          sendErrorToParent(
+            `The 3D model would not take the texture on mesh "${mesh}".`,
+            "warning",
+          );
+        }
+      })
+      .catch((error) =>
+        sendErrorToParent(
+          `3D model texture failed: ${error && error.message ? error.message : error}`,
+          "warning",
+        ),
+      );
   }
 }
 
@@ -517,8 +613,8 @@ function setCameraMode(mode) {
     // Reset to 2D mode
     cam.restore2DCamera();
     layout.projection = "perspective";
-    scrollX = 120;
-    scrollY = 120;
+    scrollX = canvasSize.w / 2;
+    scrollY = canvasSize.h / 2;
     zoomLevel = 1;
     layout.scrollTo(scrollX, scrollY);
     layout.scale = zoomLevel;
@@ -573,10 +669,14 @@ function applyObjectScale() {
     piggy.width = baseObjectSize.sprite.w * objectScale.x;
     piggy.height = baseObjectSize.sprite.h * objectScale.y;
   }
-  if (shape3D) {
-    shape3D.width = baseObjectSize.shape * objectScale.x;
-    shape3D.height = baseObjectSize.shape * objectScale.y;
-    shape3D.depth = baseObjectSize.shape * objectScale.z;
+  // The 3D shape and the imported model are both sized off the same base, so a
+  // model reads at the same size as a box at the same scale. The model's
+  // axis-scale-mode is "fit", so its own proportions are preserved inside this.
+  for (const instance of [shape3D, model]) {
+    if (!instance) continue;
+    instance.width = baseObjectSize.shape * objectScale.x;
+    instance.height = baseObjectSize.shape * objectScale.y;
+    instance.depth = baseObjectSize.shape * objectScale.z;
   }
 }
 
@@ -604,6 +704,12 @@ function hexToRgb01(hex) {
   ];
 }
 
+// The three instances the previewer transforms. Only one is ever visible, but
+// they are all kept in step so switching object never shows a stale pose.
+function previewObjects() {
+  return [piggy, shape3D, model].filter(Boolean);
+}
+
 function setObjectColor(hex) {
   objectColor = hex;
   applyObjectColor();
@@ -613,20 +719,82 @@ function applyObjectColor() {
   // C3 multiplies this into the object's vertex colour before the effect
   // runs, so samplerFront sees the tinted pixels - which is the point.
   const rgb = hexToRgb01(objectColor);
-  if (piggy) piggy.colorRgb = rgb;
-  if (shape3D) shape3D.colorRgb = rgb;
+  for (const instance of previewObjects()) instance.colorRgb = rgb;
 }
 
-function setObjectAngle(degrees) {
-  objectAngle = degrees;
+function setObjectOffset(offset) {
+  const axis = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+  objectOffset = {
+    x: axis(offset && offset.x),
+    y: axis(offset && offset.y),
+    z: axis(offset && offset.z),
+  };
+  applyObjectPosition();
+}
+
+// Where the object sits: the room's centre, shifted by the offset. Called from
+// anywhere that changes the centre or the room size - the canvas size and the
+// room scale both move it.
+function applyObjectPosition() {
+  const room = baseBackground3dSize * roomScale;
+  const x = canvasSize.w / 2 + (objectOffset.x / 100) * room;
+  const y = canvasSize.h / 2 + (objectOffset.y / 100) * room;
+  const z = (objectOffset.z / 100) * room;
+
+  for (const instance of previewObjects()) {
+    instance.x = x;
+    instance.y = y;
+    instance.z = z;
+  }
+}
+
+function setObjectAngle(angle) {
+  if (typeof angle === "number") {
+    // A host from before the X/Y axes existed sends the Z angle bare.
+    objectAngle = { x: 0, y: 0, z: angle };
+  } else {
+    const axis = (value) =>
+      Number.isFinite(Number(value)) ? Number(value) : 0;
+    objectAngle = { x: axis(angle.x), y: axis(angle.y), z: axis(angle.z) };
+  }
   applyObjectAngle();
 }
 
 function applyObjectAngle() {
-  // Z axis only - a 3D shape instance exposes no other rotation. The camera
-  // orbit in setupCameraControls covers the other two axes.
-  if (piggy) piggy.angleDegrees = objectAngle;
-  if (shape3D) shape3D.angleDegrees = objectAngle;
+  const toRad = (degrees) => degrees * (Math.PI / 180);
+
+  for (const instance of previewObjects()) {
+    // All three axes go through the euler, and the legacy 2D angle is pinned at
+    // zero. Setting both would compose them - C3 applies `angle` about Z first
+    // and *then* the 3D quaternion - which is not something anyone could
+    // predict from three sliders.
+    instance.angleDegrees = 0;
+    instance.setRotationEuler(
+      toRad(objectAngle.x),
+      toRad(objectAngle.y),
+      toRad(objectAngle.z),
+    );
+  }
+}
+
+// setRotationEuler is not gated by the plugin's isRotatable3d flag the way
+// setQuaternion is, so on a plugin that does not support 3D rotation it moves
+// the bounding box and nothing else - a silent half-failure. Say so once.
+function warnIfNotRotatable3D() {
+  const unsupported = [
+    ["Sprite", piggy],
+    ["3D shape", shape3D],
+  ].filter(([, instance]) => {
+    if (!instance) return false;
+    return instance.objectType?.plugin?.isRotatable3d === false;
+  });
+
+  if (!unsupported.length) return;
+  sendErrorToParent(
+    `${unsupported.map(([name]) => name).join(" and ")} cannot be rotated in 3D ` +
+      `on this Construct runtime - the X and Y rotation sliders will do nothing.`,
+    "warning",
+  );
 }
 
 function setAnisotropicFiltering(mode) {
@@ -669,12 +837,81 @@ function applyRoomScale() {
 
   // Scale 2D background (tiled)
   if (background) {
-    background.width = baseBackgroundSize * roomScale;
-    background.height = baseBackgroundSize * roomScale;
+    background.width = baseBackgroundSize.w * roomScale;
+    background.height = baseBackgroundSize.h * roomScale;
   }
 
   // Update camera distance for 3D modes
   cameraDistance = baseCameraDistance * roomScale;
+
+  // The offset is a percentage of the room, so a bigger room moves the object.
+  applyObjectPosition();
+}
+
+function setCanvasSize(size) {
+  const axis = (value, fallback) =>
+    Number.isFinite(Number(value)) && Number(value) > 0
+      ? Math.round(Number(value))
+      : fallback;
+
+  canvasSize = {
+    w: axis(size && size.w, DESIGN_CANVAS_SIZE),
+    h: axis(size && size.h, DESIGN_CANVAS_SIZE),
+  };
+  applyCanvasSize();
+}
+
+function applyCanvasSize() {
+  if (!internalRuntime) return;
+
+  const { w, h } = canvasSize;
+
+  // Construct's own "Set canvas size" action, called with the runtime it wants
+  // on `this`. Its body touches nothing else, so this stays faithful even if
+  // Construct changes what the action does. Under this project's scale-outer
+  // fullscreen mode that means the *design viewport* changes, not the number of
+  // device pixels: the object covers a different fraction of the canvas, so the
+  // effect really does run over more or fewer pixels.
+  const setCanvasSizeAct = self.C3?.Plugins?.System?.Acts?.SetCanvasSize;
+  if (typeof setCanvasSizeAct === "function") {
+    setCanvasSizeAct.call({ _runtime: internalRuntime }, w, h);
+  } else {
+    sendErrorToParent(
+      "Construct's Set canvas size action is missing from this runtime - " +
+        "the preview resolution control cannot work.",
+      "warning",
+    );
+    return;
+  }
+
+  // Everything in the layout was placed for a 240x240 viewport, so the scene has
+  // to follow the viewport or the object drifts off-centre and the room stops
+  // enclosing the view. The object's own size is deliberately left alone - that
+  // it covers fewer pixels at a larger viewport is the point of the control.
+  const centreX = w / 2;
+  const centreY = h / 2;
+
+  if (background3d) {
+    background3d.x = centreX;
+    background3d.y = centreY;
+  }
+  if (background) {
+    background.x = 0;
+    background.y = 0;
+  }
+
+  baseBackgroundSize = { w, h };
+  baseBackground3dSize = Math.max(w, h);
+  // Keep the 3D framing: the camera sits back in proportion to the room.
+  baseCameraDistance = 300 * (Math.max(w, h) / DESIGN_CANVAS_SIZE);
+  targetPosition.x = centreX;
+  targetPosition.y = centreY;
+  scrollX = centreX;
+  scrollY = centreY;
+
+  // Re-places the object too, via applyObjectPosition.
+  applyRoomScale();
+  if (layout && cameraMode === "2d") layout.scrollTo(scrollX, scrollY);
 }
 
 // Every command the host can send, in one table so the list can be handed to
@@ -688,12 +925,14 @@ const PREVIEW_COMMANDS = {
   setShowBackgroundCube,
   setObjectColor,
   setObjectAngle,
+  setObjectOffset,
   setObjectScale,
   setRoomScale,
   setBgOpacity,
   setBg3dOpacity,
   setZoomLevel,
   setAnisotropicFiltering,
+  setCanvasSize,
 
   // Pre-merge names for the scale. Kept so a host page that has not been
   // reloaded since the sprite and shape scales were merged still works.
@@ -1114,6 +1353,12 @@ function setupShaderErrorCapture() {
   self.C3.Runtime = class extends self.C3.Runtime {
     async _LoadDataJson(e) {
       const t = e["project"];
+
+      // The only place the export hands us a C3.Runtime. The scripting API
+      // deliberately keeps it private - IRuntime's viewport getters are frozen
+      // read-only snapshots and nothing exposes a setter - so setCanvasSize
+      // needs this reference. See applyCanvasSize.
+      internalRuntime = this;
 
       const shader = self["C3_Shaders"]["skymen_Placeholdereffect"];
 

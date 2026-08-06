@@ -30,10 +30,7 @@
 					"tags": "",
 					"instanceVariables": {},
 					"behaviors": {},
-					"instanceFolderItem": {
-						"sid": 880946477385343,
-						"expanded": true
-					},
+					"materialSurfaceType": "smooth",
 					"showing": true,
 					"locked": false,
 					"world": {
@@ -49,15 +46,15 @@
 							1,
 							0.15
 						],
-						"angle": 0,
-						"zElevation": 0
+						"z": 0,
+						"angle": 0
 					}
 				},
 				{
 					"type": "background3d",
 					"properties": {
 						"shape": "box",
-						"z-height": 240,
+						"z-origin": "back",
 						"initially-visible": true,
 						"face-back": true,
 						"face-front": false,
@@ -79,10 +76,7 @@
 					"tags": "",
 					"instanceVariables": {},
 					"behaviors": {},
-					"instanceFolderItem": {
-						"sid": 600780818506168,
-						"expanded": true
-					},
+					"materialSurfaceType": "smooth",
 					"showing": true,
 					"locked": false,
 					"world": {
@@ -98,8 +92,9 @@
 							1,
 							0.15
 						],
-						"angle": 0,
-						"zElevation": 0
+						"z": 0,
+						"depth": 240,
+						"angle": 0
 					}
 				}
 			],
@@ -121,6 +116,7 @@
 				1
 			],
 			"isTransparent": false,
+			"sampling": "auto",
 			"parallaxX": 1,
 			"parallaxY": 1,
 			"scaleRate": 1,
@@ -157,6 +153,7 @@
 							"parameters": {}
 						}
 					},
+					"materialSurfaceType": "smooth",
 					"showing": true,
 					"locked": false,
 					"world": {
@@ -172,15 +169,15 @@
 							1,
 							1
 						],
-						"angle": 0,
-						"zElevation": 0
+						"z": 0,
+						"angle": 0
 					}
 				},
 				{
 					"type": "shape3d",
 					"properties": {
 						"shape": "box",
-						"z-height": 100,
+						"z-origin": "back",
 						"initially-visible": true,
 						"face-back": false,
 						"face-front": true,
@@ -208,10 +205,7 @@
 							"parameters": {}
 						}
 					},
-					"instanceFolderItem": {
-						"sid": 344811348149015,
-						"expanded": true
-					},
+					"materialSurfaceType": "smooth",
 					"showing": true,
 					"locked": false,
 					"world": {
@@ -227,8 +221,9 @@
 							1,
 							1
 						],
-						"angle": 0,
-						"zElevation": 0
+						"z": 0,
+						"depth": 100,
+						"angle": 0
 					}
 				},
 				{
@@ -245,10 +240,7 @@
 					"tags": "",
 					"instanceVariables": {},
 					"behaviors": {},
-					"instanceFolderItem": {
-						"sid": 260924094506120,
-						"expanded": true
-					},
+					"materialSurfaceType": "smooth",
 					"showing": true,
 					"locked": false,
 					"world": {
@@ -264,8 +256,79 @@
 							1,
 							1
 						],
-						"angle": 0,
-						"zElevation": 0
+						"z": 0,
+						"angle": 0
+					}
+				},
+				{
+					"type": "model",
+					"properties": {
+						"3d-model-object": "suzanne",
+						"initially-visible": true,
+						"x-position": 0,
+						"y-position": 0,
+						"z-position": 0,
+						"x-scale": 1,
+						"y-scale": 1,
+						"z-scale": 1,
+						"x-origin": "middle",
+						"y-origin": "middle",
+						"z-origin": "back",
+						"axis-scale-mode": "fit",
+						"meshes": {
+							"suzanne": true
+						},
+						"mesh-render-mode": "hierarchy",
+						"enable-collisions": true,
+						"culling-mode": "model-settings",
+						"animation": "",
+						"loop": true,
+						"initially-playing": true,
+						"initial-animation-progress": 0,
+						"bounding-box": false,
+						"bounding-box-color": [
+							1,
+							0,
+							0,
+							1
+						],
+						"live-preview": false
+					},
+					"uid": 13,
+					"sid": 790445910065588,
+					"tags": "",
+					"instanceVariables": {},
+					"behaviors": {},
+					"ownData": {
+						"version": "0",
+						"modelSID": 264222405760629,
+						"name": "suzanne"
+					},
+					"effects": {
+						"PlaceholderEffect": {
+							"isEnabled": true,
+							"parameters": {}
+						}
+					},
+					"materialSurfaceType": "smooth",
+					"showing": true,
+					"locked": false,
+					"world": {
+						"x": 120,
+						"y": 120,
+						"width": 100,
+						"height": 100,
+						"originX": 0.5,
+						"originY": 0.5,
+						"color": [
+							1,
+							1,
+							1,
+							1
+						],
+						"z": 0,
+						"depth": 100,
+						"angle": 0
 					}
 				}
 			],
@@ -296,6 +359,7 @@
 				1
 			],
 			"isTransparent": true,
+			"sampling": "auto",
 			"parallaxX": 1,
 			"parallaxY": 1,
 			"scaleRate": 1,
@@ -308,10 +372,6 @@
 			"global": false
 		}
 	],
-	"scene-graphs-folder-root": {
-		"items": [],
-		"subfolders": []
-	},
 	"sid": 430357480686857,
 	"nonworld-instances": [
 		{
@@ -350,6 +410,8 @@
 	"width": 240,
 	"height": 240,
 	"unboundedScrolling": true,
+	"sampling": "auto",
+	"ambientLight": 0.03,
 	"vpX": 0.5,
 	"vpY": 0.5,
 	"projection": "perspective",

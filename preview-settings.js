@@ -17,6 +17,20 @@
 // by script.js (browser), GlobalConsoleApi.js (both) and cli/commands/preview.js
 // (plain Node), so DOM ids are stored as strings and never looked up here.
 
+// The 3D models imported into the preview project, in `preview-src/models`.
+// These are `object` values alongside the 3D Shape plugin's built-in solids;
+// the preview decides which is which from the same list.
+export const PREVIEW_MODELS = [
+  "sphere",
+  "torus",
+  "cylinder",
+  "cone",
+  "capsule",
+  "torus-knot",
+  "suzanne",
+  "teapot",
+];
+
 // --- cross-key coupling -----------------------------------------------------
 //
 // The only two settings that are not independent. Picking an effect target
@@ -95,6 +109,53 @@ const applyTexture = (bp, target, value, _settings, d) => {
 // vector is computed at send time, never stored. That is also why the Y and Z
 // defaults are 1 rather than null: nothing nullable reaches the validator.
 
+// --- object rotation ---------------------------------------------------------
+//
+// Same shape as the scale, and for the same reason: `objectAngle` stays a plain
+// number so every stored .c3sg and every preview.updateSettings({objectAngle: 90})
+// caller keeps working. It is the Z axis - the only one that existed before the
+// r497 runtime added 3D rotation to ordinary world instances - and X and Y ride
+// in their own keys.
+
+// --- canvas size -------------------------------------------------------------
+//
+// Does exactly what Construct's "System: Set canvas size" action does. The
+// preview project runs `scale-outer`, where that action changes the *design
+// viewport* rather than the number of device pixels: the canvas keeps filling
+// the panel, and what moves is world-units-per-pixel. So a larger number means
+// the object covers a smaller fraction of the canvas and the effect runs over
+// fewer pixels - which is the effective-resolution knob a shader author wants,
+// and matches what they would get shipping into a game with that window size.
+
+export function effectiveCanvasSize(s) {
+  return { w: s.canvasWidth, h: s.canvasHeight };
+}
+
+const applyCanvasSize = (bp, target, _value, settings) =>
+  target.send("setCanvasSize", effectiveCanvasSize(settings));
+
+// --- object offset -----------------------------------------------------------
+//
+// A percentage of the room size, measured from its centre, rather than world
+// units - so an offset keeps meaning the same thing when the canvas size or the
+// room scale changes. The room is the background cube, which is a cube, so one
+// size covers all three axes and +-50% puts the object on a wall. Axes are
+// Construct's: X right, Y down, Z towards the viewer.
+
+export function effectiveObjectOffset(s) {
+  return { x: s.objectOffsetX, y: s.objectOffsetY, z: s.objectOffsetZ };
+}
+
+const applyObjectOffset = (bp, target, _value, settings) =>
+  target.send("setObjectOffset", effectiveObjectOffset(settings));
+
+export function effectiveObjectAngle(s) {
+  return { x: s.objectAngleX, y: s.objectAngleY, z: s.objectAngle };
+}
+
+const applyObjectAngle = (bp, target, _value, settings) =>
+  target.send("setObjectAngle", effectiveObjectAngle(settings));
+
 export function effectiveObjectScale(s) {
   return {
     x: s.objectScale,
@@ -142,6 +203,10 @@ export const PREVIEW_SETTINGS = [
     key: "object",
     default: "sprite",
     kind: "enum",
+    // The sprite, then the 3D Shape plugin's built-in solids, then the imported
+    // 3D models. The preview keeps the same model list in MODEL_OBJECTS, and
+    // tests/31 asserts the two agree - a name only in one of them is a dropdown
+    // entry that silently shows nothing.
     values: [
       "sprite",
       "box",
@@ -150,6 +215,7 @@ export const PREVIEW_SETTINGS = [
       "pyramid",
       "corner-out",
       "corner-in",
+      ...PREVIEW_MODELS,
     ],
     command: "setObject",
     dom: { el: "objectSelect" },
@@ -158,6 +224,39 @@ export const PREVIEW_SETTINGS = [
     link: linkObject,
     onUi: (bp, _object, settings) => syncScaleAxisRows(settings),
     cli: { flag: "object", arg: "<o>", help: "sprite | box | ..." },
+  },
+  {
+    // Declared before the camera and the scales: it moves every instance in the
+    // layout, so the scene geometry has to settle first.
+    key: "canvasWidth",
+    default: 240,
+    kind: "number",
+    min: 16,
+    max: 4096,
+    step: 1,
+    precision: 0,
+    command: "setCanvasSize",
+    apply: applyCanvasSize,
+    applyGroup: "canvasSize",
+    dom: { el: "canvasWidthInput" },
+    label: "Resolution:",
+    section: "technical",
+    cli: { flag: "canvasWidth", arg: "<n>", help: "Canvas width in pixels" },
+  },
+  {
+    key: "canvasHeight",
+    default: 240,
+    kind: "number",
+    min: 16,
+    max: 4096,
+    step: 1,
+    precision: 0,
+    command: "setCanvasSize",
+    apply: applyCanvasSize,
+    applyGroup: "canvasSize",
+    dom: { el: "canvasHeightInput" },
+    section: "technical",
+    cli: { flag: "canvasHeight", arg: "<n>", help: "Canvas height in pixels" },
   },
   {
     key: "cameraMode",
@@ -242,6 +341,7 @@ export const PREVIEW_SETTINGS = [
     default: null,
     kind: "texture",
     textureType: "sprite",
+    previewFunction: "loadSpriteUrl",
     reload: "whenEmpty",
     apply: applyTexture,
     dom: {
@@ -257,6 +357,7 @@ export const PREVIEW_SETTINGS = [
     default: null,
     kind: "texture",
     textureType: "shape",
+    previewFunction: "loadShapeUrl",
     reload: "whenEmpty",
     apply: applyTexture,
     dom: {
@@ -268,10 +369,30 @@ export const PREVIEW_SETTINGS = [
     cli: { flag: "shapeTexture", arg: "<f>", help: "3D shape texture image" },
   },
   {
+    // The 3D models ship with a grid texture baked in, which is also what makes
+    // this control possible: C3 decides at import time whether a mesh samples a
+    // texture at all, so a model with no material would ignore this silently.
+    key: "modelTextureUrl",
+    default: null,
+    kind: "texture",
+    textureType: "model",
+    previewFunction: "loadModelUrl",
+    reload: "whenEmpty",
+    apply: applyTexture,
+    dom: {
+      previewEl: "modelTexturePreview",
+      clearBtnEl: "clearModelTextureBtn",
+    },
+    label: "Model Texture:",
+    section: "textures",
+    cli: { flag: "modelTexture", arg: "<f>", help: "3D model texture image" },
+  },
+  {
     key: "bgTextureUrl",
     default: null,
     kind: "texture",
     textureType: "bg",
+    previewFunction: "loadBgUrl",
     reload: "whenEmpty",
     apply: applyTexture,
     dom: { previewEl: "bgTexturePreview", clearBtnEl: "clearBgTextureBtn" },
@@ -299,8 +420,47 @@ export const PREVIEW_SETTINGS = [
     },
   },
   {
-    // Z axis only: I3DShapeInstance exposes no X/Y rotation, and the camera
-    // orbit already covers those two axes.
+    key: "objectAngleX",
+    default: 0,
+    kind: "number",
+    min: 0,
+    max: 360,
+    step: 1,
+    precision: 0,
+    command: "setObjectAngle",
+    apply: applyObjectAngle,
+    applyGroup: "objectAngle",
+    dom: { el: "objectAngleXSlider", valueEl: "objectAngleXValue" },
+    label: "Rotation:",
+    section: "object",
+    cli: {
+      flag: "objectAngleX",
+      arg: "<deg>",
+      help: "Object X rotation in degrees",
+    },
+  },
+  {
+    key: "objectAngleY",
+    default: 0,
+    kind: "number",
+    min: 0,
+    max: 360,
+    step: 1,
+    precision: 0,
+    command: "setObjectAngle",
+    apply: applyObjectAngle,
+    applyGroup: "objectAngle",
+    dom: { el: "objectAngleYSlider", valueEl: "objectAngleYValue" },
+    section: "object",
+    cli: {
+      flag: "objectAngleY",
+      arg: "<deg>",
+      help: "Object Y rotation in degrees",
+    },
+  },
+  {
+    // The Z axis keeps the unsuffixed key - it is the one that predates the
+    // other two, so old files and API callers still name it `objectAngle`.
     key: "objectAngle",
     default: 0,
     kind: "number",
@@ -309,13 +469,72 @@ export const PREVIEW_SETTINGS = [
     step: 1,
     precision: 0,
     command: "setObjectAngle",
+    apply: applyObjectAngle,
+    applyGroup: "objectAngle",
     dom: { el: "objectAngleSlider", valueEl: "objectAngleValue" },
-    label: "Rotation:",
     section: "object",
     cli: {
       flag: "objectAngle",
       arg: "<deg>",
-      help: "Object rotation in degrees (Z axis)",
+      help: "Object Z rotation in degrees",
+    },
+  },
+  {
+    key: "objectOffsetX",
+    default: 0,
+    kind: "number",
+    min: -50,
+    max: 50,
+    step: 1,
+    precision: 0,
+    command: "setObjectOffset",
+    apply: applyObjectOffset,
+    applyGroup: "objectOffset",
+    dom: { el: "objectOffsetXSlider", valueEl: "objectOffsetXValue" },
+    label: "Offset:",
+    section: "object",
+    cli: {
+      flag: "objectOffsetX",
+      arg: "<pct>",
+      help: "Object X offset, % of the room",
+    },
+  },
+  {
+    key: "objectOffsetY",
+    default: 0,
+    kind: "number",
+    min: -50,
+    max: 50,
+    step: 1,
+    precision: 0,
+    command: "setObjectOffset",
+    apply: applyObjectOffset,
+    applyGroup: "objectOffset",
+    dom: { el: "objectOffsetYSlider", valueEl: "objectOffsetYValue" },
+    section: "object",
+    cli: {
+      flag: "objectOffsetY",
+      arg: "<pct>",
+      help: "Object Y offset, % of the room (down is positive)",
+    },
+  },
+  {
+    key: "objectOffsetZ",
+    default: 0,
+    kind: "number",
+    min: -50,
+    max: 50,
+    step: 1,
+    precision: 0,
+    command: "setObjectOffset",
+    apply: applyObjectOffset,
+    applyGroup: "objectOffset",
+    dom: { el: "objectOffsetZSlider", valueEl: "objectOffsetZValue" },
+    section: "object",
+    cli: {
+      flag: "objectOffsetZ",
+      arg: "<pct>",
+      help: "Object Z offset, % of the room (towards the viewer)",
     },
   },
   {
@@ -480,6 +699,13 @@ export const PREVIEW_SETTING_KEYS = new Set(PREVIEW_SETTINGS.map((d) => d.key));
 
 export const PREVIEW_SETTINGS_BY_KEY = new Map(
   PREVIEW_SETTINGS.map((d) => [d.key, d]),
+);
+
+// Keyed by the short name the texture host helpers pass around ("sprite",
+// "shape", "model", "bg"), so setTextureUrl / loadPreviewTexture / clearTexture
+// look their descriptor up instead of each carrying its own if/else chain.
+export const PREVIEW_TEXTURES_BY_TYPE = new Map(
+  PREVIEW_SETTINGS.filter((d) => d.textureType).map((d) => [d.textureType, d]),
 );
 
 // Keys that used to exist, and what they became. `spriteScale` and `shapeScale`
