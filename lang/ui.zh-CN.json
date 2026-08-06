@@ -240,5 +240,7 @@
   "Zoom to Fit": "缩放以适应",
   "no description": "无描述",
   "refresh": "刷新",
-  "split webgl": "分割WebGL"
+  "split webgl": "分割WebGL",
+  "Minimise Preview": "最小化预览",
+  "New Preview Window": "新建预览窗口"
 }

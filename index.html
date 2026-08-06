@@ -192,6 +192,13 @@
                 <span class="dropdown-item-shortcut">P</span>
               </button>
               <button
+                id="newPreviewWindowBtn"
+                class="dropdown-item"
+                data-action="newPreviewWindow"
+              >
+                <span class="dropdown-item-label">New Preview Window</span>
+              </button>
+              <button
                 id="reloadPreviewMenuBtn"
                 class="dropdown-item"
                 data-action="reloadPreview"
@@ -476,808 +483,885 @@
             />
           </svg>
         </button>
-        <div id="preview-window">
-          <div id="preview-header">
-            <span>Preview</span>
-            <div class="preview-header-buttons">
-              <button id="togglePreviewSettingsBtn" title="Toggle Settings">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                  <title>tune-variant</title>
-                  <path
-                    d="M8 13C6.14 13 4.59 14.28 4.14 16H2V18H4.14C4.59 19.72 6.14 21 8 21S11.41 19.72 11.86 18H22V16H11.86C11.41 14.28 9.86 13 8 13M8 19C6.9 19 6 18.1 6 17C6 15.9 6.9 15 8 15S10 15.9 10 17C10 18.1 9.1 19 8 19M19.86 6C19.41 4.28 17.86 3 16 3S12.59 4.28 12.14 6H2V8H12.14C12.59 9.72 14.14 11 16 11S19.41 9.72 19.86 8H22V6H19.86M16 9C14.9 9 14 8.1 14 7C14 5.9 14.9 5 16 5S18 5.9 18 7C18 8.1 17.1 9 16 9Z"
-                  />
-                </svg>
-              </button>
-              <button id="reloadPreviewBtn" title="Reload Preview">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                  <title>refresh</title>
-                  <path
-                    d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"
-                  />
-                </svg>
-              </button>
-              <button id="screenshotPreviewBtn" title="Screenshot Preview">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                  <title>camera</title>
-                  <path
-                    d="M4,4H7L9,2H15L17,4H20A2,2 0 0,1 22,6V18A2,2 0 0,1 20,20H4A2,2 0 0,1 2,18V6A2,2 0 0,1 4,4M12,7A5,5 0 0,0 7,12A5,5 0 0,0 12,17A5,5 0 0,0 17,12A5,5 0 0,0 12,7M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9Z"
-                  />
-                </svg>
-              </button>
-              <button id="popOutPreviewBtn" title="Open Preview in a Window">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                  <title>open-in-new</title>
-                  <path
-                    d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"
-                  />
-                </svg>
-              </button>
-              <button id="closePreviewBtn" title="Close Preview">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                  <title>window-close</title>
-                  <path
-                    d="M13.46,12L19,17.54V19H17.54L12,13.46L6.46,19H5V17.54L10.54,12L5,6.46V5H6.46L12,10.54L17.54,5H19V6.46L13.46,12Z"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-          <div id="preview-content">
-            <div id="preview-controls" class="preview-controls-hidden">
-              <!-- Tab Navigation -->
-              <div class="preview-tabs">
-                <button class="preview-tab active" data-tab="object">
-                  Object
-                </button>
-                <button class="preview-tab" data-tab="scene">Scene</button>
-                <button class="preview-tab" data-tab="textures">
-                  Textures
-                </button>
-                <button class="preview-tab" data-tab="technical">
-                  Technical
-                </button>
-                <button class="preview-tab" data-tab="script">Script</button>
-              </div>
-
-              <!-- Object Tab -->
-              <div class="preview-tab-content active" data-tab="object">
-                <div class="preview-control-group">
-                  <label
-                    data-tooltip="Which thing the effect is applied to. Layout and Layer apply it to everything behind it."
-                    >Effect Target:</label
-                  >
-                  <select id="effectTargetSelect">
-                    <option value="sprite">Sprite</option>
-                    <option value="shape3D">3D Shape</option>
-                    <option value="layout">Layout</option>
-                    <option value="layer">Layer</option>
-                  </select>
-                </div>
-                <div class="preview-control-group">
-                  <label data-tooltip="Which object to show the effect on."
-                    >Object:</label
-                  >
-                  <select id="objectSelect">
-                    <option value="sprite">Sprite</option>
-                    <optgroup label="3D Shape">
-                      <option value="box">Box</option>
-                      <option value="prism">Prism</option>
-                      <option value="wedge">Wedge</option>
-                      <option value="pyramid">Pyramid</option>
-                      <option value="corner-out">Corner Out</option>
-                      <option value="corner-in">Corner In</option>
-                    </optgroup>
-                    <optgroup label="3D Model">
-                      <option value="sphere">Sphere</option>
-                      <option value="torus">Torus</option>
-                      <option value="cylinder">Cylinder</option>
-                      <option value="cone">Cone</option>
-                      <option value="capsule">Capsule</option>
-                      <option value="torus-knot">Torus Knot</option>
-                      <option value="suzanne">Suzanne</option>
-                      <option value="teapot">Teapot</option>
-                    </optgroup>
-                  </select>
-                </div>
-                <div class="preview-control-group">
-                  <label
-                    for="objectColorInput"
-                    data-tooltip="Tints the object before the effect runs, so the shader samples the tinted pixels."
-                    >Color:</label
-                  >
-                  <input type="color" id="objectColorInput" value="#ffffff" />
-                </div>
-
-                <div class="preview-control-group preview-scale-group">
-                  <div class="preview-scale-header">
-                    <label
-                      data-tooltip="Scales whichever object is showing. Unlink to size the axes separately; Z only applies to a 3D shape."
-                      >Scale:</label
-                    >
-                    <label class="scale-lock" title="Link the axes">
-                      <input
-                        type="checkbox"
-                        id="objectScaleLinkedCheckbox"
-                        checked
-                      />
-                      <svg
-                        class="scale-lock-icon scale-lock-linked"
-                        viewBox="0 0 16 16"
-                        aria-hidden="true"
-                      >
-                        <path
-                          d="M6.4 9.6 9.6 6.4M5.9 8.1 4.3 9.7a2.3 2.3 0 1 0 3.2 3.2l1.6-1.6M10.1 7.9l1.6-1.6a2.3 2.3 0 1 0-3.2-3.2L6.9 4.7"
-                        />
-                      </svg>
-                      <svg
-                        class="scale-lock-icon scale-lock-broken"
-                        viewBox="0 0 16 16"
-                        aria-hidden="true"
-                      >
-                        <path
-                          d="M5.9 8.1 4.3 9.7a2.3 2.3 0 1 0 3.2 3.2l.7-.7M10.1 7.9l1.6-1.6a2.3 2.3 0 1 0-3.2-3.2l-.7.7"
-                        />
-                        <path
-                          d="M2.6 5.1 4 4.4M11.4 12.9 12 11.5M8 1.4v1.2M8 13.4v1.2"
-                        />
-                      </svg>
-                    </label>
-                  </div>
-                  <div class="preview-slider-container scale-axis-row">
-                    <span
-                      class="scale-axis-chip"
-                      id="objectScaleXChip"
-                      style="display: none"
-                      >X</span
-                    >
-                    <input
-                      type="range"
-                      id="objectScaleSlider"
-                      min="0.1"
-                      max="3"
-                      step="0.05"
-                      value="1"
-                    />
-                    <span
-                      id="objectScaleValue"
-                      class="editable-slider-value"
-                      data-slider="objectScaleSlider"
-                      >1.00</span
-                    >
-                  </div>
-                  <div
-                    class="preview-slider-container scale-axis-row"
-                    id="objectScaleYRow"
-                    style="display: none"
-                  >
-                    <span class="scale-axis-chip">Y</span>
-                    <input
-                      type="range"
-                      id="objectScaleYSlider"
-                      min="0.1"
-                      max="3"
-                      step="0.05"
-                      value="1"
-                    />
-                    <span
-                      id="objectScaleYValue"
-                      class="editable-slider-value"
-                      data-slider="objectScaleYSlider"
-                      >1.00</span
-                    >
-                  </div>
-                  <div
-                    class="preview-slider-container scale-axis-row"
-                    id="objectScaleZRow"
-                    style="display: none"
-                  >
-                    <span class="scale-axis-chip">Z</span>
-                    <input
-                      type="range"
-                      id="objectScaleZSlider"
-                      min="0.1"
-                      max="3"
-                      step="0.05"
-                      value="1"
-                    />
-                    <span
-                      id="objectScaleZValue"
-                      class="editable-slider-value"
-                      data-slider="objectScaleZSlider"
-                      >1.00</span
-                    >
-                  </div>
-                </div>
-                <div class="preview-control-group preview-scale-group">
-                  <div class="preview-scale-header">
-                    <label
-                      data-tooltip="Rotates the object itself on all three axes, in degrees. Dragging inside the preview still orbits the camera, which is a different thing."
-                      >Rotation:</label
-                    >
-                  </div>
-                  <div class="preview-slider-container scale-axis-row">
-                    <span class="scale-axis-chip">X</span>
-                    <input
-                      type="range"
-                      id="objectAngleXSlider"
-                      min="0"
-                      max="360"
-                      step="1"
-                      value="0"
-                    />
-                    <span
-                      id="objectAngleXValue"
-                      class="editable-slider-value"
-                      data-slider="objectAngleXSlider"
-                      data-precision="0"
-                      >0</span
-                    >
-                  </div>
-                  <div class="preview-slider-container scale-axis-row">
-                    <span class="scale-axis-chip">Y</span>
-                    <input
-                      type="range"
-                      id="objectAngleYSlider"
-                      min="0"
-                      max="360"
-                      step="1"
-                      value="0"
-                    />
-                    <span
-                      id="objectAngleYValue"
-                      class="editable-slider-value"
-                      data-slider="objectAngleYSlider"
-                      data-precision="0"
-                      >0</span
-                    >
-                  </div>
-                  <div class="preview-slider-container scale-axis-row">
-                    <span class="scale-axis-chip">Z</span>
-                    <input
-                      type="range"
-                      id="objectAngleSlider"
-                      min="0"
-                      max="360"
-                      step="1"
-                      value="0"
-                    />
-                    <span
-                      id="objectAngleValue"
-                      class="editable-slider-value"
-                      data-slider="objectAngleSlider"
-                      data-precision="0"
-                      >0</span
-                    >
-                  </div>
-                </div>
-                <div class="preview-control-group preview-scale-group">
-                  <div class="preview-scale-header">
-                    <label
-                      data-tooltip="Moves the object away from the middle of the room, as a percentage of the room's size — so it stays put when you change the resolution or the room scale. X is right, Y is down, Z is towards you."
-                      >Offset:</label
-                    >
-                  </div>
-                  <div class="preview-slider-container scale-axis-row">
-                    <span class="scale-axis-chip">X</span>
-                    <input
-                      type="range"
-                      id="objectOffsetXSlider"
-                      min="-50"
-                      max="50"
-                      step="1"
-                      value="0"
-                    />
-                    <span
-                      id="objectOffsetXValue"
-                      class="editable-slider-value"
-                      data-slider="objectOffsetXSlider"
-                      data-precision="0"
-                      >0</span
-                    >
-                  </div>
-                  <div class="preview-slider-container scale-axis-row">
-                    <span class="scale-axis-chip">Y</span>
-                    <input
-                      type="range"
-                      id="objectOffsetYSlider"
-                      min="-50"
-                      max="50"
-                      step="1"
-                      value="0"
-                    />
-                    <span
-                      id="objectOffsetYValue"
-                      class="editable-slider-value"
-                      data-slider="objectOffsetYSlider"
-                      data-precision="0"
-                      >0</span
-                    >
-                  </div>
-                  <div class="preview-slider-container scale-axis-row">
-                    <span class="scale-axis-chip">Z</span>
-                    <input
-                      type="range"
-                      id="objectOffsetZSlider"
-                      min="-50"
-                      max="50"
-                      step="1"
-                      value="0"
-                    />
-                    <span
-                      id="objectOffsetZValue"
-                      class="editable-slider-value"
-                      data-slider="objectOffsetZSlider"
-                      data-precision="0"
-                      >0</span
-                    >
-                  </div>
-                </div>
-              </div>
-
-              <!-- Scene Tab -->
-              <div class="preview-tab-content" data-tab="scene">
-                <div class="preview-control-group">
-                  <label
-                    data-tooltip="2D looks straight at the object. Perspective and orthographic orbit it in 3D - drag inside the preview to move the camera."
-                    >Camera:</label
-                  >
-                  <select id="cameraModeSelect">
-                    <option value="2d">2D</option>
-                    <option value="perspective">Perspective</option>
-                    <option value="orthographic">Orthographic</option>
-                  </select>
-                </div>
-                <div class="preview-control-group" id="autoRotateGroup">
-                  <label>
-                    <input type="checkbox" id="autoRotateCheckbox" checked />
-                    Auto Rotate
-                  </label>
-                </div>
-                <div class="preview-control-group">
-                  <label
-                    for="backgroundModeSelect"
-                    data-tooltip="Which backdrop sits behind the object. Auto follows the camera: the flat tiled background in 2D, the room cube in 3D."
-                    >Background:</label
-                  >
-                  <select id="backgroundModeSelect">
-                    <option value="auto">Auto</option>
-                    <option value="none">None</option>
-                    <option value="2d">2D Background</option>
-                    <option value="3d">3D Room</option>
-                  </select>
-                </div>
-                <div class="preview-control-group preview-slider-group">
-                  <label
-                    data-tooltip="Size of the room the object sits in. In perspective mode, also moves the camera out to match."
-                    >Room Scale:</label
-                  >
-                  <div class="preview-slider-container">
-                    <input
-                      type="range"
-                      id="roomScaleSlider"
-                      min="0.5"
-                      max="3"
-                      step="0.05"
-                      value="1"
-                    />
-                    <span
-                      id="roomScaleValue"
-                      class="editable-slider-value"
-                      data-slider="roomScaleSlider"
-                      >1.00</span
-                    >
-                  </div>
-                </div>
-                <div class="preview-control-group preview-slider-group">
-                  <label>BG Opacity:</label>
-                  <div class="preview-slider-container">
-                    <input
-                      type="range"
-                      id="bgOpacitySlider"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value="0.15"
-                    />
-                    <span
-                      id="bgOpacityValue"
-                      class="editable-slider-value"
-                      data-slider="bgOpacitySlider"
-                      >0.15</span
-                    >
-                  </div>
-                </div>
-                <div class="preview-control-group preview-slider-group">
-                  <label>3D BG Opacity:</label>
-                  <div class="preview-slider-container">
-                    <input
-                      type="range"
-                      id="bg3dOpacitySlider"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value="0.15"
-                    />
-                    <span
-                      id="bg3dOpacityValue"
-                      class="editable-slider-value"
-                      data-slider="bg3dOpacitySlider"
-                      >0.15</span
-                    >
-                  </div>
-                </div>
-              </div>
-
-              <!-- Textures Tab -->
-              <div class="preview-tab-content" data-tab="textures">
-                <div class="preview-control-group preview-texture-group">
-                  <label>Sprite Texture:</label>
-                  <div class="texture-preview-container">
-                    <div id="spriteTexturePreview" class="texture-preview">
-                      <span>No image</span>
-                    </div>
-                    <input
-                      type="file"
-                      id="spriteTextureInput"
-                      accept="image/*"
-                      style="display: none"
-                    />
-                    <button
-                      id="spriteTextureBtn"
-                      class="texture-btn"
-                      title="Load sprite texture"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      id="clearSpriteTextureBtn"
-                      class="texture-clear-btn"
-                      title="Clear sprite texture"
-                      style="display: none"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div class="preview-control-group preview-texture-group">
-                  <label>Shape Texture:</label>
-                  <div class="texture-preview-container">
-                    <div id="shapeTexturePreview" class="texture-preview">
-                      <span>No image</span>
-                    </div>
-                    <input
-                      type="file"
-                      id="shapeTextureInput"
-                      accept="image/*"
-                      style="display: none"
-                    />
-                    <button
-                      id="shapeTextureBtn"
-                      class="texture-btn"
-                      title="Load shape texture"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      id="clearShapeTextureBtn"
-                      class="texture-clear-btn"
-                      title="Clear shape texture"
-                      style="display: none"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div class="preview-control-group preview-texture-group">
-                  <label>Model Texture:</label>
-                  <div class="texture-preview-container">
-                    <div id="modelTexturePreview" class="texture-preview">
-                      <span>No image</span>
-                    </div>
-                    <input
-                      type="file"
-                      id="modelTextureInput"
-                      accept="image/*"
-                      style="display: none"
-                    />
-                    <button
-                      id="modelTextureBtn"
-                      class="texture-btn"
-                      title="Replace the 3D model's grid texture"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      id="clearModelTextureBtn"
-                      class="texture-clear-btn"
-                      title="Back to the grid texture"
-                      style="display: none"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div class="preview-control-group preview-texture-group">
-                  <label>Background Texture:</label>
-                  <div class="texture-preview-container">
-                    <div id="bgTexturePreview" class="texture-preview">
-                      <span>No image</span>
-                    </div>
-                    <input
-                      type="file"
-                      id="bgTextureInput"
-                      accept="image/*"
-                      style="display: none"
-                    />
-                    <button
-                      id="bgTextureBtn"
-                      class="texture-btn"
-                      title="Load background texture"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      id="clearBgTextureBtn"
-                      class="texture-clear-btn"
-                      title="Clear background texture"
-                      style="display: none"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Technical Tab -->
-              <div class="preview-tab-content" data-tab="technical">
-                <div class="preview-control-group">
-                  <label
-                    for="renderResolutionSelect"
-                    data-tooltip="How many pixels the effect actually runs over. The scene is rendered at this size and upscaled to fill the panel, so the number sets the panel's short side and the long side follows its aspect. Native renders at the panel's own resolution; nothing can render larger than that."
-                    >Resolution:</label
-                  >
-                  <select id="renderResolutionSelect">
-                    <option value="native">Native</option>
-                    <option value="64">64</option>
-                    <option value="128">128</option>
-                    <option value="256">256</option>
-                    <option value="512">512</option>
-                    <option value="1024">1024</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                </div>
-                <div
-                  class="preview-control-group"
-                  id="customResolutionRow"
-                  style="display: none"
+        <!-- One preview window. Cloned per window (issue #78), so nothing
+             in here carries an id - `data-preview-el` is the handle, and real
+             ids are generated per clone so <label for> keeps working. -->
+        <template id="preview-window-template">
+          <div data-preview-el="preview-window">
+            <div data-preview-el="preview-header">
+              <span>Preview</span>
+              <div class="preview-header-buttons">
+                <button
+                  data-preview-el="togglePreviewSettingsBtn"
+                  title="Toggle Settings"
                 >
-                  <label for="canvasWidthInput">Custom:</label>
-                  <div class="canvas-size-inputs">
-                    <input
-                      type="number"
-                      id="canvasWidthInput"
-                      min="16"
-                      max="4096"
-                      step="1"
-                      value="240"
-                    />
-                    <span class="canvas-size-separator">×</span>
-                    <input
-                      type="number"
-                      id="canvasHeightInput"
-                      min="16"
-                      max="4096"
-                      step="1"
-                      value="240"
-                    />
-                  </div>
-                </div>
-                <div class="preview-control-group">
-                  <label
-                    for="fullscreenQualitySelect"
-                    data-tooltip="Construct's own project property. High renders at the display's full resolution and ignores the resolution above. Low renders at that resolution and upscales, which is what picking one turns this to."
-                    >Fullscreen Quality:</label
-                  >
-                  <select id="fullscreenQualitySelect">
-                    <option value="high">High</option>
-                    <option value="low">Low</option>
-                  </select>
-                </div>
-                <div class="preview-control-group">
-                  <span id="renderSizeReadout" class="preview-readout"></span>
-                </div>
-                <div class="preview-control-group">
-                  <label>Sampling:</label>
-                  <select id="samplingModeSelect">
-                    <option value="trilinear">Trilinear</option>
-                    <option value="bilinear">Bilinear</option>
-                    <option value="nearest">Nearest</option>
-                  </select>
-                </div>
-                <div class="preview-control-group">
-                  <label
-                    data-tooltip="Sharpens mipmapped textures viewed at a steep angle. Only does anything with trilinear sampling."
-                    >Anisotropic:</label
-                  >
-                  <select id="anisotropicFilteringSelect">
-                    <option value="auto">Auto</option>
-                    <option value="off">Off</option>
-                    <option value="2x">2x</option>
-                    <option value="3x">3x</option>
-                    <option value="4x">4x</option>
-                    <option value="8x">8x</option>
-                    <option value="16x">16x</option>
-                  </select>
-                </div>
-                <div class="preview-control-group">
-                  <label>Shader Language:</label>
-                  <select id="shaderLanguageSelect">
-                    <option value="webgpu">WebGPU</option>
-                    <option value="webgl2">WebGL 2</option>
-                    <option value="webgl1">WebGL 1</option>
-                  </select>
-                </div>
-                <div class="preview-control-group">
-                  <label
-                    for="forceRotatedTextureCheckbox"
-                    data-tooltip="Packs the frame sideways, like C3 does when it saves atlas space. Breaks effects that assume the texture is upright."
-                    >Rotated in spritesheet:</label
-                  >
-                  <input type="checkbox" id="forceRotatedTextureCheckbox" />
-                </div>
-                <div class="preview-control-group">
-                  <button
-                    id="resetPreviewSettingsBtn"
-                    class="reset-preview-btn"
-                  >
-                    Reset Preview Settings
-                  </button>
-                </div>
-              </div>
-
-              <!-- Script Tab -->
-              <div class="preview-tab-content" data-tab="script">
-                <div class="script-tab-container">
-                  <div class="script-tab-header">
-                    <label>Startup Script</label>
-                    <span class="script-tab-hint"
-                      >Runs when preview starts. Access runtime objects via
-                      <code>runtime</code>, <code>sprite</code>,
-                      <code>shape3D</code>, etc.</span
-                    >
-                  </div>
-                  <textarea
-                    id="previewStartupScript"
-                    class="script-editor"
-                    placeholder="// Example: Set effect parameter at runtime
-// piggy.effects[0].setParameter(0, 0.5);
-
-// Example: Log to preview console
-// console.log('Preview started!');"
-                    spellcheck="false"
-                  ></textarea>
-                </div>
-              </div>
-            </div>
-            <iframe id="preview-iframe" src="./preview/index.html"></iframe>
-            <!-- Shown in place of the iframe while the preview is popped out. -->
-            <div id="preview-popped-out-note">
-              <span>Preview is open in its own window.</span>
-              <button id="dockPreviewBtn" class="uniform-secondary-btn">
-                Bring it back
-              </button>
-            </div>
-            <!-- Preview Console -->
-            <div id="preview-console" class="preview-console-collapsed">
-              <div id="preview-console-header">
-                <div class="preview-console-title">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                  >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <title>tune-variant</title>
                     <path
-                      fill="currentColor"
-                      d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"
+                      d="M8 13C6.14 13 4.59 14.28 4.14 16H2V18H4.14C4.59 19.72 6.14 21 8 21S11.41 19.72 11.86 18H22V16H11.86C11.41 14.28 9.86 13 8 13M8 19C6.9 19 6 18.1 6 17C6 15.9 6.9 15 8 15S10 15.9 10 17C10 18.1 9.1 19 8 19M19.86 6C19.41 4.28 17.86 3 16 3S12.59 4.28 12.14 6H2V8H12.14C12.59 9.72 14.14 11 16 11S19.41 9.72 19.86 8H22V6H19.86M16 9C14.9 9 14 8.1 14 7C14 5.9 14.9 5 16 5S18 5.9 18 7C18 8.1 17.1 9 16 9Z"
                     />
                   </svg>
-                  <span>Console</span>
-                  <span
-                    id="preview-console-badge"
-                    class="preview-console-badge hidden"
-                    >0</span
-                  >
+                </button>
+                <button
+                  data-preview-el="reloadPreviewBtn"
+                  title="Reload Preview"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <title>refresh</title>
+                    <path
+                      d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  data-preview-el="screenshotPreviewBtn"
+                  title="Screenshot Preview"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <title>camera</title>
+                    <path
+                      d="M4,4H7L9,2H15L17,4H20A2,2 0 0,1 22,6V18A2,2 0 0,1 20,20H4A2,2 0 0,1 2,18V6A2,2 0 0,1 4,4M12,7A5,5 0 0,0 7,12A5,5 0 0,0 12,17A5,5 0 0,0 17,12A5,5 0 0,0 12,7M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9Z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  data-preview-el="newPreviewBtn"
+                  title="New Preview Window"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <title>shape-rectangle-plus</title>
+                    <path
+                      d="M19,6H22V8H19V11H17V8H14V6H17V3H19V6M17,17V14H19V19H3V6H11V8H5V17H17Z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  data-preview-el="popOutPreviewBtn"
+                  title="Open Preview in a Window"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <title>open-in-new</title>
+                    <path
+                      d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"
+                    />
+                  </svg>
+                </button>
+                <button data-preview-el="closePreviewBtn" title="Close Preview">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <title>window-close</title>
+                    <path
+                      d="M13.46,12L19,17.54V19H17.54L12,13.46L6.46,19H5V17.54L10.54,12L5,6.46V5H6.46L12,10.54L17.54,5H19V6.46L13.46,12Z"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div data-preview-el="preview-content">
+              <div
+                data-preview-el="preview-controls"
+                class="preview-controls-hidden"
+              >
+                <!-- Tab Navigation -->
+                <div class="preview-tabs">
+                  <button class="preview-tab active" data-tab="object">
+                    Object
+                  </button>
+                  <button class="preview-tab" data-tab="scene">Scene</button>
+                  <button class="preview-tab" data-tab="textures">
+                    Textures
+                  </button>
+                  <button class="preview-tab" data-tab="technical">
+                    Technical
+                  </button>
+                  <button class="preview-tab" data-tab="script">Script</button>
                 </div>
-                <div class="preview-console-actions">
-                  <button id="clearConsoleBtn" title="Clear Console">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      width="14"
-                      height="14"
+
+                <!-- Object Tab -->
+                <div class="preview-tab-content active" data-tab="object">
+                  <div class="preview-control-group">
+                    <label
+                      data-tooltip="Which thing the effect is applied to. Layout and Layer apply it to everything behind it."
+                      >Effect Target:</label
                     >
-                      <path
-                        fill="currentColor"
-                        d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
-                      />
-                    </svg>
-                  </button>
-                  <button id="toggleConsoleBtn" title="Toggle Console">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      width="14"
-                      height="14"
+                    <select data-preview-el="effectTargetSelect">
+                      <option value="sprite">Sprite</option>
+                      <option value="shape3D">3D Shape</option>
+                      <option value="layout">Layout</option>
+                      <option value="layer">Layer</option>
+                    </select>
+                  </div>
+                  <div class="preview-control-group">
+                    <label data-tooltip="Which object to show the effect on."
+                      >Object:</label
                     >
-                      <path
-                        fill="currentColor"
-                        d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"
+                    <select data-preview-el="objectSelect">
+                      <option value="sprite">Sprite</option>
+                      <optgroup label="3D Shape">
+                        <option value="box">Box</option>
+                        <option value="prism">Prism</option>
+                        <option value="wedge">Wedge</option>
+                        <option value="pyramid">Pyramid</option>
+                        <option value="corner-out">Corner Out</option>
+                        <option value="corner-in">Corner In</option>
+                      </optgroup>
+                      <optgroup label="3D Model">
+                        <option value="sphere">Sphere</option>
+                        <option value="torus">Torus</option>
+                        <option value="cylinder">Cylinder</option>
+                        <option value="cone">Cone</option>
+                        <option value="capsule">Capsule</option>
+                        <option value="torus-knot">Torus Knot</option>
+                        <option value="suzanne">Suzanne</option>
+                        <option value="teapot">Teapot</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div class="preview-control-group">
+                    <label
+                      data-preview-for="objectColorInput"
+                      data-tooltip="Tints the object before the effect runs, so the shader samples the tinted pixels."
+                      >Color:</label
+                    >
+                    <input
+                      type="color"
+                      data-preview-el="objectColorInput"
+                      value="#ffffff"
+                    />
+                  </div>
+
+                  <div class="preview-control-group preview-scale-group">
+                    <div class="preview-scale-header">
+                      <label
+                        data-tooltip="Scales whichever object is showing. Unlink to size the axes separately; Z only applies to a 3D shape."
+                        >Scale:</label
+                      >
+                      <label class="scale-lock" title="Link the axes">
+                        <input
+                          type="checkbox"
+                          data-preview-el="objectScaleLinkedCheckbox"
+                          checked
+                        />
+                        <svg
+                          class="scale-lock-icon scale-lock-linked"
+                          viewBox="0 0 16 16"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M6.4 9.6 9.6 6.4M5.9 8.1 4.3 9.7a2.3 2.3 0 1 0 3.2 3.2l1.6-1.6M10.1 7.9l1.6-1.6a2.3 2.3 0 1 0-3.2-3.2L6.9 4.7"
+                          />
+                        </svg>
+                        <svg
+                          class="scale-lock-icon scale-lock-broken"
+                          viewBox="0 0 16 16"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M5.9 8.1 4.3 9.7a2.3 2.3 0 1 0 3.2 3.2l.7-.7M10.1 7.9l1.6-1.6a2.3 2.3 0 1 0-3.2-3.2l-.7.7"
+                          />
+                          <path
+                            d="M2.6 5.1 4 4.4M11.4 12.9 12 11.5M8 1.4v1.2M8 13.4v1.2"
+                          />
+                        </svg>
+                      </label>
+                    </div>
+                    <div class="preview-slider-container scale-axis-row">
+                      <span
+                        class="scale-axis-chip"
+                        data-preview-el="objectScaleXChip"
+                        style="display: none"
+                        >X</span
+                      >
+                      <input
+                        type="range"
+                        data-preview-el="objectScaleSlider"
+                        min="0.1"
+                        max="3"
+                        step="0.05"
+                        value="1"
                       />
-                    </svg>
-                  </button>
+                      <span
+                        data-preview-el="objectScaleValue"
+                        class="editable-slider-value"
+                        data-slider="objectScaleSlider"
+                        >1.00</span
+                      >
+                    </div>
+                    <div
+                      class="preview-slider-container scale-axis-row"
+                      data-preview-el="objectScaleYRow"
+                      style="display: none"
+                    >
+                      <span class="scale-axis-chip">Y</span>
+                      <input
+                        type="range"
+                        data-preview-el="objectScaleYSlider"
+                        min="0.1"
+                        max="3"
+                        step="0.05"
+                        value="1"
+                      />
+                      <span
+                        data-preview-el="objectScaleYValue"
+                        class="editable-slider-value"
+                        data-slider="objectScaleYSlider"
+                        >1.00</span
+                      >
+                    </div>
+                    <div
+                      class="preview-slider-container scale-axis-row"
+                      data-preview-el="objectScaleZRow"
+                      style="display: none"
+                    >
+                      <span class="scale-axis-chip">Z</span>
+                      <input
+                        type="range"
+                        data-preview-el="objectScaleZSlider"
+                        min="0.1"
+                        max="3"
+                        step="0.05"
+                        value="1"
+                      />
+                      <span
+                        data-preview-el="objectScaleZValue"
+                        class="editable-slider-value"
+                        data-slider="objectScaleZSlider"
+                        >1.00</span
+                      >
+                    </div>
+                  </div>
+                  <div class="preview-control-group preview-scale-group">
+                    <div class="preview-scale-header">
+                      <label
+                        data-tooltip="Rotates the object itself on all three axes, in degrees. Dragging inside the preview still orbits the camera, which is a different thing."
+                        >Rotation:</label
+                      >
+                    </div>
+                    <div class="preview-slider-container scale-axis-row">
+                      <span class="scale-axis-chip">X</span>
+                      <input
+                        type="range"
+                        data-preview-el="objectAngleXSlider"
+                        min="0"
+                        max="360"
+                        step="1"
+                        value="0"
+                      />
+                      <span
+                        data-preview-el="objectAngleXValue"
+                        class="editable-slider-value"
+                        data-slider="objectAngleXSlider"
+                        data-precision="0"
+                        >0</span
+                      >
+                    </div>
+                    <div class="preview-slider-container scale-axis-row">
+                      <span class="scale-axis-chip">Y</span>
+                      <input
+                        type="range"
+                        data-preview-el="objectAngleYSlider"
+                        min="0"
+                        max="360"
+                        step="1"
+                        value="0"
+                      />
+                      <span
+                        data-preview-el="objectAngleYValue"
+                        class="editable-slider-value"
+                        data-slider="objectAngleYSlider"
+                        data-precision="0"
+                        >0</span
+                      >
+                    </div>
+                    <div class="preview-slider-container scale-axis-row">
+                      <span class="scale-axis-chip">Z</span>
+                      <input
+                        type="range"
+                        data-preview-el="objectAngleSlider"
+                        min="0"
+                        max="360"
+                        step="1"
+                        value="0"
+                      />
+                      <span
+                        data-preview-el="objectAngleValue"
+                        class="editable-slider-value"
+                        data-slider="objectAngleSlider"
+                        data-precision="0"
+                        >0</span
+                      >
+                    </div>
+                  </div>
+                  <div class="preview-control-group preview-scale-group">
+                    <div class="preview-scale-header">
+                      <label
+                        data-tooltip="Moves the object away from the middle of the room, as a percentage of the room's size — so it stays put when you change the resolution or the room scale. X is right, Y is down, Z is towards you."
+                        >Offset:</label
+                      >
+                    </div>
+                    <div class="preview-slider-container scale-axis-row">
+                      <span class="scale-axis-chip">X</span>
+                      <input
+                        type="range"
+                        data-preview-el="objectOffsetXSlider"
+                        min="-50"
+                        max="50"
+                        step="1"
+                        value="0"
+                      />
+                      <span
+                        data-preview-el="objectOffsetXValue"
+                        class="editable-slider-value"
+                        data-slider="objectOffsetXSlider"
+                        data-precision="0"
+                        >0</span
+                      >
+                    </div>
+                    <div class="preview-slider-container scale-axis-row">
+                      <span class="scale-axis-chip">Y</span>
+                      <input
+                        type="range"
+                        data-preview-el="objectOffsetYSlider"
+                        min="-50"
+                        max="50"
+                        step="1"
+                        value="0"
+                      />
+                      <span
+                        data-preview-el="objectOffsetYValue"
+                        class="editable-slider-value"
+                        data-slider="objectOffsetYSlider"
+                        data-precision="0"
+                        >0</span
+                      >
+                    </div>
+                    <div class="preview-slider-container scale-axis-row">
+                      <span class="scale-axis-chip">Z</span>
+                      <input
+                        type="range"
+                        data-preview-el="objectOffsetZSlider"
+                        min="-50"
+                        max="50"
+                        step="1"
+                        value="0"
+                      />
+                      <span
+                        data-preview-el="objectOffsetZValue"
+                        class="editable-slider-value"
+                        data-slider="objectOffsetZSlider"
+                        data-precision="0"
+                        >0</span
+                      >
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Scene Tab -->
+                <div class="preview-tab-content" data-tab="scene">
+                  <div class="preview-control-group">
+                    <label
+                      data-tooltip="2D looks straight at the object. Perspective and orthographic orbit it in 3D - drag inside the preview to move the camera."
+                      >Camera:</label
+                    >
+                    <select data-preview-el="cameraModeSelect">
+                      <option value="2d">2D</option>
+                      <option value="perspective">Perspective</option>
+                      <option value="orthographic">Orthographic</option>
+                    </select>
+                  </div>
+                  <div
+                    class="preview-control-group"
+                    data-preview-el="autoRotateGroup"
+                  >
+                    <label>
+                      <input
+                        type="checkbox"
+                        data-preview-el="autoRotateCheckbox"
+                        checked
+                      />
+                      Auto Rotate
+                    </label>
+                  </div>
+                  <div class="preview-control-group">
+                    <label
+                      data-preview-for="backgroundModeSelect"
+                      data-tooltip="Which backdrop sits behind the object. Auto follows the camera: the flat tiled background in 2D, the room cube in 3D."
+                      >Background:</label
+                    >
+                    <select data-preview-el="backgroundModeSelect">
+                      <option value="auto">Auto</option>
+                      <option value="none">None</option>
+                      <option value="2d">2D Background</option>
+                      <option value="3d">3D Room</option>
+                    </select>
+                  </div>
+                  <div class="preview-control-group preview-slider-group">
+                    <label
+                      data-tooltip="Size of the room the object sits in. In perspective mode, also moves the camera out to match."
+                      >Room Scale:</label
+                    >
+                    <div class="preview-slider-container">
+                      <input
+                        type="range"
+                        data-preview-el="roomScaleSlider"
+                        min="0.5"
+                        max="3"
+                        step="0.05"
+                        value="1"
+                      />
+                      <span
+                        data-preview-el="roomScaleValue"
+                        class="editable-slider-value"
+                        data-slider="roomScaleSlider"
+                        >1.00</span
+                      >
+                    </div>
+                  </div>
+                  <div class="preview-control-group preview-slider-group">
+                    <label>BG Opacity:</label>
+                    <div class="preview-slider-container">
+                      <input
+                        type="range"
+                        data-preview-el="bgOpacitySlider"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value="0.15"
+                      />
+                      <span
+                        data-preview-el="bgOpacityValue"
+                        class="editable-slider-value"
+                        data-slider="bgOpacitySlider"
+                        >0.15</span
+                      >
+                    </div>
+                  </div>
+                  <div class="preview-control-group preview-slider-group">
+                    <label>3D BG Opacity:</label>
+                    <div class="preview-slider-container">
+                      <input
+                        type="range"
+                        data-preview-el="bg3dOpacitySlider"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value="0.15"
+                      />
+                      <span
+                        data-preview-el="bg3dOpacityValue"
+                        class="editable-slider-value"
+                        data-slider="bg3dOpacitySlider"
+                        >0.15</span
+                      >
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Textures Tab -->
+                <div class="preview-tab-content" data-tab="textures">
+                  <div class="preview-control-group preview-texture-group">
+                    <label>Sprite Texture:</label>
+                    <div class="texture-preview-container">
+                      <div
+                        data-preview-el="spriteTexturePreview"
+                        class="texture-preview"
+                      >
+                        <span>No image</span>
+                      </div>
+                      <input
+                        type="file"
+                        data-preview-el="spriteTextureInput"
+                        accept="image/*"
+                        style="display: none"
+                      />
+                      <button
+                        data-preview-el="spriteTextureBtn"
+                        class="texture-btn"
+                        title="Load sprite texture"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        data-preview-el="clearSpriteTextureBtn"
+                        class="texture-clear-btn"
+                        title="Clear sprite texture"
+                        style="display: none"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="preview-control-group preview-texture-group">
+                    <label>Shape Texture:</label>
+                    <div class="texture-preview-container">
+                      <div
+                        data-preview-el="shapeTexturePreview"
+                        class="texture-preview"
+                      >
+                        <span>No image</span>
+                      </div>
+                      <input
+                        type="file"
+                        data-preview-el="shapeTextureInput"
+                        accept="image/*"
+                        style="display: none"
+                      />
+                      <button
+                        data-preview-el="shapeTextureBtn"
+                        class="texture-btn"
+                        title="Load shape texture"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        data-preview-el="clearShapeTextureBtn"
+                        class="texture-clear-btn"
+                        title="Clear shape texture"
+                        style="display: none"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="preview-control-group preview-texture-group">
+                    <label>Model Texture:</label>
+                    <div class="texture-preview-container">
+                      <div
+                        data-preview-el="modelTexturePreview"
+                        class="texture-preview"
+                      >
+                        <span>No image</span>
+                      </div>
+                      <input
+                        type="file"
+                        data-preview-el="modelTextureInput"
+                        accept="image/*"
+                        style="display: none"
+                      />
+                      <button
+                        data-preview-el="modelTextureBtn"
+                        class="texture-btn"
+                        title="Replace the 3D model's grid texture"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        data-preview-el="clearModelTextureBtn"
+                        class="texture-clear-btn"
+                        title="Back to the grid texture"
+                        style="display: none"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="preview-control-group preview-texture-group">
+                    <label>Background Texture:</label>
+                    <div class="texture-preview-container">
+                      <div
+                        data-preview-el="bgTexturePreview"
+                        class="texture-preview"
+                      >
+                        <span>No image</span>
+                      </div>
+                      <input
+                        type="file"
+                        data-preview-el="bgTextureInput"
+                        accept="image/*"
+                        style="display: none"
+                      />
+                      <button
+                        data-preview-el="bgTextureBtn"
+                        class="texture-btn"
+                        title="Load background texture"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M5 3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.9 21 3 20.11 3 19V5C3 3.9 3.9 3 5 3M16 17V15H8V17H16M16 11L12 7L8 11H10.5V14H13.5V11H16Z"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        data-preview-el="clearBgTextureBtn"
+                        class="texture-clear-btn"
+                        title="Clear background texture"
+                        style="display: none"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M22,3H7C6.31,3 5.77,3.35 5.41,3.88L0,12L5.41,20.11C5.77,20.64 6.31,21 7,21H22A2,2 0 0,0 24,19V5A2,2 0 0,0 22,3M19,15.59L17.59,17L14,13.41L10.41,17L9,15.59L12.59,12L9,8.41L10.41,7L14,10.59L17.59,7L19,8.41L15.41,12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Technical Tab -->
+                <div class="preview-tab-content" data-tab="technical">
+                  <div class="preview-control-group">
+                    <label
+                      data-preview-for="renderResolutionSelect"
+                      data-tooltip="How many pixels the effect actually runs over. The scene is rendered at this size and upscaled to fill the panel, so the number sets the panel's short side and the long side follows its aspect. Native renders at the panel's own resolution; nothing can render larger than that."
+                      >Resolution:</label
+                    >
+                    <select data-preview-el="renderResolutionSelect">
+                      <option value="native">Native</option>
+                      <option value="64">64</option>
+                      <option value="128">128</option>
+                      <option value="256">256</option>
+                      <option value="512">512</option>
+                      <option value="1024">1024</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </div>
+                  <div
+                    class="preview-control-group"
+                    data-preview-el="customResolutionRow"
+                    style="display: none"
+                  >
+                    <label data-preview-for="canvasWidthInput">Custom:</label>
+                    <div class="canvas-size-inputs">
+                      <input
+                        type="number"
+                        data-preview-el="canvasWidthInput"
+                        min="16"
+                        max="4096"
+                        step="1"
+                        value="240"
+                      />
+                      <span class="canvas-size-separator">×</span>
+                      <input
+                        type="number"
+                        data-preview-el="canvasHeightInput"
+                        min="16"
+                        max="4096"
+                        step="1"
+                        value="240"
+                      />
+                    </div>
+                  </div>
+                  <div class="preview-control-group">
+                    <label
+                      data-preview-for="fullscreenQualitySelect"
+                      data-tooltip="Construct's own project property. High renders at the display's full resolution and ignores the resolution above. Low renders at that resolution and upscales, which is what picking one turns this to."
+                      >Fullscreen Quality:</label
+                    >
+                    <select data-preview-el="fullscreenQualitySelect">
+                      <option value="high">High</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </div>
+                  <div class="preview-control-group">
+                    <span
+                      data-preview-el="renderSizeReadout"
+                      class="preview-readout"
+                    ></span>
+                  </div>
+                  <div class="preview-control-group">
+                    <label>Sampling:</label>
+                    <select data-preview-el="samplingModeSelect">
+                      <option value="trilinear">Trilinear</option>
+                      <option value="bilinear">Bilinear</option>
+                      <option value="nearest">Nearest</option>
+                    </select>
+                  </div>
+                  <div class="preview-control-group">
+                    <label
+                      data-tooltip="Sharpens mipmapped textures viewed at a steep angle. Only does anything with trilinear sampling."
+                      >Anisotropic:</label
+                    >
+                    <select data-preview-el="anisotropicFilteringSelect">
+                      <option value="auto">Auto</option>
+                      <option value="off">Off</option>
+                      <option value="2x">2x</option>
+                      <option value="3x">3x</option>
+                      <option value="4x">4x</option>
+                      <option value="8x">8x</option>
+                      <option value="16x">16x</option>
+                    </select>
+                  </div>
+                  <div class="preview-control-group">
+                    <label>Shader Language:</label>
+                    <select data-preview-el="shaderLanguageSelect">
+                      <option value="webgpu">WebGPU</option>
+                      <option value="webgl2">WebGL 2</option>
+                      <option value="webgl1">WebGL 1</option>
+                    </select>
+                  </div>
+                  <div class="preview-control-group">
+                    <label
+                      data-preview-for="forceRotatedTextureCheckbox"
+                      data-tooltip="Packs the frame sideways, like C3 does when it saves atlas space. Breaks effects that assume the texture is upright."
+                      >Rotated in spritesheet:</label
+                    >
+                    <input
+                      type="checkbox"
+                      data-preview-el="forceRotatedTextureCheckbox"
+                    />
+                  </div>
+                  <div class="preview-control-group">
+                    <button
+                      data-preview-el="resetPreviewSettingsBtn"
+                      class="reset-preview-btn"
+                    >
+                      Reset Preview Settings
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Script Tab -->
+                <div class="preview-tab-content" data-tab="script">
+                  <div class="script-tab-container">
+                    <div class="script-tab-header">
+                      <label>Startup Script</label>
+                      <span class="script-tab-hint"
+                        >Runs when preview starts. Access runtime objects via
+                        <code>runtime</code>, <code>sprite</code>,
+                        <code>shape3D</code>, etc.</span
+                      >
+                    </div>
+                    <textarea
+                      data-preview-el="previewStartupScript"
+                      class="script-editor"
+                      placeholder="// Example: Set effect parameter at runtime
+  // piggy.effects[0].setParameter(0, 0.5);
+
+  // Example: Log to preview console
+  // console.log('Preview started!');"
+                      spellcheck="false"
+                    ></textarea>
+                  </div>
                 </div>
               </div>
-              <div id="preview-console-content"></div>
+              <iframe
+                data-preview-el="preview-iframe"
+                src="./preview/index.html"
+              ></iframe>
+              <!-- Shown in place of the iframe while the preview is popped out. -->
+              <div data-preview-el="preview-popped-out-note">
+                <span>Preview is open in its own window.</span>
+                <button
+                  data-preview-el="dockPreviewBtn"
+                  class="uniform-secondary-btn"
+                >
+                  Bring it back
+                </button>
+              </div>
+              <!-- Preview Console -->
+              <div
+                data-preview-el="preview-console"
+                class="preview-console-collapsed"
+              >
+                <div data-preview-el="preview-console-header">
+                  <div class="preview-console-title">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"
+                      />
+                    </svg>
+                    <span>Console</span>
+                    <span
+                      data-preview-el="preview-console-badge"
+                      class="preview-console-badge hidden"
+                      >0</span
+                    >
+                  </div>
+                  <div class="preview-console-actions">
+                    <button
+                      data-preview-el="clearConsoleBtn"
+                      title="Clear Console"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      data-preview-el="toggleConsoleBtn"
+                      title="Toggle Console"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div data-preview-el="preview-console-content"></div>
+              </div>
             </div>
           </div>
-        </div>
+        </template>
+        <!-- Live preview windows are mounted here. -->
+        <div id="preview-windows"></div>
         <div id="uniform-sidebar">
           <div id="shader-info-section" class="collapsible-section">
             <div class="sidebar-section-header">

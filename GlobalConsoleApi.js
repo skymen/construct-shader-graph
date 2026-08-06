@@ -1881,17 +1881,23 @@ function syncPreviewSettings(bp, patch) {
   let shouldReload = false;
   const changed = new Set();
 
+  // There can be several preview windows, each with its own settings. The API
+  // addresses the first one - that is what "the preview" means to a script or
+  // to the CLI.
+  const previewTarget = target(bp);
+  const settings = previewTarget?.settings ?? bp.previewSettings;
+
   for (const d of PREVIEW_SETTINGS) {
     if (patch[d.key] === undefined) continue;
 
     const value = coercePreviewSetting(d, patch[d.key]);
-    bp.previewSettings[d.key] = value;
+    settings[d.key] = value;
     changed.add(d.key);
 
     // effectTarget and object imply each other; a link mutates its sibling in
     // place and names it so it gets resent too.
     if (d.link) {
-      for (const key of d.link(bp.previewSettings, value)) changed.add(key);
+      for (const key of d.link(settings, value)) changed.add(key);
     }
 
     if (d.reload === true || (d.reload === "whenEmpty" && !value)) {
@@ -1912,12 +1918,12 @@ function syncPreviewSettings(bp, patch) {
         if (sentGroups.has(d.applyGroup)) continue;
         sentGroups.add(d.applyGroup);
       }
-      bp.applyPreviewSetting(d, bp.previewSettings[d.key], target(bp));
+      bp.applyPreviewSetting(d, settings[d.key], previewTarget, settings);
     }
   }
 
-  bp.updatePreviewSettingsUI();
-  if (shouldReload) bp.updatePreview();
+  bp.updatePreviewSettingsUI(previewTarget);
+  if (shouldReload) bp.updatePreview(previewTarget);
 }
 
 function target(bp) {
@@ -5388,7 +5394,9 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "preview.getConsoleEntries limit must be a finite number",
         );
 
-        let entries = blueprint.consoleEntries.map((entry) =>
+        // Each preview window keeps its own console. The API reads the first
+        // one's, the same window the rest of preview.* addresses.
+        let entries = (target(blueprint)?.consoleEntries ?? []).map((entry) =>
           serializePreviewConsoleEntry(entry),
         );
 
@@ -5492,7 +5500,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         if (nodeIdOrNull == null) {
           blueprint.previewNode = null;
           blueprint.previewNeedsUpdate = true;
-          blueprint.updatePreview();
+          blueprint.updateAllPreviews();
           blueprint.render();
           return getPreviewNodeState(blueprint);
         }
@@ -5501,7 +5509,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         validatePreviewNode(node);
         blueprint.previewNode = node;
         blueprint.previewNeedsUpdate = true;
-        blueprint.updatePreview();
+        blueprint.updateAllPreviews();
         blueprint.render();
         return getPreviewNodeState(blueprint);
       },

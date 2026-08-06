@@ -1088,24 +1088,44 @@ class Comment {
   }
 }
 
-// One preview and whether its runtime has booted.
+let __previewTargetCounter = 0;
+
+// One preview: its panel, its runtime, and its own settings.
 //
-// The preview can live in the docked iframe or in a window of its own. Both are
-// just a Window to postMessage at, so everything below goes through `win` and
-// nothing else needs to know which one is in play - that is what made popping
-// out a small change rather than a second code path.
+// Everything that is per-preview lives here rather than on the host, which is
+// what lets there be more than one of them (issue #78). The host keeps a list
+// in `previewTargets` and addresses each by target; nothing outside this class
+// knows whether a given preview is in the docked iframe or a window of its own,
+// because both are just a Window to postMessage at and both go through `win`.
 //
-// There is exactly one target today, but every path that talks to the preview
-// takes a target rather than reaching for `this.previewIframe`, so a second
-// window (issue #78) is a push onto `previewTargets` rather than a rewrite.
-// What that would still need: the preview console and error tracking are
-// host-global and would have to be tagged per target.
+// The panel is a clone of #preview-window-template, so no element inside it
+// carries a shared id. `el(name)` is the only way in - it resolves
+// `data-preview-el` within this window's own root, so two panels can hold two
+// controls with the same name and never see each other's.
 class PreviewTarget {
-  constructor(iframe) {
-    this.iframe = iframe;
-    // Set while the preview lives in its own browser window.
+  constructor(root, settings) {
+    this.id = ++__previewTargetCounter;
+    this.root = root ?? null;
+    this.iframe = root
+      ? root.querySelector('[data-preview-el="preview-iframe"]')
+      : null;
+    // Set while this preview lives in its own browser window.
     this.popup = null;
     this.ready = false;
+    this.settings = settings ?? makeDefaultPreviewSettings();
+
+    // Console and error state, per preview - output belongs to the window that
+    // produced it, not to whichever window happens to be first.
+    this.consoleEntries = [];
+    this.errorCount = 0;
+    this.notificationCount = 0;
+    this.errorKeys = new Set();
+    this.lastRenderSize = null;
+  }
+
+  // A control inside this preview's own panel. Never document-wide.
+  el(name) {
+    return this.root?.querySelector(`[data-preview-el="${name}"]`) ?? null;
   }
 
   // The window the runtime is actually in, or null if there isn't one.
@@ -1139,6 +1159,32 @@ class PreviewTarget {
     } else if (this.iframe) {
       this.iframe.src = url;
     }
+  }
+
+  // Where the panel is on screen, so it can be saved and put back.
+  get geometry() {
+    if (!this.root) return null;
+    const style = this.root.style;
+    return {
+      left: style.left || null,
+      top: style.top || null,
+      width: style.width || null,
+      height: style.height || null,
+    };
+  }
+
+  set geometry(geo) {
+    if (!this.root || !geo) return;
+    if (geo.left) {
+      this.root.style.left = geo.left;
+      this.root.style.right = "auto";
+    }
+    if (geo.top) {
+      this.root.style.top = geo.top;
+      this.root.style.bottom = "auto";
+    }
+    if (geo.width) this.root.style.width = geo.width;
+    if (geo.height) this.root.style.height = geo.height;
   }
 }
 
@@ -1242,10 +1288,11 @@ class BlueprintSystem {
     // Custom Nodes (host-level: shared across graphs; declared above)
     this.editingCustomNode = null;
 
-    // Preview. `previewTargets` must exist before previewIframe/previewReady
-    // are touched - both are accessors that proxy previewTargets[0].
+    // Previews. `previewTargets` must exist before previewIframe/previewReady/
+    // previewSettings are touched - all are accessors that proxy
+    // previewTargets[0]. Windows are built in setupPreview() from the template.
     this.previewTargets = [];
-    this.previewIframe = null;
+    this._orphanPreviewSettings = makeDefaultPreviewSettings();
     this.previewReady = false;
     this.previewNeedsUpdate = true;
 
@@ -1255,7 +1302,12 @@ class BlueprintSystem {
 
     // Preview settings (not part of undo/redo). Described once in
     // preview-settings.js; see PREVIEW_SETTINGS there before adding a key.
+    // Per-window: this is window 0's set. See PreviewTarget.settings.
     this.previewSettings = makeDefaultPreviewSettings();
+    // How many previews can be open at once. Each is a whole Construct runtime
+    // with its own workers and GPU context, and browsers start dropping the
+    // oldest context somewhere past a dozen.
+    this.maxPreviewWindows = 4;
 
     // Unified host-level undo/redo history (shared across all graphs).
     this.history = new HistoryManager(this);
@@ -1282,10 +1334,12 @@ class BlueprintSystem {
     this.setupOpenFilesModal();
     this.setupManualModal();
     this.setupIrGraphModal();
+    // Before setupPreview: building a preview window can already want to report
+    // an error, and it has nowhere to put one until notifications exist.
+    // Each preview panel wires its own console, in wirePreviewWindow.
+    this.setupNotifications();
     this.setupPreview();
     this.setupMinimap();
-    this.setupNotifications();
-    this.setupPreviewConsole();
     this.setupMcpBridge();
     this.render();
     this.updateUndoRedoButtons();
@@ -1522,233 +1576,14 @@ class BlueprintSystem {
     updateButton("exportBtn", "Export", "Export Addon");
     updateButton("reportIssueBtn", "Report Issue", "Report an Issue on GitHub");
 
-    // Preview header
-    const previewHeader = document.querySelector("#preview-header span");
-    if (previewHeader) previewHeader.textContent = t("Preview");
-
-    // Preview buttons
-    const updatePreviewButton = (id, titleKey) => {
-      const btn = document.getElementById(id);
-      if (btn) btn.title = t(titleKey);
-    };
-
-    updatePreviewButton("togglePreviewSettingsBtn", "Toggle Settings");
-    updatePreviewButton("reloadPreviewBtn", "Reload Preview");
-    updatePreviewButton("screenshotPreviewBtn", "Screenshot Preview");
-    updatePreviewButton("closePreviewBtn", "Close Preview");
-
-    // Preview controls labels
-    const updateLabel = (selector, textKey) => {
-      const labels = document.querySelectorAll(selector);
-      labels.forEach((label) => {
-        const text = label.childNodes[0];
-        if (text) {
-          text.textContent = t(textKey);
-        }
-      });
-    };
-
-    updateLabel(
-      "#preview-controls .preview-control-group label[for='effectTargetSelect'], .preview-control-group:has(#effectTargetSelect) > label",
-      "Effect Target:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#objectSelect) > label",
-      "Object:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#objectColorInput) > label",
-      "Color:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#objectAngleSlider) .preview-scale-header > label",
-      "Rotation:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#objectOffsetXSlider) .preview-scale-header > label",
-      "Offset:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#cameraModeSelect) > label",
-      "Camera:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#autoRotateCheckbox) label",
-      "Auto Rotate",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#backgroundModeSelect) > label",
-      "Background:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#renderResolutionSelect) > label",
-      "Resolution:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#canvasWidthInput) > label",
-      "Custom:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#fullscreenQualitySelect) > label",
-      "Fullscreen Quality:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#samplingModeSelect) > label",
-      "Sampling:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#anisotropicFilteringSelect) > label",
-      "Anisotropic:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#shaderLanguageSelect) > label",
-      "Shader Language:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#spriteTextureInput) > label",
-      "Sprite Texture:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#shapeTextureInput) > label",
-      "Shape Texture:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#modelTextureInput) > label",
-      "Model Texture:",
-    );
-
-    // Preview select options
-    const effectTargetSelect = document.getElementById("effectTargetSelect");
-    if (effectTargetSelect) {
-      effectTargetSelect.options[0].text = t("Sprite");
-      effectTargetSelect.options[1].text = t("3D Shape");
-      effectTargetSelect.options[2].text = t("Layout");
-      effectTargetSelect.options[3].text = t("Layer");
+    // Preview panels, one pass each.
+    for (const previewTarget of this.previewTargets) {
+      this.updatePreviewPanelText(previewTarget, t);
     }
-
-    const objectSelect = document.getElementById("objectSelect");
-    if (objectSelect) {
-      objectSelect.options[0].text = t("Sprite");
-      objectSelect.options[1].text = t("Box");
-      objectSelect.options[2].text = t("Prism");
-      objectSelect.options[3].text = t("Wedge");
-      objectSelect.options[4].text = t("Pyramid");
-      objectSelect.options[5].text = t("Corner Out");
-      objectSelect.options[6].text = t("Corner In");
-    }
-
-    const cameraModeSelect = document.getElementById("cameraModeSelect");
-    if (cameraModeSelect) {
-      cameraModeSelect.options[0].text = t("2D");
-      cameraModeSelect.options[1].text = t("Perspective");
-      cameraModeSelect.options[2].text = t("Orthographic");
-    }
-
-    const backgroundModeSelect = document.getElementById(
-      "backgroundModeSelect",
-    );
-    if (backgroundModeSelect) {
-      backgroundModeSelect.options[0].text = t("Auto");
-      backgroundModeSelect.options[1].text = t("None");
-      backgroundModeSelect.options[2].text = t("2D Background");
-      backgroundModeSelect.options[3].text = t("3D Room");
-    }
-
-    const renderResolutionSelect = document.getElementById(
-      "renderResolutionSelect",
-    );
-    if (renderResolutionSelect) {
-      // Only the first and last are words; the pixel counts need no translating.
-      renderResolutionSelect.options[0].text = t("Native");
-      renderResolutionSelect.options[
-        renderResolutionSelect.options.length - 1
-      ].text = t("Custom");
-    }
-
-    const fullscreenQualitySelect = document.getElementById(
-      "fullscreenQualitySelect",
-    );
-    if (fullscreenQualitySelect) {
-      fullscreenQualitySelect.options[0].text = t("High");
-      fullscreenQualitySelect.options[1].text = t("Low");
-    }
-
-    // Rebuilt rather than translated in place - it is a sentence, not a label.
-    this.showRenderSize();
-
-    const samplingModeSelect = document.getElementById("samplingModeSelect");
-    if (samplingModeSelect) {
-      samplingModeSelect.options[0].text = t("Trilinear");
-      samplingModeSelect.options[1].text = t("Bilinear");
-      samplingModeSelect.options[2].text = t("Nearest");
-    }
-
-    const anisotropicFilteringSelect = document.getElementById(
-      "anisotropicFilteringSelect",
-    );
-    if (anisotropicFilteringSelect) {
-      // Only the first two options are words; 2x..16x need no translating.
-      anisotropicFilteringSelect.options[0].text = t("Auto");
-      anisotropicFilteringSelect.options[1].text = t("Off");
-    }
-
-    const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect",
-    );
-    if (shaderLanguageSelect) {
-      shaderLanguageSelect.options[0].text = t("WebGPU");
-      shaderLanguageSelect.options[1].text = t("WebGL 2");
-      shaderLanguageSelect.options[2].text = t("WebGL 1");
-    }
-
-    // Preview buttons with titles
-    const spriteTextureBtn = document.getElementById("spriteTextureBtn");
-    if (spriteTextureBtn) spriteTextureBtn.title = t("Load sprite texture");
-
-    const clearSpriteTextureBtn = document.getElementById(
-      "clearSpriteTextureBtn",
-    );
-    if (clearSpriteTextureBtn)
-      clearSpriteTextureBtn.title = t("Clear sprite texture");
-
-    const shapeTextureBtn = document.getElementById("shapeTextureBtn");
-    if (shapeTextureBtn) shapeTextureBtn.title = t("Load shape texture");
-
-    const clearShapeTextureBtn = document.getElementById(
-      "clearShapeTextureBtn",
-    );
-    if (clearShapeTextureBtn)
-      clearShapeTextureBtn.title = t("Clear shape texture");
-
-    const modelTextureBtn = document.getElementById("modelTextureBtn");
-    if (modelTextureBtn)
-      modelTextureBtn.title = t("Replace the 3D model's grid texture");
-
-    const clearModelTextureBtn = document.getElementById(
-      "clearModelTextureBtn",
-    );
-    if (clearModelTextureBtn)
-      clearModelTextureBtn.title = t("Back to the grid texture");
-
-    const resetPreviewSettingsBtn = document.getElementById(
-      "resetPreviewSettingsBtn",
-    );
-    if (resetPreviewSettingsBtn)
-      resetPreviewSettingsBtn.textContent = t("Reset Preview Settings");
-
-    // Texture preview "No image" text
-    const updateTexturePreview = (id) => {
-      const preview = document.getElementById(id);
-      if (preview) {
-        const span = preview.querySelector("span");
-        if (span) span.textContent = t("No image");
-      }
-    };
-
-    updateTexturePreview("spriteTexturePreview");
-    updateTexturePreview("shapeTexturePreview");
-    updateTexturePreview("modelTexturePreview");
-    updateTexturePreview("bgTexturePreview");
+    // Headers and close-button titles depend on the window count, not just the
+    // language, so they come from here.
+    this.renumberPreviewWindows();
+    this.updateOpenPreviewButton();
 
     // Sidebar sections
     const shaderInfoHeader = document.querySelector(
@@ -2087,9 +1922,13 @@ class BlueprintSystem {
     return this.graphs ? this.graphs.get(this.activeGraphId) : null;
   }
 
-  // The preview is host-level, and today there is exactly one of it.
-  // `previewIframe` / `previewReady` are kept as properties so the ~40 call
-  // sites that read them carry on working; both proxy previewTargets[0].
+  // Previews are host-level and there can be several. The first one is the
+  // default: it is what the scripting API, the CLI and the save file mean when
+  // they say "the preview" without naming one.
+  //
+  // `previewIframe` / `previewReady` / `previewSettings` are kept as properties
+  // so the many call sites that read them carry on working; all proxy
+  // previewTargets[0].
   defaultPreviewTarget() {
     return this.previewTargets[0] ?? null;
   }
@@ -2099,16 +1938,19 @@ class BlueprintSystem {
     return this.previewTargets.find((target) => target.owns(source)) ?? null;
   }
 
-  get previewIframe() {
-    return this.previewTargets[0]?.iframe ?? null;
+  targetById(id) {
+    return this.previewTargets.find((target) => target.id === id) ?? null;
   }
 
-  set previewIframe(iframe) {
-    if (this.previewTargets[0]) {
-      this.previewTargets[0].iframe = iframe;
-    } else {
-      this.previewTargets[0] = new PreviewTarget(iframe);
-    }
+  // The target a DOM event inside a preview panel belongs to.
+  targetForElement(node) {
+    const root = node?.closest?.('[data-preview-el="preview-window"]');
+    if (!root) return null;
+    return this.previewTargets.find((target) => target.root === root) ?? null;
+  }
+
+  get previewIframe() {
+    return this.previewTargets[0]?.iframe ?? null;
   }
 
   get previewReady() {
@@ -2117,6 +1959,20 @@ class BlueprintSystem {
 
   set previewReady(ready) {
     if (this.previewTargets[0]) this.previewTargets[0].ready = !!ready;
+  }
+
+  get previewSettings() {
+    return this.previewTargets[0]?.settings ?? this._orphanPreviewSettings;
+  }
+
+  set previewSettings(settings) {
+    // Before the first window exists (constructor, and createNewFile ordering)
+    // there is nowhere to put these yet, so hold them until one is built.
+    if (this.previewTargets[0]) {
+      this.previewTargets[0].settings = settings;
+    } else {
+      this._orphanPreviewSettings = settings;
+    }
   }
 
   _installGraphDelegation() {
@@ -3800,6 +3656,8 @@ class BlueprintSystem {
     // Name input
     nameInput.addEventListener("input", () => {
       this.shaderSettings.name = nameInput.value.trim();
+      // Popped-out windows are titled after the shader.
+      this.renumberPreviewWindows();
     });
 
     // Version validation (X.X.X.X format)
@@ -3927,7 +3785,7 @@ class BlueprintSystem {
     this.updateTargetCheckboxes();
     // A disabled language must not stay selected in the preview or the code
     // viewer, both of which would otherwise show a shader that no longer exists.
-    this.clampPreviewShaderLanguage();
+    this.clampAllPreviewShaderLanguages();
     this.updateShaderLanguageTabs();
     this.onShaderChanged();
     this.history.pushState(
@@ -5498,132 +5356,359 @@ class BlueprintSystem {
   }
 
   setupPreview() {
-    this.previewIframe = document.getElementById("preview-iframe");
-    const previewWindow = document.getElementById("preview-window");
-    const previewHeader = document.getElementById("preview-header");
-    const closePreviewBtn = document.getElementById("closePreviewBtn");
-    const openPreviewBtn = document.getElementById("openPreviewBtn");
+    // App-wide preview plumbing only. Everything that belongs to one panel is
+    // in wirePreviewWindow(), which runs once per window.
+    this.previewWindowsContainer = document.getElementById("preview-windows");
+    this.previewWindowTemplate = document.getElementById(
+      "preview-window-template",
+    );
 
-    // Error tracking with rate limiting
-    this.previewErrorCount = 0; // Total errors for console
-    this.previewNotificationCount = 0; // Errors shown as notifications
-    this.previewErrorKeys = new Set(); // Track unique errors
+    // The eye brings back everything that is minimised, however many that is,
+    // and hides itself once nothing is left to restore. Opening a *new* window
+    // is the header's plus button and the View menu - a separate intent.
+    document.getElementById("openPreviewBtn")?.addEventListener("click", () => {
+      for (const target of this.minimisedPreviews()) {
+        this.showPreviewWindow(target);
+      }
+    });
 
-    // Make preview window draggable
+    // Window 0: what the scripting API, the CLI and the save file mean by "the
+    // preview". It takes over whatever settings the host was holding.
+    //
+    // `reload: false` because this runs from the constructor, before the app
+    // has a graph - createNewFile() adds the default nodes afterwards. Asking
+    // for a shader now would only produce "no Output node", which is true and
+    // useless. createNewFile() and loadFromJSON() drive the first real load.
+    this.addPreviewWindow({
+      settings: this._orphanPreviewSettings,
+      reload: false,
+    });
+
+    // One listener for every preview. Which window a message came from is
+    // resolved from event.source, not assumed.
+    window.addEventListener("message", (event) => this.onPreviewMessage(event));
+
+    // Hover tooltips (app-wide, but the preview panel is what needs them most)
+    this.setupTooltips();
+
+    // Minimap controls
+    this.setupMinimapControls();
+  }
+
+  // Build another preview window: clone the template, mount it, give it its own
+  // settings, and wire its controls to itself.
+  addPreviewWindow({ settings, geometry, reload = true } = {}) {
+    if (!this.previewWindowTemplate || !this.previewWindowsContainer) {
+      return null;
+    }
+    if (this.previewTargets.length >= this.maxPreviewWindows) {
+      this.showNotification({
+        type: "warning",
+        title: "Preview limit reached",
+        message: `${this.maxPreviewWindows} preview windows is the cap - each one is a whole Construct runtime with its own GPU context.`,
+        duration: 4000,
+      });
+      return null;
+    }
+
+    const fragment = this.previewWindowTemplate.content.cloneNode(true);
+    const root = fragment.querySelector('[data-preview-el="preview-window"]');
+    if (!root) return null;
+
+    const target = new PreviewTarget(
+      root,
+      settings ?? makeDefaultPreviewSettings(),
+    );
+
+    // Real ids, generated per window, so duplicated markup never collides and
+    // <label data-preview-for> still points at something.
+    for (const el of root.querySelectorAll("[data-preview-el]")) {
+      el.id = `${el.dataset.previewEl}__w${target.id}`;
+    }
+    for (const label of root.querySelectorAll("[data-preview-for]")) {
+      const el = target.el(label.dataset.previewFor);
+      if (el) label.htmlFor = el.id;
+    }
+
+    // Cascade, so a new window does not land on top of the one it came from.
+    // Offset by more than the header height, or the two read as one window.
+    const offset = this.previewTargets.length * 36;
+    root.style.right = `${20 + offset}px`;
+    root.style.bottom = `${20 + offset}px`;
+
+    this.previewWindowsContainer.appendChild(root);
+    this.previewTargets.push(target);
+    if (geometry) target.geometry = geometry;
+
+    this.wirePreviewWindow(target);
+    // In front: it is the one the user just asked for.
+    this.raisePreviewWindow(target);
+    this.renumberPreviewWindows();
+    this.updateOpenPreviewButton();
+    this.updatePreviewSettingsUI(target);
+    if (reload) this.updatePreview(target);
+
+    return target;
+  }
+
+  // What a new window should start from. Copying the window it was opened from
+  // beats a fresh default - a second view is nearly always a variation on the
+  // first - and the View menu, which has no window in hand, copies window 0.
+  newPreviewWindowOptions(from = this.defaultPreviewTarget()) {
+    return from ? { settings: { ...from.settings } } : {};
+  }
+
+  // Which preview this is, 1-based, as shown to the user.
+  previewNumber(target) {
+    return this.previewTargets.indexOf(target) + 1;
+  }
+
+  // What a preview is called. Numbered only when there is more than one, since
+  // "Preview 1" on its own is just noise.
+  previewName(target) {
+    const t = (key) => languageManager.getUIText(key);
+    if (this.previewTargets.length < 2) return t("Preview");
+    return `${t("Preview")} ${this.previewNumber(target)}`;
+  }
+
+  // The title of a popped-out preview's browser window. Named after the shader
+  // so a taskbar full of them can be told apart.
+  previewWindowTitle(target) {
+    const name = this.mainGraph.shaderSettings.name?.trim();
+    const numbered =
+      this.previewTargets.length > 1
+        ? `Preview #${this.previewNumber(target)}`
+        : "Preview";
+    return name ? `${name} - ${numbered}` : numbered;
+  }
+
+  // Headers, close-button meanings and popped-out titles all depend on how many
+  // windows there are and where each sits, so they are refreshed together
+  // whenever that changes.
+  renumberPreviewWindows() {
+    for (const target of this.previewTargets) {
+      if (!target.root) continue;
+
+      const heading = target.root.querySelector(
+        '[data-preview-el="preview-header"] span',
+      );
+      if (heading) heading.textContent = this.previewName(target);
+
+      // Closing a popped-out preview only puts its placeholder away; closing a
+      // docked extra really does close it. Say which.
+      const closeBtn = target.el("closePreviewBtn");
+      if (closeBtn) {
+        const minimises =
+          target.isPoppedOut || this.previewTargets.indexOf(target) === 0;
+        closeBtn.title = minimises
+          ? languageManager.getUIText("Minimise Preview")
+          : languageManager.getUIText("Close Preview");
+      }
+
+      this.applyPoppedOutTitle(target);
+    }
+  }
+
+  // Set the popped-out window's document title. Same origin, so this is just a
+  // property write - but Construct sets the title itself while it boots, so
+  // this is re-run once the runtime reports ready.
+  applyPoppedOutTitle(target) {
+    if (!target?.isPoppedOut || target.popup.closed) return;
+    try {
+      target.popup.document.title = this.previewWindowTitle(target);
+    } catch {
+      // A cross-origin or not-yet-navigated window has no title to set. Not
+      // worth reporting: the next projectReady will try again.
+    }
+  }
+
+  // Tear one down. Window 0 stays: it is what "the preview" resolves to, and
+  // the API and CLI would have nothing to talk to without it.
+  removePreviewWindow(target) {
+    const index = this.previewTargets.indexOf(target);
+    if (index <= 0) return false;
+
+    if (target.isPoppedOut) this.dockPreview(target);
+    target.root?.remove();
+    this.previewTargets.splice(index, 1);
+    this.renumberPreviewWindows();
+    this.updateOpenPreviewButton();
+    return true;
+  }
+
+  // What the close button does.
+  //
+  // A popped-out preview is minimised rather than closed: the panel is only a
+  // placeholder while the real window is elsewhere, and destroying it would
+  // take that window with it - which is not what closing an empty placeholder
+  // should mean. Window 0 always minimises, since the rest of the app needs it
+  // to exist. Everything else is genuinely removed.
+  closePreviewWindow(target) {
+    if (!target) return;
+    if (target.isPoppedOut || this.previewTargets.indexOf(target) === 0) {
+      this.minimisePreviewWindow(target);
+      return;
+    }
+    this.removePreviewWindow(target);
+  }
+
+  minimisePreviewWindow(target) {
+    if (!target?.root) return;
+    target.root.style.display = "none";
+    this.updateOpenPreviewButton();
+  }
+
+  showPreviewWindow(target) {
+    if (!target?.root) return;
+    target.root.style.display = "flex";
+    this.raisePreviewWindow(target);
+    this.updateOpenPreviewButton();
+  }
+
+  minimisedPreviews() {
+    return this.previewTargets.filter(
+      (target) => !this.isPreviewVisible(target),
+    );
+  }
+
+  // The eye is only offered when there is something behind it, and says how
+  // many when it is more than one.
+  updateOpenPreviewButton() {
+    const button = document.getElementById("openPreviewBtn");
+    if (!button) return;
+
+    const hidden = this.minimisedPreviews();
+    button.style.display = hidden.length ? "flex" : "none";
+    button.title =
+      hidden.length > 1 ? `Show ${hidden.length} Previews` : "Show Preview";
+
+    let badge = button.querySelector(".preview-restore-count");
+    if (hidden.length > 1) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "preview-restore-count";
+        button.appendChild(badge);
+      }
+      badge.textContent = hidden.length;
+    } else {
+      badge?.remove();
+    }
+  }
+
+  // Bind one panel's controls to its own window. Every lookup goes through
+  // target.el(), never document, which is what keeps two panels apart.
+  wirePreviewWindow(target) {
+    const el = (name) => target.el(name);
+    const settings = () => target.settings;
+    const send = (command, value) =>
+      this.sendPreviewCommand(command, value, target);
+
+    const root = target.root;
+    const previewHeader = el("preview-header");
+
+    // Drag, per window.
     let isDragging = false;
     let dragOffsetX = 0;
     let dragOffsetY = 0;
 
-    const reloadPreviewBtn = document.getElementById("reloadPreviewBtn");
-
     previewHeader.addEventListener("mousedown", (e) => {
-      // Any header button, not a named two - and `closest` because the click
-      // usually lands on the <svg> inside the button, not the button itself.
+      // `closest` because the click usually lands on the <svg> inside a header
+      // button, not the button itself.
       if (e.target.closest?.("button")) return;
       isDragging = true;
-      const rect = previewWindow.getBoundingClientRect();
+      const rect = root.getBoundingClientRect();
       dragOffsetX = e.clientX - rect.left;
       dragOffsetY = e.clientY - rect.top;
+      this.raisePreviewWindow(target);
       e.preventDefault();
     });
 
     document.addEventListener("mousemove", (e) => {
-      if (isDragging) {
-        previewWindow.style.left = `${e.clientX - dragOffsetX}px`;
-        previewWindow.style.top = `${e.clientY - dragOffsetY}px`;
-        previewWindow.style.bottom = "auto";
-      }
+      if (!isDragging) return;
+      root.style.left = `${e.clientX - dragOffsetX}px`;
+      root.style.top = `${e.clientY - dragOffsetY}px`;
+      root.style.bottom = "auto";
+      root.style.right = "auto";
     });
 
     document.addEventListener("mouseup", () => {
       isDragging = false;
     });
 
+    // Clicking anywhere in a window brings it to the front.
+    root.addEventListener("mousedown", () => this.raisePreviewWindow(target));
+
     // Toggle settings button
-    const togglePreviewSettingsBtn = document.getElementById(
-      "togglePreviewSettingsBtn",
-    );
-    const previewControls = document.getElementById("preview-controls");
+    const togglePreviewSettingsBtn = el("togglePreviewSettingsBtn");
+    const previewControls = el("preview-controls");
 
     togglePreviewSettingsBtn.addEventListener("click", () => {
-      if (previewControls.classList.contains("preview-controls-visible")) {
-        previewControls.classList.remove("preview-controls-visible");
-        previewControls.classList.add("preview-controls-hidden");
-        togglePreviewSettingsBtn.classList.remove("active");
-      } else {
-        previewControls.classList.remove("preview-controls-hidden");
-        previewControls.classList.add("preview-controls-visible");
-        togglePreviewSettingsBtn.classList.add("active");
-      }
+      const showing = previewControls.classList.contains(
+        "preview-controls-visible",
+      );
+      previewControls.classList.toggle("preview-controls-visible", !showing);
+      previewControls.classList.toggle("preview-controls-hidden", showing);
+      togglePreviewSettingsBtn.classList.toggle("active", !showing);
     });
 
     // Reload button
-    reloadPreviewBtn.addEventListener("click", () => {
-      this.updatePreview();
+    el("reloadPreviewBtn").addEventListener("click", () => {
+      this.updatePreview(target);
+    });
+
+    // Another window, with its own copy of this one's settings - a second view
+    // is nearly always a variation on the first, not a fresh default.
+    el("newPreviewBtn")?.addEventListener("click", () => {
+      this.addPreviewWindow(this.newPreviewWindowOptions(target));
     });
 
     // Pop out / pull back in
-    const popOutPreviewBtn = document.getElementById("popOutPreviewBtn");
-    popOutPreviewBtn?.addEventListener("click", () => {
-      if (this.defaultPreviewTarget()?.isPoppedOut) {
-        this.dockPreview();
+    el("popOutPreviewBtn")?.addEventListener("click", () => {
+      if (target.isPoppedOut) {
+        this.dockPreview(target);
       } else {
-        this.popOutPreview();
+        this.popOutPreview(target);
       }
     });
-    document.getElementById("dockPreviewBtn")?.addEventListener("click", () => {
-      this.dockPreview();
+    el("dockPreviewBtn")?.addEventListener("click", () => {
+      this.dockPreview(target);
     });
 
-    // Close button
-    closePreviewBtn.addEventListener("click", () => {
-      previewWindow.style.display = "none";
-      openPreviewBtn.style.display = "flex";
-    });
-
-    // Open preview button
-    openPreviewBtn.addEventListener("click", () => {
-      previewWindow.style.display = "flex";
-      openPreviewBtn.style.display = "none";
-
-      // Reset position to bottom right
-      previewWindow.style.left = "";
-      previewWindow.style.top = "";
-      previewWindow.style.bottom = "20px";
-      previewWindow.style.right = "20px";
+    el("closePreviewBtn").addEventListener("click", () => {
+      this.closePreviewWindow(target);
     });
 
     // Preview controls
-    const effectTargetSelect = document.getElementById("effectTargetSelect");
-    const objectSelect = document.getElementById("objectSelect");
-    const cameraModeSelect = document.getElementById("cameraModeSelect");
-    const autoRotateCheckbox = document.getElementById("autoRotateCheckbox");
-    const autoRotateGroup = document.getElementById("autoRotateGroup");
+    const effectTargetSelect = el("effectTargetSelect");
+    const objectSelect = el("objectSelect");
+    const cameraModeSelect = el("cameraModeSelect");
+    const autoRotateCheckbox = el("autoRotateCheckbox");
+    const autoRotateGroup = el("autoRotateGroup");
 
     effectTargetSelect.addEventListener("change", (e) => {
-      const target = e.target.value;
-      this.previewSettings.effectTarget = target;
-      this.sendPreviewCommand("setEffectTarget", target);
+      const value = e.target.value;
+      settings().effectTarget = value;
+      send("setEffectTarget", value);
 
       // Auto-sync object selection
-      if (target === "sprite") {
+      if (value === "sprite") {
         objectSelect.value = "sprite";
-        this.previewSettings.object = "sprite";
-        this.sendPreviewCommand("setObject", "sprite");
-      } else if (target === "shape3D") {
+        settings().object = "sprite";
+        send("setObject", "sprite");
+      } else if (value === "shape3D") {
         // Set to box if currently on sprite, otherwise keep current 3D shape
         if (objectSelect.value === "sprite") {
           objectSelect.value = "box";
-          this.previewSettings.object = "box";
+          settings().object = "box";
         }
-        this.sendPreviewCommand("setObject", objectSelect.value);
+        send("setObject", objectSelect.value);
       }
     });
 
     objectSelect.addEventListener("change", (e) => {
       const object = e.target.value;
-      this.previewSettings.object = object;
-      this.sendPreviewCommand("setObject", object);
+      settings().object = object;
+      send("setObject", object);
 
       // Auto-sync effect target selection
       if (
@@ -5633,84 +5718,63 @@ class BlueprintSystem {
         effectTargetSelect.value !== "layer"
       ) {
         effectTargetSelect.value = "sprite";
-        this.previewSettings.effectTarget = "sprite";
-        this.sendPreviewCommand("setEffectTarget", "sprite");
+        settings().effectTarget = "sprite";
+        send("setEffectTarget", "sprite");
       } else if (object !== "sprite" && effectTargetSelect.value === "sprite") {
         effectTargetSelect.value = "shape3D";
-        this.previewSettings.effectTarget = "shape3D";
-        this.sendPreviewCommand("setEffectTarget", "shape3D");
+        settings().effectTarget = "shape3D";
+        send("setEffectTarget", "shape3D");
       }
     });
 
     cameraModeSelect.addEventListener("change", (e) => {
       const mode = e.target.value;
-      this.previewSettings.cameraMode = mode;
-      this.sendPreviewCommand("setCameraMode", mode);
+      settings().cameraMode = mode;
+      send("setCameraMode", mode);
 
       // Show/hide auto rotate option based on camera mode
-      if (mode === "2d") {
-        autoRotateGroup.style.display = "none";
-      } else {
-        autoRotateGroup.style.display = "flex";
-      }
+      autoRotateGroup.style.display = mode === "2d" ? "none" : "flex";
     });
 
     autoRotateCheckbox.addEventListener("change", (e) => {
-      this.previewSettings.autoRotate = e.target.checked;
-      this.sendPreviewCommand("setAutoRotate", e.target.checked);
+      settings().autoRotate = e.target.checked;
+      send("setAutoRotate", e.target.checked);
     });
 
     // Sampling mode select (requires reload)
-    const samplingModeSelect = document.getElementById("samplingModeSelect");
-    samplingModeSelect.addEventListener("change", (e) => {
-      this.previewSettings.samplingMode = e.target.value;
-      this.updatePreview(); // Reload preview with new sampling mode
+    el("samplingModeSelect").addEventListener("change", (e) => {
+      settings().samplingMode = e.target.value;
+      this.updatePreview(target);
     });
 
     // Anisotropic filtering (live - the runtime re-parameterises the textures
     // it already holds, so no reload)
-    const anisotropicFilteringSelect = document.getElementById(
-      "anisotropicFilteringSelect",
-    );
-    anisotropicFilteringSelect.addEventListener("change", (e) => {
-      this.previewSettings.anisotropicFiltering = e.target.value;
-      this.sendPreviewCommand("setAnisotropicFiltering", e.target.value);
+    el("anisotropicFilteringSelect").addEventListener("change", (e) => {
+      settings().anisotropicFiltering = e.target.value;
+      send("setAnisotropicFiltering", e.target.value);
     });
 
     // Shader language select (requires reload)
-    const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect",
-    );
-    shaderLanguageSelect.addEventListener("change", (e) => {
-      this.previewSettings.shaderLanguage = e.target.value;
-      this.updatePreview(); // Reload preview with new shader language
+    el("shaderLanguageSelect").addEventListener("change", (e) => {
+      settings().shaderLanguage = e.target.value;
+      this.updatePreview(target);
     });
-    this.clampPreviewShaderLanguage();
+    this.clampPreviewShaderLanguage(target);
 
     // Force rotated spritesheet frame (requires reload)
-    const forceRotatedTextureCheckbox = document.getElementById(
-      "forceRotatedTextureCheckbox",
-    );
-    if (forceRotatedTextureCheckbox) {
-      forceRotatedTextureCheckbox.addEventListener("change", (e) => {
-        this.previewSettings.forceRotatedTexture = e.target.checked;
-        this.updatePreview(); // Reload preview with the rotated frame
-      });
-    }
-
-    // Reset preview settings button
-    const resetPreviewSettingsBtn = document.getElementById(
-      "resetPreviewSettingsBtn",
-    );
-    resetPreviewSettingsBtn.addEventListener("click", () => {
-      this.resetPreviewSettings();
+    el("forceRotatedTextureCheckbox")?.addEventListener("change", (e) => {
+      settings().forceRotatedTexture = e.target.checked;
+      this.updatePreview(target);
     });
 
-    // Preview Tabs
-    const previewTabs = document.querySelectorAll(".preview-tab");
-    const previewTabContents = document.querySelectorAll(
-      ".preview-tab-content",
-    );
+    // Reset preview settings button
+    el("resetPreviewSettingsBtn").addEventListener("click", () => {
+      this.resetPreviewSettings(target);
+    });
+
+    // Preview Tabs, scoped to this panel
+    const previewTabs = root.querySelectorAll(".preview-tab");
+    const previewTabContents = root.querySelectorAll(".preview-tab-content");
 
     previewTabs.forEach((tab) => {
       tab.addEventListener("click", () => {
@@ -5720,31 +5784,28 @@ class BlueprintSystem {
         previewTabContents.forEach((c) => c.classList.remove("active"));
 
         tab.classList.add("active");
-        document
+        root
           .querySelector(`.preview-tab-content[data-tab="${tabName}"]`)
-          .classList.add("active");
+          ?.classList.add("active");
       });
     });
 
     // Which backdrop sits behind the object
-    const backgroundModeSelect = document.getElementById(
-      "backgroundModeSelect",
-    );
-    backgroundModeSelect.addEventListener("change", (e) => {
-      this.previewSettings.backgroundMode = e.target.value;
-      this.sendPreviewCommand("setBackgroundMode", e.target.value);
+    el("backgroundModeSelect").addEventListener("change", (e) => {
+      settings().backgroundMode = e.target.value;
+      send("setBackgroundMode", e.target.value);
     });
 
     // Object colour
-    const objectColorInput = document.getElementById("objectColorInput");
-    objectColorInput.addEventListener("input", (e) => {
-      this.previewSettings.objectColor = e.target.value;
-      this.sendPreviewCommand("setObjectColor", e.target.value);
+    el("objectColorInput").addEventListener("input", (e) => {
+      settings().objectColor = e.target.value;
+      send("setObjectColor", e.target.value);
     });
 
     // Object rotation, one slider per axis. See preview-settings.js for why the
     // Z key stays the unsuffixed `objectAngle`.
     this.setupAxisSliders(
+      target,
       ["objectAngleX", "objectAngleY", "objectAngle"],
       "setObjectAngle",
       effectiveObjectAngle,
@@ -5752,72 +5813,65 @@ class BlueprintSystem {
 
     // Object offset, as a percentage of the room size.
     this.setupAxisSliders(
+      target,
       ["objectOffsetX", "objectOffsetY", "objectOffsetZ"],
       "setObjectOffset",
       effectiveObjectOffset,
     );
 
-    this.setupRenderResolutionControls();
+    this.setupRenderResolutionControls(target);
 
     // One scale for whichever object is showing: a uniform slider plus a link
     // toggle that splits it into per-axis rows. See preview-settings.js for why
     // the base key stays a plain number.
-    this.setupScaleControls();
+    this.setupScaleControls(target);
 
     // Room Scale Slider
-    const roomScaleSlider = document.getElementById("roomScaleSlider");
-    const roomScaleValue = document.getElementById("roomScaleValue");
+    const roomScaleSlider = el("roomScaleSlider");
+    const roomScaleValue = el("roomScaleValue");
     roomScaleSlider.addEventListener("input", (e) => {
       const scale = parseFloat(e.target.value);
-      this.previewSettings.roomScale = scale;
+      settings().roomScale = scale;
       roomScaleValue.textContent = scale.toFixed(2);
-      this.sendPreviewCommand("setRoomScale", scale);
+      send("setRoomScale", scale);
     });
 
     // Background Opacity Slider
-    const bgOpacitySlider = document.getElementById("bgOpacitySlider");
-    const bgOpacityValue = document.getElementById("bgOpacityValue");
+    const bgOpacitySlider = el("bgOpacitySlider");
+    const bgOpacityValue = el("bgOpacityValue");
     bgOpacitySlider.addEventListener("input", (e) => {
       const opacity = parseFloat(e.target.value);
-      this.previewSettings.bgOpacity = opacity;
+      settings().bgOpacity = opacity;
       bgOpacityValue.textContent = opacity.toFixed(2);
-      this.sendPreviewCommand("setBgOpacity", opacity);
+      send("setBgOpacity", opacity);
     });
 
     // 3D Background Opacity Slider
-    const bg3dOpacitySlider = document.getElementById("bg3dOpacitySlider");
-    const bg3dOpacityValue = document.getElementById("bg3dOpacityValue");
+    const bg3dOpacitySlider = el("bg3dOpacitySlider");
+    const bg3dOpacityValue = el("bg3dOpacityValue");
     bg3dOpacitySlider.addEventListener("input", (e) => {
       const opacity = parseFloat(e.target.value);
-      this.previewSettings.bg3dOpacity = opacity;
+      settings().bg3dOpacity = opacity;
       bg3dOpacityValue.textContent = opacity.toFixed(2);
-      this.sendPreviewCommand("setBg3dOpacity", opacity);
+      send("setBg3dOpacity", opacity);
     });
 
     // Setup editable slider values
-    this.setupEditableSliderValues();
-
-    // Hover tooltips (app-wide, but the preview panel is what needs them most)
-    this.setupTooltips();
+    this.setupEditableSliderValues(target);
 
     // Screenshot preview button
-    const screenshotPreviewBtn = document.getElementById(
-      "screenshotPreviewBtn",
-    );
-    screenshotPreviewBtn.addEventListener("click", () => {
-      this.screenshotPreview();
+    el("screenshotPreviewBtn").addEventListener("click", () => {
+      this.screenshotPreview(target);
     });
 
     // Texture controls
-    this.setupTextureControls();
+    this.setupTextureControls(target);
 
     // Startup script textarea
-    const startupScriptTextarea = document.getElementById(
-      "previewStartupScript",
-    );
+    const startupScriptTextarea = el("previewStartupScript");
     if (startupScriptTextarea) {
       startupScriptTextarea.addEventListener("input", (e) => {
-        this.previewSettings.startupScript = e.target.value;
+        settings().startupScript = e.target.value;
       });
       // Handle Tab key for indentation
       startupScriptTextarea.addEventListener("keydown", (e) => {
@@ -5830,143 +5884,162 @@ class BlueprintSystem {
             "  " +
             e.target.value.substring(end);
           e.target.selectionStart = e.target.selectionEnd = start + 2;
-          this.previewSettings.startupScript = e.target.value;
+          settings().startupScript = e.target.value;
         }
       });
     }
 
-    // Minimap controls
-    this.setupMinimapControls();
+    this.setupPreviewConsole(target);
+  }
 
-    // Listen for messages from preview iframe
-    window.addEventListener("message", (event) => {
-      if (event.data && event.data.type === "requestShaderData") {
-        // Preview is requesting shader data, send it
-        this.sendShaderDataToPreview();
-      } else if (event.data && event.data.type === "projectReady") {
-        const target =
-          this.targetForSource(event.source) ?? this.defaultPreviewTarget();
-        if (!target) return;
+  // Newest-clicked window on top. Plain incrementing z-index: the panels are
+  // few and short-lived enough that renumbering them is not worth it.
+  raisePreviewWindow(target) {
+    if (!target?.root) return;
+    this._previewZ = (this._previewZ ?? 1000) + 1;
+    target.root.style.zIndex = this._previewZ;
+  }
 
+  // Every message from every preview lands here. The window it came from is
+  // resolved first, so two previews cannot write into each other's console or
+  // steal each other's replies.
+  onPreviewMessage(event) {
+    const data = event.data;
+    if (!data || !data.type) return;
+
+    const target = this.targetForSource(event.source);
+    // requestShaderData arrives before the target is confirmed ready, but the
+    // source still identifies it. Anything we cannot place is ignored rather
+    // than misattributed to window 0.
+    if (!target) return;
+
+    switch (data.type) {
+      case "requestShaderData":
+        this.sendShaderDataToPreview(target);
+        break;
+
+      case "projectReady":
         target.ready = true;
-        this.resetPreviewErrors(); // Reset error count on new load
-        this.clearPreviewConsole(); // Clear console on new load
-        this.warnIfPreviewIsStale(event.data.commands);
+        this.resetPreviewErrors(target);
+        this.clearPreviewConsole(target);
+        this.warnIfPreviewIsStale(data.commands, target);
         this.sendUniformValuesToPreview(target);
-
+        // Construct titles the window while it boots, so ours goes on after.
+        this.applyPoppedOutTitle(target);
         // Send saved preview settings. Order comes from PREVIEW_SETTINGS -
         // textures before scales, because loading a sprite texture re-derives
         // the sprite's base size in the preview.
         this.applyPreviewSettingsTo(target);
-      } else if (event.data && event.data.type === "shaderError") {
-        const severity = event.data.severity;
-        const message = event.data.message;
+        break;
 
-        // Handle error with limiting (max 10 notifications, max 100 console entries)
-        this.handlePreviewError(message, severity);
-      } else if (event.data && event.data.type === "updatePreviewSpriteUrl") {
-        console.log("Received updatePreviewSpriteUrl message", event.data);
-        this.handleTextureUpdate("sprite", event.data.url);
-      } else if (event.data && event.data.type === "updatePreviewShapeUrl") {
-        console.log("Received updatePreviewShapeUrl message", event.data);
-        this.handleTextureUpdate("shape", event.data.url);
-      } else if (event.data && event.data.type === "updatePreviewBgUrl") {
-        console.log("Received updatePreviewBgUrl message", event.data);
-        this.handleTextureUpdate("bg", event.data.url);
-      } else if (event.data && event.data.type === "renderSizeChanged") {
-        this.showRenderSize(event.data);
-      } else if (event.data && event.data.type === "zoomLevelChanged") {
-        this.previewSettings.zoomLevel = event.data.zoomLevel;
-      } else if (event.data && event.data.type === "spriteSizeChanged") {
-        // Update sprite base size when texture changes
-        // This allows the scale to work proportionally with the new texture
-        console.log("Sprite size changed:", event.data);
-      } else if (event.data && event.data.type === "consoleLog") {
-        // Add regular console logs to the preview console
-        this.addConsoleEntry(event.data.message, event.data.level);
-      }
-    });
+      case "shaderError":
+        this.handlePreviewError(data.message, data.severity, target);
+        break;
 
-    // Initial preview update
-    setTimeout(() => {
-      this.updatePreview();
-    }, 100);
+      case "updatePreviewSpriteUrl":
+        this.handleTextureUpdate("sprite", data.url, target);
+        break;
+
+      case "updatePreviewShapeUrl":
+        this.handleTextureUpdate("shape", data.url, target);
+        break;
+
+      case "updatePreviewBgUrl":
+        this.handleTextureUpdate("bg", data.url, target);
+        break;
+
+      case "renderSizeChanged":
+        this.showRenderSize(data, target);
+        break;
+
+      case "zoomLevelChanged":
+        target.settings.zoomLevel = data.zoomLevel;
+        break;
+
+      case "consoleLog":
+        this.addConsoleEntry(data.message, data.level, target);
+        break;
+
+      default:
+        break;
+    }
   }
 
-  setupTextureControls() {
-    // One wiring per texture descriptor. The ids follow from the type, so
+  setupTextureControls(target) {
+    // One wiring per texture descriptor. The names follow from the type, so
     // adding a texture is a descriptor and some markup, not another copy of
     // these three listeners.
     for (const [type, d] of PREVIEW_TEXTURES_BY_TYPE) {
-      const input = document.getElementById(`${type}TextureInput`);
-      const button = document.getElementById(`${type}TextureBtn`);
-      const clearButton = document.getElementById(d.dom.clearBtnEl);
+      const input = target.el(`${type}TextureInput`);
+      const button = target.el(`${type}TextureBtn`);
+      const clearButton = target.el(d.dom.clearBtnEl);
       if (!input || !button || !clearButton) continue;
 
       button.addEventListener("click", () => input.click());
 
       input.addEventListener("change", (e) => {
         const file = e.target.files[0];
-        if (file) this.loadTextureFromFile(file, type);
+        if (file) this.loadTextureFromFile(file, type, target);
         // Let the same file be picked twice in a row.
         e.target.value = "";
       });
 
-      clearButton.addEventListener("click", () => this.clearTexture(type));
+      clearButton.addEventListener("click", () =>
+        this.clearTexture(type, target),
+      );
     }
   }
 
   // Wire the rendering resolution: the preset dropdown, and the two number
   // boxes that only exist for the Custom preset.
-  setupRenderResolutionControls() {
+  setupRenderResolutionControls(target) {
     const send = () =>
       this.sendPreviewCommand(
         "setRenderResolution",
-        effectiveRenderResolution(this.previewSettings),
+        effectiveRenderResolution(target.settings),
+        target,
       );
 
-    const select = document.getElementById("renderResolutionSelect");
+    const select = target.el("renderResolutionSelect");
     select.addEventListener("change", (e) => {
-      this.previewSettings.renderResolution = e.target.value;
+      target.settings.renderResolution = e.target.value;
       // Picking a resolution turns the fullscreen quality down, since otherwise
       // it would render at the panel's size and the choice would do nothing.
       // Through the descriptor so the UI and the scripting API cannot disagree
       // about when that happens.
-      for (const key of linkRenderResolution(
-        this.previewSettings,
-        e.target.value,
-      )) {
+      for (const key of linkRenderResolution(target.settings, e.target.value)) {
         this.sendPreviewCommand(
           PREVIEW_SETTINGS_BY_KEY.get(key).command,
-          this.previewSettings[key],
+          target.settings[key],
+          target,
         );
       }
       // Reveals or hides the two Custom boxes, through the descriptor's own
       // onUi hook - the same route the scale's link toggle takes.
-      this.updatePreviewSettingsUI();
+      this.updatePreviewSettingsUI(target);
       send();
     });
 
-    const qualitySelect = document.getElementById("fullscreenQualitySelect");
+    const qualitySelect = target.el("fullscreenQualitySelect");
     qualitySelect.addEventListener("change", (e) => {
-      this.previewSettings.fullscreenQuality = e.target.value;
-      this.sendPreviewCommand("setFullscreenQuality", e.target.value);
+      target.settings.fullscreenQuality = e.target.value;
+      this.sendPreviewCommand("setFullscreenQuality", e.target.value, target);
     });
 
     for (const key of ["canvasWidth", "canvasHeight"]) {
-      const input = document.getElementById(`${key}Input`);
+      const input = target.el(`${key}Input`);
       const d = PREVIEW_SETTINGS_BY_KEY.get(key);
       // Typed, so it has to survive an empty box and a value outside the range
       // without posting a nonsense viewport at the runtime.
       input.addEventListener("change", () => {
         const size = Math.round(Number(input.value));
         if (!Number.isFinite(size)) {
-          input.value = this.previewSettings[key];
+          input.value = target.settings[key];
           return;
         }
         const clamped = Math.min(Math.max(size, d.min), d.max);
         input.value = clamped;
-        this.previewSettings[key] = clamped;
+        target.settings[key] = clamped;
         send();
       });
     }
@@ -5977,18 +6050,20 @@ class BlueprintSystem {
   // because it is not always the number that was asked for: a request larger
   // than the panel is quietly refused, and at High quality the resolution is
   // ignored altogether. Kept so updateUIText can redraw it on a language change.
-  showRenderSize(size = this.lastRenderSize) {
-    const readout = document.getElementById("renderSizeReadout");
+  showRenderSize(size, target = this.defaultPreviewTarget()) {
+    if (!target) return;
+    const readout = target.el("renderSizeReadout");
     if (!readout) return;
 
-    this.lastRenderSize = size;
+    if (size === undefined) size = target.lastRenderSize;
+    target.lastRenderSize = size;
     if (!size) {
       readout.textContent = "";
       return;
     }
 
     const t = (key) => languageManager.getUIText(key);
-    const asked = this.previewSettings.renderResolution;
+    const asked = target.settings.renderResolution;
     // Flag the two ways the number can fail to be the one on the dropdown.
     const note =
       size.quality === "high" && !size.isNative
@@ -6003,55 +6078,55 @@ class BlueprintSystem {
 
   // Rotation and offset are the same shape: three whole-number sliders whose
   // keys resolve into a single command, so one send per drag rather than three.
-  setupAxisSliders(keys, command, resolve) {
+  setupAxisSliders(target, keys, command, resolve) {
     const send = () =>
-      this.sendPreviewCommand(command, resolve(this.previewSettings));
+      this.sendPreviewCommand(command, resolve(target.settings), target);
 
     for (const key of keys) {
-      const slider = document.getElementById(`${key}Slider`);
-      const valueEl = document.getElementById(`${key}Value`);
+      const slider = target.el(`${key}Slider`);
+      const valueEl = target.el(`${key}Value`);
       slider.addEventListener("input", (e) => {
         const value = parseFloat(e.target.value);
-        this.previewSettings[key] = value;
+        target.settings[key] = value;
         valueEl.textContent = value.toFixed(0);
         send();
       });
     }
   }
 
-  setupScaleControls() {
+  setupScaleControls(target) {
     const send = () =>
       this.sendPreviewCommand(
         "setObjectScale",
-        effectiveObjectScale(this.previewSettings),
+        effectiveObjectScale(target.settings),
+        target,
       );
 
     // The base slider doubles as X, so it has no axis suffix.
     for (const suffix of ["", "Y", "Z"]) {
       const key = `objectScale${suffix}`;
-      const slider = document.getElementById(`${key}Slider`);
-      const valueEl = document.getElementById(`${key}Value`);
+      const slider = target.el(`${key}Slider`);
+      const valueEl = target.el(`${key}Value`);
       slider.addEventListener("input", (e) => {
         const scale = parseFloat(e.target.value);
-        this.previewSettings[key] = scale;
+        target.settings[key] = scale;
         valueEl.textContent = scale.toFixed(2);
         send();
       });
     }
 
-    const linkedCheckbox = document.getElementById("objectScaleLinkedCheckbox");
+    const linkedCheckbox = target.el("objectScaleLinkedCheckbox");
     linkedCheckbox.addEventListener("change", (e) => {
       const linked = e.target.checked;
       // Seed the per-axis values from the uniform one before revealing them,
       // so unlocking never makes the object jump.
       if (!linked) {
         for (const suffix of ["Y", "Z"]) {
-          this.previewSettings[`objectScale${suffix}`] =
-            this.previewSettings.objectScale;
+          target.settings[`objectScale${suffix}`] = target.settings.objectScale;
         }
       }
-      this.previewSettings.objectScaleLinked = linked;
-      this.updatePreviewSettingsUI();
+      target.settings.objectScaleLinked = linked;
+      this.updatePreviewSettingsUI(target);
       send();
     });
   }
@@ -6113,16 +6188,18 @@ class BlueprintSystem {
     window.addEventListener("blur", hide);
   }
 
-  setupEditableSliderValues() {
-    const editableValues = document.querySelectorAll(".editable-slider-value");
+  setupEditableSliderValues(target) {
+    const editableValues = target.root.querySelectorAll(
+      ".editable-slider-value",
+    );
 
     editableValues.forEach((valueSpan) => {
       valueSpan.addEventListener("click", (e) => {
         e.stopPropagation();
 
-        // Get the associated slider
-        const sliderId = valueSpan.dataset.slider;
-        const slider = document.getElementById(sliderId);
+        // The associated slider, in this panel - data-slider names it the same
+        // way data-preview-el does, so it resolves within this window only.
+        const slider = target.el(valueSpan.dataset.slider);
         if (!slider) return;
 
         // Create input element
@@ -6181,27 +6258,33 @@ class BlueprintSystem {
     });
   }
 
-  loadTextureFromFile(file, type) {
+  loadTextureFromFile(file, type, target = this.defaultPreviewTarget()) {
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target.result;
-      this.setTextureUrl(type, dataUrl);
-      this.loadPreviewTexture(type, dataUrl);
+      this.setTextureUrl(type, dataUrl, target);
+      this.loadPreviewTexture(type, dataUrl, target);
     };
     reader.readAsDataURL(file);
   }
 
-  setTextureUrl(type, url) {
+  setTextureUrl(type, url, target = this.defaultPreviewTarget()) {
     const d = PREVIEW_TEXTURES_BY_TYPE.get(type);
-    if (!d) return;
+    if (!d || !target) return;
 
-    this.previewSettings[d.key] = url;
-    this.updateTexturePreview(d.dom.previewEl, d.dom.clearBtnEl, url);
+    target.settings[d.key] = url;
+    this.updateTexturePreview(d.dom.previewEl, d.dom.clearBtnEl, url, target);
   }
 
-  updateTexturePreview(previewId, clearBtnId, url) {
-    const preview = document.getElementById(previewId);
-    const clearBtn = document.getElementById(clearBtnId);
+  updateTexturePreview(
+    previewName,
+    clearBtnName,
+    url,
+    target = this.defaultPreviewTarget(),
+  ) {
+    const preview = target?.el(previewName);
+    const clearBtn = target?.el(clearBtnName);
+    if (!preview || !clearBtn) return;
 
     if (url) {
       preview.innerHTML = `<img src="${url}" alt="Texture" />`;
@@ -6221,19 +6304,18 @@ class BlueprintSystem {
     target.post({ type: "callFunction", function: d.previewFunction, url });
   }
 
-  clearTexture(type) {
-    this.setTextureUrl(type, null);
+  clearTexture(type, target = this.defaultPreviewTarget()) {
+    this.setTextureUrl(type, null, target);
 
     // Clearing requires a reload: there is no "unload" command, the preview only
     // knows how to replace a texture with another one.
-    this.updatePreview();
+    this.updatePreview(target);
   }
 
-  handleTextureUpdate(type, url) {
-    // Called when preview drops an image
-    // The URL from the preview is already a data URL (base64)
-    console.log(`Received texture update for ${type}:`, url?.substring(0, 50));
-    this.setTextureUrl(type, url);
+  handleTextureUpdate(type, url, target = this.defaultPreviewTarget()) {
+    // Called when a preview has an image dropped on it. The URL is already a
+    // data URL, and it belongs to the window it was dropped on.
+    this.setTextureUrl(type, url, target);
   }
 
   setupMinimapControls() {
@@ -6470,34 +6552,82 @@ class BlueprintSystem {
     }
   }
 
-  updatePreview() {
-    if (!this.defaultPreviewTarget()?.win) return;
+  // Reload one preview. For a change that only affects that window - one of its
+  // own reload-only settings, or popping it out.
+  updatePreview(target = this.defaultPreviewTarget()) {
+    if (!target?.win) return;
 
     // Preview always reflects the MAIN graph, regardless of which graph
     // the user is currently editing.
-    return this._withGraph(this.mainGraph, () => this._updatePreviewImpl());
+    return this._withGraph(this.mainGraph, () => {
+      if (!this._rebuildShaderData([target])) return;
+      this._reloadPreviewTarget(target);
+    });
   }
 
-  // Move the preview into a browser window of its own.
+  // Reload every open preview. This is what a change to the *shader* wants -
+  // the graph, the pinned node, a custom node - because every window shows the
+  // same shader and would otherwise be left displaying the old one.
   //
-  // The settings panel stays here in the editor and keeps driving it by
+  // The code is generated once for the whole set, not once per window: each
+  // window differs only in its preview settings, which ride in its own URL.
+  updateAllPreviews() {
+    const targets = this.previewTargets.filter((target) => target.win);
+    if (!targets.length) return;
+
+    return this._withGraph(this.mainGraph, () => {
+      if (!this._rebuildShaderData(targets)) return;
+      for (const target of targets) this._reloadPreviewTarget(target);
+    });
+  }
+
+  // Regenerate and cache the shader every preview will ask for. Returns false
+  // when there is nothing to show, having reported why to each window waiting
+  // on it.
+  _rebuildShaderData(targets) {
+    const shaders = this.generateAllShaders();
+    if (!shaders) {
+      for (const target of targets) {
+        this.handlePreviewError(
+          "Failed to generate shader. Make sure you have an Output node and all required connections are made.",
+          "error",
+          target,
+        );
+      }
+      return false;
+    }
+
+    this.cachedShaderData = this.buildShaderData(shaders);
+    return true;
+  }
+
+  // Point one preview at a fresh boot of its own URL.
+  _reloadPreviewTarget(target) {
+    this.resetPreviewErrors(target);
+    target.ready = false;
+    target.navigate(this.previewUrl(target.settings));
+  }
+
+  // Move a preview into a browser window of its own.
+  //
+  // Its settings panel stays here in the editor and keeps driving it by
   // message, so nothing about the panel has to move or be duplicated. The
   // docked iframe is blanked rather than left running: two live Construct
   // runtimes means two WebGL contexts and two copies of the runtime, for a
   // preview nobody can see.
-  popOutPreview() {
-    const target = this.defaultPreviewTarget();
+  popOutPreview(target = this.defaultPreviewTarget()) {
     if (!target || target.isPoppedOut) return null;
 
     const popup = window.open(
-      this.previewUrl(),
-      "csg-preview",
+      this.previewUrl(target.settings),
+      `csg-preview-${target.id}`,
       "width=640,height=640",
     );
     if (!popup) {
       this.handlePreviewError(
         "The browser blocked the preview window. Allow pop-ups for this site and try again.",
         "warning",
+        target,
       );
       return null;
     }
@@ -6506,15 +6636,17 @@ class BlueprintSystem {
     target.ready = false;
     if (target.iframe) target.iframe.src = "about:blank";
 
-    this.updatePopOutUI();
-    this.watchPoppedOutPreview();
+    this.updatePopOutUI(target);
+    // The close button now minimises rather than closes, and the window wants
+    // a title; both follow from having popped out.
+    this.renumberPreviewWindows();
+    this.watchPoppedOutPreview(target);
     return popup;
   }
 
-  // Bring it back into the docked panel. Safe to call when the window is
+  // Bring it back into its docked panel. Safe to call when the window is
   // already gone, which is what the closed-window watcher relies on.
-  dockPreview() {
-    const target = this.defaultPreviewTarget();
+  dockPreview(target = this.defaultPreviewTarget()) {
     if (!target?.isPoppedOut) return;
 
     const popup = target.popup;
@@ -6522,35 +6654,41 @@ class BlueprintSystem {
     target.ready = false;
     if (popup && !popup.closed) popup.close();
 
-    this.updatePopOutUI();
-    this.updatePreview();
+    // Coming back from a pop-out that was minimised should also bring the panel
+    // out again - otherwise the preview is docked into something invisible.
+    this.showPreviewWindow(target);
+    this.updatePopOutUI(target);
+    this.renumberPreviewWindows();
+    this.updatePreview(target);
   }
 
-  // A closed window fires nothing an opener can rely on, so poll for it.
-  watchPoppedOutPreview() {
-    if (this._popOutWatch) clearInterval(this._popOutWatch);
+  // A closed window fires nothing an opener can rely on, so poll for it. One
+  // watcher per popped-out preview, keyed by target id.
+  watchPoppedOutPreview(target) {
+    this._popOutWatchers ??= new Map();
+    const existing = this._popOutWatchers.get(target.id);
+    if (existing) clearInterval(existing);
 
-    this._popOutWatch = setInterval(() => {
-      const target = this.defaultPreviewTarget();
-      if (!target?.isPoppedOut) {
-        clearInterval(this._popOutWatch);
-        this._popOutWatch = null;
-        return;
-      }
+    const handle = setInterval(() => {
+      const stop = () => {
+        clearInterval(this._popOutWatchers.get(target.id));
+        this._popOutWatchers.delete(target.id);
+      };
+      if (!target.isPoppedOut) return stop();
       if (target.popup.closed) {
-        clearInterval(this._popOutWatch);
-        this._popOutWatch = null;
-        this.dockPreview();
+        stop();
+        this.dockPreview(target);
       }
     }, 500);
+    this._popOutWatchers.set(target.id, handle);
   }
 
-  // The docked panel is empty while the preview is out, so say so and turn the
+  // The docked panel is empty while its preview is out, so say so and turn the
   // pop-out button into the way back.
-  updatePopOutUI() {
-    const poppedOut = !!this.defaultPreviewTarget()?.isPoppedOut;
-    const button = document.getElementById("popOutPreviewBtn");
-    const previewWindow = document.getElementById("preview-window");
+  updatePopOutUI(target = this.defaultPreviewTarget()) {
+    if (!target?.root) return;
+    const poppedOut = target.isPoppedOut;
+    const button = target.el("popOutPreviewBtn");
 
     if (button) {
       button.classList.toggle("active", poppedOut);
@@ -6558,7 +6696,7 @@ class BlueprintSystem {
         ? "Bring Preview Back"
         : "Open Preview in a Window";
     }
-    previewWindow?.classList.toggle("preview-popped-out", poppedOut);
+    target.root.classList.toggle("preview-popped-out", poppedOut);
   }
 
   // The URL a preview boots from. Carries the settings marked `reload: true`,
@@ -6575,29 +6713,6 @@ class BlueprintSystem {
       }
     }
     return `preview/index.html?${params.toString()}`;
-  }
-
-  _updatePreviewImpl() {
-    // Reset error count for new shader compilation
-    this.resetPreviewErrors();
-
-    // Generate shader code and cache it
-    const shaders = this.generateAllShaders();
-    if (!shaders) {
-      // Display error if shader generation failed
-      this.handlePreviewError(
-        "Failed to generate shader. Make sure you have an Output node and all required connections are made.",
-        "error",
-      );
-      return;
-    }
-
-    // Cache the shader data for when preview requests it
-    this.cachedShaderData = this.buildShaderData(shaders);
-
-    // Reload the preview - wherever it currently lives.
-    this.previewReady = false;
-    this.defaultPreviewTarget()?.navigate(this.previewUrl());
   }
 
   buildShaderData(shaders) {
@@ -6668,7 +6783,10 @@ class BlueprintSystem {
   // If it cannot answer for something the settings table wants to send, the two
   // are out of step - almost always a browser still holding cached preview code
   // - and the setting would otherwise just silently do nothing.
-  warnIfPreviewIsStale(supportedCommands) {
+  warnIfPreviewIsStale(
+    supportedCommands,
+    target = this.defaultPreviewTarget(),
+  ) {
     const wanted = new Set(
       PREVIEW_SETTINGS.map((d) => d.command).filter(Boolean),
     );
@@ -6684,13 +6802,19 @@ class BlueprintSystem {
       `The preview is running older code and ignores: ${missing.join(", ")}. ` +
         `Reload the page to pick up the current preview.`,
       "warning",
+      target,
     );
   }
 
   // Push one setting to one preview. The only place that knows how a descriptor
   // turns into a message.
-  applyPreviewSetting(d, value, target, settings = this.previewSettings) {
-    if (!target) return;
+  applyPreviewSetting(
+    d,
+    value,
+    target,
+    settings = target?.settings ?? this.previewSettings,
+  ) {
+    if (!target || !settings) return;
     if (d.apply) {
       d.apply(this, target, value, settings, d);
       return;
@@ -6700,8 +6824,11 @@ class BlueprintSystem {
 
   // Push a whole settings object to one preview, in PREVIEW_SETTINGS order.
   // Called when a preview finishes booting and after a reset.
-  applyPreviewSettingsTo(target, settings = this.previewSettings) {
-    if (!target) return;
+  applyPreviewSettingsTo(
+    target,
+    settings = target?.settings ?? this.previewSettings,
+  ) {
+    if (!target || !settings) return;
 
     const sentGroups = new Set();
     for (const d of PREVIEW_SETTINGS) {
@@ -6722,9 +6849,10 @@ class BlueprintSystem {
   // in preview-settings.js declares the full enum, and tests/30 checks that
   // declaration against the actual options. Disabling is what makes the two
   // agree while still refusing the choice.
-  clampPreviewShaderLanguage() {
+  clampPreviewShaderLanguage(target = this.defaultPreviewTarget()) {
+    if (!target) return false;
     const enabled = this.enabledTargets();
-    const select = document.getElementById("shaderLanguageSelect");
+    const select = target.el("shaderLanguageSelect");
 
     if (select) {
       for (const option of select.options) {
@@ -6732,8 +6860,8 @@ class BlueprintSystem {
       }
     }
 
-    if (enabled.includes(this.previewSettings.shaderLanguage)) {
-      if (select) select.value = this.previewSettings.shaderLanguage;
+    if (enabled.includes(target.settings.shaderLanguage)) {
+      if (select) select.value = target.settings.shaderLanguage;
       return false;
     }
 
@@ -6742,9 +6870,18 @@ class BlueprintSystem {
     const fallback =
       ["webgpu", "webgl2", "webgl1"].find((t) => enabled.includes(t)) ??
       enabled[0];
-    this.previewSettings.shaderLanguage = fallback;
+    target.settings.shaderLanguage = fallback;
     if (select) select.value = fallback;
     return true;
+  }
+
+  // Every open preview, when the enabled languages change.
+  clampAllPreviewShaderLanguages() {
+    let changed = false;
+    for (const target of this.previewTargets) {
+      if (this.clampPreviewShaderLanguage(target)) changed = true;
+    }
+    return changed;
   }
 
   sendStartupScript(script, target = this.defaultPreviewTarget()) {
@@ -6925,12 +7062,15 @@ class BlueprintSystem {
 
   onShaderChanged() {
     // Called whenever the shader structure changes (not just uniform values)
-    this.updatePreview();
+    this.updateAllPreviews();
   }
 
   onUniformValueChanged() {
-    // Called whenever a uniform value changes
-    this.sendUniformValuesToPreview();
+    // Called whenever a uniform value changes. Uniforms are host-level, so
+    // every window is showing the stale value, not just the first.
+    for (const target of this.previewTargets) {
+      this.sendUniformValuesToPreview(target);
+    }
   }
 
   /**
@@ -6939,32 +7079,44 @@ class BlueprintSystem {
    * - Errors 11-100: add to console only
    * - Errors 100+: ignore
    */
-  handlePreviewError(message, severity) {
+  // Rate-limited per window: one preview spewing the same error must not use up
+  // another's budget, and the entry belongs in the console of the window that
+  // produced it.
+  handlePreviewError(message, severity, target = this.defaultPreviewTarget()) {
+    if (!target) return;
+
     // Use message as key to avoid duplicates
     const errorKey = `${severity}:${message}`;
 
     // Don't handle duplicate errors
-    if (this.previewErrorKeys.has(errorKey)) {
+    if (target.errorKeys.has(errorKey)) {
       return;
     }
-    this.previewErrorKeys.add(errorKey);
+    target.errorKeys.add(errorKey);
 
     // Check if we've hit the max errors limit
-    if (this.previewErrorCount >= 100) {
+    if (target.errorCount >= 100) {
       return; // Ignore errors after 100
     }
 
-    this.previewErrorCount++;
+    target.errorCount++;
 
     // Add to console (for errors 1-100)
-    this.addConsoleEntry(message, severity === "error" ? "error" : "warning");
+    this.addConsoleEntry(
+      message,
+      severity === "error" ? "error" : "warning",
+      target,
+    );
 
     // Show notification only for first 10 errors
-    if (this.previewNotificationCount < 10 && severity === "error") {
-      this.previewNotificationCount++;
+    if (target.notificationCount < 10 && severity === "error") {
+      target.notificationCount++;
       this.showNotification({
         type: "error",
-        title: "Preview Error",
+        title:
+          this.previewTargets.length > 1
+            ? `Preview ${this.previewTargets.indexOf(target) + 1} Error`
+            : "Preview Error",
         message:
           message.length > 100 ? message.substring(0, 100) + "..." : message,
         duration: 2000,
@@ -6972,10 +7124,11 @@ class BlueprintSystem {
     }
   }
 
-  resetPreviewErrors() {
-    this.previewErrorCount = 0;
-    this.previewNotificationCount = 0;
-    this.previewErrorKeys.clear();
+  resetPreviewErrors(target = this.defaultPreviewTarget()) {
+    if (!target) return;
+    target.errorCount = 0;
+    target.notificationCount = 0;
+    target.errorKeys.clear();
   }
 
   // ==================== NOTIFICATION SYSTEM ====================
@@ -7059,94 +7212,83 @@ class BlueprintSystem {
 
   // ==================== PREVIEW CONSOLE ====================
 
-  setupPreviewConsole() {
-    this.previewConsole = document.getElementById("preview-console");
-    this.previewConsoleContent = document.getElementById(
-      "preview-console-content",
-    );
-    this.previewConsoleBadge = document.getElementById("preview-console-badge");
-    this.consoleEntries = [];
-    this.consoleErrorCount = 0;
-    this.consoleWarningCount = 0;
-
-    const toggleBtn = document.getElementById("toggleConsoleBtn");
-    const clearBtn = document.getElementById("clearConsoleBtn");
-    const consoleHeader = document.getElementById("preview-console-header");
+  // Each preview panel has its own console, so wiring is per window and every
+  // method below takes the window it belongs to.
+  setupPreviewConsole(target) {
+    const consoleHeader = target.el("preview-console-header");
+    if (!consoleHeader) return;
 
     // Toggle console on header click
     consoleHeader.addEventListener("click", (e) => {
       // Don't toggle if clicking a button
       if (e.target.closest("button")) return;
-      this.togglePreviewConsole();
+      this.togglePreviewConsole(target);
     });
 
-    toggleBtn.addEventListener("click", (e) => {
+    target.el("toggleConsoleBtn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.togglePreviewConsole();
+      this.togglePreviewConsole(target);
     });
 
-    clearBtn.addEventListener("click", (e) => {
+    target.el("clearConsoleBtn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.clearPreviewConsole();
+      this.clearPreviewConsole(target);
     });
 
     // Show empty state initially
-    this.updateConsoleEmptyState();
+    this.updateConsoleEmptyState(target);
   }
 
-  togglePreviewConsole() {
-    const isExpanded = this.previewConsole.classList.contains(
-      "preview-console-expanded",
-    );
-    this.previewConsole.classList.toggle(
-      "preview-console-collapsed",
-      isExpanded,
-    );
-    this.previewConsole.classList.toggle(
-      "preview-console-expanded",
-      !isExpanded,
-    );
+  togglePreviewConsole(target = this.defaultPreviewTarget()) {
+    const panel = target?.el("preview-console");
+    if (!panel) return;
+    const isExpanded = panel.classList.contains("preview-console-expanded");
+    panel.classList.toggle("preview-console-collapsed", isExpanded);
+    panel.classList.toggle("preview-console-expanded", !isExpanded);
   }
 
-  clearPreviewConsole() {
-    this.consoleEntries = [];
-    this.consoleErrorCount = 0;
-    this.consoleWarningCount = 0;
-    this.previewConsoleContent.innerHTML = "";
-    this.updateConsoleBadge();
-    this.updateConsoleEmptyState();
+  clearPreviewConsole(target = this.defaultPreviewTarget()) {
+    if (!target) return;
+    target.consoleEntries = [];
+    target.consoleErrorCount = 0;
+    target.consoleWarningCount = 0;
+    const content = target.el("preview-console-content");
+    if (content) content.innerHTML = "";
+    this.updateConsoleBadge(target);
+    this.updateConsoleEmptyState(target);
 
     // Auto-collapse console on clear/refresh
-    this.collapsePreviewConsole();
+    this.collapsePreviewConsole(target);
   }
 
-  collapsePreviewConsole() {
-    if (this.previewConsole) {
-      this.previewConsole.classList.add("preview-console-collapsed");
-      this.previewConsole.classList.remove("preview-console-expanded");
-    }
+  collapsePreviewConsole(target = this.defaultPreviewTarget()) {
+    const panel = target?.el("preview-console");
+    if (!panel) return;
+    panel.classList.add("preview-console-collapsed");
+    panel.classList.remove("preview-console-expanded");
   }
 
-  updateConsoleEmptyState() {
-    if (this.consoleEntries.length === 0) {
-      this.previewConsoleContent.innerHTML =
+  updateConsoleEmptyState(target = this.defaultPreviewTarget()) {
+    const content = target?.el("preview-console-content");
+    if (!content) return;
+    if (!target.consoleEntries?.length) {
+      content.innerHTML =
         '<div class="console-empty">No console messages</div>';
     }
   }
 
-  updateConsoleBadge() {
-    const total = this.consoleErrorCount + this.consoleWarningCount;
+  updateConsoleBadge(target = this.defaultPreviewTarget()) {
+    const badge = target?.el("preview-console-badge");
+    if (!badge) return;
+    const total =
+      (target.consoleErrorCount ?? 0) + (target.consoleWarningCount ?? 0);
     if (total === 0) {
-      this.previewConsoleBadge.classList.add("hidden");
+      badge.classList.add("hidden");
     } else {
-      this.previewConsoleBadge.classList.remove("hidden");
-      this.previewConsoleBadge.textContent = total > 99 ? "99+" : total;
+      badge.classList.remove("hidden");
+      badge.textContent = total > 99 ? "99+" : total;
       // Use different color if only warnings
-      if (this.consoleErrorCount === 0) {
-        this.previewConsoleBadge.classList.add("warning-only");
-      } else {
-        this.previewConsoleBadge.classList.remove("warning-only");
-      }
+      badge.classList.toggle("warning-only", target.consoleErrorCount === 0);
     }
   }
 
@@ -7155,10 +7297,16 @@ class BlueprintSystem {
    * @param {string} message - The log message
    * @param {'log' | 'info' | 'warning' | 'error'} level - Log level
    */
-  addConsoleEntry(message, level = "log") {
+  addConsoleEntry(
+    message,
+    level = "log",
+    target = this.defaultPreviewTarget(),
+  ) {
+    const content = target?.el("preview-console-content");
+    if (!content) return null;
+
     // Remove empty state if present
-    const emptyState =
-      this.previewConsoleContent.querySelector(".console-empty");
+    const emptyState = content.querySelector(".console-empty");
     if (emptyState) {
       emptyState.remove();
     }
@@ -7189,28 +7337,29 @@ class BlueprintSystem {
       <div class="console-entry-time">${timeStr}</div>
     `;
 
-    this.previewConsoleContent.appendChild(entry);
-    this.consoleEntries.push({ message, level, time: now });
+    content.appendChild(entry);
+    target.consoleEntries.push({ message, level, time: now });
 
     // Update counts
     if (level === "error") {
-      this.consoleErrorCount++;
+      target.consoleErrorCount = (target.consoleErrorCount ?? 0) + 1;
     } else if (level === "warning") {
-      this.consoleWarningCount++;
+      target.consoleWarningCount = (target.consoleWarningCount ?? 0) + 1;
     }
 
-    this.updateConsoleBadge();
+    this.updateConsoleBadge(target);
 
     // Auto-scroll to bottom
-    this.previewConsoleContent.scrollTop =
-      this.previewConsoleContent.scrollHeight;
+    content.scrollTop = content.scrollHeight;
 
     // Auto-expand on error
     if (
       level === "error" &&
-      this.previewConsole.classList.contains("preview-console-collapsed")
+      target
+        .el("preview-console")
+        ?.classList.contains("preview-console-collapsed")
     ) {
-      this.togglePreviewConsole();
+      this.togglePreviewConsole(target);
     }
 
     return entry;
@@ -7409,7 +7558,7 @@ class BlueprintSystem {
     console.log("Custom node saved:", customNode);
 
     // Reload preview after saving custom node
-    this.updatePreview();
+    this.updateAllPreviews();
   }
 
   updateCustomNodeInstances(customNode) {
@@ -10729,11 +10878,17 @@ class BlueprintSystem {
           this.isPreviewVisible() ? "Hide Preview" : "Show Preview",
       },
       {
+        label: "New Preview Window",
+        menu: "View",
+        action: "newPreviewWindow",
+        handler: () => this.addPreviewWindow(this.newPreviewWindowOptions()),
+      },
+      {
         label: "Reload Preview",
         menu: "View",
         action: "reloadPreview",
         shortcut: "R",
-        handler: () => this.updatePreview(),
+        handler: () => this.updateAllPreviews(),
       },
       {
         label: "Reset Preview Position",
@@ -11250,37 +11405,39 @@ class BlueprintSystem {
     this.render();
   }
 
-  isPreviewVisible() {
-    const previewWindow = document.getElementById("preview-window");
-    return previewWindow && previewWindow.style.display !== "none";
+  // The menu commands act on window 0 unless given another - it is the one that
+  // always exists, and the one "the preview" means everywhere else.
+  isPreviewVisible(target = this.defaultPreviewTarget()) {
+    return !!target?.root && target.root.style.display !== "none";
   }
 
-  togglePreviewWindow() {
-    const previewWindow = document.getElementById("preview-window");
-    const openPreviewBtn = document.getElementById("openPreviewBtn");
-
-    if (this.isPreviewVisible()) {
-      previewWindow.style.display = "none";
-      openPreviewBtn.style.display = "flex";
+  togglePreviewWindow(target = this.defaultPreviewTarget()) {
+    if (!target?.root) return;
+    if (this.isPreviewVisible(target)) {
+      this.minimisePreviewWindow(target);
     } else {
-      previewWindow.style.display = "flex";
-      openPreviewBtn.style.display = "none";
+      this.showPreviewWindow(target);
     }
   }
 
+  // Put every window back where it started, cascaded as if freshly opened.
+  // The escape hatch for a panel dragged off-screen.
   resetPreviewPosition() {
-    const previewWindow = document.getElementById("preview-window");
-    const openPreviewBtn = document.getElementById("openPreviewBtn");
+    this.previewTargets.forEach((target, index) => {
+      if (!target.root) return;
+      const offset = index * 36;
+      const style = target.root.style;
+      style.display = "flex";
+      style.bottom = `${20 + offset}px`;
+      style.right = `${20 + offset}px`;
+      style.left = "";
+      style.top = "";
+      style.width = "400px";
+      style.height = "300px";
+      this.raisePreviewWindow(target);
+    });
 
-    // Reset to default position and show
-    previewWindow.style.display = "flex";
-    previewWindow.style.bottom = "20px";
-    previewWindow.style.right = "20px";
-    previewWindow.style.left = "";
-    previewWindow.style.top = "";
-    previewWindow.style.width = "400px";
-    previewWindow.style.height = "300px";
-    openPreviewBtn.style.display = "none";
+    this.updateOpenPreviewButton();
   }
 
   toggleSidebar() {
@@ -11308,7 +11465,7 @@ class BlueprintSystem {
     if (this.previewNode) {
       this.previewNode = null;
       this.previewNeedsUpdate = true;
-      this.updatePreview();
+      this.updateAllPreviews();
     }
   }
 
@@ -11323,7 +11480,7 @@ class BlueprintSystem {
     if (this.previewNode && this.selectedNodes.size > 1) {
       this.previewNode = null;
       this.previewNeedsUpdate = true;
-      this.updatePreview();
+      this.updateAllPreviews();
     }
   }
 
@@ -11335,7 +11492,7 @@ class BlueprintSystem {
     if (this.previewNode === node) {
       this.previewNode = null;
       this.previewNeedsUpdate = true;
-      this.updatePreview();
+      this.updateAllPreviews();
     }
   }
 
@@ -11405,7 +11562,7 @@ class BlueprintSystem {
     if (deletingPreviewNode) {
       this.previewNode = null;
       this.previewNeedsUpdate = true;
-      this.updatePreview();
+      this.updateAllPreviews();
     }
 
     this.clearSelection();
@@ -11422,7 +11579,7 @@ class BlueprintSystem {
       if (this.previewNode) {
         this.previewNode = null;
         this.previewNeedsUpdate = true;
-        this.updatePreview();
+        this.updateAllPreviews();
         this.render();
       }
       return;
@@ -11457,7 +11614,7 @@ class BlueprintSystem {
     }
 
     this.previewNeedsUpdate = true;
-    this.updatePreview();
+    this.updateAllPreviews();
     this.render();
   }
 
@@ -12357,7 +12514,7 @@ class BlueprintSystem {
     // R: Reload Preview
     else if (!e.ctrlKey && !e.metaKey && (e.key === "r" || e.key === "R")) {
       e.preventDefault();
-      this.updatePreview();
+      this.updateAllPreviews();
     }
     // V: Rewrite selected fan-out
     else if (
@@ -14336,21 +14493,68 @@ class BlueprintSystem {
     return langData;
   }
 
-  resetPreviewSettings() {
-    // Reset preview settings to defaults, then let the table push them to both
-    // the panel and the running preview.
-    this.previewSettings = makeDefaultPreviewSettings();
-    this.updatePreviewSettingsUI();
+  // Put the file's preview windows back.
+  //
+  // A file written before multiple windows existed has only `previewSettings`,
+  // which is window 0's; `previewWindows` is the full list and is preferred
+  // when present. Either way the session ends up with exactly the windows the
+  // file describes, never a mix of those and whatever was open before.
+  restorePreviewWindows(data) {
+    const settingsFrom = (raw) => ({
+      // Merge over the defaults, not over the current session's settings -
+      // otherwise a setting from the previously open file leaks into a file
+      // that never had it.
+      ...makeDefaultPreviewSettings(),
+      ...migratePreviewSettings(raw ?? {}),
+    });
 
-    if (this.previewReady) {
-      this.applyPreviewSettingsTo(this.defaultPreviewTarget());
-      // Reload preview to clear textures
-      this.updatePreview();
+    const saved =
+      Array.isArray(data.previewWindows) && data.previewWindows.length
+        ? data.previewWindows
+        : [{ settings: data.previewSettings }];
+
+    // Drop any extra windows this session had open, keeping window 0 - it owns
+    // the docked panel the rest of the app addresses.
+    while (this.previewTargets.length > 1) {
+      this.removePreviewWindow(
+        this.previewTargets[this.previewTargets.length - 1],
+      );
+    }
+
+    const first = this.defaultPreviewTarget();
+    if (first) {
+      first.settings = settingsFrom(saved[0]?.settings);
+      if (saved[0]?.geometry) first.geometry = saved[0].geometry;
+      this.updatePreviewSettingsUI(first);
+    }
+
+    // `reload: false` for the same reason setupPreview uses it: this runs
+    // before the file's nodes are loaded, so a shader generated now would be
+    // the *previous* project's. The post-load onShaderChanged loads them all.
+    for (const entry of saved.slice(1)) {
+      this.addPreviewWindow({
+        settings: settingsFrom(entry?.settings),
+        geometry: entry?.geometry,
+        reload: false,
+      });
     }
   }
 
-  screenshotPreview() {
-    const target = this.defaultPreviewTarget();
+  resetPreviewSettings(target = this.defaultPreviewTarget()) {
+    if (!target) return;
+    // Reset one preview's settings to defaults, then let the table push them to
+    // both its panel and its running runtime. Other windows are untouched.
+    target.settings = makeDefaultPreviewSettings();
+    this.updatePreviewSettingsUI(target);
+
+    if (target.ready) {
+      this.applyPreviewSettingsTo(target);
+      // Reload preview to clear textures
+      this.updatePreview(target);
+    }
+  }
+
+  screenshotPreview(target = this.defaultPreviewTarget()) {
     if (!target?.win || !target.ready) {
       alert("Preview is not ready yet");
       return;
@@ -14513,6 +14717,12 @@ class BlueprintSystem {
     );
 
     this.render();
+
+    // The graph now exists, so the previews have something to compile. This is
+    // also the first load at start-up: setupPreview() deliberately builds
+    // window 0 without one, because at that point there are no nodes yet.
+    this.updateAllPreviews();
+
     this.announceMcpProjectUpdate("create-new-file");
   }
 
@@ -14588,7 +14798,14 @@ class BlueprintSystem {
       uniformIdCounter: this.uniformIdCounter,
       customNodes: this.customNodes,
       customNodeIdCounter: this.customNodeIdCounter,
+      // Window 0's settings stay at the top level under the name they have
+      // always had, so a file written now still opens in a build that knows
+      // nothing about extra windows. `previewWindows` carries all of them.
       previewSettings: this.previewSettings,
+      previewWindows: this.previewTargets.map((target) => ({
+        settings: target.settings,
+        geometry: target.geometry,
+      })),
     };
     if (previewScreenshot) data.previewScreenshot = previewScreenshot;
 
@@ -14905,15 +15122,8 @@ class BlueprintSystem {
           data.customNodeIdCounter || this.customNodes.length + 1;
         this.renderCustomNodesList();
       }
-      if (data.previewSettings) {
-        // Merge over the defaults, not over the current session's settings -
-        // otherwise a setting from the previously open file leaks into a file
-        // that never had it.
-        this.previewSettings = {
-          ...makeDefaultPreviewSettings(),
-          ...migratePreviewSettings(data.previewSettings),
-        };
-        this.updatePreviewSettingsUI();
+      if (data.previewSettings || data.previewWindows) {
+        this.restorePreviewWindows(data);
       }
 
       // Restore host-level uniforms (migration support for old per-graph format)
@@ -16217,6 +16427,223 @@ class BlueprintSystem {
     }
   }
 
+  // Text for one preview panel. Runs per window: every control lives inside
+  // its own cloned root, so a document-wide pass would only ever find the
+  // first panel - or, once ids are generated per clone, none of them.
+  updatePreviewPanelText(target, t) {
+    if (!target?.root) return;
+
+    // Preview buttons
+    const updatePreviewButton = (name, titleKey) => {
+      const btn = target.el(name);
+      if (btn) btn.title = t(titleKey);
+    };
+
+    updatePreviewButton("togglePreviewSettingsBtn", "Toggle Settings");
+    updatePreviewButton("reloadPreviewBtn", "Reload Preview");
+    updatePreviewButton("screenshotPreviewBtn", "Screenshot Preview");
+    updatePreviewButton("newPreviewBtn", "New Preview Window");
+
+    // The header and the close button say different things depending on how
+    // many windows there are and whether this one is popped out, so they are
+    // written by renumberPreviewWindows rather than from a fixed key here.
+
+    // Preview controls labels
+    const updateLabel = (selector, textKey) => {
+      const labels = target.root.querySelectorAll(selector);
+      labels.forEach((label) => {
+        const text = label.childNodes[0];
+        if (text) {
+          text.textContent = t(textKey);
+        }
+      });
+    };
+
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group label[data-preview-for='effectTargetSelect'], .preview-control-group:has([data-preview-el='effectTargetSelect']) > label",
+      "Effect Target:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='objectSelect']) > label",
+      "Object:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='objectColorInput']) > label",
+      "Color:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='objectAngleSlider']) .preview-scale-header > label",
+      "Rotation:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='objectOffsetXSlider']) .preview-scale-header > label",
+      "Offset:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='cameraModeSelect']) > label",
+      "Camera:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='autoRotateCheckbox']) label",
+      "Auto Rotate",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='backgroundModeSelect']) > label",
+      "Background:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='renderResolutionSelect']) > label",
+      "Resolution:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='canvasWidthInput']) > label",
+      "Custom:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='fullscreenQualitySelect']) > label",
+      "Fullscreen Quality:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='samplingModeSelect']) > label",
+      "Sampling:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='anisotropicFilteringSelect']) > label",
+      "Anisotropic:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='shaderLanguageSelect']) > label",
+      "Shader Language:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='spriteTextureInput']) > label",
+      "Sprite Texture:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='shapeTextureInput']) > label",
+      "Shape Texture:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='modelTextureInput']) > label",
+      "Model Texture:",
+    );
+
+    // Preview select options
+    const effectTargetSelect = target.el("effectTargetSelect");
+    if (effectTargetSelect) {
+      effectTargetSelect.options[0].text = t("Sprite");
+      effectTargetSelect.options[1].text = t("3D Shape");
+      effectTargetSelect.options[2].text = t("Layout");
+      effectTargetSelect.options[3].text = t("Layer");
+    }
+
+    const objectSelect = target.el("objectSelect");
+    if (objectSelect) {
+      objectSelect.options[0].text = t("Sprite");
+      objectSelect.options[1].text = t("Box");
+      objectSelect.options[2].text = t("Prism");
+      objectSelect.options[3].text = t("Wedge");
+      objectSelect.options[4].text = t("Pyramid");
+      objectSelect.options[5].text = t("Corner Out");
+      objectSelect.options[6].text = t("Corner In");
+    }
+
+    const cameraModeSelect = target.el("cameraModeSelect");
+    if (cameraModeSelect) {
+      cameraModeSelect.options[0].text = t("2D");
+      cameraModeSelect.options[1].text = t("Perspective");
+      cameraModeSelect.options[2].text = t("Orthographic");
+    }
+
+    const backgroundModeSelect = target.el("backgroundModeSelect");
+    if (backgroundModeSelect) {
+      backgroundModeSelect.options[0].text = t("Auto");
+      backgroundModeSelect.options[1].text = t("None");
+      backgroundModeSelect.options[2].text = t("2D Background");
+      backgroundModeSelect.options[3].text = t("3D Room");
+    }
+
+    const renderResolutionSelect = target.el("renderResolutionSelect");
+    if (renderResolutionSelect) {
+      // Only the first and last are words; the pixel counts need no translating.
+      renderResolutionSelect.options[0].text = t("Native");
+      renderResolutionSelect.options[
+        renderResolutionSelect.options.length - 1
+      ].text = t("Custom");
+    }
+
+    const fullscreenQualitySelect = target.el("fullscreenQualitySelect");
+    if (fullscreenQualitySelect) {
+      fullscreenQualitySelect.options[0].text = t("High");
+      fullscreenQualitySelect.options[1].text = t("Low");
+    }
+
+    // Rebuilt rather than translated in place - it is a sentence, not a label.
+    this.showRenderSize(undefined, target);
+
+    const samplingModeSelect = target.el("samplingModeSelect");
+    if (samplingModeSelect) {
+      samplingModeSelect.options[0].text = t("Trilinear");
+      samplingModeSelect.options[1].text = t("Bilinear");
+      samplingModeSelect.options[2].text = t("Nearest");
+    }
+
+    const anisotropicFilteringSelect = target.el("anisotropicFilteringSelect");
+    if (anisotropicFilteringSelect) {
+      // Only the first two options are words; 2x..16x need no translating.
+      anisotropicFilteringSelect.options[0].text = t("Auto");
+      anisotropicFilteringSelect.options[1].text = t("Off");
+    }
+
+    const shaderLanguageSelect = target.el("shaderLanguageSelect");
+    if (shaderLanguageSelect) {
+      shaderLanguageSelect.options[0].text = t("WebGPU");
+      shaderLanguageSelect.options[1].text = t("WebGL 2");
+      shaderLanguageSelect.options[2].text = t("WebGL 1");
+    }
+
+    // Preview buttons with titles
+    const spriteTextureBtn = target.el("spriteTextureBtn");
+    if (spriteTextureBtn) spriteTextureBtn.title = t("Load sprite texture");
+
+    const clearSpriteTextureBtn = target.el("clearSpriteTextureBtn");
+    if (clearSpriteTextureBtn)
+      clearSpriteTextureBtn.title = t("Clear sprite texture");
+
+    const shapeTextureBtn = target.el("shapeTextureBtn");
+    if (shapeTextureBtn) shapeTextureBtn.title = t("Load shape texture");
+
+    const clearShapeTextureBtn = target.el("clearShapeTextureBtn");
+    if (clearShapeTextureBtn)
+      clearShapeTextureBtn.title = t("Clear shape texture");
+
+    const modelTextureBtn = target.el("modelTextureBtn");
+    if (modelTextureBtn)
+      modelTextureBtn.title = t("Replace the 3D model's grid texture");
+
+    const clearModelTextureBtn = target.el("clearModelTextureBtn");
+    if (clearModelTextureBtn)
+      clearModelTextureBtn.title = t("Back to the grid texture");
+
+    const resetPreviewSettingsBtn = target.el("resetPreviewSettingsBtn");
+    if (resetPreviewSettingsBtn)
+      resetPreviewSettingsBtn.textContent = t("Reset Preview Settings");
+
+    // Texture preview "No image" text
+    const updateTexturePreview = (name) => {
+      const preview = target.el(name);
+      if (preview) {
+        const span = preview.querySelector("span");
+        if (span) span.textContent = t("No image");
+      }
+    };
+
+    updateTexturePreview("spriteTexturePreview");
+    updateTexturePreview("shapeTexturePreview");
+    updateTexturePreview("modelTexturePreview");
+    updateTexturePreview("bgTexturePreview");
+  }
+
   updateShaderSettingsUI() {
     // Update all shader settings input fields
     const fields = {
@@ -16258,20 +16685,30 @@ class BlueprintSystem {
     this.announceMcpProjectUpdate("shader-info-updated");
   }
 
-  updatePreviewSettingsUI() {
-    // State -> DOM for every preview control. Driven by PREVIEW_SETTINGS, so a
-    // new setting needs no code here at all.
+  updatePreviewSettingsUI(target = this.defaultPreviewTarget()) {
+    // State -> DOM for one preview's controls. Driven by PREVIEW_SETTINGS, so a
+    // new setting needs no code here at all. Every lookup is scoped to that
+    // window's own root, which is what keeps two panels from writing over each
+    // other.
+    if (!target?.root) return;
+
     for (const d of PREVIEW_SETTINGS) {
-      const value = this.previewSettings[d.key] ?? d.default;
-      this._writeSettingToDom(d, value);
-      d.onUi?.(this, value, this.previewSettings);
+      const value = target.settings[d.key] ?? d.default;
+      this._writeSettingToDom(d, value, target);
+      d.onUi?.(this, value, target.settings, target.root);
     }
   }
 
-  _writeSettingToDom(d, value) {
-    if (!d.dom) return;
+  updateAllPreviewSettingsUI() {
+    for (const target of this.previewTargets) {
+      this.updatePreviewSettingsUI(target);
+    }
+  }
 
-    const el = d.dom.el ? document.getElementById(d.dom.el) : null;
+  _writeSettingToDom(d, value, target) {
+    if (!d.dom || !target) return;
+
+    const el = d.dom.el ? target.el(d.dom.el) : null;
 
     switch (d.kind) {
       case "bool":
@@ -16279,14 +16716,19 @@ class BlueprintSystem {
         break;
       case "number": {
         if (el) el.value = value;
-        const valueEl = d.dom.valueEl && document.getElementById(d.dom.valueEl);
+        const valueEl = d.dom.valueEl && target.el(d.dom.valueEl);
         if (valueEl) {
           valueEl.textContent = Number(value).toFixed(d.precision ?? 2);
         }
         break;
       }
       case "texture":
-        this.updateTexturePreview(d.dom.previewEl, d.dom.clearBtnEl, value);
+        this.updateTexturePreview(
+          d.dom.previewEl,
+          d.dom.clearBtnEl,
+          value,
+          target,
+        );
         break;
       default:
         // enum, string, color

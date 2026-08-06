@@ -240,5 +240,7 @@
   "Zoom to Fit": "Ajuster le zoom",
   "no description": "aucune description",
   "refresh": "rafraîchir",
-  "split webgl": "séparer webgl"
+  "split webgl": "séparer webgl",
+  "Minimise Preview": "Réduire l'aperçu",
+  "New Preview Window": "Nouvelle fenêtre d'aperçu"
 }

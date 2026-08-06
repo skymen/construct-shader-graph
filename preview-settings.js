@@ -15,7 +15,9 @@
 //
 // The module is pure data - no DOM, no `window` at module scope. It is imported
 // by script.js (browser), GlobalConsoleApi.js (both) and cli/commands/preview.js
-// (plain Node), so DOM ids are stored as strings and never looked up here.
+// (plain Node), so control names are stored as strings. The only lookups here
+// are inside onUi hooks, which are handed the panel they belong to and never
+// reach past it - see previewEl below.
 
 // The 3D models imported into the preview project, in `preview-src/models`.
 // These are `object` values alongside the 3D Shape plugin's built-in solids;
@@ -37,6 +39,13 @@ export const PREVIEW_MODELS = [
 // implies an object and vice versa; both the UI listeners and the scripting API
 // have always done this, so it lives here once. Each returns the sibling keys it
 // mutated, so the caller knows what else to resend.
+
+// A control inside one preview panel. There can be several panels, each a clone
+// of the same template, so nothing here may reach into the document at large -
+// `root` is the window being updated and the lookup never escapes it.
+function previewEl(root, name) {
+  return root?.querySelector(`[data-preview-el="${name}"]`) ?? null;
+}
 
 export function linkEffectTarget(settings, target) {
   if (target === "sprite") {
@@ -79,12 +88,14 @@ export function linkObject(settings, object) {
 // reload     false, or true when the setting travels in the iframe URL instead
 //            of a command, or "whenEmpty" when clearing it needs a reload
 // queryParam URL param name when reload === true
-// dom        { el, valueEl, previewEl, clearBtnEl } - id strings only
+// dom        { el, valueEl, previewEl, clearBtnEl } - `data-preview-el` names,
+//            resolved within one panel's root, never document-wide
 // label      i18n key, consumed by updateUIText()
 // section    which panel section it renders into
 // cli        { flag, arg, help } - flag is camelCase, matching cli/args.js
 // link       optional cross-key coupling (above)
-// onUi       optional (bp, value, settings) side-effect after the DOM is written
+// onUi       optional (bp, value, settings, root) side-effect after the DOM is
+//            written; `root` is the preview panel it belongs to
 // apply      optional (bp, target, value, settings) override for the default
 //            "post d.command" send
 // applyGroup optional dedupe token, so keys that resolve into one command send
@@ -218,9 +229,9 @@ const applyObjectScale = (bp, target, _value, settings) =>
 // 3D shape - a sprite has no depth, and a slider that does nothing is worse
 // than no slider. Driven from both the `object` and `objectScaleLinked` hooks,
 // since either can change the answer.
-function syncScaleAxisRows(settings) {
-  const setDisplay = (id, value) => {
-    const el = document.getElementById(id);
+function syncScaleAxisRows(settings, root) {
+  const setDisplay = (name, value) => {
+    const el = previewEl(root, name);
     if (el) el.style.display = value;
   };
   const unlinked = !settings.objectScaleLinked;
@@ -236,8 +247,8 @@ function syncScaleAxisRows(settings) {
 // The two number boxes only mean anything for the Custom preset, so they only
 // exist then. Driven from the `renderResolution` hook, the same way the scale's
 // per-axis rows are driven from `objectScaleLinked`.
-function syncCustomResolutionRow(settings) {
-  const row = document.getElementById("customResolutionRow");
+function syncCustomResolutionRow(settings, root) {
+  const row = previewEl(root, "customResolutionRow");
   if (row)
     row.style.display = settings.renderResolution === "custom" ? "" : "none";
 }
@@ -278,7 +289,7 @@ export const PREVIEW_SETTINGS = [
     label: "Object:",
     section: "object",
     link: linkObject,
-    onUi: (bp, _object, settings) => syncScaleAxisRows(settings),
+    onUi: (bp, _object, settings, root) => syncScaleAxisRows(settings, root),
     cli: { flag: "object", arg: "<o>", help: "sprite | box | ..." },
   },
   {
@@ -295,7 +306,8 @@ export const PREVIEW_SETTINGS = [
     label: "Resolution:",
     section: "technical",
     link: linkRenderResolution,
-    onUi: (bp, _value, settings) => syncCustomResolutionRow(settings),
+    onUi: (bp, _value, settings, root) =>
+      syncCustomResolutionRow(settings, root),
     cli: {
       flag: "renderResolution",
       arg: "<p>",
@@ -369,8 +381,8 @@ export const PREVIEW_SETTINGS = [
     label: "Camera:",
     section: "scene",
     // Auto rotate is meaningless in 2D, so the whole group hides with it.
-    onUi: (bp, value) => {
-      const group = document.getElementById("autoRotateGroup");
+    onUi: (bp, value, _settings, root) => {
+      const group = previewEl(root, "autoRotateGroup");
       if (group) group.style.display = value === "2d" ? "none" : "flex";
     },
     cli: {
@@ -710,7 +722,7 @@ export const PREVIEW_SETTINGS = [
     applyGroup: "objectScale",
     dom: { el: "objectScaleLinkedCheckbox" },
     section: "object",
-    onUi: (bp, _linked, settings) => syncScaleAxisRows(settings),
+    onUi: (bp, _linked, settings, root) => syncScaleAxisRows(settings, root),
     cli: {
       flag: "objectScaleLinked",
       help: "Scale the object's axes independently",

@@ -35,6 +35,14 @@ beforeEach(() => {
   blueprint.previewSettings = makeDefaultPreviewSettings();
 });
 
+// Controls live inside a cloned preview panel, not in the document at large -
+// there can be several panels and they must not see each other's. `el` resolves
+// a control the way the app does: by `data-preview-el`, within one window.
+const win = () => blueprint.defaultPreviewTarget();
+const el = (name) => win().el(name);
+const panel = (selector) => win().root.querySelector(selector);
+const panelAll = (selector) => win().root.querySelectorAll(selector);
+
 describe("the settings table is the single source of truth", () => {
   it("seeds exactly the keys the host carries", () => {
     expect(Object.keys(blueprint.previewSettings).sort()).toEqual(
@@ -48,7 +56,7 @@ describe("the settings table is the single source of truth", () => {
       if (!d.dom) continue;
       for (const slot of ["el", "valueEl", "previewEl", "clearBtnEl"]) {
         const id = d.dom[slot];
-        if (id && !document.getElementById(id)) {
+        if (id && !el(id)) {
           missing.push(`${d.key}.${slot} -> #${id}`);
         }
       }
@@ -60,10 +68,10 @@ describe("the settings table is the single source of truth", () => {
     let checked = 0;
     for (const d of PREVIEW_SETTINGS) {
       if (d.kind !== "enum" || !d.dom?.el) continue;
-      const el = document.getElementById(d.dom.el);
-      if (el.tagName !== "SELECT") continue;
+      const control = el(d.dom.el);
+      if (control.tagName !== "SELECT") continue;
       expect(
-        [...el.options].map((o) => o.value),
+        [...control.options].map((o) => o.value),
         `${d.key} options`,
       ).toEqual(d.values);
       checked++;
@@ -78,10 +86,10 @@ describe("the settings table is the single source of truth", () => {
     let checked = 0;
     for (const d of PREVIEW_SETTINGS) {
       if (d.kind !== "number" || !d.dom?.el) continue;
-      const el = document.getElementById(d.dom.el);
-      if (el.type !== "range" && el.type !== "number") continue;
-      expect(Number(el.min), `${d.key} min`).toBe(d.min);
-      expect(Number(el.max), `${d.key} max`).toBe(d.max);
+      const control = el(d.dom.el);
+      if (control.type !== "range" && control.type !== "number") continue;
+      expect(Number(control.min), `${d.key} min`).toBe(d.min);
+      expect(Number(control.max), `${d.key} max`).toBe(d.max);
       checked++;
     }
     expect(checked).toBeGreaterThanOrEqual(5);
@@ -97,15 +105,15 @@ describe("the settings table is the single source of truth", () => {
       "samplingModeSelect",
       "anisotropicFilteringSelect",
     ]) {
-      const selector = `#preview-controls .preview-control-group:has(#${id}) > label`;
-      expect(document.querySelectorAll(selector).length, id).toBe(1);
+      const selector = `[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='${id}']) > label`;
+      expect(panelAll(selector).length, id).toBe(1);
     }
 
     // Rotation and offset put their label inside the axis group's header rather
     // than directly under the control group, so they need their own shape.
     for (const id of ["objectAngleSlider", "objectOffsetXSlider"]) {
-      const selector = `#preview-controls .preview-control-group:has(#${id}) .preview-scale-header > label`;
-      expect(document.querySelectorAll(selector).length, id).toBe(1);
+      const selector = `[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='${id}']) .preview-scale-header > label`;
+      expect(panelAll(selector).length, id).toBe(1);
     }
   });
 
@@ -116,7 +124,7 @@ describe("the settings table is the single source of truth", () => {
     for (const d of PREVIEW_SETTINGS) {
       const id = d.dom?.el ?? d.dom?.previewEl;
       if (!id) continue;
-      const pane = document.getElementById(id).closest(".preview-tab-content");
+      const pane = el(id).closest(".preview-tab-content");
       expect(pane?.dataset.tab, `${d.key} is on the wrong tab`).toBe(d.section);
       checked++;
     }
@@ -150,8 +158,8 @@ describe("hover tooltips", () => {
 
   it("shows the anchor's text and hides again on the way out", () => {
     const tooltip = document.getElementById("ui-tooltip");
-    const label = document.querySelector(
-      "#preview-controls label[data-tooltip]",
+    const label = panel(
+      "[data-preview-el='preview-controls'] label[data-tooltip]",
     );
     expect(label).toBeTruthy();
 
@@ -165,7 +173,7 @@ describe("hover tooltips", () => {
 
   it("stays up while the pointer moves within the anchor", () => {
     const tooltip = document.getElementById("ui-tooltip");
-    const anchor = document.querySelector("#preview-controls .scale-lock");
+    const anchor = panel("[data-preview-el='preview-controls'] .scale-lock");
     const inner = anchor.querySelector("svg");
     anchor.dataset.tooltip = "Link the axes";
 
@@ -180,8 +188,8 @@ describe("hover tooltips", () => {
   });
 
   it("every tooltip anchor carries non-empty text", () => {
-    const anchors = document.querySelectorAll(
-      "#preview-controls [data-tooltip]",
+    const anchors = panelAll(
+      "[data-preview-el='preview-controls'] [data-tooltip]",
     );
     expect(anchors.length).toBeGreaterThanOrEqual(5);
     for (const el of anchors) {
@@ -268,7 +276,7 @@ describe("the settings added in this batch", () => {
 
   it("shows the rotation readout as whole degrees", () => {
     api.preview.updateSettings({ objectAngle: 90 });
-    expect(document.getElementById("objectAngleValue").textContent).toBe("90");
+    expect(el("objectAngleValue").textContent).toBe("90");
   });
 });
 
@@ -311,8 +319,8 @@ describe("object rotation (#129)", () => {
       ["objectAngleY", "30"],
       ["objectAngle", "15"],
     ]) {
-      expect(document.getElementById(`${id}Slider`).value, id).toBe(value);
-      expect(document.getElementById(`${id}Value`).textContent, id).toBe(value);
+      expect(el(`${id}Slider`).value, id).toBe(value);
+      expect(el(`${id}Value`).textContent, id).toBe(value);
     }
   });
 });
@@ -350,8 +358,8 @@ describe("object offset", () => {
       ["objectOffsetY", "-10"],
       ["objectOffsetZ", "40"],
     ]) {
-      expect(document.getElementById(`${id}Slider`).value, id).toBe(value);
-      expect(document.getElementById(`${id}Value`).textContent, id).toBe(value);
+      expect(el(`${id}Slider`).value, id).toBe(value);
+      expect(el(`${id}Value`).textContent, id).toBe(value);
     }
   });
 });
@@ -390,19 +398,15 @@ describe("rendering resolution (#84)", () => {
 
   it("writes both boxes", () => {
     api.preview.updateSettings({ canvasWidth: 512, canvasHeight: 128 });
-    expect(document.getElementById("canvasWidthInput").value).toBe("512");
-    expect(document.getElementById("canvasHeightInput").value).toBe("128");
+    expect(el("canvasWidthInput").value).toBe("512");
+    expect(el("canvasHeightInput").value).toBe("128");
   });
 
   it("shows the custom boxes only for the custom preset", () => {
     api.preview.updateSettings({ renderResolution: "256" });
-    expect(document.getElementById("customResolutionRow").style.display).toBe(
-      "none",
-    );
+    expect(el("customResolutionRow").style.display).toBe("none");
     api.preview.updateSettings({ renderResolution: "custom" });
-    expect(document.getElementById("customResolutionRow").style.display).toBe(
-      "",
-    );
+    expect(el("customResolutionRow").style.display).toBe("");
   });
 
   it("rejects a non-numeric size", () => {
@@ -462,7 +466,7 @@ describe("background mode (#62)", () => {
 
   it("writes the select", () => {
     api.preview.updateSettings({ backgroundMode: "2d" });
-    expect(document.getElementById("backgroundModeSelect").value).toBe("2d");
+    expect(el("backgroundModeSelect").value).toBe("2d");
   });
 
   it("carries an old file's checkbox over", () => {
@@ -515,8 +519,8 @@ describe("object scale (#108)", () => {
   });
 
   it("reveals the Y row only when unlinked", () => {
-    const row = document.getElementById("objectScaleYRow");
-    const chip = document.getElementById("objectScaleXChip");
+    const row = el("objectScaleYRow");
+    const chip = el("objectScaleXChip");
 
     api.preview.updateSettings({ objectScaleLinked: true });
     expect(row.style.display).toBe("none");
@@ -528,7 +532,7 @@ describe("object scale (#108)", () => {
   });
 
   it("reveals the Z row only for a 3D shape, since a sprite has no depth", () => {
-    const row = document.getElementById("objectScaleZRow");
+    const row = el("objectScaleZRow");
 
     api.preview.updateSettings({ objectScaleLinked: false, object: "sprite" });
     expect(row.style.display).toBe("none");
@@ -572,14 +576,12 @@ describe("reset and UI push", () => {
 
   it("writes numbers into both the slider and its readout", () => {
     api.preview.updateSettings({ objectScale: 2.5 });
-    expect(document.getElementById("objectScaleSlider").value).toBe("2.5");
-    expect(document.getElementById("objectScaleValue").textContent).toBe(
-      "2.50",
-    );
+    expect(el("objectScaleSlider").value).toBe("2.5");
+    expect(el("objectScaleValue").textContent).toBe("2.50");
   });
 
   it("hides the auto-rotate group in 2D and shows it otherwise", () => {
-    const group = document.getElementById("autoRotateGroup");
+    const group = el("autoRotateGroup");
     api.preview.updateSettings({ cameraMode: "2d" });
     expect(group.style.display).toBe("none");
     api.preview.updateSettings({ cameraMode: "perspective" });

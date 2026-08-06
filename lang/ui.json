@@ -251,5 +251,7 @@
   "Zoom to Fit": "Zoom to Fit",
   "no description": "no description",
   "refresh": "refresh",
-  "split webgl": "split webgl"
+  "split webgl": "split webgl",
+  "Minimise Preview": "Minimise Preview",
+  "New Preview Window": "New Preview Window"
 }
