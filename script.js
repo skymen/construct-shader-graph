@@ -1088,21 +1088,37 @@ class Comment {
   }
 }
 
-// One preview iframe and whether its runtime has booted.
+// One preview and whether its runtime has booted.
 //
-// There is exactly one today, but every path that talks to the preview takes a
-// target rather than reaching for `this.previewIframe`, so a second window
-// (issue #78) is a push onto `previewTargets` rather than a rewrite. What that
-// would still need: the preview console and error tracking are host-global and
-// would have to be tagged per target.
+// The preview can live in the docked iframe or in a window of its own. Both are
+// just a Window to postMessage at, so everything below goes through `win` and
+// nothing else needs to know which one is in play - that is what made popping
+// out a small change rather than a second code path.
+//
+// There is exactly one target today, but every path that talks to the preview
+// takes a target rather than reaching for `this.previewIframe`, so a second
+// window (issue #78) is a push onto `previewTargets` rather than a rewrite.
+// What that would still need: the preview console and error tracking are
+// host-global and would have to be tagged per target.
 class PreviewTarget {
   constructor(iframe) {
     this.iframe = iframe;
+    // Set while the preview lives in its own browser window.
+    this.popup = null;
     this.ready = false;
   }
 
+  // The window the runtime is actually in, or null if there isn't one.
+  get win() {
+    return this.popup ?? this.iframe?.contentWindow ?? null;
+  }
+
+  get isPoppedOut() {
+    return !!this.popup;
+  }
+
   post(message) {
-    this.iframe?.contentWindow?.postMessage(message, "*");
+    this.win?.postMessage(message, "*");
   }
 
   send(command, value) {
@@ -1111,7 +1127,18 @@ class PreviewTarget {
 
   // Does this target own the window a postMessage came from?
   owns(source) {
-    return !!this.iframe && source === this.iframe.contentWindow;
+    return !!source && source === this.win;
+  }
+
+  // Point the runtime at a new URL. Reloading is how the settings that can only
+  // be read at boot (shader language, sampling, rotated frames) take effect, so
+  // both destinations need to do it.
+  navigate(url) {
+    if (this.popup) {
+      if (!this.popup.closed) this.popup.location.replace(url);
+    } else if (this.iframe) {
+      this.iframe.src = url;
+    }
   }
 }
 
@@ -5490,7 +5517,9 @@ class BlueprintSystem {
     const reloadPreviewBtn = document.getElementById("reloadPreviewBtn");
 
     previewHeader.addEventListener("mousedown", (e) => {
-      if (e.target === closePreviewBtn || e.target === reloadPreviewBtn) return;
+      // Any header button, not a named two - and `closest` because the click
+      // usually lands on the <svg> inside the button, not the button itself.
+      if (e.target.closest?.("button")) return;
       isDragging = true;
       const rect = previewWindow.getBoundingClientRect();
       dragOffsetX = e.clientX - rect.left;
@@ -5531,6 +5560,19 @@ class BlueprintSystem {
     // Reload button
     reloadPreviewBtn.addEventListener("click", () => {
       this.updatePreview();
+    });
+
+    // Pop out / pull back in
+    const popOutPreviewBtn = document.getElementById("popOutPreviewBtn");
+    popOutPreviewBtn?.addEventListener("click", () => {
+      if (this.defaultPreviewTarget()?.isPoppedOut) {
+        this.dockPreview();
+      } else {
+        this.popOutPreview();
+      }
+    });
+    document.getElementById("dockPreviewBtn")?.addEventListener("click", () => {
+      this.dockPreview();
     });
 
     // Close button
@@ -6429,11 +6471,110 @@ class BlueprintSystem {
   }
 
   updatePreview() {
-    if (!this.previewIframe) return;
+    if (!this.defaultPreviewTarget()?.win) return;
 
     // Preview always reflects the MAIN graph, regardless of which graph
     // the user is currently editing.
     return this._withGraph(this.mainGraph, () => this._updatePreviewImpl());
+  }
+
+  // Move the preview into a browser window of its own.
+  //
+  // The settings panel stays here in the editor and keeps driving it by
+  // message, so nothing about the panel has to move or be duplicated. The
+  // docked iframe is blanked rather than left running: two live Construct
+  // runtimes means two WebGL contexts and two copies of the runtime, for a
+  // preview nobody can see.
+  popOutPreview() {
+    const target = this.defaultPreviewTarget();
+    if (!target || target.isPoppedOut) return null;
+
+    const popup = window.open(
+      this.previewUrl(),
+      "csg-preview",
+      "width=640,height=640",
+    );
+    if (!popup) {
+      this.handlePreviewError(
+        "The browser blocked the preview window. Allow pop-ups for this site and try again.",
+        "warning",
+      );
+      return null;
+    }
+
+    target.popup = popup;
+    target.ready = false;
+    if (target.iframe) target.iframe.src = "about:blank";
+
+    this.updatePopOutUI();
+    this.watchPoppedOutPreview();
+    return popup;
+  }
+
+  // Bring it back into the docked panel. Safe to call when the window is
+  // already gone, which is what the closed-window watcher relies on.
+  dockPreview() {
+    const target = this.defaultPreviewTarget();
+    if (!target?.isPoppedOut) return;
+
+    const popup = target.popup;
+    target.popup = null;
+    target.ready = false;
+    if (popup && !popup.closed) popup.close();
+
+    this.updatePopOutUI();
+    this.updatePreview();
+  }
+
+  // A closed window fires nothing an opener can rely on, so poll for it.
+  watchPoppedOutPreview() {
+    if (this._popOutWatch) clearInterval(this._popOutWatch);
+
+    this._popOutWatch = setInterval(() => {
+      const target = this.defaultPreviewTarget();
+      if (!target?.isPoppedOut) {
+        clearInterval(this._popOutWatch);
+        this._popOutWatch = null;
+        return;
+      }
+      if (target.popup.closed) {
+        clearInterval(this._popOutWatch);
+        this._popOutWatch = null;
+        this.dockPreview();
+      }
+    }, 500);
+  }
+
+  // The docked panel is empty while the preview is out, so say so and turn the
+  // pop-out button into the way back.
+  updatePopOutUI() {
+    const poppedOut = !!this.defaultPreviewTarget()?.isPoppedOut;
+    const button = document.getElementById("popOutPreviewBtn");
+    const previewWindow = document.getElementById("preview-window");
+
+    if (button) {
+      button.classList.toggle("active", poppedOut);
+      button.title = poppedOut
+        ? "Bring Preview Back"
+        : "Open Preview in a Window";
+    }
+    previewWindow?.classList.toggle("preview-popped-out", poppedOut);
+  }
+
+  // The URL a preview boots from. Carries the settings marked `reload: true`,
+  // which the runtime reads before it boots and so cannot receive as a command.
+  previewUrl(settings = this.previewSettings) {
+    const params = new URLSearchParams();
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.reload !== true || !d.queryParam) continue;
+      const value = settings[d.key];
+      if (d.kind === "bool") {
+        if (value) params.set(d.queryParam, "1");
+      } else {
+        params.set(d.queryParam, value);
+      }
+    }
+    return `preview/index.html?${params.toString()}`;
   }
 
   _updatePreviewImpl() {
@@ -6454,23 +6595,9 @@ class BlueprintSystem {
     // Cache the shader data for when preview requests it
     this.cachedShaderData = this.buildShaderData(shaders);
 
-    // Build query params for settings that require reload. These are the
-    // descriptors marked `reload: true`, which the runtime reads before it
-    // boots and so cannot receive as a command.
-    const params = new URLSearchParams();
-    for (const d of PREVIEW_SETTINGS) {
-      if (d.reload !== true || !d.queryParam) continue;
-      const value = this.previewSettings[d.key];
-      if (d.kind === "bool") {
-        if (value) params.set(d.queryParam, "1");
-      } else {
-        params.set(d.queryParam, value);
-      }
-    }
-
-    // Reload iframe with query parameters
+    // Reload the preview - wherever it currently lives.
     this.previewReady = false;
-    this.previewIframe.src = `preview/index.html?${params.toString()}`;
+    this.defaultPreviewTarget()?.navigate(this.previewUrl());
   }
 
   buildShaderData(shaders) {
@@ -14223,19 +14350,16 @@ class BlueprintSystem {
   }
 
   screenshotPreview() {
-    if (!this.previewIframe || !this.previewReady) {
+    const target = this.defaultPreviewTarget();
+    if (!target?.win || !target.ready) {
       alert("Preview is not ready yet");
       return;
     }
 
-    // Request screenshot from the preview iframe
-    this.previewIframe.contentWindow.postMessage(
-      { type: "requestScreenshot" },
-      "*",
-    );
-
-    // Listen for the screenshot response
+    // Listen for the screenshot response. Matched on the window that answers,
+    // so a reply from some other preview cannot be mistaken for this one.
     const screenshotHandler = (event) => {
+      if (!target.owns(event.source)) return;
       if (event.data && event.data.type === "screenshotData") {
         // Remove the listener
         window.removeEventListener("message", screenshotHandler);
@@ -14251,6 +14375,7 @@ class BlueprintSystem {
     };
 
     window.addEventListener("message", screenshotHandler);
+    target.post({ type: "requestScreenshot" });
   }
 
   /**
@@ -14258,7 +14383,8 @@ class BlueprintSystem {
    * Returns a promise that resolves with the data URL or null if preview not ready
    */
   async getPreviewScreenshot() {
-    if (!this.previewIframe || !this.previewReady) {
+    const target = this.defaultPreviewTarget();
+    if (!target?.win || !target.ready) {
       return null;
     }
 
@@ -14275,6 +14401,7 @@ class BlueprintSystem {
       };
 
       const screenshotHandler = (event) => {
+        if (!target.owns(event.source)) return;
         if (event.data && event.data.type === "screenshotData") {
           cleanup();
           resolved = true;
@@ -14294,11 +14421,7 @@ class BlueprintSystem {
 
       window.addEventListener("message", screenshotHandler);
 
-      // Request screenshot from the preview iframe
-      this.previewIframe.contentWindow.postMessage(
-        { type: "requestScreenshot" },
-        "*",
-      );
+      target.post({ type: "requestScreenshot" });
     });
   }
 
@@ -16109,6 +16232,9 @@ class BlueprintSystem {
       settingPreservesOpaqueness: "preservesOpaqueness",
       settingAnimated: "animated",
       settingIsDeprecated: "isDeprecated",
+      settingUsesDepth: "usesDepth",
+      settingMustPredraw: "mustPredraw",
+      settingSupports3DDirectRendering: "supports3DDirectRendering",
       settingExtendBoxH: "extendBoxH",
       settingExtendBoxV: "extendBoxV",
     };

@@ -1,31 +1,36 @@
-// Wait for shader data from parent window before starting
+// Wait for shader data from the editor before starting
 
-// Helper to send errors to parent window
-function sendErrorToParent(message, severity = "error") {
-  if (window !== window.parent) {
-    window.parent.postMessage(
-      {
-        type: "shaderError",
-        message: message,
-        severity: severity,
-      },
-      "*",
-    );
-  }
+// The editor window, or null when this page was opened on its own.
+//
+// The preview runs either in the editor's iframe or in a window the editor
+// popped out, and those name their opener differently: an iframe has
+// window.parent, a popped-out window has window.opener. Resolved once here so
+// every send site below is the same regardless of which one it is. A page
+// loaded directly - no iframe, no opener - gets null and falls back to the
+// built-in default shader.
+const EDITOR =
+  window.opener || (window !== window.parent ? window.parent : null);
+
+function postToEditor(message) {
+  if (EDITOR) EDITOR.postMessage(message, "*");
 }
 
-// Helper to send console logs to parent window
+// Helper to send errors to the editor
+function sendErrorToParent(message, severity = "error") {
+  postToEditor({
+    type: "shaderError",
+    message: message,
+    severity: severity,
+  });
+}
+
+// Helper to send console logs to the editor
 function sendConsoleLogToParent(message, level = "log") {
-  if (window !== window.parent) {
-    window.parent.postMessage(
-      {
-        type: "consoleLog",
-        message: message,
-        level: level,
-      },
-      "*",
-    );
-  }
+  postToEditor({
+    type: "consoleLog",
+    message: message,
+    level: level,
+  });
 }
 
 // Set up WebGPU error capturing IMMEDIATELY before any WebGPU code runs
@@ -162,11 +167,11 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 let shaderDataPromise = (async () => {
-  // If we're in an iframe, wait for shader data from parent
-  if (window !== window.parent) {
+  // If the editor is out there, wait for it to send the shader
+  if (EDITOR) {
     await waitForShaderData();
   } else {
-    // If not in iframe, use default shader data
+    // Opened on its own: use default shader data
     setupDefaultShader();
   }
 })();
@@ -206,17 +211,12 @@ runOnStartup(async (runtime) => {
         baseObjectSize.sprite.h = height;
         applyObjectScale();
 
-        // Report size change to parent
-        if (window !== window.parent) {
-          window.parent.postMessage(
-            {
-              type: "spriteSizeChanged",
-              width: baseObjectSize.sprite.w,
-              height: baseObjectSize.sprite.h,
-            },
-            "*",
-          );
-        }
+        // Report size change to the editor
+        postToEditor({
+          type: "spriteSizeChanged",
+          width: baseObjectSize.sprite.w,
+          height: baseObjectSize.sprite.h,
+        });
       };
       runtime.addEventListener("tick", reapplyWhenResized);
     };
@@ -234,37 +234,22 @@ runOnStartup(async (runtime) => {
     runtime.callFunction("loadBgUrl", url, false);
   };
   globalThis.updatePreviewSpriteUrl = (url) => {
-    if (window !== window.parent) {
-      window.parent.postMessage(
-        {
-          type: "updatePreviewSpriteUrl",
-          url: url,
-        },
-        "*",
-      );
-    }
+    postToEditor({
+      type: "updatePreviewSpriteUrl",
+      url: url,
+    });
   };
   globalThis.updatePreviewShapeUrl = (url) => {
-    if (window !== window.parent) {
-      window.parent.postMessage(
-        {
-          type: "updatePreviewShapeUrl",
-          url: url,
-        },
-        "*",
-      );
-    }
+    postToEditor({
+      type: "updatePreviewShapeUrl",
+      url: url,
+    });
   };
   globalThis.updatePreviewBgUrl = (url) => {
-    if (window !== window.parent) {
-      window.parent.postMessage(
-        {
-          type: "updatePreviewBgUrl",
-          url: url,
-        },
-        "*",
-      );
-    }
+    postToEditor({
+      type: "updatePreviewBgUrl",
+      url: url,
+    });
   };
   await shaderDataPromise;
   runtime.addEventListener("beforeprojectstart", () =>
@@ -373,8 +358,8 @@ function waitForShaderData() {
 
     window.addEventListener("message", messageHandler);
 
-    // Signal to parent that we're ready to receive shader data
-    window.parent.postMessage({ type: "requestShaderData" }, "*");
+    // Signal to the editor that we're ready to receive shader data
+    postToEditor({ type: "requestShaderData" });
   });
 }
 
@@ -430,13 +415,13 @@ async function OnBeforeProjectStart(rt) {
   // drag changes it without anything being sent.
   runtime.addEventListener("resize", reportRenderSize);
 
-  if (window !== window.parent) {
+  if (EDITOR) {
     // Signal that project is ready for parameter updates. The command list
     // lets the host notice it is talking to a stale cached preview.
-    window.parent.postMessage(
-      { type: "projectReady", commands: Object.keys(PREVIEW_COMMANDS) },
-      "*",
-    );
+    postToEditor({
+      type: "projectReady",
+      commands: Object.keys(PREVIEW_COMMANDS),
+    });
 
     window.addEventListener("message", (event) => {
       if (event.data && event.data.type === "updateParam") {
@@ -454,13 +439,10 @@ async function OnBeforeProjectStart(rt) {
           // Convert blob to base64 data URL
           const reader = new FileReader();
           reader.onloadend = () => {
-            window.parent.postMessage(
-              {
-                type: "screenshotData",
-                dataUrl: reader.result, // This is a base64 data URL
-              },
-              "*",
-            );
+            postToEditor({
+              type: "screenshotData",
+              dataUrl: reader.result, // This is a base64 data URL
+            });
           };
           reader.readAsDataURL(blob);
         });
@@ -1029,7 +1011,7 @@ function applyCanvasSize() {
 // larger than the canvas, and silently returns to full quality when the request
 // does not fit.
 function reportRenderSize() {
-  if (window === window.parent) return;
+  if (!EDITOR) return;
 
   const canvasManager = internalRuntime?.GetCanvasManager?.();
   const viewportWidth = internalRuntime?.GetViewportWidth?.();
@@ -1040,15 +1022,12 @@ function reportRenderSize() {
   // resolution.
   const pixelsPerUnit = canvasManager.GetDrawWidth() / viewportWidth;
 
-  window.parent.postMessage(
-    {
-      type: "renderSizeChanged",
-      pixels: Math.round(DESIGN_CANVAS_SIZE * viewportScale * pixelsPerUnit),
-      isNative: resolutionMode === "native",
-      quality: fullscreenQuality,
-    },
-    "*",
-  );
+  postToEditor({
+    type: "renderSizeChanged",
+    pixels: Math.round(DESIGN_CANVAS_SIZE * viewportScale * pixelsPerUnit),
+    isNative: resolutionMode === "native",
+    quality: fullscreenQuality,
+  });
 }
 
 // Every command the host can send, in one table so the list can be handed to
@@ -1175,16 +1154,11 @@ function setupCameraControls() {
       zoomLevel = Math.max(0.1, Math.min(5, zoomLevel * zoomFactor));
       layout.scale = zoomLevel;
 
-      // Report zoom change to parent
-      if (window !== window.parent) {
-        window.parent.postMessage(
-          {
-            type: "zoomLevelChanged",
-            zoomLevel: zoomLevel,
-          },
-          "*",
-        );
-      }
+      // Report zoom change to the editor
+      postToEditor({
+        type: "zoomLevelChanged",
+        zoomLevel: zoomLevel,
+      });
     } else {
       // Zoom 3D camera by adjusting distance from target
       const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;

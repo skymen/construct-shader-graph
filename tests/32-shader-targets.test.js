@@ -142,6 +142,49 @@ describe("the setting travels with the project", () => {
   });
 });
 
+// Not about targets as such, but it is the same failure: a setting that exists
+// in state and has a control in the sidebar, and no code joining the two. Three
+// checkboxes were silently stale this way before the language toggles were
+// added, so this walks the settings object rather than naming keys.
+describe("updateShaderSettingsUI writes every setting that has a control", () => {
+  const controlId = (key) => `setting${key[0].toUpperCase()}${key.slice(1)}`;
+
+  it("refreshes every checkbox the sidebar actually has", () => {
+    const doc = blueprint.canvas.ownerDocument;
+    const checked = [];
+    // The language checkboxes are deliberately not free booleans - the last one
+    // standing is forced back on - so they are covered by their own tests above
+    // rather than by this blanket flip.
+    const languageKeys = new Set(Object.values(TARGET_SETTING_KEYS));
+
+    for (const key of Object.keys(makeDefaultShaderSettings())) {
+      if (languageKeys.has(key)) continue;
+      const el = doc.getElementById(controlId(key));
+      if (!el || el.type !== "checkbox") continue;
+
+      // Flip state behind the UI's back, then ask it to catch up.
+      const flipped = !blueprint.shaderSettings[key];
+      blueprint.shaderSettings[key] = flipped;
+      el.checked = !flipped;
+
+      blueprint.updateShaderSettingsUI();
+
+      expect(
+        el.checked,
+        `#${controlId(key)} did not follow shaderSettings.${key}`,
+      ).toBe(flipped);
+      checked.push(key);
+    }
+
+    // Guard the guard: if the ids ever change shape this loop would silently
+    // check nothing.
+    expect(checked).toContain("usesDepth");
+    expect(checked).toContain("mustPredraw");
+    expect(checked).toContain("supports3DDirectRendering");
+    expect(checked.length).toBeGreaterThanOrEqual(8);
+  });
+});
+
 describe("codegen", () => {
   it("omits a disabled target entirely rather than emitting an empty string", () => {
     blueprint.setTargetEnabled("webgpu", false);
