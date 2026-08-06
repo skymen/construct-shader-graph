@@ -42,6 +42,12 @@ export function makeDefaultShaderSettings() {
     supports3DDirectRendering: false,
     extendBoxH: 0,
     extendBoxV: 0,
+    // Which shader languages this effect generates and ships. See
+    // shader-targets.js for why these are three flat booleans rather than one
+    // nested object.
+    targetWebgl1: true,
+    targetWebgl2: true,
+    targetWebgpu: true,
   };
 }
 

@@ -4,12 +4,16 @@ import {
   PREVIEW_SETTING_KEYS,
   coercePreviewSetting,
 } from "./preview-settings.js";
+import {
+  SHADER_TARGETS,
+  TARGET_LABELS,
+  enabledTargetsFor,
+} from "./shader-targets.js";
 
 const API_VERSION = "1.0.0";
 const API_NAMESPACE = "shaderGraphAPI";
 const API_ALIAS = "sg";
 const PREVIEWABLE_TYPES = new Set(["float", "vec2", "vec3", "vec4"]);
-const SHADER_TARGETS = ["webgl1", "webgl2", "webgpu"];
 
 function cloneValue(value) {
   if (value === undefined) {
@@ -5312,6 +5316,19 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           `shader.getGeneratedCode target must be one of ${SHADER_TARGETS.join(", ")} or all`,
         );
 
+        const enabled = enabledTargetsFor(blueprint.mainGraph.shaderSettings);
+
+        // Asking for a language the project has switched off is a mistake worth
+        // reporting, not an undefined to hand back.
+        if (options.target && options.target !== "all") {
+          assert(
+            enabled.includes(options.target),
+            `${TARGET_LABELS[options.target]} is disabled for this project. Enabled: ${enabled
+              .map((t) => TARGET_LABELS[t])
+              .join(", ")}.`,
+          );
+        }
+
         const graph =
           options.graph === undefined && options.graphId === undefined
             ? blueprint.mainGraph
@@ -5326,7 +5343,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           );
         } else {
           shaders = {};
-          for (const target of SHADER_TARGETS) {
+          for (const target of enabled) {
             shaders[target] = blueprint._generateCallableGraphPreview(
               graph,
               target,

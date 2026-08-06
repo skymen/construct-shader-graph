@@ -3,6 +3,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { SHADER_TARGETS, TARGET_FILENAMES } from "../shader-targets.js";
 
 export class CliError extends Error {}
 
@@ -86,11 +87,7 @@ export function printJson(value) {
 }
 
 export function shaderFilename(target) {
-  return {
-    webgl1: "effect.fx",
-    webgl2: "effect.webgl2.fx",
-    webgpu: "effect.wgsl",
-  }[target];
+  return TARGET_FILENAMES[target];
 }
 
-export const SHADER_TARGETS = ["webgl1", "webgl2", "webgpu"];
+export { SHADER_TARGETS };

@@ -48,6 +48,14 @@ import {
   PREVIEW_SETTINGS_BY_KEY,
   PREVIEW_TEXTURES_BY_TYPE,
 } from "./preview-settings.js";
+import {
+  SHADER_TARGETS,
+  TARGET_SETTING_KEYS,
+  TARGET_RENDERERS,
+  TARGET_FILENAMES,
+  TARGET_LABELS,
+  enabledTargetsFor,
+} from "./shader-targets.js";
 import { languageManager } from "./LanguageManager.js";
 import { installGlobalConsoleApi } from "./GlobalConsoleApi.js";
 import {
@@ -1107,6 +1115,12 @@ class PreviewTarget {
   }
 }
 
+// The sidebar checkbox that switches a shader language on or off. Derived so
+// the id and the settings key cannot drift apart.
+function targetCheckboxId(target) {
+  return `setting${TARGET_SETTING_KEYS[target].charAt(0).toUpperCase()}${TARGET_SETTING_KEYS[target].slice(1)}`;
+}
+
 class BlueprintSystem {
   constructor(canvas) {
     this.canvas = canvas;
@@ -1188,26 +1202,9 @@ class BlueprintSystem {
 
     this.setupCanvas();
 
-    // Shader settings
-    this.shaderSettings = {
-      name: "",
-      version: "0.0.0.0",
-      author: "",
-      website: "",
-      documentation: "",
-      description: "",
-      category: "color",
-      blendsBackground: false,
-      crossSampling: false,
-      preservesOpaqueness: true,
-      animated: false,
-      isDeprecated: false,
-      usesDepth: false,
-      mustPredraw: false,
-      supports3DDirectRendering: false,
-      extendBoxH: 0,
-      extendBoxV: 0,
-    };
+    // Shader settings. Same factory the Graph constructor uses - this used to be
+    // a second, hand-maintained copy of the same object literal.
+    this.shaderSettings = makeDefaultShaderSettings();
 
     // Uniforms (host-level: shared across all graphs, not per-graph)
     this.uniforms = [];
@@ -3878,6 +3875,64 @@ class BlueprintSystem {
       this.shaderSettings.extendBoxV = parseFloat(extendBoxVInput.value) || 0;
       this.onShaderChanged();
     });
+
+    // Shader language toggles. One handler shape for all three, since the only
+    // thing that differs is which settings key it writes.
+    for (const target of SHADER_TARGETS) {
+      const checkbox = document.getElementById(targetCheckboxId(target));
+      if (!checkbox) continue;
+      checkbox.addEventListener("change", () => {
+        this.setTargetEnabled(target, checkbox.checked);
+      });
+    }
+    this.updateTargetCheckboxes();
+  }
+
+  // Switch a shader language on or off. Refuses to switch off the last one -
+  // a project that generates nothing has nothing to preview or export.
+  setTargetEnabled(target, enabled) {
+    if (!enabled && this.enabledTargets().length === 1) {
+      this.updateTargetCheckboxes();
+      return false;
+    }
+
+    this.shaderSettings[TARGET_SETTING_KEYS[target]] = !!enabled;
+    this.updateTargetCheckboxes();
+    // A disabled language must not stay selected in the preview or the code
+    // viewer, both of which would otherwise show a shader that no longer exists.
+    this.clampPreviewShaderLanguage();
+    this.updateShaderLanguageTabs();
+    this.onShaderChanged();
+    this.history.pushState(
+      `${enabled ? "Enable" : "Disable"} ${TARGET_LABELS[target]}`,
+    );
+    return true;
+  }
+
+  // State -> DOM for the three language checkboxes, including disabling the
+  // last remaining one so it cannot be unchecked.
+  updateTargetCheckboxes() {
+    const enabled = this.enabledTargets();
+    const isLastOne = enabled.length === 1;
+
+    for (const target of SHADER_TARGETS) {
+      const checkbox = document.getElementById(targetCheckboxId(target));
+      if (!checkbox) continue;
+      const on = enabled.includes(target);
+      checkbox.checked = on;
+      checkbox.disabled = on && isLastOne;
+      const label = checkbox.closest("label");
+      if (label) {
+        if (checkbox.disabled) {
+          label.setAttribute(
+            "data-tooltip",
+            "At least one shader language must stay enabled.",
+          );
+        } else {
+          label.removeAttribute("data-tooltip");
+        }
+      }
+    }
   }
 
   // Helper function to sanitize variable names
@@ -4591,32 +4646,7 @@ class BlueprintSystem {
           return;
         }
 
-        // Save current content
-        if (this.codeMirrorEditor) {
-          this.customNodeCodeData[this.currentShaderLang][
-            this.currentCodeType
-          ] = this.codeMirrorEditor.state.doc.toString();
-        }
-
-        // Switch tab
-        shaderTabs.forEach((t) => t.classList.remove("active"));
-        tab.classList.add("active");
-        this.currentShaderLang = tab.dataset.shader;
-
-        // Load new content
-        if (this.codeMirrorEditor) {
-          const newContent =
-            this.customNodeCodeData[this.currentShaderLang][
-              this.currentCodeType
-            ];
-          this.codeMirrorEditor.dispatch({
-            changes: {
-              from: 0,
-              to: this.codeMirrorEditor.state.doc.length,
-              insert: newContent,
-            },
-          });
-        }
+        this.switchCustomNodeShaderLang(tab.dataset.shader);
       });
     });
 
@@ -4631,35 +4661,7 @@ class BlueprintSystem {
         webgl2Tab.classList.add("disabled");
         // If currently on WebGL 2 tab, switch to WebGL 1
         if (this.currentShaderLang === "webgl2") {
-          // Save current content first
-          if (this.codeMirrorEditor) {
-            this.customNodeCodeData[this.currentShaderLang][
-              this.currentCodeType
-            ] = this.codeMirrorEditor.state.doc.toString();
-          }
-
-          // Switch to WebGL 1
-          document
-            .querySelectorAll(".shader-tab")
-            .forEach((t) => t.classList.remove("active"));
-          document
-            .querySelector('.shader-tab[data-shader="webgl1"]')
-            .classList.add("active");
-          this.currentShaderLang = "webgl1";
-
-          if (this.codeMirrorEditor) {
-            const newContent =
-              this.customNodeCodeData[this.currentShaderLang][
-                this.currentCodeType
-              ];
-            this.codeMirrorEditor.dispatch({
-              changes: {
-                from: 0,
-                to: this.codeMirrorEditor.state.doc.length,
-                insert: newContent,
-              },
-            });
-          }
+          this.switchCustomNodeShaderLang("webgl1");
         }
       }
     });
@@ -4849,12 +4851,47 @@ class BlueprintSystem {
       });
     }
 
+    // A language the project no longer ships has no tab to write code into.
+    this.updateShaderLanguageTabs();
+
     this.customNodeModal.classList.add("visible");
   }
 
   hideCustomNodeModal() {
     this.customNodeModal.classList.remove("visible");
     this.editingCustomNode = null;
+  }
+
+  // Move the custom node editor to another shader language, flushing whatever
+  // is in the editor into the buffer for the language being left. Three callers
+  // need this - the tab click, the splitWebGL checkbox, and a language being
+  // disabled out from under the current tab - and losing the flush is how
+  // edits used to go missing.
+  switchCustomNodeShaderLang(target) {
+    if (!target || target === this.currentShaderLang) return;
+
+    if (this.codeMirrorEditor) {
+      this.customNodeCodeData[this.currentShaderLang][this.currentCodeType] =
+        this.codeMirrorEditor.state.doc.toString();
+    }
+
+    document
+      .querySelectorAll(".shader-tab")
+      .forEach((t) => t.classList.remove("active"));
+    document
+      .querySelector(`.shader-tab[data-shader="${target}"]`)
+      ?.classList.add("active");
+    this.currentShaderLang = target;
+
+    if (this.codeMirrorEditor) {
+      this.codeMirrorEditor.dispatch({
+        changes: {
+          from: 0,
+          to: this.codeMirrorEditor.state.doc.length,
+          insert: this.customNodeCodeData[target][this.currentCodeType],
+        },
+      });
+    }
   }
 
   initializeCodeMirror() {
@@ -5606,6 +5643,7 @@ class BlueprintSystem {
       this.previewSettings.shaderLanguage = e.target.value;
       this.updatePreview(); // Reload preview with new shader language
     });
+    this.clampPreviewShaderLanguage();
 
     // Force rotated spritesheet frame (requires reload)
     const forceRotatedTextureCheckbox = document.getElementById(
@@ -6460,10 +6498,22 @@ class BlueprintSystem {
       },
     );
 
+    // A disabled language has no shader to send. The preview only ever reads
+    // the one matching previewSettings.shaderLanguage, which
+    // clampPreviewShaderLanguage keeps on an enabled target, so the missing
+    // keys are never the ones it looks at.
+    const source = {
+      webgl1: "glsl",
+      webgl2: "glslWebGL2",
+      webgpu: "wgsl",
+    };
+    const code = {};
+    for (const [target, key] of Object.entries(source)) {
+      if (shaders[target] !== undefined) code[key] = shaders[target];
+    }
+
     return {
-      glsl: shaders.webgl1,
-      glslWebGL2: shaders.webgl2,
-      wgsl: shaders.webgpu,
+      ...code,
       blendsBackground: this.shaderSettings.blendsBackground,
       usesDepth: this.shaderSettings.usesDepth,
       extendBoxHorizontal: this.shaderSettings.extendBoxH,
@@ -6538,6 +6588,38 @@ class BlueprintSystem {
     }
   }
 
+  // Keep the preview's shader language on something the project still
+  // generates, and grey out the options it does not.
+  //
+  // The <option>s stay in the markup rather than being removed: the descriptor
+  // in preview-settings.js declares the full enum, and tests/30 checks that
+  // declaration against the actual options. Disabling is what makes the two
+  // agree while still refusing the choice.
+  clampPreviewShaderLanguage() {
+    const enabled = this.enabledTargets();
+    const select = document.getElementById("shaderLanguageSelect");
+
+    if (select) {
+      for (const option of select.options) {
+        option.disabled = !enabled.includes(option.value);
+      }
+    }
+
+    if (enabled.includes(this.previewSettings.shaderLanguage)) {
+      if (select) select.value = this.previewSettings.shaderLanguage;
+      return false;
+    }
+
+    // Fall back in the descriptor's own order (WebGPU first), not the
+    // generation order, so the preview lands on the best available renderer.
+    const fallback =
+      ["webgpu", "webgl2", "webgl1"].find((t) => enabled.includes(t)) ??
+      enabled[0];
+    this.previewSettings.shaderLanguage = fallback;
+    if (select) select.value = fallback;
+    return true;
+  }
+
   sendStartupScript(script, target = this.defaultPreviewTarget()) {
     if (!target || !script) return;
 
@@ -6570,6 +6652,14 @@ class BlueprintSystem {
     return this._withGraph(this.mainGraph, () =>
       this._generateAllShadersImpl(),
     );
+  }
+
+  // Which shader languages this project generates. Reads the MAIN graph's
+  // settings, not the active graph's, for the same reason generateAllShaders
+  // does: one project ships one addon, and a function subgraph has no say in
+  // which languages it ships in.
+  enabledTargets() {
+    return enabledTargetsFor(this.mainGraph.shaderSettings);
   }
 
   _validateCallDAG() {
@@ -6655,7 +6745,10 @@ class BlueprintSystem {
       );
 
       const result = {};
-      for (const target of ["webgl1", "webgl2", "webgpu"]) {
+      // Only the languages this project ships. A disabled target is absent from
+      // the result rather than empty, so every consumer that reads by key -
+      // the bundle, the code viewer, the preview - drops it without asking.
+      for (const target of this.enabledTargets()) {
         const portToVarName = this.generateVariableNames(levels, target);
 
         // Compile all reachable function declarations for this target.
@@ -12760,7 +12853,7 @@ class BlueprintSystem {
   }
 
   showViewCodeModal() {
-    const targets = ["webgl1", "webgl2", "webgpu"];
+    const targets = this.enabledTargets();
     const shaders = {};
 
     const activeKind = this.activeGraph?.kind || "main";
@@ -12799,13 +12892,57 @@ class BlueprintSystem {
       }
     }
 
+    this.updateShaderLanguageTabs();
+
     // Show the modal
     document.getElementById("viewCodeModal").style.display = "flex";
   }
 
+  // Hide the language tabs of disabled targets wherever they appear - the code
+  // viewer and the custom node editor - and move the selection off a tab that
+  // just disappeared. Both tab strips are static markup, so this hides rather
+  // than rebuilds, and re-running it is how they come back.
+  updateShaderLanguageTabs() {
+    const enabled = this.enabledTargets();
+
+    // View Code modal: tabs are .code-tab[data-target], panels are #code-<t>.
+    const codeTabs = document.querySelectorAll(".code-tabs .code-tab");
+    let activeCodeTabIsGone = false;
+    for (const tab of codeTabs) {
+      const target = tab.dataset.target;
+      if (!target) continue;
+      const on = enabled.includes(target);
+      tab.style.display = on ? "" : "none";
+      if (!on && tab.classList.contains("active")) {
+        tab.classList.remove("active");
+        document.getElementById(`code-${target}`)?.classList.remove("active");
+        activeCodeTabIsGone = true;
+      }
+    }
+    if (activeCodeTabIsGone && enabled.length) {
+      const fallback = document.querySelector(
+        `.code-tabs .code-tab[data-target="${enabled[0]}"]`,
+      );
+      fallback?.classList.add("active");
+      document.getElementById(`code-${enabled[0]}`)?.classList.add("active");
+    }
+
+    // Custom node editor: tabs are .shader-tab[data-shader].
+    for (const tab of document.querySelectorAll(".shader-tab[data-shader]")) {
+      const target = tab.dataset.shader;
+      if (!target) continue;
+      tab.style.display = enabled.includes(target) ? "" : "none";
+    }
+    if (this.currentShaderLang && !enabled.includes(this.currentShaderLang)) {
+      this.switchCustomNodeShaderLang?.(enabled[0]);
+    }
+  }
+
   initializeViewCodeEditors() {
     const checkCodeMirror = () => {
-      const targets = ["webgl1", "webgl2", "webgpu"];
+      // Every panel gets an editor, including disabled languages' - the tab is
+      // hidden, not removed, so enabling one again must not need a reload.
+      const targets = SHADER_TARGETS;
 
       for (const target of targets) {
         const container = document.getElementById(`code-${target}`);
@@ -13843,17 +13980,25 @@ class BlueprintSystem {
     );
     const version = this.shaderSettings.version || "0.0.0.0";
 
+    const files = {};
+    // Disabled languages are absent from `shaders`, so the bundle simply does
+    // not carry their file. addon.json's file-list and supported-renderers are
+    // derived from the same set, which is what keeps the two consistent.
+    for (const target of this.enabledTargets()) {
+      files[TARGET_FILENAMES[target]] = shaders[target];
+    }
+    files["addon.json"] = JSON.stringify(this.generateAddonJson(), null, "\t");
+    files["lang/en-US.json"] = JSON.stringify(
+      this.generateLangJson(),
+      null,
+      "\t",
+    );
+
     return {
       filename: `${addonId}-${version}.c3addon`,
       addonId,
       version,
-      files: {
-        "effect.fx": shaders.webgl1,
-        "effect.webgl2.fx": shaders.webgl2,
-        "effect.wgsl": shaders.webgpu,
-        "addon.json": JSON.stringify(this.generateAddonJson(), null, "\t"),
-        "lang/en-US.json": JSON.stringify(this.generateLangJson(), null, "\t"),
-      },
+      files,
     };
   }
 
@@ -13874,17 +14019,9 @@ class BlueprintSystem {
       return;
     }
 
-    for (const target of ["webgl1", "webgl2", "webgpu"]) {
-      console.log(`Generated ${target.toUpperCase()} Shader:`);
-      console.log(
-        bundle.files[
-          target === "webgl1"
-            ? "effect.fx"
-            : target === "webgl2"
-              ? "effect.webgl2.fx"
-              : "effect.wgsl"
-        ],
-      );
+    for (const target of this.enabledTargets()) {
+      console.log(`Generated ${TARGET_LABELS[target]} Shader:`);
+      console.log(bundle.files[TARGET_FILENAMES[target]]);
       console.log("---");
     }
 
@@ -13958,6 +14095,7 @@ class BlueprintSystem {
 
   generateAddonJson() {
     const settings = this.shaderSettings;
+    const enabledTargets = this.enabledTargets();
 
     // Generate addon ID from author and name
     const author = settings.author || "MyCompany";
@@ -13980,11 +14118,11 @@ class BlueprintSystem {
       "file-list": [
         "lang/en-US.json",
         "addon.json",
-        "effect.fx",
-        "effect.webgl2.fx",
-        "effect.wgsl",
+        ...enabledTargets.map((target) => TARGET_FILENAMES[target]),
       ],
-      "supported-renderers": ["webgl", "webgl2", "webgpu"],
+      "supported-renderers": enabledTargets.map(
+        (target) => TARGET_RENDERERS[target],
+      ),
       category: settings.category || "color",
       "blends-background": settings.blendsBackground || false,
       "cross-sampling": settings.crossSampling || false,
@@ -15985,6 +16123,11 @@ class BlueprintSystem {
         }
       }
     }
+
+    // The language checkboxes carry a disabled state the flat map above cannot
+    // express, so they refresh themselves.
+    this.updateTargetCheckboxes();
+    this.updateShaderLanguageTabs();
 
     this.announceMcpProjectUpdate("shader-info-updated");
   }

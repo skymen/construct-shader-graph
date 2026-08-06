@@ -1338,6 +1338,39 @@ body {
   user-select: none;
 }
 
+/* A titled run of related checkboxes inside the settings form. */
+.settings-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #3a3a3a;
+}
+
+.settings-subgroup-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* The last enabled language cannot be switched off - the checkbox stays
+   checked and says why on hover. */
+.checkbox-label input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.checkbox-label:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.checkbox-label:has(input:disabled) span {
+  color: #777;
+}
+
 .extend-box-inputs {
   display: flex;
   gap: 8px;
