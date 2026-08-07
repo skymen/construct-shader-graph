@@ -4485,7 +4485,17 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           });
         }
 
-        const warnings = getAiWarnings(blueprint);
+        // Normalize each warning to carry a `message` and a `node` alias
+        // alongside its own fields. Warnings are authored with a
+        // `recommendation` and a bare `nodeId`, so every consumer that
+        // reasonably expected `message` — `csg validate` among them — printed
+        // "warning undefined". Fixed here rather than in cli/, which is meant
+        // to hold no logic of its own.
+        const warnings = getAiWarnings(blueprint).map((warning) => ({
+          ...warning,
+          message: warning.message ?? warning.recommendation ?? warning.type,
+          node: warning.node ?? (warning.nodeId != null ? { id: warning.nodeId } : null),
+        }));
 
         return {
           ok: errors.length === 0,

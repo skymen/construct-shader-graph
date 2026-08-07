@@ -12490,7 +12490,33 @@ class BlueprintSystem {
     console.log(`Pasted ${newNodes.length} nodes`);
   }
 
+  // Is a modal dialog currently up? Dialogs use one of two mechanisms: the
+  // `.modal` ones and the JS-built gradient editor toggle inline display, while
+  // the custom-node and uniform dialogs toggle a `visible` class.
+  //
+  // Deliberately reads inline style rather than getComputedStyle: that is how
+  // every one of these is actually shown and hidden, and it keeps the check
+  // working headlessly, where the stylesheet isn't loaded and every div would
+  // otherwise compute to display:block.
+  isAnyDialogOpen() {
+    if (
+      document.querySelector(".custom-node-modal.visible, .uniform-modal.visible")
+    ) {
+      return true;
+    }
+    for (const el of document.querySelectorAll(".modal, #gradientEditorModal")) {
+      if (el.style.display && el.style.display !== "none") return true;
+    }
+    return false;
+  }
+
   onKeyDown(e) {
+    // A dialog is modal: nothing typed into it should reach the graph behind
+    // it. The activeElement check below only catches dialogs that happen to
+    // have a field focused — the gradient editor has none, so Delete and
+    // Ctrl+Z were going straight through to the graph.
+    if (this.isAnyDialogOpen()) return;
+
     // Track pressed keys for shortcuts (1-4 for node creation)
     this.pressedKeys.add(e.key);
 
