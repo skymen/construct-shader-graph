@@ -55,13 +55,12 @@ describe("Graph kinds — Phase 2 scaffolding", () => {
     it("initialises data with a seeded accumulator contract and notes", () => {
       const g = blueprint.createLoopBodyGraph({ name: "LoopData" });
       expect(g.data.notes).toBe("");
-      expect(g.data.contract.inputs).toHaveLength(1);
+      // An accumulator is one entry, in outputs. `inputs` holds arguments, of
+      // which a fresh loop body has none.
+      expect(g.data.contract.inputs).toHaveLength(0);
       expect(g.data.contract.outputs).toHaveLength(1);
-      const inp = g.data.contract.inputs[0];
-      const out = g.data.contract.outputs[0];
-      expect(inp.role).toBe("acc");
-      expect(inp.type).toBe("T");
-      expect(inp.id).toBe(out.id); // paired by id
+      expect(g.data.contract.outputs[0].type).toBe("T");
+      expect(g.data.contract.outputs[0].role).toBeUndefined();
     });
   });
 
@@ -152,7 +151,7 @@ describe("Graph kinds — Phase 2 scaffolding", () => {
 
     it("loopBody: Index and Count stay first after adding contract inputs", () => {
       const g = blueprint.createLoopBodyGraph({ name: "Sum" });
-      g.data.contract.inputs.push({ id: 1, name: "acc", type: "float", role: "acc" });
+      g.data.contract.outputs.push({ id: 1, name: "acc", type: "float" });
 
       const inputNode = g.nodes.find((n) => n.nodeType === NODE_TYPES.functionInput);
       // Re-enforce: Index + Count + contract inputs

@@ -452,22 +452,23 @@ describe("contract undo restores boundary nodes and body wires", () => {
 // ────────────────────────────────────────────────────────────���───
 
 describe("loop body contract undo/redo", () => {
-  it("loop body contract undo restores acc/arg roles", () => {
+  it("loop body contract undo restores arguments and accumulators", () => {
     const loop = blueprint.createLoopBodyGraph({ name: "Loop" });
     loop.data.contract = {
-      inputs: [{ id: "a1", name: "sum", type: "float", role: "acc" }],
+      inputs: [],
       outputs: [{ id: "a1", name: "sum", type: "float" }],
     };
     blueprint.syncContractCallers(loop);
 
-    loop.data.contract.inputs.push({ id: "a2", name: "step", type: "float", role: "arg" });
+    loop.data.contract.inputs.push({ id: "a2", name: "step", type: "float" });
     blueprint.syncContractCallers(loop);
-    expect(loop.data.contract.inputs.length).toBe(2);
-    expect(loop.data.contract.inputs[1].role).toBe("arg");
+    expect(loop.data.contract.inputs.length).toBe(1);
+    expect(loop.data.contract.outputs.length).toBe(1);
 
     blueprint.history.undo();
-    expect(loop.data.contract.inputs.length).toBe(1);
-    expect(loop.data.contract.inputs[0].role).toBe("acc");
+    expect(loop.data.contract.inputs.length).toBe(0);
+    expect(loop.data.contract.outputs.length).toBe(1);
+    expect(loop.data.contract.outputs[0].name).toBe("sum");
   });
 
   it("_loadGraphState preserves loop body Index/Count wires", () => {
@@ -477,7 +478,7 @@ describe("loop body contract undo/redo", () => {
 
     const loop = blueprint.createLoopBodyGraph({ name: "Loop" });
     loop.data.contract = {
-      inputs: [{ id: "a1", name: "sum", type: "float", role: "acc" }],
+      inputs: [],
       outputs: [{ id: "a1", name: "sum", type: "float" }],
     };
     blueprint.syncContractCallers(loop);
@@ -515,7 +516,7 @@ describe("loop body contract undo/redo", () => {
 
     const loop = blueprint.createLoopBodyGraph({ name: "Loop" });
     loop.data.contract = {
-      inputs: [{ id: "a1", name: "sum", type: "float", role: "acc" }],
+      inputs: [],
       outputs: [{ id: "a1", name: "sum", type: "float" }],
     };
     blueprint.syncContractCallers(loop);
@@ -538,7 +539,7 @@ describe("loop body contract undo/redo", () => {
     blueprint.history.initGraphState(loop.id, snapshotGraph(loop));
 
     // Edit the loop body's own contract: add an arg port
-    loop.data.contract.inputs.push({ id: "a2", name: "step", type: "float", role: "arg" });
+    loop.data.contract.inputs.push({ id: "a2", name: "step", type: "float" });
     blueprint.syncContractCallers(loop);
 
     // Undo
@@ -555,7 +556,7 @@ describe("loop body contract undo/redo", () => {
   it("loop body transaction undo rolls back ForLoop callers", () => {
     const loop = blueprint.createLoopBodyGraph({ name: "Loop" });
     loop.data.contract = {
-      inputs: [{ id: "a1", name: "sum", type: "float", role: "acc" }],
+      inputs: [],
       outputs: [{ id: "a1", name: "sum", type: "float" }],
     };
     blueprint.syncContractCallers(loop);
@@ -565,7 +566,6 @@ describe("loop body contract undo/redo", () => {
     expect(caller.inputPorts.length).toBe(2);
     blueprint.history.initGraphState(blueprint.mainGraphId, snapshotGraph(blueprint.mainGraph));
 
-    loop.data.contract.inputs.push({ id: "a2", name: "prod", type: "float", role: "acc" });
     loop.data.contract.outputs.push({ id: "a2", name: "prod", type: "float" });
     blueprint.syncContractCallers(loop);
 

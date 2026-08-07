@@ -62,7 +62,7 @@ function buildSimpleSumLoop(name) {
   const g = blueprint.createLoopBodyGraph({ name });
   const accId = `${name}_acc`;
   g.data.contract = {
-    inputs: [{ id: accId, name: "acc", type: "float", role: "acc" }],
+    inputs: [],
     outputs: [{ id: accId, name: "acc", type: "float" }],
   };
   blueprint.syncContractCallers(g);
@@ -85,10 +85,7 @@ function buildDualAccLoop(name) {
   const accSumId = `${name}_sum`;
   const accProdId = `${name}_prod`;
   g.data.contract = {
-    inputs: [
-      { id: accSumId, name: "sum", type: "float", role: "acc" },
-      { id: accProdId, name: "prod", type: "float", role: "acc" },
-    ],
+    inputs: [],
     outputs: [
       { id: accSumId, name: "sum", type: "float" },
       { id: accProdId, name: "prod", type: "float" },
@@ -114,13 +111,8 @@ function buildAccArgLoop(name) {
   const g = blueprint.createLoopBodyGraph({ name });
   const accId = `${name}_acc`;
   g.data.contract = {
-    inputs: [
-      { id: accId, name: "total", type: "float", role: "acc" },
-      { id: `${name}_step`, name: "step", type: "float", role: "arg" },
-    ],
-    outputs: [
-      { id: accId, name: "total", type: "float" },
-    ],
+    inputs: [{ id: `${name}_step`, name: "step", type: "float" }],
+    outputs: [{ id: accId, name: "total", type: "float" }],
   };
   blueprint.syncContractCallers(g);
 
@@ -203,15 +195,15 @@ describe("Loop body codegen — Phase 5", () => {
   // ==================== Contract sync ====================
 
   describe("contract sync for ForLoop callers", () => {
-    it("adding an acc input updates caller ports", () => {
+    it("adding an accumulator updates caller ports", () => {
       const g = buildSimpleSumLoop("Sync");
       blueprint.setActiveGraph(blueprint.mainGraphId);
       const caller = addCaller(g);
       expect(caller.inputPorts).toHaveLength(2); // Count, Initial acc
 
       // Add a second accumulator
+      // One entry, in outputs — both caller ports follow from it.
       const newAccId = "sync_new_acc";
-      g.data.contract.inputs.push({ id: newAccId, name: "extra", type: "vec3", role: "acc" });
       g.data.contract.outputs.push({ id: newAccId, name: "extra", type: "vec3" });
       blueprint.syncContractCallers(g);
 
@@ -221,7 +213,7 @@ describe("Loop body codegen — Phase 5", () => {
       expect(caller.outputPorts[1].name).toBe("extra");
     });
 
-    it("removing an acc input updates caller ports", () => {
+    it("removing an accumulator updates caller ports", () => {
       const g = buildDualAccLoop("SyncRemove");
       blueprint.setActiveGraph(blueprint.mainGraphId);
       const caller = addCaller(g);
@@ -229,7 +221,6 @@ describe("Loop body codegen — Phase 5", () => {
       expect(caller.outputPorts).toHaveLength(2); // sum, prod
 
       // Remove prod
-      g.data.contract.inputs = g.data.contract.inputs.filter((p) => p.name !== "prod");
       g.data.contract.outputs = g.data.contract.outputs.filter((p) => p.name !== "prod");
       blueprint.syncContractCallers(g);
 
@@ -237,16 +228,17 @@ describe("Loop body codegen — Phase 5", () => {
       expect(caller.outputPorts).toHaveLength(1); // sum
     });
 
-    it("changing role from acc to arg removes the paired output on caller", () => {
+    it("moving an accumulator to arguments drops its caller output", () => {
       const g = buildDualAccLoop("RoleChange");
       blueprint.setActiveGraph(blueprint.mainGraphId);
       const caller = addCaller(g);
       expect(caller.outputPorts).toHaveLength(2);
 
-      // Change prod from acc to arg
-      const prodInput = g.data.contract.inputs.find((p) => p.name === "prod");
-      prodInput.role = "arg";
-      g.data.contract.outputs = g.data.contract.outputs.filter((p) => p.id !== prodInput.id);
+      // "Changing the role" is now literally moving the entry between the two
+      // lists — there is no role field to flip.
+      const prod = g.data.contract.outputs.find((p) => p.name === "prod");
+      g.data.contract.outputs = g.data.contract.outputs.filter((p) => p !== prod);
+      g.data.contract.inputs.push(prod);
       blueprint.syncContractCallers(g);
 
       // Now: inputs = Count, Initial sum, prod(arg); outputs = sum
@@ -420,11 +412,11 @@ describe("Loop body codegen — Phase 5", () => {
       const match = src.match(declRegex);
       expect(match).not.toBeNull();
       const params = match[1];
-      // Should have: int i, int n, float total, float step
+      // Should have: int i, int n, float in_total, float in_step
       expect(params).toContain("int i");
       expect(params).toContain("int n");
-      expect(params).toContain("float total");
-      expect(params).toContain("float step");
+      expect(params).toContain("float in_total");
+      expect(params).toContain("float in_step");
       // step should NOT be an out parameter
       expect(params).not.toMatch(/out\s+float\s+step/);
     });
@@ -700,7 +692,7 @@ describe("Loop body codegen — Phase 5", () => {
       const loop = blueprint.createLoopBodyGraph({ name: "LoopCallsFn" });
       const accId = "lc_acc";
       loop.data.contract = {
-        inputs: [{ id: accId, name: "acc", type: "float", role: "acc" }],
+        inputs: [],
         outputs: [{ id: accId, name: "acc", type: "float" }],
       };
       blueprint.syncContractCallers(loop);
@@ -740,7 +732,7 @@ describe("Loop body codegen — Phase 5", () => {
       const g = blueprint.createLoopBodyGraph({ name: "Passthrough" });
       const accId = "pt_acc";
       g.data.contract = {
-        inputs: [{ id: accId, name: "val", type: "float", role: "acc" }],
+        inputs: [],
         outputs: [{ id: accId, name: "val", type: "float" }],
       };
       blueprint.syncContractCallers(g);
@@ -780,7 +772,7 @@ describe("Loop body codegen — Phase 5", () => {
       const g = blueprint.createLoopBodyGraph({ name: "Vec3Loop" });
       const accId = "v3_acc";
       g.data.contract = {
-        inputs: [{ id: accId, name: "color", type: "vec3", role: "acc" }],
+        inputs: [],
         outputs: [{ id: accId, name: "color", type: "vec3" }],
       };
       blueprint.syncContractCallers(g);
@@ -810,7 +802,7 @@ describe("Loop body codegen — Phase 5", () => {
     it("loop body with only arg inputs and no acc should produce no outputs", () => {
       const g = blueprint.createLoopBodyGraph({ name: "ArgOnly" });
       g.data.contract = {
-        inputs: [{ id: "arg1", name: "x", type: "float", role: "arg" }],
+        inputs: [{ id: "arg1", name: "x", type: "float" }],
         outputs: [],
       };
       blueprint.syncContractCallers(g);
@@ -830,10 +822,7 @@ describe("Loop body codegen — Phase 5", () => {
       const accFId = "mt_f";
       const accVId = "mt_v";
       g.data.contract = {
-        inputs: [
-          { id: accFId, name: "sum", type: "float", role: "acc" },
-          { id: accVId, name: "color", type: "vec3", role: "acc" },
-        ],
+        inputs: [],
         outputs: [
           { id: accFId, name: "sum", type: "float" },
           { id: accVId, name: "color", type: "vec3" },
@@ -872,7 +861,7 @@ describe("Loop body codegen — Phase 5", () => {
     it("valid contract passes", async () => {
       const { loopBodyKindHandler } = await import("../graph-kinds/loop-body-kind.js");
       const errors = loopBodyKindHandler.validateContract({
-        inputs: [{ id: "a", name: "x", type: "float", role: "acc" }],
+        inputs: [],
         outputs: [{ id: "a", name: "x", type: "float" }],
       });
       expect(errors).toHaveLength(0);
@@ -881,7 +870,7 @@ describe("Loop body codegen — Phase 5", () => {
     it("rejects empty port name", async () => {
       const { loopBodyKindHandler } = await import("../graph-kinds/loop-body-kind.js");
       const errors = loopBodyKindHandler.validateContract({
-        inputs: [{ id: "a", name: "", type: "float", role: "acc" }],
+        inputs: [],
         outputs: [{ id: "a", name: "", type: "float" }],
       });
       expect(errors.length).toBeGreaterThan(0);
@@ -891,50 +880,43 @@ describe("Loop body codegen — Phase 5", () => {
     it("rejects duplicate port names", async () => {
       const { loopBodyKindHandler } = await import("../graph-kinds/loop-body-kind.js");
       const errors = loopBodyKindHandler.validateContract({
-        inputs: [
-          { id: "a", name: "x", type: "float", role: "acc" },
-          { id: "b", name: "x", type: "float", role: "arg" },
-        ],
+        inputs: [{ id: "b", name: "x", type: "float" }],
         outputs: [{ id: "a", name: "x", type: "float" }],
       });
       expect(errors.some((e) => e.includes("Duplicate"))).toBe(true);
     });
 
-    it("rejects input without role", async () => {
+    // The rules that used to live here — "input must have a role", "every acc
+    // output needs a matching acc input" and its inverse — described a model
+    // where an accumulator was stored twice and the copies could disagree. An
+    // accumulator is one entry in `outputs` now; none of those states exists.
+
+    it("an argument alone is a valid contract", async () => {
       const { loopBodyKindHandler } = await import("../graph-kinds/loop-body-kind.js");
       const errors = loopBodyKindHandler.validateContract({
         inputs: [{ id: "a", name: "x", type: "float" }],
         outputs: [],
       });
-      expect(errors.some((e) => e.includes("role"))).toBe(true);
+      expect(errors).toEqual([]);
     });
 
-    it("rejects acc output without matching acc input", async () => {
+    it("rejects an argument colliding with an accumulator", async () => {
+      // Both become body input parameters, so the names really would collide.
       const { loopBodyKindHandler } = await import("../graph-kinds/loop-body-kind.js");
       const errors = loopBodyKindHandler.validateContract({
-        inputs: [],
-        outputs: [{ id: "orphan", name: "x", type: "float" }],
+        inputs: [{ id: "a", name: "x", type: "float" }],
+        outputs: [{ id: "b", name: "x", type: "float" }],
       });
-      expect(errors.some((e) => e.includes("matching"))).toBe(true);
+      expect(errors.some((e) => e.includes("Duplicate"))).toBe(true);
     });
 
-    it("rejects acc input without matching output", async () => {
+    it("rejects a port colliding with the injected Index/Count", async () => {
       const { loopBodyKindHandler } = await import("../graph-kinds/loop-body-kind.js");
       const errors = loopBodyKindHandler.validateContract({
-        inputs: [{ id: "a", name: "x", type: "float", role: "acc" }],
+        inputs: [{ id: "a", name: "Count", type: "float" }],
         outputs: [],
       });
-      expect(errors.some((e) => e.includes("matching"))).toBe(true);
-    });
-
-    it("arg input does not require a paired output", async () => {
-      const { loopBodyKindHandler } = await import("../graph-kinds/loop-body-kind.js");
-      const errors = loopBodyKindHandler.validateContract({
-        inputs: [{ id: "a", name: "x", type: "float", role: "arg" }],
-        outputs: [],
-      });
-      // Should not have errors about pairing for args
-      expect(errors.filter((e) => e.includes("matching"))).toHaveLength(0);
+      expect(errors.some((e) => e.includes("Duplicate"))).toBe(true);
     });
   });
 
@@ -969,7 +951,7 @@ describe("Loop body codegen — Phase 5", () => {
       const g = blueprint.createLoopBodyGraph({ name: "GenericLoop" });
       const accId = "gen_acc";
       g.data.contract = {
-        inputs: [{ id: accId, name: "val", type: "T", role: "acc" }],
+        inputs: [],
         outputs: [{ id: accId, name: "val", type: "T" }],
       };
       blueprint.syncContractCallers(g);
@@ -985,7 +967,7 @@ describe("Loop body codegen — Phase 5", () => {
       const g = blueprint.createLoopBodyGraph({ name: "GenResolve" });
       const accId = "gr_acc";
       g.data.contract = {
-        inputs: [{ id: accId, name: "val", type: "T", role: "acc" }],
+        inputs: [],
         outputs: [{ id: accId, name: "val", type: "T" }],
       };
       blueprint.syncContractCallers(g);
@@ -1113,7 +1095,7 @@ describe("Loop body codegen — Phase 5", () => {
       const g = blueprint.createLoopBodyGraph({ name: "UVLoop" });
       const accId = "uvloop_acc";
       g.data.contract = {
-        inputs: [{ id: accId, name: "acc", type: "vec2", role: "acc" }],
+        inputs: [],
         outputs: [{ id: accId, name: "acc", type: "vec2" }],
       };
       blueprint.syncContractCallers(g);

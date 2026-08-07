@@ -1275,6 +1275,10 @@ class BlueprintSystem {
     // File System Access API support
     this.fileHandle = null;
 
+    // Why the last codegen attempt failed. Transient host state — never
+    // serialized, never snapshotted into history.
+    this.lastCodegenErrors = [];
+
     this.setupCanvas();
 
     // Shader settings. Same factory the Graph constructor uses - this used to be
@@ -2131,15 +2135,16 @@ class BlueprintSystem {
 
   // Create a loopBody-kind graph and bootstrap its boundary nodes.
   createLoopBodyGraph(opts = {}) {
-    const mkId = (suffix) =>
-      `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
-    const accId = mkId("acc");
-    const seedInputs = [{ id: accId, name: "value", type: "T", role: "acc" }];
-    const seedOutputs = [{ id: accId, name: "value", type: "T" }];
+    // Seeded with one accumulator and no arguments. Accumulators live in
+    // `outputs`; `inputs` holds arguments. See graph-kinds/loop-body-kind.js.
+    const accId = `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_acc`;
     const g = this.createGraph({
       kind: "loopBody",
       data: {
-        contract: { inputs: seedInputs, outputs: seedOutputs },
+        contract: {
+          inputs: [],
+          outputs: [{ id: accId, name: "value", type: "T" }],
+        },
         notes: "",
       },
       ...opts,
@@ -2342,22 +2347,25 @@ class BlueprintSystem {
     const levels = this.topologicalSort(dependencies, visited);
 
     // Build portToVarName: FunctionInput outputs -> parameter names; rest -> fv_N.
-    // For loop bodies, outputPorts[0..1] are the injected Index and Count ports
-    // (not in the contract), so contract indices are offset by 2.
+    //
+    // The name comes from the PORT, not from indexing into contract.inputs.
+    // enforceBoundaryRules decides what these ports are and in what order —
+    // for a loop body that is [Index, Count, ...accumulators, ...arguments],
+    // which is not contract.inputs at all — and the emitted parameter list is
+    // built from the same place. Indexing the contract here meant the body and
+    // the declaration could disagree about which name meant which value.
     const portToVarName = new Map();
     let varCounter = 0;
-    const injectedCount = graph.kind === "loopBody" ? 2 : 0;
     inputNode.outputPorts.forEach((port, i) => {
       if (graph.kind === "loopBody" && i === 0) {
         portToVarName.set(port, "i"); // Index
       } else if (graph.kind === "loopBody" && i === 1) {
         portToVarName.set(port, "n"); // Count
       } else {
-        const ci = i - injectedCount;
-        const paramName = contract.inputs[ci]
-          ? _sanitizeId(contract.inputs[ci].name)
-          : `p${i}`;
-        portToVarName.set(port, paramName);
+        portToVarName.set(
+          port,
+          port.name ? `in_${_sanitizeId(port.name)}` : `in_p${i}`,
+        );
       }
     });
 
@@ -4730,10 +4738,16 @@ class BlueprintSystem {
     if (!g || g.kind === "main") return;
     const handler = getHandler(g.kind);
     if (!handler) return;
-    const contract = g.data.contract || { inputs: [], outputs: [] };
-    const section = which === "inputs" ? contract.inputs : contract.outputs;
-    const port = handler.defaultPort(section);
-    section.push(port);
+    // Assign back: `g.data.contract` may be absent on a hand-built graph, and
+    // the fallback object used to be filled in and then dropped on the floor.
+    if (!g.data.contract) g.data.contract = { inputs: [], outputs: [] };
+    const contract = g.data.contract;
+    if (!contract[which]) contract[which] = [];
+    // Pass the whole contract so a new port picks a generic not already in use
+    // anywhere in it, rather than only on its own side.
+    contract[which].push(
+      handler.defaultPort([...(contract.inputs || []), ...(contract.outputs || [])]),
+    );
     this.syncContractCallers(g);
     this.renderContractEditor();
     this.renderFunctionsList();
@@ -6685,11 +6699,7 @@ class BlueprintSystem {
     const shaders = this.generateAllShaders();
     if (!shaders) {
       for (const target of targets) {
-        this.handlePreviewError(
-          "Failed to generate shader. Make sure you have an Output node and all required connections are made.",
-          "error",
-          target,
-        );
+        this.handlePreviewError(this.codegenFailureMessage(), "error", target);
       }
       return false;
     }
@@ -7082,13 +7092,15 @@ class BlueprintSystem {
   }
 
   _generateAllShadersImpl() {
+    // Why the last attempt failed, for whoever asks next. _validateCallDAG
+    // already knows exactly what is wrong and which graph it is in; this used
+    // to be console.warn'd and dropped, so every caller fell back to guessing
+    // "no Output node" no matter the real cause.
+    this.lastCodegenErrors = [];
     try {
       const validationErrors = this._validateCallDAG();
       if (validationErrors.length > 0) {
-        console.warn(
-          "Pre-codegen validation failed:",
-          validationErrors.map((e) => e.message).join("; "),
-        );
+        this.lastCodegenErrors = validationErrors;
         return null;
       }
 
@@ -7096,7 +7108,12 @@ class BlueprintSystem {
       const graph = this.buildDependencyGraph();
 
       if (!graph) {
-        console.warn("No output node found. Cannot generate shader.");
+        this.lastCodegenErrors = [
+          {
+            message: "No Output node found in the main graph.",
+            graphId: this.mainGraphId,
+          },
+        ];
         return null;
       }
 
@@ -7152,9 +7169,24 @@ class BlueprintSystem {
 
       return result;
     } catch (error) {
+      this.lastCodegenErrors = [
+        { message: `Code generation failed: ${error.message}` },
+      ];
       console.error("Error generating shaders:", error);
       return null;
     }
+  }
+
+  // Why the last generateAllShaders() returned null, phrased for a human.
+  // _validateCallDAG already names the offending graph in each message, so
+  // these just get joined. Falls back to the old generic wording when we have
+  // nothing better — a caller may ask before codegen has ever run.
+  codegenFailureMessage() {
+    const errors = this.lastCodegenErrors || [];
+    if (errors.length === 0) {
+      return "Failed to generate shader. Make sure you have an Output node and all required connections are made.";
+    }
+    return errors.map((e) => e.message).join("\n");
   }
 
   onShaderChanged() {
@@ -8008,9 +8040,13 @@ class BlueprintSystem {
       nameSpan.style.color = "#ddd";
       nameSpan.style.flex = "1";
 
-      const contract = g.data?.contract || { inputs: [], outputs: [] };
+      // The caller node's shape, which for a loop body is not the same as the
+      // stored contract: an accumulator shows up on both sides.
+      const callerType = getHandler(g.kind)?.createCallerNodeType(g, this);
       const infoSpan = document.createElement("span");
-      infoSpan.textContent = `${contract.inputs.length}→${contract.outputs.length}`;
+      infoSpan.textContent = `${callerType?.inputs.length ?? 0}→${
+        callerType?.outputs.length ?? 0
+      }`;
       infoSpan.style.fontSize = "11px";
       infoSpan.style.color = "#888";
       infoSpan.style.marginLeft = "8px";
@@ -13323,7 +13359,12 @@ class BlueprintSystem {
     } else {
       const all = this.generateAllShaders();
       if (!all) {
-        alert("No output node found. Cannot generate shader.");
+        this.showNotification({
+          type: "error",
+          title: "Cannot generate shader",
+          message: this.codegenFailureMessage(),
+          duration: 6000,
+        });
         return;
       }
       for (const target of targets) shaders[target] = all[target];
@@ -14471,7 +14512,12 @@ class BlueprintSystem {
   async exportGLSL() {
     const bundle = this.buildAddonBundle();
     if (!bundle) {
-      alert("No output node found. Cannot generate shader.");
+      this.showNotification({
+        type: "error",
+        title: "Cannot generate shader",
+        message: this.codegenFailureMessage(),
+        duration: 6000,
+      });
       return;
     }
 
@@ -15107,7 +15153,101 @@ class BlueprintSystem {
   // mutation: no UI side-effects, no notifications, no history reset. The
   // caller is responsible for any post-load UI refresh.
   // NOTE: Uniforms are host-level (not per-graph) and are loaded separately.
+  // Bring a loopBody contract written before accumulators moved into
+  // `contract.outputs` up to date. Runs before enforceBoundaryRules rebuilds
+  // the boundary ports and before wires are restored by index, both below.
+  //
+  // Old shape: `inputs` held accumulators and arguments interleaved, each with
+  // a `role`, and `outputs` held a second copy of each accumulator paired by
+  // id. New shape: `outputs` holds the accumulators, `inputs` the arguments.
+  _migrateLoopBodyContract(graph, data) {
+    if (graph.kind !== "loopBody") return;
+    const contract = graph.data?.contract;
+    if (!contract || !Array.isArray(contract.inputs)) return;
+    // A contract with no roles anywhere is already in the new shape.
+    if (!contract.inputs.some((p) => p.role)) return;
+
+    const oldInputs = contract.inputs;
+    const storedOutputs = Array.isArray(contract.outputs)
+      ? contract.outputs
+      : [];
+    // The accumulator's INPUT record wins on name and type: that is what
+    // codegen used for the parameter types and what the caller's "Initial"
+    // port showed, so it is the side the user was actually looking at. An
+    // accumulator input that never got its paired output (reachable via the
+    // old "+ Add Input") simply becomes an accumulator now.
+    const accs = [];
+    const args = [];
+    for (const p of oldInputs) {
+      const { role, ...rest } = p;
+      if (role === "acc") accs.push(rest);
+      else args.push(rest);
+    }
+    // An output with no matching input (reachable via the old "+ Add Output")
+    // was previously a hard validation error with no way to delete it. It is
+    // valid data now, so keep it.
+    for (const out of storedOutputs) {
+      if (!oldInputs.some((p) => p.id === out.id)) accs.push({ ...out });
+    }
+
+    contract.outputs = accs;
+    contract.inputs = args;
+
+    // Both boundary nodes can have their ports permuted by the move, and wires
+    // are restored positionally further down, so both need their endpoints
+    // remapped from the old index to the new one.
+    const nodeByKey = (key) =>
+      (data.nodes || []).find((n) => n.nodeTypeKey === key);
+    const INJECTED = 2; // Index + Count, always first, never move
+
+    // FunctionInput exposes [Index, Count, ...accs, ...args]. Accumulators and
+    // arguments used to be interleaved in whatever order the user dragged them
+    // into; now they are grouped. Its contract ports are OUTPUT ports.
+    const inputNode = nodeByKey("functionInput");
+    if (inputNode) {
+      const newIndexById = new Map();
+      accs.forEach((p, i) => newIndexById.set(p.id, INJECTED + i));
+      args.forEach((p, i) => newIndexById.set(p.id, INJECTED + accs.length + i));
+
+      const remap = new Map();
+      oldInputs.forEach((p, i) => {
+        const next = newIndexById.get(p.id);
+        if (next !== undefined) remap.set(INJECTED + i, next);
+      });
+
+      for (const wire of data.wires || []) {
+        if (wire.startNodeId !== inputNode.id) continue;
+        if (wire.startPortIndex < INJECTED) continue;
+        const next = remap.get(wire.startPortIndex);
+        if (next !== undefined) wire.startPortIndex = next;
+      }
+    }
+
+    // FunctionOutput's ports follow contract.outputs, which we just rebuilt in
+    // accumulator-INPUT order. The old editor let the Outputs list be dragged
+    // around independently of the inputs, so a file where the two disagreed
+    // would otherwise silently rewire this node. Its contract ports are INPUT
+    // ports.
+    const outputNode = nodeByKey("functionOutput");
+    if (outputNode) {
+      const newOutIndexById = new Map(accs.map((p, i) => [p.id, i]));
+      const outRemap = new Map();
+      storedOutputs.forEach((o, i) => {
+        const next = newOutIndexById.get(o.id);
+        if (next !== undefined) outRemap.set(i, next);
+      });
+
+      for (const wire of data.wires || []) {
+        if (wire.endNodeId !== outputNode.id) continue;
+        const next = outRemap.get(wire.endPortIndex);
+        if (next !== undefined) wire.endPortIndex = next;
+      }
+    }
+  }
+
   _loadGraphPayload(graph, data) {
+    this._migrateLoopBodyContract(graph, data);
+
     // Clear current state
     graph.nodes = [];
     graph.wires = [];
@@ -15375,6 +15515,12 @@ class BlueprintSystem {
             },
             contractVersion: extra.contractVersion || 0,
           });
+          // Must happen here, not in _loadGraphPayload: caller node types are
+          // derived from the contract while the MAIN graph's nodes load, which
+          // is the next step. A caller built from an unmigrated contract gets
+          // the wrong ports, and its wires in the parent graph are restored by
+          // index. (Idempotent, so the later call is harmless.)
+          this._migrateLoopBodyContract(g, extra);
           additionalGraphEntries.push({ g, extra });
         }
       }

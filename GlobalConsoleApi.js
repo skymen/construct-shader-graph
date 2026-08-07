@@ -4343,7 +4343,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         const bundle = blueprint.buildAddonBundle();
         assert(
           bundle,
-          "Failed to build the addon bundle. Make sure the graph has an Output node and valid connections.",
+          `Failed to build the addon bundle. ${blueprint.codegenFailureMessage()}`,
         );
         return bundle;
       },
@@ -4478,11 +4478,16 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           });
         }
         if (!generated && errors.length === 0) {
-          errors.push({
-            message:
-              "Code generation failed. Make sure the graph has an Output node and valid connections.",
-            source: "codegen",
-          });
+          // The host knows exactly why; don't invent a guess.
+          for (const entry of blueprint.lastCodegenErrors || []) {
+            errors.push({ ...entry, source: "codegen" });
+          }
+          if (errors.length === 0) {
+            errors.push({
+              message: blueprint.codegenFailureMessage(),
+              source: "codegen",
+            });
+          }
         }
 
         // Normalize each warning to carry a `message` and a `node` alias
@@ -5353,10 +5358,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         let shaders;
         if (graph === blueprint.mainGraph) {
           shaders = blueprint.generateAllShaders();
-          assert(
-            shaders,
-            "Failed to generate shaders. Make sure the graph has an Output node and valid connections.",
-          );
+          assert(shaders, blueprint.codegenFailureMessage());
         } else {
           shaders = {};
           for (const target of enabled) {

@@ -180,20 +180,8 @@ export const PORT_TYPES = {
     isGeneric: true,
     allowedTypes: ["bool" /* "bvec2", "bvec3", "bvec4" */],
   },
-  T: {
-    color: "#c084fc",
-    name: "T",
-    editable: false,
-    isGeneric: true,
-    allowedTypes: ["float", "int", "bool", "vec2", "vec3", "vec4", "color"],
-  },
-  U: {
-    color: "#c084fc",
-    name: "U",
-    editable: false,
-    isGeneric: true,
-    allowedTypes: ["float", "int", "bool", "vec2", "vec3", "vec4", "color"],
-  },
+  // Single-letter generic slots (T..Z) are added below the literal — see
+  // GENERIC_LETTERS.
   genType2Plus: {
     color: "#c084fc",
     name: "Vec2+",
@@ -215,6 +203,26 @@ export const PORT_TYPES = {
   genMatType,
   genMatType2: { ...genMatType },
 };
+
+// Single-letter generic slots for subgraph contracts. Independent by name:
+// each binds to one concrete type per call site, and two ports sharing a letter
+// are required to resolve to the same type.
+//
+// T..Z rather than just T/U because loop-body contracts authored before the
+// type dropdown existed were handed letters from an alphabet. A letter missing
+// from PORT_TYPES is not generic as far as isGenericType is concerned, so it
+// was being emitted verbatim as a GLSL type name.
+export const GENERIC_LETTERS = ["T", "U", "V", "W", "X", "Y", "Z"];
+
+for (const letter of GENERIC_LETTERS) {
+  PORT_TYPES[letter] = {
+    color: "#c084fc",
+    name: letter,
+    editable: false,
+    isGeneric: true,
+    allowedTypes: ["float", "int", "bool", "vec2", "vec3", "vec4", "color"],
+  };
+}
 
 // Node header colors - organized by what the node DOES
 export const NODE_COLORS = {

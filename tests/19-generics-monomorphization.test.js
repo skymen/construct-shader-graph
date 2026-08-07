@@ -480,7 +480,8 @@ describe("Generics & monomorphization — Phase 7", () => {
 
       const g = blueprint.createLoopBodyGraph({ name: "GenLoop" });
       g.data.contract = {
-        inputs: [{ id: "p1", name: "acc", type: "T", role: "acc" }],
+        inputs: [],
+        outputs: [{ id: "p1", name: "acc", type: "T" }],
         outputs: [{ id: "p1", name: "acc", type: "T" }],
       };
       blueprint.syncContractCallers(g);

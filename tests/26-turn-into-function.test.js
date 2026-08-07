@@ -388,7 +388,7 @@ describe("turnSelectionIntoFunction — inside function/loop graphs", () => {
   it("works inside a loop body graph", () => {
     const loop = blueprint.createLoopBodyGraph({ name: "Loop" });
     loop.data.contract = {
-      inputs: [{ id: "a1", name: "sum", type: "float", role: "acc" }],
+      inputs: [],
       outputs: [{ id: "a1", name: "sum", type: "float" }],
     };
     blueprint.syncContractCallers(loop);

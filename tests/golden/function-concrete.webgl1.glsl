@@ -27,10 +27,10 @@ uniform mediump float zNear;
 uniform mediump float zFar;
 
 // --- Function declarations ---
-float fn_fnConcrete(float x) {
+float fn_fnConcrete(float in_x) {
 
     // Math
-    float fv_0 = x + 0.0;
+    float fv_0 = in_x + 0.0;
     return fv_0;
 }
 

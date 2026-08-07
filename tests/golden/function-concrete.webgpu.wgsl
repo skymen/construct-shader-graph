@@ -8,10 +8,10 @@
 %%SAMPLERFRONT_BINDING%% var samplerFront : sampler;
 %%TEXTUREFRONT_BINDING%% var textureFront : texture_2d<f32>;
 // --- Function declarations ---
-fn fn_fnConcrete(input: FragmentInput, x: f32) -> f32 {
+fn fn_fnConcrete(input: FragmentInput, in_x: f32) -> f32 {
 
     // Math
-    var fv_0: f32 = x + 0.0;
+    var fv_0: f32 = in_x + 0.0;
     return fv_0;
 }
 

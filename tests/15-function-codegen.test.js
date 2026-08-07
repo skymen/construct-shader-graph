@@ -135,8 +135,8 @@ describe("Function codegen — Phase 3", () => {
       const { declaration } = functionKindHandler.emitFunctionDeclaration(g, sig, "webgl2", blueprint);
       expect(declaration).toMatch(/float\s+fn_/);
       expect(declaration).not.toContain("void");
-      expect(declaration).toContain("float a");
-      expect(declaration).toContain("float b");
+      expect(declaration).toContain("float in_a");
+      expect(declaration).toContain("float in_b");
     });
   });
 

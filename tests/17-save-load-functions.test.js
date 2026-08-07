@@ -335,13 +335,14 @@ describe("Save/load round-trip with function graphs", () => {
   });
 
   describe("loop body round-trip", () => {
-    it("preserves loopBody kind, color, contract roles, and notes", async () => {
+    it("preserves loopBody kind, color, contract and notes", async () => {
       const g = blueprint.createLoopBodyGraph({
         name: "SumLoop",
         color: "#e67e22",
       });
       g.data.contract = {
-        inputs: [{ id: "a1", name: "acc", type: "float", role: "acc" }, { id: "a2", name: "step", type: "float", role: "arg" }],
+        inputs: [{ id: "a2", name: "step", type: "float" }],
+        outputs: [{ id: "a1", name: "acc", type: "float" }],
         outputs: [{ id: "a1", name: "acc", type: "float" }],
       };
       g.data.notes = "sums values";
@@ -355,9 +356,12 @@ describe("Save/load round-trip with function graphs", () => {
       expect(reloaded).toBeDefined();
       expect(reloaded.kind).toBe("loopBody");
       expect(reloaded.color).toBe("#e67e22");
-      expect(reloaded.data.contract.inputs[0].role).toBe("acc");
-      expect(reloaded.data.contract.inputs[1].role).toBe("arg");
+      // Accumulators in outputs, arguments in inputs, no role field.
+      expect(reloaded.data.contract.outputs).toHaveLength(1);
       expect(reloaded.data.contract.outputs[0].id).toBe("a1");
+      expect(reloaded.data.contract.inputs).toHaveLength(1);
+      expect(reloaded.data.contract.inputs[0].name).toBe("step");
+      expect(reloaded.data.contract.outputs[0].role).toBeUndefined();
       expect(reloaded.data.notes).toBe("sums values");
     });
   });
@@ -373,7 +377,8 @@ describe("Save/load round-trip with function graphs", () => {
 
       const loop = blueprint.createLoopBodyGraph({ name: "LoopB", color: "#00ff00" });
       loop.data.contract = {
-        inputs: [{ id: "l1", name: "sum", type: "vec3", role: "acc" }],
+        inputs: [],
+        outputs: [{ id: "l1", name: "sum", type: "vec3" }],
         outputs: [{ id: "l1", name: "sum", type: "vec3" }],
       };
       blueprint.syncContractCallers(loop);
