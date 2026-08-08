@@ -9857,22 +9857,11 @@ class BlueprintSystem {
 
     this.editingPort = port;
     this._overlayCamera = { ...this.camera };
-    const bounds = port.getValueBoxBounds(this.ctx);
-    const rect = this.canvas.getBoundingClientRect();
-
-    // Transform world coordinates to screen coordinates
-    const screenX = bounds.x * this.camera.zoom + this.camera.x;
-    const screenY = bounds.y * this.camera.zoom + this.camera.y;
-    const screenWidth = bounds.width * this.camera.zoom;
-    const screenHeight = bounds.height * this.camera.zoom;
+    this.positionPortEditor();
 
     // Handle different editor types based on resolved type
     if (resolvedType === "vec2") {
-      this.vec2Editor.style.left = `${rect.left + window.scrollX + screenX}px`;
-      this.vec2Editor.style.top = `${rect.top + window.scrollY + screenY}px`;
       this.vec2Editor.style.display = "flex";
-      this.vec2Editor.style.transform = `scale(${this.camera.zoom})`;
-      this.vec2Editor.style.transformOrigin = "top left";
 
       const vec2X = document.getElementById("vec2X");
       const vec2Y = document.getElementById("vec2Y");
@@ -9881,11 +9870,7 @@ class BlueprintSystem {
 
       setTimeout(() => vec2X.focus(), 0);
     } else if (resolvedType === "vec3") {
-      this.vec3Editor.style.left = `${rect.left + window.scrollX + screenX}px`;
-      this.vec3Editor.style.top = `${rect.top + window.scrollY + screenY}px`;
       this.vec3Editor.style.display = "flex";
-      this.vec3Editor.style.transform = `scale(${this.camera.zoom})`;
-      this.vec3Editor.style.transformOrigin = "top left";
 
       const vec3Color = document.getElementById("vec3Color");
       const vec3R = document.getElementById("vec3R");
@@ -9904,11 +9889,7 @@ class BlueprintSystem {
 
       setTimeout(() => vec3R.focus(), 0);
     } else if (resolvedType === "vec4") {
-      this.vec4Editor.style.left = `${rect.left + window.scrollX + screenX}px`;
-      this.vec4Editor.style.top = `${rect.top + window.scrollY + screenY}px`;
       this.vec4Editor.style.display = "flex";
-      this.vec4Editor.style.transform = `scale(${this.camera.zoom})`;
-      this.vec4Editor.style.transformOrigin = "top left";
 
       const vec4Color = document.getElementById("vec4Color");
       const vec4R = document.getElementById("vec4R");
@@ -9931,19 +9912,10 @@ class BlueprintSystem {
     } else {
       // Default text input for float, int
       this.inputField.value = port.value.toString();
-      this.inputField.style.left = `${rect.left + window.scrollX + screenX}px`;
-      this.inputField.style.top = `${rect.top + window.scrollY + screenY}px`;
-      this.inputField.style.width = `${screenWidth}px`;
-      this.inputField.style.height = `${screenHeight}px`;
       this.inputField.style.display = "block";
       this.inputField.style.visibility = "visible";
       this.inputField.style.opacity = "1";
       this.inputField.style.pointerEvents = "auto";
-      // Don't apply transform scale here - dimensions are already scaled
-      // Instead, scale the font size directly
-      this.inputField.style.fontSize = `${11 * this.camera.zoom}px`;
-      this.inputField.style.transform = "none";
-      this.inputField.style.transformOrigin = "top left";
 
       setTimeout(() => {
         this.inputField.focus();
@@ -10031,9 +10003,10 @@ class BlueprintSystem {
   }
 
   // The port editors, the custom input field and the operation/variable
-  // dropdowns are real DOM elements placed once in screen space from the world
-  // position of the node they belong to. Nothing repositions them, so the
-  // moment the camera moves they float over the wrong part of the graph.
+  // dropdowns are real DOM elements laid over the canvas. Their screen position
+  // comes from the world position of the node they belong to, so the camera
+  // moving under them has to be answered by re-running that transform — see
+  // repositionOverlaysForCamera below.
   hasCanvasOverlays() {
     return !!(
       this.editingPort ||
@@ -10042,65 +10015,123 @@ class BlueprintSystem {
     );
   }
 
-  closeCanvasOverlays() {
-    // Committing matches what clicking away already does, so nothing typed is
-    // lost.
-    if (this.editingPort) this.finishEditingPort();
-    if (this.editingCustomInput) {
-      this.finishEditingCustomInput();
-      // A validation failure leaves the field open; the overlay still has to go.
-      if (this.editingCustomInput) this.cancelEditingCustomInput();
-    }
-    document.querySelectorAll(".operation-menu").forEach((menu) => {
-      menu.remove();
-    });
+  // World box -> viewport coordinates. Every overlay is position:fixed, so this
+  // is the space all of them are placed in.
+  _overlayScreenRect(bounds) {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      left: rect.left + bounds.x * this.camera.zoom + this.camera.x,
+      top: rect.top + bounds.y * this.camera.zoom + this.camera.y,
+      width: bounds.width * this.camera.zoom,
+      height: bounds.height * this.camera.zoom,
+    };
   }
 
-  // Every camera mutation is followed by render(), so checking here covers the
-  // wheel, the pan drag, auto-pan and the zoom/fit helpers at once.
-  closeOverlaysIfCameraMoved() {
-    if (this._closingOverlays || !this.hasCanvasOverlays()) return;
+  positionPortEditor() {
+    const port = this.editingPort;
+    if (!port) return;
+
+    const bounds = port.getValueBoxBounds(this.ctx);
+    if (!bounds) return;
+    const { left, top, width, height } = this._overlayScreenRect(bounds);
+
+    const resolvedType = port.getResolvedType();
+    const vecEditor =
+      resolvedType === "vec2"
+        ? this.vec2Editor
+        : resolvedType === "vec3"
+          ? this.vec3Editor
+          : resolvedType === "vec4"
+            ? this.vec4Editor
+            : null;
+
+    if (vecEditor) {
+      vecEditor.style.left = `${left}px`;
+      vecEditor.style.top = `${top}px`;
+      vecEditor.style.transform = `scale(${this.camera.zoom})`;
+      vecEditor.style.transformOrigin = "top left";
+      return;
+    }
+
+    // float/int share the plain text input. It is sized in screen pixels rather
+    // than scaled, so the font size has to follow the zoom by hand.
+    this.inputField.style.left = `${left}px`;
+    this.inputField.style.top = `${top}px`;
+    this.inputField.style.width = `${width}px`;
+    this.inputField.style.height = `${height}px`;
+    this.inputField.style.fontSize = `${11 * this.camera.zoom}px`;
+    this.inputField.style.transform = "none";
+    this.inputField.style.transformOrigin = "top left";
+  }
+
+  positionCustomInputField() {
+    const node = this.editingCustomInput;
+    if (!node) return;
+
+    const { left, top, width, height } = this._overlayScreenRect(
+      node.getCustomInputBounds(),
+    );
+    this.customInputField.style.left = `${left}px`;
+    this.customInputField.style.top = `${top}px`;
+    this.customInputField.style.width = `${width}px`;
+    this.customInputField.style.height = `${height}px`;
+    this.customInputField.style.fontSize = `${11 * this.camera.zoom}px`;
+  }
+
+  // The dropdowns build their own padding, font size and border radii from the
+  // zoom they opened at, so rather than rebuild all of that, re-anchor them and
+  // let a transform carry any zoom change since.
+  positionNodeMenus() {
+    for (const menu of document.querySelectorAll(".operation-menu")) {
+      const anchor = menu.__overlayAnchor;
+      if (!anchor) continue;
+
+      const { left, top, height } = this._overlayScreenRect(anchor.bounds);
+      // The menu hangs off the bottom edge of the dropdown it belongs to.
+      // transformOrigin is the top left corner, so the scale below leaves that
+      // corner alone and the position needs no compensation.
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top + height}px`;
+      // Sized at the zoom it was built at — the transform does the rest, and
+      // scaling the width here too would apply the zoom twice.
+      menu.style.width = `${anchor.bounds.width * anchor.zoom}px`;
+
+      const scale = this.camera.zoom / anchor.zoom;
+      menu.style.transform = scale === 1 ? "none" : `scale(${scale})`;
+      menu.style.transformOrigin = "top left";
+    }
+  }
+
+  // Every camera mutation is followed by render(), so hooking in there covers
+  // the wheel, the pan drag, auto-pan and the zoom/fit helpers at once. The
+  // overlays only follow the camera — closing them instead would commit an edit
+  // on every scroll tick, and each commit recompiles the shader.
+  repositionOverlaysForCamera() {
+    if (!this.hasCanvasOverlays()) return;
 
     const snapshot = this._overlayCamera;
-    if (!snapshot) return;
-
     const { x, y, zoom } = this.camera;
-    if (x === snapshot.x && y === snapshot.y && zoom === snapshot.zoom) return;
-
-    // finishEditingPort / finishEditingCustomInput call render() themselves;
-    // the flag makes that nested call a no-op instead of recursing.
-    this._closingOverlays = true;
-    try {
-      this.closeCanvasOverlays();
-    } finally {
-      this._closingOverlays = false;
+    if (
+      snapshot &&
+      x === snapshot.x &&
+      y === snapshot.y &&
+      zoom === snapshot.zoom
+    ) {
+      return;
     }
+
+    this._overlayCamera = { x, y, zoom };
+    this.positionPortEditor();
+    this.positionCustomInputField();
+    this.positionNodeMenus();
   }
 
   startEditingCustomInput(node) {
     this.editingCustomInput = node;
     this._overlayCamera = { ...this.camera };
-    const bounds = node.getCustomInputBounds();
     const config = node.nodeType.customInputConfig;
 
-    // Position the input field
-    const rect = this.canvas.getBoundingClientRect();
-
-    // Transform world coordinates to screen coordinates
-    const screenX = bounds.x * this.camera.zoom + this.camera.x;
-    const screenY = bounds.y * this.camera.zoom + this.camera.y;
-    const screenWidth = bounds.width * this.camera.zoom;
-    const screenHeight = bounds.height * this.camera.zoom;
-
-    this.customInputField.style.left = `${
-      rect.left + window.scrollX + screenX
-    }px`;
-    this.customInputField.style.top = `${
-      rect.top + window.scrollY + screenY
-    }px`;
-    this.customInputField.style.width = `${screenWidth}px`;
-    this.customInputField.style.height = `${screenHeight}px`;
-    this.customInputField.style.fontSize = `${11 * this.camera.zoom}px`;
+    this.positionCustomInputField();
     this.customInputField.style.display = "block";
 
     // Set current value
@@ -10226,16 +10257,8 @@ class BlueprintSystem {
     const menu = document.createElement("div");
     menu.className = "operation-menu";
     menu.style.position = "fixed";
-
-    // Convert world coordinates to screen coordinates
-    const rect = this.canvas.getBoundingClientRect();
-    const screenX =
-      dropdownBounds.x * this.camera.zoom + this.camera.x + rect.left;
-    const screenY =
-      (dropdownBounds.y + dropdownBounds.height) * this.camera.zoom +
-      this.camera.y +
-      rect.top;
-    const menuWidth = dropdownBounds.width * this.camera.zoom;
+    // Where this menu hangs, so positionNodeMenus can re-anchor it.
+    menu.__overlayAnchor = { bounds: dropdownBounds, zoom: this.camera.zoom };
 
     // Scale font and padding with zoom
     const scaledFontSize = 14 * this.camera.zoom;
@@ -10245,9 +10268,6 @@ class BlueprintSystem {
     const scaledMenuPadding = 2 * this.camera.zoom;
     const scaledMenuBorderRadius = 4 * this.camera.zoom;
 
-    menu.style.left = `${screenX}px`;
-    menu.style.top = `${screenY}px`;
-    menu.style.width = `${menuWidth}px`;
     menu.style.background = "#2a2a2a";
     menu.style.border = "2px solid #4a4a4a";
     menu.style.borderRadius = `${scaledMenuBorderRadius}px`;
@@ -10312,6 +10332,7 @@ class BlueprintSystem {
     }, 0);
 
     document.body.appendChild(menu);
+    this.positionNodeMenus();
   }
 
   showVariableMenu(node, dropdownBounds) {
@@ -10326,16 +10347,8 @@ class BlueprintSystem {
     const menu = document.createElement("div");
     menu.className = "operation-menu";
     menu.style.position = "fixed";
-
-    // Convert world coordinates to screen coordinates
-    const rect = this.canvas.getBoundingClientRect();
-    const screenX =
-      dropdownBounds.x * this.camera.zoom + this.camera.x + rect.left;
-    const screenY =
-      (dropdownBounds.y + dropdownBounds.height) * this.camera.zoom +
-      this.camera.y +
-      rect.top;
-    const menuWidth = dropdownBounds.width * this.camera.zoom;
+    // Where this menu hangs, so positionNodeMenus can re-anchor it.
+    menu.__overlayAnchor = { bounds: dropdownBounds, zoom: this.camera.zoom };
 
     // Scale font and padding with zoom
     const scaledFontSize = 14 * this.camera.zoom;
@@ -10347,9 +10360,6 @@ class BlueprintSystem {
     const scaledMenuBorderRadius = 4 * this.camera.zoom;
     const scaledMaxHeight = 200 * this.camera.zoom;
 
-    menu.style.left = `${screenX}px`;
-    menu.style.top = `${screenY}px`;
-    menu.style.width = `${menuWidth}px`;
     menu.style.background = "#2a2a2a";
     menu.style.border = "2px solid #4a4a4a";
     menu.style.borderRadius = `${scaledMenuBorderRadius}px`;
@@ -10465,6 +10475,7 @@ class BlueprintSystem {
     }, 0);
 
     document.body.appendChild(menu);
+    this.positionNodeMenus();
   }
 
   getFilteredNodeTypes() {
@@ -20949,7 +20960,7 @@ class BlueprintSystem {
   render() {
     const ctx = this.ctx;
 
-    this.closeOverlaysIfCameraMoved();
+    this.repositionOverlaysForCamera();
 
     // Update animation time for preview node outline
     if (this.previewNode) {
