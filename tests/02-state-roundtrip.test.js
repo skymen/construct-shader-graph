@@ -1,6 +1,6 @@
 // State serialization round-trip contract.
 // exportState() -> loadState() -> exportState() must produce equivalent state.
-// This is the most important regression test: undo/redo and AI/MCP IR all rely
+// This is the most important regression test: undo/redo and the AI IR all rely
 // on it being faithful.
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";

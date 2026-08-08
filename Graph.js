@@ -12,7 +12,7 @@
 //   activeGraph:  the graph the UI displays and the user interacts with.
 //
 // Things that are NOT per-graph (live on host): canvas/DOM, customNodes
-// library, clipboard, preview iframe + previewSettings, mcpBridge,
+// library, clipboard, preview iframe + previewSettings,
 // NODE_TYPES, pressedKeys, autoPanInterval, uniforms.
 
 let __graphIdCounter = 1;

@@ -17,7 +17,7 @@
 // Shared on host: customNodes (single library), clipboard, canvas/DOM,
 // fileHandle (one project is one file), previewTargets (and the
 // previewIframe/previewReady accessors over them) + previewSettings,
-// mcpBridge, NODE_TYPES.
+// NODE_TYPES.
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { bootstrap } from "./helpers/bootstrap.js";

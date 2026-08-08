@@ -65,12 +65,6 @@ import {
 } from "./shader-targets.js";
 import { languageManager } from "./LanguageManager.js";
 import { installGlobalConsoleApi } from "./GlobalConsoleApi.js";
-import {
-  DEFAULT_MCP_URL,
-  McpBridgeClient,
-  normalizeWebSocketUrl,
-} from "./McpBridgeClient.js";
-
 // Import boilerplate files as raw text
 import boilerplateWebGL1 from "./shaders/boilerplate-webgl1.glsl?raw";
 import boilerplateWebGL2 from "./shaders/boilerplate-webgl2.glsl?raw";
@@ -1360,7 +1354,6 @@ class BlueprintSystem {
     this.setupNotifications();
     this.setupPreview();
     this.setupMinimap();
-    this.setupMcpBridge();
     this.render();
     this.updateUndoRedoButtons();
 
@@ -1377,10 +1370,6 @@ class BlueprintSystem {
       this.showOpenFilesModal();
     }, 100);
 
-    setTimeout(() => {
-      this.mcpBridge.autoConnect();
-    }, 0);
-
     // Initialize history after setup
     setTimeout(() => {
       this.history.initGraphState(
@@ -1391,150 +1380,6 @@ class BlueprintSystem {
   }
 
   // Called when language is changed
-  setupMcpBridge() {
-    this.mcpBridge = new McpBridgeClient({
-      getApi: () => globalThis.shaderGraphAPI || null,
-      onStatusChange: () => {
-        this.updateMenuItemStates();
-      },
-      onNotification: ({
-        type = "info",
-        title,
-        message = "",
-        duration = 3000,
-      }) => {
-        this.showNotification({ type, title, message, duration });
-      },
-    });
-  }
-
-  getMcpStatusLabel() {
-    const status = this.mcpBridge?.getStatus?.();
-    if (!status) {
-      return "Connect MCP";
-    }
-
-    if (status.status === "connected") {
-      return "Disconnect MCP";
-    }
-
-    if (status.status === "connecting") {
-      return "Connecting MCP...";
-    }
-
-    return "Connect MCP";
-  }
-
-  getMcpMenuTitle() {
-    const status = this.mcpBridge?.getStatus?.();
-    if (status?.status === "connected") {
-      return "MCP (Connected)";
-    }
-
-    return "MCP";
-  }
-
-  updateMcpMenuAppearance() {
-    const status = this.mcpBridge?.getStatus?.();
-    const menuBtn = document.getElementById("mcpMenuBtn");
-    if (!menuBtn) {
-      return;
-    }
-
-    const isConnected = status?.status === "connected";
-    menuBtn.classList.toggle("dropdown-item-mcp", isConnected);
-    menuBtn.classList.toggle("dropdown-item-subtle", !isConnected);
-  }
-
-  async toggleMcpConnection() {
-    const status = this.mcpBridge.getStatus();
-
-    if (status.status === "connected" || status.status === "connecting") {
-      this.mcpBridge.disconnect();
-      this.showNotification({
-        type: "info",
-        title: "MCP disconnected",
-        message: "Saved MCP URL cleared. The app will stop auto-connecting.",
-        duration: 2500,
-      });
-      this.updateMenuItemStates();
-      return;
-    }
-
-    const suggestedUrl = status.savedUrl || DEFAULT_MCP_URL;
-    const response = window.prompt("Enter MCP WebSocket URL", suggestedUrl);
-    if (response == null) {
-      return;
-    }
-
-    let normalizedUrl;
-    try {
-      normalizedUrl = normalizeWebSocketUrl(response);
-    } catch (error) {
-      this.showNotification({
-        type: "error",
-        title: "Invalid MCP URL",
-        message: error instanceof Error ? error.message : String(error),
-        duration: 4000,
-      });
-      return;
-    }
-
-    try {
-      await this.mcpBridge.connect(normalizedUrl, { persist: true });
-      this.showNotification({
-        type: "success",
-        title: "MCP connected",
-        message: `Connected to ${normalizedUrl}`,
-        duration: 3000,
-      });
-    } catch (error) {
-      this.showNotification({
-        type: "error",
-        title: "MCP connection failed",
-        message: error instanceof Error ? error.message : String(error),
-        duration: 4500,
-      });
-    }
-
-    this.updateMenuItemStates();
-  }
-
-  showMcpStatus() {
-    const status = this.mcpBridge.getStatus();
-    const project = status.project || {
-      name: "Untitled Shader",
-      version: "0.0.0.0",
-    };
-    const parts = [
-      `Project: ${project.name}`,
-      `Version: ${project.version || "0.0.0.0"}`,
-      `Status: ${status.status}`,
-      `URL: ${status.url || status.savedUrl || "Not configured"}`,
-      `Session: ${status.sessionId}`,
-    ];
-
-    if (status.lastError?.message) {
-      parts.push(`Last error: ${status.lastError.message}`);
-    }
-
-    this.showNotification({
-      type: status.status === "connected" ? "success" : "info",
-      title: "MCP status",
-      message: parts.join(" | "),
-      duration: 7000,
-    });
-  }
-
-  announceMcpProjectUpdate(reason = "state-changed") {
-    if (!this.mcpBridge) {
-      return;
-    }
-
-    this.mcpBridge.sendProjectUpdate(reason);
-    this.updateMenuItemStates();
-  }
-
   onLanguageChanged() {
     // Update all existing nodes with new translations
     this.nodes.forEach((node) => node.refreshDisplayNames());
@@ -10011,6 +9856,7 @@ class BlueprintSystem {
     }
 
     this.editingPort = port;
+    this._overlayCamera = { ...this.camera };
     const bounds = port.getValueBoxBounds(this.ctx);
     const rect = this.canvas.getBoundingClientRect();
 
@@ -10184,8 +10030,56 @@ class BlueprintSystem {
     this.editingPort = null;
   }
 
+  // The port editors, the custom input field and the operation/variable
+  // dropdowns are real DOM elements placed once in screen space from the world
+  // position of the node they belong to. Nothing repositions them, so the
+  // moment the camera moves they float over the wrong part of the graph.
+  hasCanvasOverlays() {
+    return !!(
+      this.editingPort ||
+      this.editingCustomInput ||
+      document.querySelector(".operation-menu")
+    );
+  }
+
+  closeCanvasOverlays() {
+    // Committing matches what clicking away already does, so nothing typed is
+    // lost.
+    if (this.editingPort) this.finishEditingPort();
+    if (this.editingCustomInput) {
+      this.finishEditingCustomInput();
+      // A validation failure leaves the field open; the overlay still has to go.
+      if (this.editingCustomInput) this.cancelEditingCustomInput();
+    }
+    document.querySelectorAll(".operation-menu").forEach((menu) => {
+      menu.remove();
+    });
+  }
+
+  // Every camera mutation is followed by render(), so checking here covers the
+  // wheel, the pan drag, auto-pan and the zoom/fit helpers at once.
+  closeOverlaysIfCameraMoved() {
+    if (this._closingOverlays || !this.hasCanvasOverlays()) return;
+
+    const snapshot = this._overlayCamera;
+    if (!snapshot) return;
+
+    const { x, y, zoom } = this.camera;
+    if (x === snapshot.x && y === snapshot.y && zoom === snapshot.zoom) return;
+
+    // finishEditingPort / finishEditingCustomInput call render() themselves;
+    // the flag makes that nested call a no-op instead of recursing.
+    this._closingOverlays = true;
+    try {
+      this.closeCanvasOverlays();
+    } finally {
+      this._closingOverlays = false;
+    }
+  }
+
   startEditingCustomInput(node) {
     this.editingCustomInput = node;
+    this._overlayCamera = { ...this.camera };
     const bounds = node.getCustomInputBounds();
     const config = node.nodeType.customInputConfig;
 
@@ -10326,6 +10220,8 @@ class BlueprintSystem {
   }
 
   showOperationMenu(node, dropdownBounds) {
+    this._overlayCamera = { ...this.camera };
+
     // Create a temporary menu for operation selection
     const menu = document.createElement("div");
     menu.className = "operation-menu";
@@ -10419,6 +10315,8 @@ class BlueprintSystem {
   }
 
   showVariableMenu(node, dropdownBounds) {
+    this._overlayCamera = { ...this.camera };
+
     // Get all available variables from Set Variable nodes
     const availableVariables = this.nodes
       .filter((n) => n.nodeType.name === "Set Variable" && n.customInput)
@@ -11789,25 +11687,6 @@ class BlueprintSystem {
         handler: () => this.showManualModal(),
       },
       {
-        label: "MCP",
-        menu: "Help",
-        action: "mcpMenuTitle",
-        getLabel: () => this.getMcpMenuTitle(),
-      },
-      {
-        label: "Connect MCP",
-        menu: "Help",
-        action: "toggleMcp",
-        handler: () => this.toggleMcpConnection(),
-        getLabel: () => this.getMcpStatusLabel(),
-      },
-      {
-        label: "MCP Status",
-        menu: "Help",
-        action: "mcpStatus",
-        handler: () => this.showMcpStatus(),
-      },
-      {
         label: "Report Issue",
         menu: "Help",
         action: "reportIssue",
@@ -12210,8 +12089,6 @@ class BlueprintSystem {
         }
       }
     });
-
-    this.updateMcpMenuAppearance();
   }
 
   selectAllNodes() {
@@ -15592,8 +15469,6 @@ class BlueprintSystem {
     // also the first load at start-up: setupPreview() deliberately builds
     // window 0 without one, because at that point there are no nodes yet.
     this.updateAllPreviews();
-
-    this.announceMcpProjectUpdate("create-new-file");
   }
 
   // Serialize all per-graph fields as they appear in a saved file. Used by
@@ -16266,8 +16141,6 @@ class BlueprintSystem {
       for (const g of this.graphs.values()) {
         this.history.initGraphState(g.id, this._exportGraphState(g));
       }
-      this.announceMcpProjectUpdate("load-project");
-
       if (this.fileHandle && data.previewScreenshot) {
         await this.addRecentFile(this.fileHandle, data.previewScreenshot);
       }
@@ -17812,8 +17685,6 @@ class BlueprintSystem {
     // express, so they refresh themselves.
     this.updateTargetCheckboxes();
     this.updateShaderLanguageTabs();
-
-    this.announceMcpProjectUpdate("shader-info-updated");
   }
 
   updatePreviewSettingsUI(target = this.defaultPreviewTarget()) {
@@ -21077,6 +20948,8 @@ class BlueprintSystem {
 
   render() {
     const ctx = this.ctx;
+
+    this.closeOverlaysIfCameraMoved();
 
     // Update animation time for preview node outline
     if (this.previewNode) {

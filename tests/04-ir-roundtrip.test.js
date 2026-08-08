@@ -1,5 +1,5 @@
 // IR (Intermediate Representation) export/import round-trip.
-// IR is the structured format used by the AI/MCP integration. Stable identity
+// IR is the structured format used by the AI integration. Stable identity
 // across export -> import -> export is required.
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";

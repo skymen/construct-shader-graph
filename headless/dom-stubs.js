@@ -86,8 +86,8 @@ function makeCtx2D() {
   };
 }
 
-// The MCP bridge opens a WebSocket on construct; this keeps it from trying a
-// real connection.
+// jsdom has no WebSocket. Nothing in the app opens one today, but a bare
+// `WebSocket` reference must still resolve rather than throw.
 class FakeWS {
   constructor() {
     this.readyState = 0;

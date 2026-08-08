@@ -305,15 +305,6 @@ body {
   color: #fff;
 }
 
-.dropdown-item-mcp {
-  color: #7ee0c3;
-}
-
-.dropdown-item-mcp:hover:not(:disabled) {
-  background: rgba(68, 196, 161, 0.18);
-  color: #b7ffea;
-}
-
 .dropdown-submenu {
   position: relative;
 }
@@ -1250,6 +1241,9 @@ body {
   transition:
     max-height 0.3s ease,
     padding 0.3s ease;
+  gap: 10px;
+  display: flex;
+  flex-direction: column;
 }
 
 .collapsible-section.collapsed .sidebar-section-content {
@@ -1419,7 +1413,6 @@ body {
   border-radius: 5px;
   cursor: pointer;
   font-size: 14px;
-  margin-bottom: 10px;
   transition: background 0.2s;
 }
 
@@ -5200,12 +5193,10 @@ body {
 .functions-add-row {
   display: flex;
   gap: 6px;
-  margin-bottom: 10px;
 }
 
 .functions-add-row .add-uniform-btn {
   flex: 1;
-  margin-bottom: 0;
 }
 
 .function-entry-badge {
@@ -5236,7 +5227,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 8px;
 }
 
 .contract-port-row {

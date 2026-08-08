@@ -1,4 +1,4 @@
-// Public MCP / console API contract.
+// Public console / CLI API contract.
 // After the refactor, shaderGraphAPI must default to operating on the MAIN
 // graph. These tests pin the current single-graph behavior and add explicit
 // expectations that creating/deleting/connecting/disconnecting works through

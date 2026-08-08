@@ -23,8 +23,8 @@ describe("bootstrap smoke", () => {
   // menuActions only binds handlers to buttons that already exist in
   // index.html; it does not create them. An entry that has a handler but no
   // matching button is dead: invisible in the menus and reachable only from
-  // the Help search. Entries without a handler are search-only labels (the
-  // MCP submenu title), so they are exempt.
+  // the Help search. Entries without a handler are search-only labels, so
+  // they are exempt.
   it("every clickable menu action has a button in index.html", async () => {
     const { blueprint } = await bootstrap();
     const missing = blueprint.menuActions
@@ -61,5 +61,30 @@ describe("bootstrap smoke", () => {
     blueprint.selectedNodes.add(blueprint.nodes[0]);
     expect(action.isEnabled()).toBe(true);
     blueprint.selectedNodes.clear();
+  });
+
+  // Issue #132 — the add button belongs under the list it adds to, so it does
+  // not drift further from the pointer as the list grows.
+  it("every sidebar section puts its add button after its list", async () => {
+    await bootstrap();
+    const sections = [
+      "function-inputs-section",
+      "function-outputs-section",
+      "uniforms-section",
+      "constants-section",
+      "functions-section",
+      "custom-nodes-section",
+    ];
+
+    const misplaced = sections.filter((id) => {
+      const last = document
+        .getElementById(id)
+        .querySelector(".sidebar-section-content").lastElementChild;
+      return !(
+        last.classList.contains("add-uniform-btn") ||
+        last.classList.contains("functions-add-row")
+      );
+    });
+    expect(misplaced).toEqual([]);
   });
 });

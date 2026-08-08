@@ -318,32 +318,6 @@
                   <span class="dropdown-item-label">Manual</span>
                   <span class="dropdown-item-shortcut">F1</span>
                 </button>
-                <div class="dropdown-submenu" id="mcpSubmenu">
-                  <button
-                    id="mcpMenuBtn"
-                    class="dropdown-item dropdown-item-submenu-toggle dropdown-item-mcp"
-                    type="button"
-                  >
-                    <span class="dropdown-item-label">MCP</span>
-                    <span class="dropdown-item-submenu-arrow">&rsaquo;</span>
-                  </button>
-                  <div class="dropdown-submenu-panel">
-                    <button
-                      id="mcpConnectBtn"
-                      class="dropdown-item dropdown-item-mcp"
-                      data-action="toggleMcp"
-                    >
-                      <span class="dropdown-item-label">Connect MCP</span>
-                    </button>
-                    <button
-                      id="mcpStatusBtn"
-                      class="dropdown-item"
-                      data-action="mcpStatus"
-                    >
-                      <span class="dropdown-item-label">MCP Status</span>
-                    </button>
-                  </div>
-                </div>
                 <div class="dropdown-separator"></div>
                 <button
                   id="reportIssueBtn"
@@ -1535,10 +1509,10 @@
               <button class="collapse-btn">▼</button>
             </div>
             <div class="sidebar-section-content">
+              <div id="function-inputs-list" class="contract-port-list"></div>
               <button id="addContractInputBtn" class="add-uniform-btn">
                 + Add Input
               </button>
-              <div id="function-inputs-list" class="contract-port-list"></div>
             </div>
           </div>
           <div
@@ -1551,10 +1525,10 @@
               <button class="collapse-btn">▼</button>
             </div>
             <div class="sidebar-section-content">
+              <div id="function-outputs-list" class="contract-port-list"></div>
               <button id="addContractOutputBtn" class="add-uniform-btn">
                 + Add Output
               </button>
-              <div id="function-outputs-list" class="contract-port-list"></div>
             </div>
           </div>
           <div id="uniforms-section" class="collapsible-section">
@@ -1563,10 +1537,10 @@
               <button class="collapse-btn">▼</button>
             </div>
             <div class="sidebar-section-content">
+              <div id="uniform-list"></div>
               <button id="addUniformBtn" class="add-uniform-btn">
                 + Add Uniform
               </button>
-              <div id="uniform-list"></div>
             </div>
           </div>
           <div id="constants-section" class="collapsible-section">
@@ -1575,10 +1549,10 @@
               <button class="collapse-btn">▼</button>
             </div>
             <div class="sidebar-section-content">
+              <div id="constant-list"></div>
               <button id="addConstantBtn" class="add-uniform-btn">
                 + Add Constant
               </button>
-              <div id="constant-list"></div>
             </div>
           </div>
           <div id="functions-section" class="collapsible-section">
@@ -1587,6 +1561,7 @@
               <button class="collapse-btn">▼</button>
             </div>
             <div class="sidebar-section-content">
+              <div id="functions-list" class="custom-nodes-list"></div>
               <div class="functions-add-row">
                 <button id="addFunctionBtn" class="add-uniform-btn">
                   + Function
@@ -1595,7 +1570,6 @@
                   + Loop Body
                 </button>
               </div>
-              <div id="functions-list" class="custom-nodes-list"></div>
             </div>
           </div>
           <div id="custom-nodes-section" class="collapsible-section">
@@ -1604,10 +1578,10 @@
               <button class="collapse-btn">▼</button>
             </div>
             <div class="sidebar-section-content">
+              <div id="custom-nodes-list" class="custom-nodes-list"></div>
               <button id="addCustomNodeBtn" class="add-uniform-btn">
                 + Create Custom Node
               </button>
-              <div id="custom-nodes-list" class="custom-nodes-list"></div>
             </div>
           </div>
         </div>

@@ -2172,7 +2172,7 @@ const API_METHOD_DESCRIPTORS = [
   },
   {
     path: "getManifest",
-    description: "Get the machine-readable API manifest for MCP clients.",
+    description: "Get the machine-readable API manifest for API clients.",
     mutates: false,
     args: [],
     returns: {
@@ -2183,7 +2183,7 @@ const API_METHOD_DESCRIPTORS = [
   {
     path: "getGuidance",
     description:
-      "Get the MCP guidance content, including best practices, workflows, and domain knowledge for AI agents.",
+      "Get the API guidance content, including best practices, workflows, and domain knowledge for AI agents.",
     mutates: false,
     args: [],
     returns: {
@@ -3583,35 +3583,33 @@ function getApiManifest(api) {
   };
 }
 
-function getMcpGuidance() {
-  const skill = `# Construct Shader Graph MCP Guidance
+function getApiGuidance() {
+  const skill = `# Construct Shader Graph API Guidance
 
-Use this guidance when controlling Construct Shader Graph through the MCP bridge.
+Use this guidance when controlling Construct Shader Graph through the public API.
 
-This document is intentionally focused on best practices, workflow, and domain knowledge. All execution should happen through MCP tools.
+This document is intentionally focused on best practices, workflow, and domain knowledge. All execution should happen through API calls.
 
 ## Purpose
 
-- Use MCP as the only execution surface.
+- Use the API as the only execution surface.
 - Inspect the current graph, make targeted edits, validate the result, and report progress clearly.
 - Treat the graph as the source of truth for shader logic.
 - Use preview tools only to inspect, debug, or visually validate the graph.
 
-## MCP tool contract
+## API contract
 
-Use these MCP tools for all work:
+There are two transports over the same API:
 
-- \`list_projects\`
-- \`select_project\`
-- \`get_project_manifest\`
-- \`call_project_method\`
+- The browser console: \`shaderGraphAPI\` (aliased \`sg\`) on the running page.
+- The headless CLI: \`csg api <method> [json-args] -f <file.c3sg>\`, or \`csg run\` for a
+  script that receives the same \`sg\` object.
 
 Execution rules:
 
-- Always begin with \`list_projects\`.
-- Always choose the active project using \`shader.getInfo()\` metadata, especially \`name\` and \`version\`.
-- Always use exact return values from MCP calls; never guess state.
-- Always inspect the manifest if available methods, method names, or argument shapes are unclear.
+- Always identify the project with \`shader.getInfo()\` metadata, especially \`name\` and \`version\`.
+- Always use exact return values from API calls; never guess state.
+- Always inspect the manifest (\`getManifest\`, or \`csg api --list\`) if available methods, method names, or argument shapes are unclear.
 - If a call returns an id, use that id for follow-up operations instead of searching by labels.
 
 ## Operating contract
@@ -3705,16 +3703,16 @@ If the graph is non-trivial, reading the IR first prevents mistakes like:
 
 ## Method mapping
 
-Use \`call_project_method\` with method names from the manifest.
+Use method names from the manifest, either directly on \`shaderGraphAPI\` or through \`call\`.
 
 Examples:
 
-- \`call_project_method({ method: "shader.getInfo", args: [] })\`
-- \`call_project_method({ method: "nodes.create", args: [{ ... }] })\`
-- \`call_project_method({ method: "wires.create", args: [{ ... }] })\`
-- \`call_project_method({ method: "session.initAIWork", args: [{ ... }] })\`
+- \`shaderGraphAPI.shader.getInfo()\` / \`shaderGraphAPI.call("shader.getInfo", [])\`
+- \`shaderGraphAPI.nodes.create({ ... })\`
+- \`shaderGraphAPI.wires.create({ ... })\`
+- \`shaderGraphAPI.session.initAIWork({ ... })\`
 
-The method names match the public API names; MCP only changes the transport.
+The CLI uses the same names: \`csg api nodes.create '{ ... }' -f shader.c3sg --write\`.
 
 ## Safe vs side-effecting calls
 
@@ -4168,12 +4166,11 @@ Bad:
 
 ## Troubleshooting
 
-- \`No projects listed\`
-  - Make sure the page is connected to the MCP bridge.
-  - Re-run \`list_projects\`.
-- \`Wrong project selected\`
-  - Re-check \`shader.getInfo()\` metadata from the selected project.
-  - Pick the correct session with \`select_project\`.
+- \`API not available\`
+  - In the browser, make sure the page finished loading; \`shaderGraphAPI\` is installed on boot.
+  - From the CLI, pass the project with \`-f <file.c3sg>\`.
+- \`Wrong project\`
+  - Re-check \`shader.getInfo()\` metadata and confirm it is the file you meant to edit.
 - \`Node not found\`
   - Re-run \`nodes.list\` and resolve the correct id.
 - \`Unknown node type\`
@@ -4199,21 +4196,20 @@ Bad:
   - Use a variable for reused computed branches.
   - Duplicate tiny leaf nodes when that is simpler and cleaner.`;
 
-  const quickstart = `# Construct Shader Graph MCP Quickstart
+  const quickstart = `# Construct Shader Graph API Quickstart
 
-Use MCP tools only.
+Use shaderGraphAPI (browser console) or the csg CLI. Both call the same methods.
 
 ## Core loop
 
-1. Call list_projects.
-2. Select the correct project with select_project.
-3. Read get_project_manifest if methods or arguments are unclear.
-4. Start the task with session.initAIWork.
-5. Read the graph IR with graph.exportIR() to understand the full structure before mutating.
-6. Make one small edit at a time.
-7. Re-read affected nodes, ports, wires, or settings.
-8. Validate with shader.getGeneratedCode, preview.getErrors, and screenshots when needed.
-9. Finish with session.endAIWork.
+1. Confirm the project with shader.getInfo.
+2. Read getManifest if methods or arguments are unclear.
+3. Start the task with session.initAIWork.
+4. Read the graph IR with graph.exportIR() to understand the full structure before mutating.
+5. Make one small edit at a time.
+6. Re-read affected nodes, ports, wires, or settings.
+7. Validate with shader.getGeneratedCode, preview.getErrors, and screenshots when needed.
+8. Finish with session.endAIWork.
 
 ## Best practices
 
@@ -4302,7 +4298,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
     },
 
     getGuidance() {
-      return getMcpGuidance();
+      return getApiGuidance();
     },
 
     call(methodPath, args = []) {
