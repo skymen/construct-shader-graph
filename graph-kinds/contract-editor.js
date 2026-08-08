@@ -66,6 +66,7 @@ function renderInfoForm(handler, graph, host, form) {
         nameInput.addEventListener("change", () => {
           const v = nameInput.value.trim() || graph.name || "Untitled";
           if (v === graph.name) return;
+          host.history?.syncBaseline(graph.id);
           graph.name = v;
           host.syncContractCallers(graph);
           host.renderGraphTabBar && host.renderGraphTabBar();
@@ -85,6 +86,7 @@ function renderInfoForm(handler, graph, host, form) {
         colorInput.type = "color";
         colorInput.value = graph.color || handler.defaultColor;
         colorInput.addEventListener("change", () => {
+          host.history?.syncBaseline(graph.id);
           graph.color = colorInput.value;
           host.syncContractCallers(graph);
           host.renderGraphTabBar && host.renderGraphTabBar();
@@ -106,6 +108,9 @@ function renderInfoForm(handler, graph, host, form) {
         notes.addEventListener("change", () => {
           if (!graph.data) graph.data = {};
           graph.data.notes = notes.value;
+          // No refresh(): notes touch no caller and no generated code. They
+          // are in `graph.data` though, so they are undo state.
+          host.history?.pushState("Edit notes");
         });
         return notes;
       })(),
@@ -138,9 +143,17 @@ function renderPortList(handler, graph, host, listEl, which) {
   });
 }
 
-// Everything a contract edit has to touch: callers in every graph, the sidebar
-// itself, the functions list, the canvas, and codegen.
-function refresh(host, graph) {
+// Apply a contract edit and everything it has to touch: callers in every
+// graph, the sidebar itself, the functions list, the canvas, and codegen.
+//
+// The mutation runs *inside* here rather than at the call site so the undo
+// baseline can be pinned first. syncContractCallers records the transaction
+// against whatever `currentStates` holds, and every caller used to mutate the
+// contract before calling in — which only produced a correct entry because the
+// baseline happened to be stale in exactly the right way.
+function commitContractEdit(host, graph, mutate) {
+  host.history?.syncBaseline(graph.id);
+  mutate();
   host.syncContractCallers(graph);
   host.renderContractEditor && host.renderContractEditor();
   host.renderFunctionsList && host.renderFunctionsList();
@@ -192,8 +205,9 @@ function buildPortRow(handler, graph, host, port, index, which) {
       nameInput.value = port.name || "";
       return;
     }
-    port.name = v;
-    refresh(host, graph);
+    commitContractEdit(host, graph, () => {
+      port.name = v;
+    });
   });
   row.appendChild(nameInput);
 
@@ -225,8 +239,9 @@ function buildPortRow(handler, graph, host, port, index, which) {
 
   typeSelect.addEventListener("change", () => {
     if (typeSelect.value === port.type) return;
-    port.type = typeSelect.value;
-    refresh(host, graph);
+    commitContractEdit(host, graph, () => {
+      port.type = typeSelect.value;
+    });
   });
   row.appendChild(typeSelect);
 
@@ -248,8 +263,9 @@ function buildPortRow(handler, graph, host, port, index, which) {
   del.textContent = "×";
   del.title = "Remove port";
   del.addEventListener("click", () => {
-    contract[which].splice(index, 1);
-    refresh(host, graph);
+    commitContractEdit(host, graph, () => {
+      contract[which].splice(index, 1);
+    });
   });
   row.appendChild(del);
 
@@ -306,10 +322,11 @@ function buildPortRow(handler, graph, host, port, index, which) {
     let to = index + (after ? 1 : 0);
     if (from < to) to--;
     if (from === to) return;
-    const arr = contract[which];
-    const [moved] = arr.splice(from, 1);
-    arr.splice(to, 0, moved);
-    refresh(host, graph);
+    commitContractEdit(host, graph, () => {
+      const arr = contract[which];
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
+    });
   });
 
   return row;

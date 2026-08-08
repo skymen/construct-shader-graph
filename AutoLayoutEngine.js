@@ -149,7 +149,7 @@ export class AutoLayoutEngine {
    * Main entry point for auto-arranging nodes
    * @param {boolean} selectedOnly - If true, only arrange selected nodes
    */
-  autoArrange(selectedOnly = false) {
+  autoArrange(selectedOnly = false, { recordHistory = true } = {}) {
     // Get nodes to arrange
     const nodesToArrange =
       selectedOnly && this.bp.selectedNodes.size > 0
@@ -312,14 +312,19 @@ export class AutoLayoutEngine {
       this.bp.centerView();
     }
 
-    // Record state for undo/redo with descriptive message
-    this.bp.history.pushState(
-      selectedOnly
-        ? `Auto-arrange ${
-            Array.from(this.bp.selectedNodes).length
-          } selected nodes`
-        : `Auto-arrange all nodes`
-    );
+    // Record state for undo/redo with descriptive message. Callers that
+    // arrange as part of a larger edit (importGraphIR, the fan-out rewrites,
+    // deleteDanglingNodes) pass recordHistory: false and push their own single
+    // entry instead of leaving two behind.
+    if (recordHistory) {
+      this.bp.history.pushState(
+        selectedOnly
+          ? `Auto-arrange ${
+              Array.from(this.bp.selectedNodes).length
+            } selected nodes`
+          : `Auto-arrange all nodes`
+      );
+    }
 
     console.log("Auto-arrange complete");
   }

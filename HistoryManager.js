@@ -23,12 +23,12 @@ export class HistoryManager {
   // Backward-compat: reading/writing `this.history.currentState` maps to
   // the active graph's entry in `currentStates`.
   get currentState() {
-    const gId = this.host.activeGraphId;
+    const gId = this.targetGraphId();
     return gId ? this.currentStates.get(gId) : null;
   }
 
   set currentState(val) {
-    const gId = this.host.activeGraphId;
+    const gId = this.targetGraphId();
     if (gId) this.currentStates.set(gId, val);
   }
 
@@ -41,13 +41,51 @@ export class HistoryManager {
   }
 
   /**
+   * Forget a deleted graph entirely: its baseline, and its side of every
+   * entry. Entries left with no graphs are dropped.
+   *
+   * Without this, undo()/redo() skip the missing graph (`if (!graph) continue`)
+   * and an entry that only touched it reads to the user as a dead keypress.
+   */
+  forgetGraph(graphId) {
+    this.removeGraphState(graphId);
+
+    const prune = (stack) =>
+      stack
+        .map((entry) => ({
+          ...entry,
+          graphs: entry.graphs.filter((g) => g.graphId !== graphId),
+        }))
+        .filter((entry) => entry.graphs.length > 0)
+        .map((entry) =>
+          entry.primaryGraphId === graphId
+            ? { ...entry, primaryGraphId: entry.graphs[0].graphId }
+            : entry,
+        );
+
+    this.undoStack = prune(this.undoStack);
+    this.redoStack = prune(this.redoStack);
+    this.host.updateUndoRedoButtons();
+  }
+
+  /**
+   * Which graph a push targets. Normally the active one, but `_withGraph`
+   * redirects every delegated read/write to another graph without changing
+   * `activeGraphId` — so a push fired inside one has to follow it, or it
+   * snapshots the wrong graph and the real change goes unrecorded.
+   */
+  targetGraphId() {
+    return this.host._graphOverride?.id ?? this.host.activeGraphId;
+  }
+
+  /**
    * Push current state to undo stack with automatic change detection and coalescing.
-   * Always captures the currently active graph.
+   * Captures the graph currently being edited (see targetGraphId).
    */
   pushState(description = "State Change") {
     if (this.isApplyingUndoRedo) return;
 
-    const graphId = this.host.activeGraphId;
+    const graphId = this.targetGraphId();
     const graph = this.host.graphs.get(graphId);
     if (!graph) return;
 
@@ -108,6 +146,21 @@ export class HistoryManager {
     this.lastChangedProperties = changedProperties;
 
     this.host.updateUndoRedoButtons();
+  }
+
+  /**
+   * Accept the current state as the new baseline without recording an entry.
+   *
+   * For mutations that are presentation-only but still land in the snapshot —
+   * z-order being the one case today. Without this the change is not undoable
+   * (correct) *and* leaks into the next entry's beforeState (not correct),
+   * so undoing an unrelated edit would silently reshuffle the z-order too.
+   */
+  syncBaseline(graphId = this.targetGraphId()) {
+    if (this.isApplyingUndoRedo) return;
+    const graph = this.host.graphs.get(graphId);
+    if (!graph) return;
+    this.currentStates.set(graphId, this.host._exportGraphState(graph));
   }
 
   _pushNewEntry(description, graphId, oldState, newState, diff, timestamp) {
@@ -359,6 +412,27 @@ export class HistoryManager {
       }
     });
 
+    // Reroute *positions* are invisible to wireToString, which encodes only
+    // the count so that dragging one reroute node keeps a stable property key
+    // and can coalesce. Compare the geometry separately, keyed on the wire's
+    // endpoints alone, or moving a reroute node diffs to nothing and never
+    // records an undo entry.
+    const rerouteGeometry = (wires) => {
+      const map = new Map();
+      wires.forEach((w) => map.set(this.wireEndpointKey(w), w.rerouteNodes));
+      return map;
+    };
+    const oldReroutes = rerouteGeometry(oldState.wires);
+    const newReroutes = rerouteGeometry(newState.wires);
+
+    oldReroutes.forEach((oldNodes, key) => {
+      const newNodes = newReroutes.get(key);
+      if (!newNodes) return; // wire added/removed — already recorded above
+      if (!this.deepEqual(oldNodes, newNodes)) {
+        diff.changedProperties.add(`wire:${key}:reroutes`);
+      }
+    });
+
     const oldComments = new Map(oldState.comments.map((c) => [c.id, c]));
     const newComments = new Map(newState.comments.map((c) => [c.id, c]));
 
@@ -389,7 +463,10 @@ export class HistoryManager {
       }
     });
 
-    if (!this.deepEqual(oldState.uniforms, newState.uniforms)) {
+    if (
+      !this.deepEqual(oldState.uniforms, newState.uniforms) ||
+      !this.deepEqual(oldState.deprecatedUniforms, newState.deprecatedUniforms)
+    ) {
       diff.uniformsChanged = true;
       diff.changedProperties.add("uniforms:changed");
     }
@@ -427,6 +504,7 @@ export class HistoryManager {
       "customInput",
       "uniformId",
       "constantId",
+      "selectedVariable",
       "data",
     ].forEach((key) => {
       if (!this.deepEqual(oldNode[key], newNode[key])) {
@@ -474,6 +552,22 @@ export class HistoryManager {
       }
     });
 
+    // Outputs carry no value, but their name and type still move — a generic
+    // re-resolving, a custom node's output being renamed. Comparing only the
+    // count missed both.
+    (oldNode.outputPorts || []).forEach((oldPort, i) => {
+      const newPort = newNode.outputPorts && newNode.outputPorts[i];
+      if (!newPort) return;
+      if (oldPort.name !== newPort.name || oldPort.portType !== newPort.portType) {
+        diff.hasChanges = true;
+        diff.changes[`outputPort:${i}:meta`] = {
+          oldValue: { name: oldPort.name, type: oldPort.portType },
+          newValue: { name: newPort.name, type: newPort.portType },
+        };
+        diff.changedKeys.push(`outputPort:${i}:meta`);
+      }
+    });
+
     return diff;
   }
 
@@ -496,10 +590,18 @@ export class HistoryManager {
     return diff;
   }
 
+  // Identity of a wire including its reroute count, used to detect wires being
+  // added and removed.
   wireToString(wire) {
     const rerouteStr =
       wire.rerouteNodes.length > 0 ? `:r${wire.rerouteNodes.length}` : "";
-    return `${wire.startNodeId}:${wire.startPortIndex}->${wire.endNodeId}:${wire.endPortIndex}${rerouteStr}`;
+    return `${this.wireEndpointKey(wire)}${rerouteStr}`;
+  }
+
+  // Identity of a wire by its endpoints alone. Stays stable across reroute
+  // edits, which is what lets the geometry comparison match a wire to itself.
+  wireEndpointKey(wire) {
+    return `${wire.startNodeId}:${wire.startPortIndex}->${wire.endNodeId}:${wire.endPortIndex}`;
   }
 
   propertySetsOverlap(set1, set2) {

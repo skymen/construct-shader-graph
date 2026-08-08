@@ -2975,6 +2975,10 @@ class BlueprintSystem {
       this.setActiveGraph(this.mainGraphId);
     }
     this.graphs.delete(id);
+    // Creating a graph is not undoable, so neither is deleting one. Drop the
+    // entries that referenced it rather than leaving undo steps that silently
+    // do nothing.
+    this.history.forgetGraph(id);
   }
 
   // Resolve a routing target from API options. Default = active graph;
@@ -3689,11 +3693,20 @@ class BlueprintSystem {
     extendBoxHInput.value = this.shaderSettings.extendBoxH;
     extendBoxVInput.value = this.shaderSettings.extendBoxV;
 
+    // shaderSettings is part of the undo snapshot, so every one of these
+    // listeners has to record a point. Text fields write the model on `input`
+    // (so the rest of the UI stays live) but only commit on `change`, which
+    // fires once on blur - otherwise typing a name would be one undo entry per
+    // keystroke.
+
     // Name input
     nameInput.addEventListener("input", () => {
       this.shaderSettings.name = nameInput.value.trim();
       // Popped-out windows are titled after the shader.
       this.renumberPreviewWindows();
+    });
+    nameInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit shader name");
     });
 
     // Version validation (X.X.X.X format)
@@ -3705,6 +3718,7 @@ class BlueprintSystem {
         versionInput.value = this.shaderSettings.version;
       } else {
         this.shaderSettings.version = value || "0.0.0.0";
+        this._commitShaderSetting("Edit shader version");
       }
     });
 
@@ -3719,10 +3733,12 @@ class BlueprintSystem {
           } catch {
             alert("Please enter a valid URL (e.g., https://example.com)");
             input.value = this.shaderSettings[settingKey];
+            return;
           }
         } else {
           this.shaderSettings[settingKey] = "";
         }
+        this._commitShaderSetting(`Edit shader ${settingKey}`);
       });
     };
 
@@ -3733,57 +3749,64 @@ class BlueprintSystem {
     authorInput.addEventListener("input", () => {
       this.shaderSettings.author = authorInput.value;
     });
+    authorInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit shader author");
+    });
 
     descriptionInput.addEventListener("input", () => {
       this.shaderSettings.description = descriptionInput.value;
+    });
+    descriptionInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit shader description");
     });
 
     // Category select
     categorySelect.addEventListener("change", () => {
       this.shaderSettings.category = categorySelect.value;
+      this._commitShaderSetting("Edit shader category");
     });
 
     // Checkboxes
     blendsBackgroundCheckbox.addEventListener("change", () => {
       this.shaderSettings.blendsBackground = blendsBackgroundCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     crossSamplingCheckbox.addEventListener("change", () => {
       this.shaderSettings.crossSampling = crossSamplingCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     preservesOpaquenessCheckbox.addEventListener("change", () => {
       this.shaderSettings.preservesOpaqueness =
         preservesOpaquenessCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     animatedCheckbox.addEventListener("change", () => {
       this.shaderSettings.animated = animatedCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     isDeprecatedCheckbox.addEventListener("change", () => {
       this.shaderSettings.isDeprecated = isDeprecatedCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     usesDepthCheckbox.addEventListener("change", () => {
       this.shaderSettings.usesDepth = usesDepthCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     mustPredrawCheckbox.addEventListener("change", () => {
       this.shaderSettings.mustPredraw = mustPredrawCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     supports3DDirectRenderingCheckbox.addEventListener("change", () => {
       this.shaderSettings.supports3DDirectRendering =
         supports3DDirectRenderingCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     // Extend box inputs
@@ -3791,10 +3814,16 @@ class BlueprintSystem {
       this.shaderSettings.extendBoxH = parseFloat(extendBoxHInput.value) || 0;
       this.onShaderChanged();
     });
+    extendBoxHInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit extend box");
+    });
 
     extendBoxVInput.addEventListener("input", () => {
       this.shaderSettings.extendBoxV = parseFloat(extendBoxVInput.value) || 0;
       this.onShaderChanged();
+    });
+    extendBoxVInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit extend box");
     });
 
     // Shader language toggles. One handler shape for all three, since the only
@@ -3807,6 +3836,14 @@ class BlueprintSystem {
       });
     }
     this.updateTargetCheckboxes();
+  }
+
+  // Commit a shader-settings edit: refresh anything derived from it, then
+  // record an undo point. Every listener in setupShaderSettings ends here so
+  // there is one place that decides what committing a setting means.
+  _commitShaderSetting(description) {
+    this.onShaderChanged();
+    this.history.pushState(description);
   }
 
   // Switch a shader language on or off. Refuses to switch off the last one -
@@ -4731,6 +4768,7 @@ class BlueprintSystem {
       description.value = constant.description || "";
       description.addEventListener("change", () => {
         constant.description = description.value;
+        this.history.pushState("Edit constant description");
       });
       infoLine.appendChild(description);
 
@@ -4913,29 +4951,29 @@ class BlueprintSystem {
       if (graph.nodes.some(isUniformNode)) affectedGraphIds.push(graph.id);
     }
 
-    if (affectedGraphIds.length > 0) {
-      // One undo entry covering every graph the nodes were removed from.
-      this.runMultiGraphTransaction(
-        affectedGraphIds,
-        () => this._removeNodesAllGraphs(isUniformNode),
-        "Deprecate uniform",
-      );
-    }
+    // Node removal and the deprecation itself are one action, so they go in
+    // one transaction. Splitting them left two undo entries, and undoing once
+    // brought the uniform back without its nodes.
+    const apply = () => {
+      this._removeNodesAllGraphs(isUniformNode);
+      // Deprecate the uniform instead of deleting it forever
+      this.uniforms.splice(uniformIndex, 1);
+      this.deprecatedUniforms.push({
+        ...this.cloneUniformRecord(uniform),
+        isDeprecated: true,
+      });
+    };
 
-    // Deprecate the uniform instead of deleting it forever
-    this.uniforms.splice(uniformIndex, 1);
-    this.deprecatedUniforms.push({
-      ...this.cloneUniformRecord(uniform),
-      isDeprecated: true,
-    });
+    this.runMultiGraphTransaction(
+      affectedGraphIds.length > 0 ? affectedGraphIds : [this.activeGraphId],
+      apply,
+      "Deprecate uniform",
+    );
 
     this.renderUniformList();
     this.render();
     this.updateDependencyList();
     this.onShaderChanged();
-
-    // Push state for undo/redo
-    this.history.pushState("Deprecate uniform");
   }
 
   restoreDeprecatedUniform(id) {
@@ -5198,6 +5236,9 @@ class BlueprintSystem {
     if (!g.data.contract) g.data.contract = { inputs: [], outputs: [] };
     const contract = g.data.contract;
     if (!contract[which]) contract[which] = [];
+    // Pin the undo baseline before mutating: syncContractCallers records the
+    // transaction against currentStates, which has to still be pre-edit.
+    this.history.syncBaseline(g.id);
     // Pass the whole contract so a new port picks a generic not already in use
     // anywhere in it, rather than only on its own side.
     contract[which].push(
@@ -8397,6 +8438,7 @@ class BlueprintSystem {
 
     const commit = () => {
       const newName = input.value.trim() || graph.name || "Untitled";
+      if (newName !== graph.name) this.history.syncBaseline(graph.id);
       graph.name = newName;
       this.renderGraphTabBar();
       this.renderFunctionsList && this.renderFunctionsList();
@@ -8562,21 +8604,35 @@ class BlueprintSystem {
         : `Delete "${graph.name}"?`;
     if (!confirm(msg)) return;
 
-    // Remove caller nodes and their wires from every graph.
-    for (const g of this.graphs.values()) {
-      const toRemove = g.nodes.filter(
-        (n) =>
-          n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id,
-      );
-      for (const n of toRemove) {
-        for (const port of [...n.inputPorts, ...n.outputPorts]) {
-          for (const w of [...port.connections]) this.disconnectWire(w);
+    // Remove caller nodes and their wires from every graph. Recorded as one
+    // entry, before deleteGraph runs: the graph itself cannot be restored by
+    // undo (the snapshot model is per-graph and has no notion of the graph
+    // set), but the callers and wires it took down with it can.
+    const isCaller = (n) =>
+      n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id;
+    const affectedGraphIds = [...this.graphs.values()]
+      .filter((g) => g.nodes.some(isCaller))
+      .map((g) => g.id);
+
+    const removeCallers = () => {
+      for (const g of this.graphs.values()) {
+        for (const n of g.nodes.filter(isCaller)) {
+          for (const port of [...n.inputPorts, ...n.outputPorts]) {
+            for (const w of [...port.connections]) this.disconnectWire(w);
+          }
         }
+        g.nodes = g.nodes.filter((n) => !isCaller(n));
       }
-      g.nodes = g.nodes.filter(
-        (n) =>
-          !(n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id),
+    };
+
+    if (affectedGraphIds.length > 0) {
+      this.runMultiGraphTransaction(
+        affectedGraphIds,
+        removeCallers,
+        `Delete "${graph.name}"`,
       );
+    } else {
+      removeCallers();
     }
 
     this.openTabs.delete(graph.id);
@@ -8725,19 +8781,26 @@ class BlueprintSystem {
       if (graph.nodes.some(isInstance)) affectedGraphIds.push(graph.id);
     }
 
-    if (affectedGraphIds.length > 0) {
-      // One undo entry covering every graph we removed instances from.
-      this.runMultiGraphTransaction(
-        affectedGraphIds,
-        () => this._removeNodesAllGraphs(isInstance),
-        "Delete custom node",
-      );
-      this.render();
-      this.updateDependencyList();
-      this.onShaderChanged();
-    }
+    // The library entry itself is host-level and lives in every graph's
+    // snapshot, so it has to be removed *inside* the transaction. Dropping it
+    // afterwards left the removal out of history entirely, and a library entry
+    // with no live instances recorded nothing at all.
+    const apply = () => {
+      this._removeNodesAllGraphs(isInstance);
+      this.customNodes = this.customNodes.filter((n) => n.id !== id);
+    };
 
-    this.customNodes = this.customNodes.filter((n) => n.id !== id);
+    // Cover every graph we removed instances from; fall back to the active
+    // graph so the library edit alone is still recorded.
+    this.runMultiGraphTransaction(
+      affectedGraphIds.length > 0 ? affectedGraphIds : [this.activeGraphId],
+      apply,
+      "Delete custom node",
+    );
+
+    this.render();
+    this.updateDependencyList();
+    this.onShaderChanged();
     this.renderCustomNodesList();
   }
 
@@ -8779,6 +8842,9 @@ class BlueprintSystem {
             if (uniform) newOrder.push(uniform);
           });
           this.uniforms = newOrder;
+          // Order is the addon parameter order, so this is a real edit.
+          this.onShaderChanged();
+          this.history.pushState("Reorder uniforms");
         }
       });
 
@@ -8948,6 +9014,7 @@ class BlueprintSystem {
       descInput.placeholder = "Add description...";
       descInput.addEventListener("change", (e) => {
         uniform.description = e.target.value.trim();
+        this.history.pushState("Edit uniform description");
       });
       descInput.addEventListener("click", (e) => e.stopPropagation());
       descInput.addEventListener("mousedown", (e) => e.stopPropagation());
@@ -9026,6 +9093,7 @@ class BlueprintSystem {
           } else {
             percentSliderContainer.style.display = "none";
           }
+          this.history.pushState("Toggle uniform percent");
         });
 
         percentCheckbox.appendChild(checkbox);
@@ -10404,6 +10472,7 @@ class BlueprintSystem {
       document.body.removeChild(menu);
       this.render();
       this.onShaderChanged();
+      this.history.pushState("Change variable");
     });
 
     menu.appendChild(noneOption);
@@ -10454,6 +10523,7 @@ class BlueprintSystem {
           document.body.removeChild(menu);
           this.render();
           this.onShaderChanged();
+          this.history.pushState("Change variable");
         });
 
         menu.appendChild(option);
@@ -12338,7 +12408,9 @@ class BlueprintSystem {
       console.log(`Auto-arranging all ${this.nodes.length} nodes`);
     }
 
-    this.autoLayoutEngine.autoArrange(selectedOnly);
+    this.autoLayoutEngine.autoArrange(selectedOnly, {
+      recordHistory: options.recordHistory !== false,
+    });
   }
 
   // Insert reroute points so no wire is drawn across a node it does not
@@ -12521,6 +12593,9 @@ class BlueprintSystem {
       routed++;
     }
 
+    if (routed > 0 && options.recordHistory !== false) {
+      this.history.pushState(`Route ${routed} wire${routed === 1 ? "" : "s"}`);
+    }
     this.render();
     return { ok: true, routed, wires: this.wires.length };
   }
@@ -12568,6 +12643,11 @@ class BlueprintSystem {
       obstacles.push(node);
     }
 
+    if (moved > 0 && options.recordHistory !== false) {
+      this.history.pushState(
+        `Snap ${moved} variable node${moved === 1 ? "" : "s"}`,
+      );
+    }
     this.render();
     return { ok: true, moved };
   }
@@ -16759,7 +16839,8 @@ class BlueprintSystem {
           this.selectedNodes.add(node);
         }
       });
-      this.autoArrange({ normalizeFanout: true });
+      // The import's own push below covers the layout too.
+      this.autoArrange({ normalizeFanout: true, recordHistory: false });
     }
 
     this.updateDependencyList();
@@ -16890,7 +16971,7 @@ class BlueprintSystem {
           entry.isSelected = true;
           this.selectedNodes.add(entry);
         });
-      this.autoArrange({ normalizeFanout: false });
+      this.autoArrange({ normalizeFanout: false, recordHistory: false });
     }
 
     this.updateDependencyList();
@@ -17015,7 +17096,7 @@ class BlueprintSystem {
         entry.isSelected = true;
         this.selectedNodes.add(entry);
       });
-      this.autoArrange({ normalizeFanout: false });
+      this.autoArrange({ normalizeFanout: false, recordHistory: false });
     }
 
     this.updateDependencyList();
@@ -17096,7 +17177,7 @@ class BlueprintSystem {
           this.selectedNodes.add(node);
         }
       });
-      this.autoArrange({ normalizeFanout: false });
+      this.autoArrange({ normalizeFanout: false, recordHistory: false });
     }
 
     this.updateDependencyList();
@@ -17195,6 +17276,11 @@ class BlueprintSystem {
         uniformName: node.uniformName,
         uniformDisplayName: node.uniformDisplayName,
         uniformVariableName: node.uniformVariableName,
+        // Only the id is stored. The display fields (name, variable name,
+        // type) are re-derived from `this.constants` on restore, so undoing
+        // past a rename cannot resurrect the old name. Same reasoning as the
+        // save file, which stores the id alone too.
+        constantId: node.constantId,
         inputPorts: node.inputPorts.map((port) => ({
           name: port.name,
           portType: port.portType,
@@ -17265,6 +17351,12 @@ class BlueprintSystem {
   // graph; the shader-changed pulse fires when targeting the main graph.
   // NOTE: Uniforms are host-level (shared), but restored here for undo/redo.
   _loadGraphState(graph, stateData) {
+    // The pin is an object reference into `graph.nodes`, and every node below
+    // is rebuilt from scratch. Remember which node id was pinned so it can be
+    // re-attached to the new instance; leaving the old object in place made
+    // codegen walk the pre-undo graph while the canvas showed the new one.
+    const pinnedNodeId = graph.previewNode ? graph.previewNode.id : null;
+
     // Clear current state
     graph.nodes = [];
     graph.wires = [];
@@ -17336,10 +17428,47 @@ class BlueprintSystem {
       node.uniformName = nodeData.uniformName;
       node.uniformDisplayName = nodeData.uniformDisplayName;
       node.uniformVariableName = nodeData.uniformVariableName;
+      // Constants: the display fields come from the live host record, not the
+      // snapshot, exactly as loadFromJSON does it. getCustomType() reads
+      // constantType off the *node instance*, so this has to happen before
+      // the port pass at the end of this method.
       node.constantId = nodeData.constantId;
-      node.constantName = nodeData.constantName;
-      node.constantDisplayName = nodeData.constantDisplayName;
-      node.constantType = nodeData.constantType;
+      if (nodeData.constantId !== undefined) {
+        const constant = this.constants.find(
+          (c) => c.id === nodeData.constantId,
+        );
+        if (constant) {
+          node.constantName = constant.variableName;
+          node.constantDisplayName = constant.name;
+          node.constantType = constant.type;
+          node.nodeType = { ...node.nodeType, name: constant.name };
+        }
+      }
+      if (nodeData.uniformId !== undefined) {
+        const uniform = this.uniforms.find((u) => u.id === nodeData.uniformId);
+        if (uniform) {
+          node.uniformName = uniform.variableName;
+          node.uniformDisplayName = uniform.name;
+          node.uniformVariableName = uniform.variableName;
+          node.nodeType = {
+            ...node.nodeType,
+            name: uniform.name,
+            paramId: uniform.paramId,
+          };
+        }
+      }
+      // Nodes whose type comes from a live source take their title from that
+      // source, never from the snapshot. Mirrors loadFromJSON.
+      if (
+        node.nodeType.isCustom ||
+        node.nodeType.isFunctionCall ||
+        node.nodeType.isUniform ||
+        node.nodeType.isConstant ||
+        node.uniformId !== undefined ||
+        node.constantId !== undefined
+      ) {
+        node.title = node.nodeType.name;
+      }
 
       // Restore port values
       node.inputPorts.forEach((port, i) => {
@@ -17412,8 +17541,10 @@ class BlueprintSystem {
       node.inputPorts.forEach((port) => {
         port.updateEditability();
       });
-      // Recalculate node height in case port editability changed
-      node.recalculateHeight();
+      // Full shape refresh rather than recalculateHeight(): the node type may
+      // have been swapped above (uniform/constant/custom), which moves a node
+      // between the pill and box shapes.
+      node.refreshShape();
     });
 
     // For function/loopBody graphs, re-enforce boundary rules so that
@@ -17422,6 +17553,13 @@ class BlueprintSystem {
       const handler = getHandler(graph.kind);
       if (handler) handler.enforceBoundaryRules(graph, this);
     }
+
+    // Re-attach the preview pin to the rebuilt instance, or drop it if the
+    // node is not in this state. generateShader() starts its walk from the
+    // pin, so a stale reference here generates the shader from the graph as
+    // it was before the restore.
+    graph.previewNode =
+      pinnedNodeId === null ? null : nodeMap.get(pinnedNodeId) || null;
 
     // UI side-effects: only when this graph is currently visible.
     if (graph === this.activeGraph) {
@@ -18375,6 +18513,12 @@ class BlueprintSystem {
           });
         }
 
+        // The drag that follows pushes its own entry on mouseup, but a
+        // double-click that never moves would otherwise record nothing. The
+        // two share the `reroutes` property key, so a click-and-drag still
+        // coalesces into a single entry.
+        this.history.pushState("Add reroute node");
+
         // Immediately start dragging the new reroute node
         // First select it (this also clears any previous selection)
         this.selectRerouteNode(rerouteNode, false);
@@ -18769,9 +18913,12 @@ class BlueprintSystem {
             rn.dragOffsetY = pos.y - rn.y;
           });
 
-          // Move to front
+          // Move to front. Draw order is not an edit, so it gets no undo
+          // entry - but the node array order *is* snapshotted, so accept it as
+          // the new baseline or it rides along on whatever is pushed next.
           this.nodes = this.nodes.filter((n) => n !== node);
           this.nodes.push(node);
+          this.history.syncBaseline();
         }
       }
 
@@ -19348,6 +19495,14 @@ class BlueprintSystem {
             this.onShaderChanged();
           }
 
+          // Dragging a wire off a port and dropping it on nothing deletes it,
+          // so it needs an undo point of its own. Only when the wire actually
+          // existed: otherwise this is a drag from a bare port that connected
+          // nothing, and the search menu path below pushes "Create node".
+          if (this.activeWire.wasPickedUp) {
+            this.history.pushState("Delete wire");
+          }
+
           // Only show search menu if wire wasn't picked up
           if (!this.activeWire.wasPickedUp) {
             const startPort = this.activeWire.startPort;
@@ -19395,6 +19550,12 @@ class BlueprintSystem {
           // Remove the wire if it was picked up
           if (this.wires.includes(this.activeWire)) {
             this.disconnectWire(this.activeWire);
+          }
+
+          // See the mirrored branch above: a picked-up wire dropped on empty
+          // canvas is a deletion and needs its own undo point.
+          if (this.activeWire.wasPickedUp) {
+            this.history.pushState("Delete wire");
           }
 
           // Only show search menu if wire wasn't picked up
@@ -19499,6 +19660,7 @@ class BlueprintSystem {
     if (rerouteNode) {
       // Delete the reroute node
       rerouteNode.wire.removeRerouteNode(rerouteNode);
+      this.history.pushState("Delete reroute node");
       this.render();
       return;
     }

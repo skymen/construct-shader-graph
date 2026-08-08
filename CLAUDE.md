@@ -107,6 +107,20 @@ new NodeType(
 
 `exportState()` captures only persistent state. `Graph.js` owns both; HistoryManager snapshots only the persistent subset.
 
+### Undo/Redo Contract
+
+`pushState()` diffs the current graph against `currentStates` — the **last pushed** snapshot — and stores full before/after snapshots. Three consequences that anyone adding a mutation has to respect:
+
+- **Every mutation of persistent state must push.** A mutation with no push leaves the baseline stale and gets folded into the *next* entry, so undoing an unrelated edit silently reverts it too. The symptom is "undo did something weird", not "that wasn't undoable".
+- **The differ must be able to see the change.** If `calculateStateDiff` reports zero changed properties the entry is skipped *and* the baseline is left stale — the same leak. Adding a new snapshotted field usually means adding it to `calculateNodeDiff`'s key list.
+- **Presentation-only mutations that still land in the snapshot** (node z-order) call `history.syncBaseline()` instead: no entry, but the baseline moves so nothing leaks.
+
+`tests/06-undo-redo.test.js` holds the no-leak invariant as a table — do X, do something unrelated, undo once, X must still be there. Add a row when adding an action.
+
+Push targeting follows `_graphOverride` (see `targetGraphId()`), so a mutation performed inside `_withGraph` records against the graph it actually edited. Multi-graph edits go through `runMultiGraphTransaction`, whose baseline is `currentStates` — so pin it with `syncBaseline()` before mutating if the mutation happens outside the transaction callback.
+
+**Not undoable:** creating or deleting a function/loopBody graph. The entry model is per-graph, so the *set* of graphs isn't representable in a snapshot. `deleteGraph` calls `history.forgetGraph(id)` to drop entries that referenced it rather than leave undo steps that do nothing; deleting a callable graph does record the caller nodes and wires it takes down with it.
+
 ### Tests
 
 `tests/` has 13 test files (bootstrap, history, codegen, serialization, multi-graph contracts, uniforms). `tests/setup.js` stubs Canvas 2D, IndexedDB, WebSocket, and RAF for jsdom.
