@@ -36,5 +36,8 @@
   "Vertical": "Vertical",
   "Both": "Les deux",
   "Ceil": "Arrondi supérieur",
-  "Round": "Arrondir"
+  "Round": "Arrondir",
+  "Raw": "Brut",
+  "Clamp": "Borner",
+  "Clip": "Découper"
 }

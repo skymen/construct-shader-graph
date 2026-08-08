@@ -56,7 +56,6 @@ import { LengthNode } from "./LengthNode.js";
 import { DistanceNode } from "./DistanceNode.js";
 import { MultiplyVectorNode } from "./MultiplyVectorNode.js";
 import { RotateAroundPointNode } from "./RotateAroundPointNode.js";
-import { RotateAroundPointAspectNode } from "./RotateAroundPointAspectNode.js";
 import { Hash11Node } from "./Hash11Node.js";
 import { Hash21Node } from "./Hash21Node.js";
 import { Hash22Node } from "./Hash22Node.js";
@@ -84,7 +83,6 @@ import { LinearGradientNode } from "./LinearGradientNode.js";
 import { RadialGradientNode } from "./RadialGradientNode.js";
 import { GradientMapNode } from "./GradientMapNode.js";
 import { TextureFrontNode } from "./TextureFrontNode.js";
-import { TextureFrontClippedNode } from "./TextureFrontClippedNode.js";
 import { TextureBackNode } from "./TextureBackNode.js";
 import { TextureDepthNode } from "./TextureDepthNode.js";
 import { SamplerFrontNode } from "./SamplerFrontNode.js";
@@ -147,7 +145,7 @@ import { BuiltinLayoutCenterNode } from "./BuiltinLayoutCenterNode.js";
 import { BuiltinLayoutSizeNode } from "./BuiltinLayoutSizeNode.js";
 import { TexelSizeNode } from "./TexelSizeNode.js";
 import { PixelSizeNode } from "./PixelSizeNode.js";
-import { SrcOriginPixelSizeNode } from "./SrcOriginPixelSizeNode.js";
+import { SrcOriginSizePxNode } from "./SrcOriginSizePxNode.js";
 import { AspectCorrectNode } from "./AspectCorrectNode.js";
 import { LayoutPixelSizeNode } from "./LayoutPixelSizeNode.js";
 import { SrcOriginToNormNode } from "./SrcOriginToNormNode.js";
@@ -380,7 +378,6 @@ export const NODE_TYPES = {
   distance: DistanceNode,
   multiplyVector: MultiplyVectorNode,
   rotateAroundPoint: RotateAroundPointNode,
-  rotateAroundPointAspect: RotateAroundPointAspectNode,
   hash11: Hash11Node,
   hash21: Hash21Node,
   hash22: Hash22Node,
@@ -408,7 +405,6 @@ export const NODE_TYPES = {
   radialGradient: RadialGradientNode,
   gradientMap: GradientMapNode,
   textureFront: TextureFrontNode,
-  textureFrontClipped: TextureFrontClippedNode,
   textureBack: TextureBackNode,
   textureDepth: TextureDepthNode,
   samplerFront: SamplerFrontNode,
@@ -468,7 +464,7 @@ export const NODE_TYPES = {
   builtinZFar: BuiltinZFarNode,
   texelSize: TexelSizeNode,
   pixelSize: PixelSizeNode,
-  srcOriginPixelSize: SrcOriginPixelSizeNode,
+  srcOriginSizePx: SrcOriginSizePxNode,
   aspectCorrect: AspectCorrectNode,
   layoutPixelSize: LayoutPixelSizeNode,
   srcOriginToNorm: SrcOriginToNormNode,

@@ -4633,10 +4633,19 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         // loadFromJSON takes anything with a .text() method, so the whole
         // load path (including format migrations) is reused verbatim.
         await blueprint.loadFromJSON({ text: async () => text });
+        // The app reports dropped node types as a notification, which headless
+        // callers never see. Hand it back so they can refuse to write over a
+        // project the loader had to shrink.
+        const report = blueprint.lastLoadReport || {
+          unknownNodeTypes: [],
+          droppedWires: 0,
+        };
         return {
           ok: true,
           shaderName: blueprint.shaderSettings?.name || null,
           graphs: listGraphs(blueprint),
+          unknownNodeTypes: report.unknownNodeTypes,
+          droppedWires: report.droppedWires,
         };
       },
     },
@@ -4705,6 +4714,27 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           ...entry,
           source: "callDAG",
         }));
+
+        // Nodes the loader could not resolve are already gone from the graph,
+        // so nothing downstream can detect them. Without this the project
+        // validates clean while being a strict subset of the file on disk.
+        const loadReport = blueprint.lastLoadReport;
+        if (loadReport && loadReport.unknownNodeTypes.length > 0) {
+          const wires = loadReport.droppedWires;
+          const many = loadReport.unknownNodeTypes.length !== 1;
+          const wireNote =
+            wires > 0
+              ? ` ${wires} connection${wires === 1 ? "" : "s"} dropped with ${many ? "them" : "it"}.`
+              : "";
+          errors.push({
+            message:
+              `Unknown node type${many ? "s" : ""}: ` +
+              `${loadReport.unknownNodeTypes.join(", ")}.${wireNote} ` +
+              `These were dropped on load; writing this project would discard them.`,
+            source: "load",
+            unknownNodeTypes: loadReport.unknownNodeTypes,
+          });
+        }
 
         let generated = null;
         try {

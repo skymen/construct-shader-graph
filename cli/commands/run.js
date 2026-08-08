@@ -14,6 +14,7 @@ csg run -e "<expression>" <file.c3sg> [options]
   -e, --eval <src>  Run an inline expression instead of a script file
   --write           Save the project back afterwards
   -o, --output <f>  Save to <f> instead of over the input
+  -f, --force       Write even if loading dropped unknown node types
   --json            Print the script's return value as JSON
 
 The script is called with one argument:
@@ -59,7 +60,7 @@ export async function run({ host, args, flags }) {
 
   if (flags.write || flags.output) {
     const target = flags.output || projectFile;
-    await saveProject(host, target);
+    await saveProject(host, target, flags);
     out(`${style.green("ok")}  wrote ${target}`);
   }
 

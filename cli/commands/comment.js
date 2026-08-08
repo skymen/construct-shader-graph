@@ -13,6 +13,7 @@ export const usage = `csg comment <file.c3sg> --nodes <ids> [options]
   --padding <px>      Gap left around the nodes (default: 30)
   --in-place          Write back over the input file
   -o, --output <f>    Write the result to <f>
+  -f, --force         Write even if loading dropped unknown node types
 
 Run 'csg arrange' first. A comment is fitted to where the nodes are when it is
 created and does not follow them, so arranging afterwards leaves it misplaced
@@ -45,7 +46,7 @@ export async function run({ host, args, flags }) {
     },
   ]);
 
-  await saveProject(host, target);
+  await saveProject(host, target, flags);
 
   out(
     `${style.green("ok")}  comment ${comment.id} ${style.dim(

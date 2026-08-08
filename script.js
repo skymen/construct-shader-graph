@@ -15492,6 +15492,10 @@ class BlueprintSystem {
   }
 
   createNewFile() {
+    // A fresh project has lost nothing, so any report from a prior load is
+    // stale and must not keep blocking writes.
+    this.lastLoadReport = { unknownNodeTypes: [], droppedWires: 0 };
+
     // Drop any non-main graphs from the previous project, then reset main
     // back to active.
     for (const id of Array.from(this.graphs.keys())) {
@@ -15869,6 +15873,13 @@ class BlueprintSystem {
   _loadGraphPayload(graph, data) {
     this._migrateLoopBodyContract(graph, data);
 
+    // A node type that no longer resolves is dropped, and so is every wire
+    // touching it. Report that back to the caller instead of only warning to
+    // the console: the file loads "successfully" with a hole in it, and saving
+    // afterwards makes the loss permanent.
+    const unknownNodeTypes = new Set();
+    let droppedWires = 0;
+
     // Clear current state
     graph.nodes = [];
     graph.wires = [];
@@ -15946,6 +15957,7 @@ class BlueprintSystem {
           nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
           if (!nodeType) {
             console.warn(`Unknown node type: ${nodeData.nodeTypeKey}`);
+            unknownNodeTypes.add(nodeData.nodeTypeKey);
             continue;
           }
         }
@@ -16041,6 +16053,7 @@ class BlueprintSystem {
         const endNode = nodeMap.get(wireData.endNodeId);
         if (!startNode || !endNode) {
           console.warn("Wire references missing nodes");
+          droppedWires++;
           continue;
         }
         const startPort = startNode.outputPorts[wireData.startPortIndex];
@@ -16083,6 +16096,8 @@ class BlueprintSystem {
     // Restore counters
     if (data.nodeIdCounter) graph.nodeIdCounter = data.nodeIdCounter;
     if (data.commentIdCounter) graph.commentIdCounter = data.commentIdCounter;
+
+    return { unknownNodeTypes: [...unknownNodeTypes], droppedWires };
   }
 
   async loadFromJSON(file) {
@@ -16090,6 +16105,9 @@ class BlueprintSystem {
     // entry below needs it. If the load fails we hand it back, so Save doesn't
     // end up pointing at a file we never successfully opened.
     const previousFileHandle = this.fileHandle;
+    // Cleared up front so a report from the previous project can never be
+    // mistaken for this one's.
+    this.lastLoadReport = { unknownNodeTypes: [], droppedWires: 0 };
     try {
       const text = await file.text();
       const data = JSON.parse(text);
@@ -16192,11 +16210,11 @@ class BlueprintSystem {
       }
 
       // Load top-level into the main graph.
-      this._loadGraphPayload(this.mainGraph, data);
+      const dropReports = [this._loadGraphPayload(this.mainGraph, data)];
 
       // Now load node payloads for additional graphs.
       for (const { g, extra } of additionalGraphEntries) {
-        this._loadGraphPayload(g, extra);
+        dropReports.push(this._loadGraphPayload(g, extra));
       }
 
       // Post-load UI refresh (active graph is mainGraph at this point).
@@ -16221,6 +16239,37 @@ class BlueprintSystem {
         message: fileName,
         duration: 2500,
       });
+
+      // Anything the loader had to throw away gets its own, louder notice.
+      // Silence here reads as "loaded fine" while the graph is missing nodes.
+      const unknownNodeTypes = [
+        ...new Set(dropReports.flatMap((r) => r.unknownNodeTypes)),
+      ];
+      const droppedWires = dropReports.reduce(
+        (sum, r) => sum + r.droppedWires,
+        0,
+      );
+      // Recorded on the instance so headless callers can see it too. The
+      // notification below is a DOM affordance; the CLI has no DOM, and a
+      // silent drop there is worse than in the app because the next `--write`
+      // makes it permanent with nobody watching.
+      this.lastLoadReport = { unknownNodeTypes, droppedWires };
+      if (unknownNodeTypes.length > 0) {
+        const wireNote =
+          droppedWires > 0
+            ? droppedWires === 1
+              ? " 1 connection was dropped with it."
+              : ` ${droppedWires} connections were dropped with them.`
+            : "";
+        this.showNotification({
+          type: "error",
+          title: "Some nodes could not be loaded",
+          message:
+            `Unknown node type${unknownNodeTypes.length === 1 ? "" : "s"}: ` +
+            `${unknownNodeTypes.join(", ")}.${wireNote} Saving will discard them.`,
+          duration: 10000,
+        });
+      }
 
       // Refresh preview with loaded shader (delay to ensure render is complete)
       setTimeout(() => {

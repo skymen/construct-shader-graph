@@ -1,5 +1,6 @@
 {
   "Abs": "绝对值",
+  "Aspect Correct": "宽高比校正",
   "Acos": "反余弦",
   "Append Vec3": "追加 Vec3",
   "Append Vec4": "追加 Vec4",
@@ -72,6 +73,7 @@
   "Max": "最大值",
   "Min": "最小值",
   "Mix": "混合",
+  "Oscillate": "振荡",
   "Mod": "取模",
   "Multiply Vector": "向量乘法",
   "Normalize": "归一化",
@@ -159,6 +161,7 @@
   "srcOriginCenter": "srcOriginCenter",
   "srcOriginEnd": "srcOriginEnd",
   "srcOriginSize": "srcOriginSize",
+  "srcOriginSizePx": "srcOriginSizePx",
   "srcOriginStart": "srcOriginStart",
   "srcOriginToNorm": "srcOriginToNorm",
   "srcSize": "srcSize",

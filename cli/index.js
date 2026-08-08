@@ -28,7 +28,12 @@ const COMMANDS = {
 // of the jsdom host. Everything else is pure logic and stays in-process.
 const BROWSER_COMMANDS = new Set(["preview"]);
 
-const GLOBAL_BOOLEANS = ["help", "version", "verbose"];
+const GLOBAL_BOOLEANS = ["help", "version", "verbose", "force"];
+
+// -f/--force means "write anyway" everywhere. It is global rather than
+// per-command because any command that can write can also be blocked by a
+// lossy load, and a flag that exists on only some of them is worse than none.
+const GLOBAL_ALIASES = { f: "force" };
 
 async function topLevelHelp() {
   out(`${style.bold("csg")} - Construct Shader Graph CLI\n`);
@@ -85,7 +90,7 @@ async function main(argv) {
 
   const { _: args, flags } = parseArgs(rest, {
     booleans: [...(mod.booleans || []), ...GLOBAL_BOOLEANS],
-    aliases: mod.aliases || {},
+    aliases: { ...GLOBAL_ALIASES, ...(mod.aliases || {}) },
   });
 
   const host = BROWSER_COMMANDS.has(commandName)

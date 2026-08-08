@@ -6,7 +6,8 @@ export const usage = `csg arrange <file.c3sg> [options]
 
   --all-graphs      Arrange every graph, not just the main one
   --in-place        Write back over the input file
-  -o, --output <f>  Write the arranged project to <f>`;
+  -o, --output <f>  Write the arranged project to <f>
+  -f, --force       Write even if loading dropped unknown node types`;
 export const booleans = ["allGraphs", "inPlace"];
 export const aliases = { o: "output" };
 
@@ -18,7 +19,7 @@ export async function run({ host, args, flags }) {
     { allGraphs: !!flags.allGraphs },
   ]);
 
-  await saveProject(host, target);
+  await saveProject(host, target, flags);
 
   if (flags.allGraphs) {
     for (const graph of result.graphs) {

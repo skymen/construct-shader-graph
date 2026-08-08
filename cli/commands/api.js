@@ -12,6 +12,7 @@ csg api --list [filter]
   -f, --file <f>    Load a .c3sg first
   --write           Save the project back after the call
   -o, --output <f>  Save to <f> instead of over the input
+  -f, --force       Write even if loading dropped unknown node types
 
 json-args is a JSON array of arguments, or a bare JSON object for a
 single-argument method. Examples:
@@ -70,7 +71,7 @@ export async function run({ host, args, flags }) {
   if (flags.write || flags.output) {
     const target = flags.output || flags.file;
     if (!target) throw new CliError("--write needs --file or --output");
-    await saveProject(host, target);
+    await saveProject(host, target, flags);
   }
 
   if (result !== undefined) printJson(result);

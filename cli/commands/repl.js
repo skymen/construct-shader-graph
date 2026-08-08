@@ -8,6 +8,7 @@ export const summary = "Open a REPL with a project loaded";
 export const usage = `csg repl [file.c3sg]
 
   -o, --output <f>  Where .save() writes (default: the input file)
+  -f, --force       Write even if loading dropped unknown node types
 
 In the REPL: sg, api, blueprint, NODE_TYPES, Wire are in scope.
   .save    write the project back out
@@ -44,7 +45,7 @@ export async function run({ host, args, flags }) {
       if (!dest) {
         out(style.red("no output file - pass one: .save out.c3sg"));
       } else {
-        await saveProject(host, dest);
+        await saveProject(host, dest, flags);
         out(`${style.green("ok")}  wrote ${dest}`);
       }
       this.displayPrompt();

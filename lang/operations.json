@@ -36,5 +36,8 @@
   "Vertical": "Vertical",
   "Both": "Both",
   "Ceil": "Ceil",
-  "Round": "Round"
+  "Round": "Round",
+  "Raw": "Raw",
+  "Clamp": "Clamp",
+  "Clip": "Clip"
 }
