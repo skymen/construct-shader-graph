@@ -1885,21 +1885,25 @@ body {
   transition: background 0.2s;
 }
 
-#uniformModalCancel {
+/* Styled by role rather than by id. These used to be #uniformModalCancel /
+   #uniformModalAdd, but three modals share .uniform-modal-buttons and only one
+   of them was in the selector, so the other two rendered as default white
+   browser buttons in a dark UI. */
+.uniform-modal-buttons .modal-btn-secondary {
   background: #4a4a4a;
   color: #fff;
 }
 
-#uniformModalCancel:hover {
+.uniform-modal-buttons .modal-btn-secondary:hover {
   background: #5a5a5a;
 }
 
-#uniformModalAdd {
+.uniform-modal-buttons .modal-btn-primary {
   background: #4a90e2;
   color: #fff;
 }
 
-#uniformModalAdd:hover {
+.uniform-modal-buttons .modal-btn-primary:hover {
   background: #357abd;
 }
 
