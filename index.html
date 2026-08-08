@@ -1569,6 +1569,18 @@
               <div id="uniform-list"></div>
             </div>
           </div>
+          <div id="constants-section" class="collapsible-section">
+            <div class="sidebar-section-header">
+              <h2>Constants</h2>
+              <button class="collapse-btn">▼</button>
+            </div>
+            <div class="sidebar-section-content">
+              <button id="addConstantBtn" class="add-uniform-btn">
+                + Add Constant
+              </button>
+              <div id="constant-list"></div>
+            </div>
+          </div>
           <div id="functions-section" class="collapsible-section">
             <div class="sidebar-section-header">
               <h2>Functions</h2>
@@ -1800,6 +1812,39 @@
         <div class="uniform-modal-buttons">
           <button id="uniformModalCancel">Cancel</button>
           <button id="uniformModalAdd">Add</button>
+        </div>
+      </div>
+    </div>
+    <div id="constantModal" class="uniform-modal">
+      <div class="uniform-modal-content">
+        <h3>Add Constant</h3>
+        <label>
+          Name:
+          <input type="text" id="constantNameInput" placeholder="MY_CONSTANT" />
+        </label>
+        <label>
+          Description:
+          <input
+            type="text"
+            id="constantDescriptionInput"
+            placeholder="Optional description"
+          />
+        </label>
+        <label>
+          Type:
+          <select id="constantTypeSelect">
+            <option value="float">Float</option>
+            <option value="int">Int</option>
+            <option value="bool">Boolean</option>
+            <option value="vec2">Vec2</option>
+            <option value="vec3">Vec3</option>
+            <option value="vec4">Vec4</option>
+            <option value="color">Color (Vec3)</option>
+          </select>
+        </label>
+        <div class="uniform-modal-buttons">
+          <button id="constantModalCancel">Cancel</button>
+          <button id="constantModalAdd">Add</button>
         </div>
       </div>
     </div>

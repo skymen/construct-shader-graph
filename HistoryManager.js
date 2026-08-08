@@ -305,6 +305,7 @@ export class HistoryManager {
       commentsRemoved: [],
       commentsModified: [],
       uniformsChanged: false,
+      constantsChanged: false,
       customNodesChanged: false,
       contractChanged: false,
       settingsChanged: false,
@@ -393,6 +394,11 @@ export class HistoryManager {
       diff.changedProperties.add("uniforms:changed");
     }
 
+    if (!this.deepEqual(oldState.constants, newState.constants)) {
+      diff.constantsChanged = true;
+      diff.changedProperties.add("constants:changed");
+    }
+
     if (!this.deepEqual(oldState.customNodes, newState.customNodes)) {
       diff.customNodesChanged = true;
       diff.changedProperties.add("customNodes:changed");
@@ -414,7 +420,15 @@ export class HistoryManager {
   calculateNodeDiff(oldNode, newNode) {
     const diff = { hasChanges: false, changes: {}, changedKeys: [] };
 
-    ["x", "y", "operation", "customInput", "uniformId", "data"].forEach((key) => {
+    [
+      "x",
+      "y",
+      "operation",
+      "customInput",
+      "uniformId",
+      "constantId",
+      "data",
+    ].forEach((key) => {
       if (!this.deepEqual(oldNode[key], newNode[key])) {
         diff.hasChanges = true;
         diff.changes[key] = { oldValue: oldNode[key], newValue: newNode[key] };
@@ -543,6 +557,8 @@ export class HistoryManager {
 
     existingDiff.uniformsChanged =
       existingDiff.uniformsChanged || newDiff.uniformsChanged;
+    existingDiff.constantsChanged =
+      existingDiff.constantsChanged || newDiff.constantsChanged;
     existingDiff.customNodesChanged =
       existingDiff.customNodesChanged || newDiff.customNodesChanged;
     existingDiff.contractChanged =

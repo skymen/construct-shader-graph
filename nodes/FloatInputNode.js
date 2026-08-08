@@ -1,5 +1,6 @@
 import { NodeType } from "./NodeType.js";
 import { NODE_COLORS } from "./PortTypes.js";
+import { parseNumericInput } from "../constant-fold.js";
 
 export const FloatInputNode = new NodeType(
   "Float Input",
@@ -84,3 +85,6 @@ FloatInputNode.customInputConfig = {
     return { valid: true, newValue: normalizedValue };
   },
 };
+
+FloatInputNode.foldConstant = (node) =>
+  parseNumericInput(node.customInput, "0.0");

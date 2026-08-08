@@ -111,9 +111,13 @@ function renderInfoForm(handler, graph, host, form) {
       })(),
     ),
   );
+
+  // Anything only one kind needs. Name, colour and notes are common to both, so
+  // they stay above rather than being duplicated per handler.
+  handler.renderExtraInfoRows?.(graph, host, form);
 }
 
-function buildLabeledRow(labelText, control) {
+export function buildLabeledRow(labelText, control) {
   const label = document.createElement("label");
   const span = document.createElement("span");
   span.textContent = labelText;

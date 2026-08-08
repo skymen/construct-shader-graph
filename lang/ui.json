@@ -253,5 +253,14 @@
   "refresh": "refresh",
   "split webgl": "split webgl",
   "Minimise Preview": "Minimise Preview",
-  "New Preview Window": "New Preview Window"
+  "New Preview Window": "New Preview Window",
+  "Constants": "Constants",
+  "+ Add Constant": "+ Add Constant",
+  "Add Constant": "Add Constant",
+  "MY_CONSTANT": "MY_CONSTANT",
+  "Int": "Int",
+  "Boolean": "Boolean",
+  "Vec2": "Vec2",
+  "Vec3": "Vec3",
+  "Vec4": "Vec4"
 }

@@ -6,6 +6,7 @@ import {
   isGenericType,
   getAllowedTypesForGeneric,
   toShaderValue,
+  toWGSLType,
 } from "./nodes/index.js";
 import {
   getHandler,
@@ -32,6 +33,12 @@ function isDebugMode() {
 }
 import { UniformFloatNode } from "./nodes/UniformFloatNode.js";
 import { UniformColorNode } from "./nodes/UniformColorNode.js";
+import {
+  ConstantNode,
+  CONSTANT_TYPES,
+  constantPortType,
+  defaultConstantValue,
+} from "./nodes/ConstantNode.js";
 import JSZip from "jszip";
 import { HistoryManager } from "./HistoryManager.js";
 import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
@@ -1291,6 +1298,12 @@ class BlueprintSystem {
     this.uniformIdCounter = 1;
     this.deprecatedUniformsExpanded = false;
 
+    // Constants (host-level, same as uniforms). Unlike uniforms these are not
+    // Construct addon parameters, so there is no paramId to keep stable across
+    // versions and no deprecation tier - deleting one is a plain delete.
+    this.constants = [];
+    this.constantIdCounter = 1;
+
     // Custom Nodes (host-level: shared across graphs; declared above)
     this.editingCustomNode = null;
 
@@ -1336,6 +1349,7 @@ class BlueprintSystem {
     this.setupSearchMenu();
     this.setupShaderSettings();
     this.setupUniformSidebar();
+    this.setupConstantSidebar();
     this.setupCustomNodeModal();
     this.setupOpenFilesModal();
     this.setupManualModal();
@@ -1595,6 +1609,11 @@ class BlueprintSystem {
     );
     if (uniformsHeader) uniformsHeader.textContent = t("Uniforms");
 
+    const constantsHeader = document.querySelector(
+      "#constants-section .sidebar-section-header h2",
+    );
+    if (constantsHeader) constantsHeader.textContent = t("Constants");
+
     const customNodesHeader = document.querySelector(
       "#custom-nodes-section .sidebar-section-header h2",
     );
@@ -1692,6 +1711,9 @@ class BlueprintSystem {
     // Buttons
     const addUniformBtn = document.getElementById("addUniformBtn");
     if (addUniformBtn) addUniformBtn.textContent = t("+ Add Uniform");
+
+    const addConstantBtn = document.getElementById("addConstantBtn");
+    if (addConstantBtn) addConstantBtn.textContent = t("+ Add Constant");
 
     const addCustomNodeBtn = document.getElementById("addCustomNodeBtn");
     if (addCustomNodeBtn)
@@ -1825,6 +1847,65 @@ class BlueprintSystem {
 
     const uniformModalAdd = document.getElementById("uniformModalAdd");
     if (uniformModalAdd) uniformModalAdd.textContent = t("Add");
+
+    // Constant Modal. Same shape as the uniform modal above; the type select
+    // has a longer option list rather than two.
+    const constantModalH3 = document.querySelector("#constantModal h3");
+    if (constantModalH3) constantModalH3.textContent = t("Add Constant");
+
+    const constantNameLabel = document.querySelector(
+      "label:has(#constantNameInput)",
+    );
+    if (constantNameLabel?.childNodes[0]) {
+      constantNameLabel.childNodes[0].textContent = t("Name:") + " ";
+    }
+
+    const constantNameInput = document.getElementById("constantNameInput");
+    if (constantNameInput) constantNameInput.placeholder = t("MY_CONSTANT");
+
+    const constantDescLabel = document.querySelector(
+      "label:has(#constantDescriptionInput)",
+    );
+    if (constantDescLabel?.childNodes[0]) {
+      constantDescLabel.childNodes[0].textContent = t("Description:") + " ";
+    }
+
+    const constantDescriptionInput = document.getElementById(
+      "constantDescriptionInput",
+    );
+    if (constantDescriptionInput)
+      constantDescriptionInput.placeholder = t("Optional description");
+
+    const constantTypeLabel = document.querySelector(
+      "label:has(#constantTypeSelect)",
+    );
+    if (constantTypeLabel?.childNodes[0]) {
+      constantTypeLabel.childNodes[0].textContent = t("Type:") + " ";
+    }
+
+    const constantTypeSelect = document.getElementById("constantTypeSelect");
+    if (constantTypeSelect) {
+      const labels = [
+        "Float",
+        "Int",
+        "Boolean",
+        "Vec2",
+        "Vec3",
+        "Vec4",
+        "Color (Vec3)",
+      ];
+      labels.forEach((label, i) => {
+        if (constantTypeSelect.options[i]) {
+          constantTypeSelect.options[i].text = t(label);
+        }
+      });
+    }
+
+    const constantModalCancel = document.getElementById("constantModalCancel");
+    if (constantModalCancel) constantModalCancel.textContent = t("Cancel");
+
+    const constantModalAdd = document.getElementById("constantModalAdd");
+    if (constantModalAdd) constantModalAdd.textContent = t("Add");
 
     const commentModalCancel = document.getElementById("commentModalCancel");
     if (commentModalCancel) commentModalCancel.textContent = t("Cancel");
@@ -3025,6 +3106,7 @@ class BlueprintSystem {
     this.openTabs.add(id);
 
     this.renderUniformList();
+    this.renderConstantList();
     this.renderCustomNodesList();
     this.updateShaderSettingsUI();
     this.updateDependencyList();
@@ -4205,6 +4287,308 @@ class BlueprintSystem {
     ];
   }
 
+  // ==================== Constants (host-level) ====================
+  //
+  // Named compile-time values, defined once and usable from every graph. They
+  // emit `const` declarations rather than uniforms, so unlike a uniform they are
+  // a constant expression in the generated source - which is what makes one
+  // valid as a WebGL1 loop bound (see constant-fold.js).
+
+  buildUniqueConstantVariableName(
+    name,
+    excludeConstantId = null,
+    usedVariableNames = null,
+  ) {
+    const baseVariableName = `const_${this.sanitizeVariableName(name)}`;
+    const isTaken = (candidate) =>
+      usedVariableNames
+        ? usedVariableNames.has(candidate)
+        : this.constants.some(
+            (constant) =>
+              constant.id !== excludeConstantId &&
+              constant.variableName === candidate,
+          );
+
+    let variableName = baseVariableName;
+    let counter = 1;
+    while (isTaken(variableName)) {
+      variableName = `${baseVariableName}_${counter}`;
+      counter++;
+    }
+
+    if (usedVariableNames) usedVariableNames.add(variableName);
+    return variableName;
+  }
+
+  // Force a stored value into something the declared type can actually emit.
+  // A hand-edited .c3sg can carry anything, and toShaderValue on a mismatched
+  // shape produces `vec3(undefined, ...)` rather than failing loudly.
+  coerceConstantValue(type, value) {
+    const num = (v, fallback = 0) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const vec = (length) => {
+      const source = Array.isArray(value) ? value : [];
+      const fallback = defaultConstantValue(type);
+      return Array.from({ length }, (_, i) => num(source[i], fallback[i]));
+    };
+
+    switch (type) {
+      case "bool":
+        return Boolean(value);
+      case "int":
+        return Math.trunc(num(value));
+      case "vec2":
+        return vec(2);
+      case "vec3":
+      case "color":
+        return vec(3);
+      case "vec4":
+        return vec(4);
+      default:
+        return num(value);
+    }
+  }
+
+  cloneConstantRecord(constant) {
+    return {
+      ...constant,
+      value: this.coerceConstantValue(constant.type, constant.value),
+    };
+  }
+
+  // Load/undo normalizer, mirroring normalizeUniformCollections: reassigns bad
+  // ids, coerces unknown types, and regenerates invalid or duplicate variable
+  // names so a hand-edited file cannot produce uncompilable source.
+  normalizeConstants(constants = []) {
+    const usedVariableNames = new Set();
+    let nextGeneratedId = 1;
+    let maxConstantId = 0;
+
+    const normalized = (constants || []).map((data) => {
+      const rawId = Number(data?.id);
+      const id =
+        Number.isInteger(rawId) && rawId > 0 ? rawId : nextGeneratedId++;
+      maxConstantId = Math.max(maxConstantId, id);
+      nextGeneratedId = Math.max(nextGeneratedId, maxConstantId + 1);
+
+      const name = String(data?.name || "Constant").trim() || "Constant";
+      const type = CONSTANT_TYPES.includes(data?.type) ? data.type : "float";
+
+      let variableName = String(data?.variableName || "").trim();
+      if (
+        !variableName ||
+        !this.isValidVariableName(variableName) ||
+        usedVariableNames.has(variableName)
+      ) {
+        variableName = this.buildUniqueConstantVariableName(
+          name,
+          id,
+          usedVariableNames,
+        );
+      } else {
+        usedVariableNames.add(variableName);
+      }
+
+      return {
+        id,
+        name,
+        variableName,
+        description: String(data?.description || ""),
+        type,
+        value: this.coerceConstantValue(type, data?.value),
+      };
+    });
+
+    return {
+      constants: normalized,
+      constantIdCounter: Math.max(1, maxConstantId + 1),
+    };
+  }
+
+  createConstantRecord({ name, type = "float", value, description = "" } = {}) {
+    const safeType = CONSTANT_TYPES.includes(type) ? type : "float";
+    return {
+      id: this.constantIdCounter++,
+      name: String(name || "Constant").trim() || "Constant",
+      variableName: this.buildUniqueConstantVariableName(name),
+      description: String(description || ""),
+      type: safeType,
+      value: this.coerceConstantValue(
+        safeType,
+        value === undefined ? defaultConstantValue(safeType) : value,
+      ),
+    };
+  }
+
+  addConstant() {
+    const name = this.constantNameInput.value.trim();
+    if (!name) {
+      alert("Please enter a constant name");
+      return;
+    }
+
+    const constant = this.createConstantRecord({
+      name,
+      type: this.constantTypeSelect.value,
+      description: this.constantDescriptionInput.value.trim(),
+    });
+
+    this.constants.push(constant);
+    this.hideConstantModal();
+    this.renderConstantList();
+    this.onShaderChanged();
+    this.history.pushState(`Add constant '${constant.name}'`);
+  }
+
+  // A plain delete, unlike deleteUniform's deprecate-instead. Constants are not
+  // addon parameters, so nothing downstream depends on a deleted one still
+  // occupying its slot.
+  deleteConstant(constantId) {
+    const index = this.constants.findIndex((c) => c.id === constantId);
+    if (index === -1) return;
+
+    const isConstantNode = (node) => node.constantId === constantId;
+    const affectedGraphIds = [];
+    for (const { node, graph } of this.allNodes()) {
+      if (isConstantNode(node) && !affectedGraphIds.includes(graph.id)) {
+        affectedGraphIds.push(graph.id);
+      }
+    }
+
+    const name = this.constants[index].name;
+    this.runMultiGraphTransaction(
+      affectedGraphIds,
+      () => {
+        this._removeNodesAllGraphs(isConstantNode);
+        this.constants.splice(index, 1);
+      },
+      `Delete constant '${name}'`,
+    );
+
+    this.renderConstantList();
+    this.render();
+    this.onShaderChanged();
+  }
+
+  updateConstantValue(constantId, value) {
+    const constant = this.constants.find((c) => c.id === constantId);
+    if (!constant) return;
+    constant.value = this.coerceConstantValue(constant.type, value);
+    // Unlike a uniform, a constant is baked into the source, so a value change
+    // needs a full regenerate rather than a parameter push to the preview.
+    this.onShaderChanged();
+  }
+
+  // Push a constant's current name onto every node that references it, in every
+  // graph. Same reasoning as updateUniformNodeNames: ConstantNode emits
+  // node.constantName straight into the shader, so a stale instance in a
+  // subgraph generates a reference to an identifier that no longer exists.
+  updateConstantNodeNames(constantId) {
+    const constant = this.constants.find((c) => c.id === constantId);
+    if (!constant) return;
+
+    const affected = [];
+    const affectedGraphIds = new Set();
+    for (const { node, graph } of this.allNodes()) {
+      if (node.constantId !== constantId) continue;
+      affected.push(node);
+      affectedGraphIds.add(graph.id);
+    }
+    if (affected.length === 0) return;
+
+    const apply = () => {
+      affected.forEach((node) => {
+        node.constantName = constant.variableName;
+        node.constantDisplayName = constant.name;
+        node.constantType = constant.type;
+        node.nodeType = { ...node.nodeType, name: constant.name };
+        node.refreshShape({ title: constant.name });
+      });
+    };
+
+    if (this.history?.isApplyingUndoRedo) {
+      apply();
+    } else {
+      this.runMultiGraphTransaction(
+        [...affectedGraphIds],
+        apply,
+        "Rename constant",
+      );
+    }
+    this.render();
+  }
+
+  getConstantNodeTypes() {
+    const types = {};
+    this.constants.forEach((constant) => {
+      types[`constant_${constant.id}`] = {
+        ...ConstantNode,
+        name: constant.name,
+        isConstant: true,
+        constantId: constant.id,
+        constantName: constant.variableName,
+        constantType: constant.type,
+      };
+    });
+    return types;
+  }
+
+  createConstantNode(constant, x, y) {
+    const center = this.getWorldCenterPosition();
+    const posX = x !== undefined ? x : center.x;
+    const posY = y !== undefined ? y : center.y;
+
+    const nodeType = {
+      ...ConstantNode,
+      name: constant.name,
+      isConstant: true,
+      constantId: constant.id,
+      constantName: constant.variableName,
+      constantType: constant.type,
+    };
+
+    const node = new Node(posX, posY, this.nodeIdCounter++, nodeType);
+    node._blueprintSystem = this;
+    node._graph = this.activeGraph;
+    // getCustomType reads these off the node instance, so they have to be set
+    // before refreshShape resolves the output port's type.
+    node.constantId = constant.id;
+    node.constantName = constant.variableName;
+    node.constantDisplayName = constant.name;
+    node.constantType = constant.type;
+
+    node.refreshShape({ title: constant.name });
+
+    this.nodes.push(node);
+    this.render();
+    this.onShaderChanged();
+    return node;
+  }
+
+  // Module-scope `const` declarations, emitted right after the uniform block.
+  // Every declared constant is emitted whether or not a node references it,
+  // matching generateUniformDeclarations - an unused const costs nothing and
+  // keeps the block stable as the graph is edited.
+  generateConstantDeclarations(target) {
+    if (this.constants.length === 0) return "";
+
+    let declarations = "\n// Project Constants\n";
+    for (const constant of this.constants) {
+      const portType = constantPortType(constant.type);
+      const literal = toShaderValue(constant.value, portType, target);
+      if (target === "webgpu") {
+        declarations += `const ${constant.variableName} : ${toWGSLType(
+          portType,
+        )} = ${literal};\n`;
+      } else {
+        declarations += `const ${portType} ${constant.variableName} = ${literal};\n`;
+      }
+    }
+    return declarations + "\n";
+  }
+
   setupUniformSidebar() {
     this.uniformModal = document.getElementById("uniformModal");
     this.uniformNameInput = document.getElementById("uniformNameInput");
@@ -4373,6 +4757,232 @@ class BlueprintSystem {
 
   hideUniformModal() {
     this.uniformModal.classList.remove("visible");
+  }
+
+  setupConstantSidebar() {
+    this.constantModal = document.getElementById("constantModal");
+    this.constantNameInput = document.getElementById("constantNameInput");
+    this.constantDescriptionInput = document.getElementById(
+      "constantDescriptionInput",
+    );
+    this.constantTypeSelect = document.getElementById("constantTypeSelect");
+    this.constantList = document.getElementById("constant-list");
+
+    document.getElementById("addConstantBtn").addEventListener("click", () => {
+      this.showConstantModal();
+    });
+
+    document
+      .getElementById("constantModalCancel")
+      .addEventListener("click", () => {
+        this.hideConstantModal();
+      });
+
+    document
+      .getElementById("constantModalAdd")
+      .addEventListener("click", () => {
+        this.addConstant();
+      });
+
+    this.constantModal.addEventListener("mousedown", (e) => {
+      if (e.target === this.constantModal) this.hideConstantModal();
+    });
+
+    this.constantNameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this.addConstant();
+      else if (e.key === "Escape") this.hideConstantModal();
+    });
+  }
+
+  showConstantModal() {
+    this.constantNameInput.value = "";
+    this.constantDescriptionInput.value = "";
+    this.constantTypeSelect.value = "float";
+    this.constantModal.classList.add("visible");
+    setTimeout(() => this.constantNameInput.focus(), 0);
+  }
+
+  hideConstantModal() {
+    this.constantModal.classList.remove("visible");
+  }
+
+  // Reuses the uniform list's CSS classes wholesale. The two lists are the same
+  // widget - a draggable named row with a type label and a value editor - and
+  // duplicating ~200 lines of styling to render an identical thing would just be
+  // two things to keep in sync.
+  renderConstantList() {
+    if (!this.constantList) return;
+    this.constantList.innerHTML = "";
+
+    this.constants.forEach((constant) => {
+      const item = document.createElement("div");
+      item.className = "uniform-item";
+      item.dataset.constantId = constant.id;
+
+      const header = document.createElement("div");
+      header.className = "uniform-item-header";
+
+      const handle = document.createElement("div");
+      handle.className = "uniform-drag-handle";
+      handle.textContent = "⋮⋮";
+      handle.title = "Drag onto the canvas to place a node";
+      handle.addEventListener("mousedown", () => {
+        item.draggable = true;
+      });
+      handle.addEventListener("mouseup", () => {
+        item.draggable = false;
+      });
+      item.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("constantId", String(constant.id));
+        e.dataTransfer.effectAllowed = "copy";
+      });
+      item.addEventListener("dragend", () => {
+        item.draggable = false;
+      });
+      header.appendChild(handle);
+
+      const nameContainer = document.createElement("div");
+      nameContainer.className = "uniform-name-container";
+
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.className = "uniform-item-name-input";
+      nameInput.value = constant.name;
+      nameInput.addEventListener("change", () => {
+        const next = nameInput.value.trim();
+        if (!next || next === constant.name) {
+          nameInput.value = constant.name;
+          return;
+        }
+        constant.name = next;
+        constant.variableName = this.buildUniqueConstantVariableName(
+          next,
+          constant.id,
+        );
+        this.updateConstantNodeNames(constant.id);
+        this.renderConstantList();
+        this.onShaderChanged();
+        this.history.pushState("Rename constant");
+      });
+      nameContainer.appendChild(nameInput);
+
+      const infoLine = document.createElement("div");
+      infoLine.className = "uniform-info-line";
+
+      const varName = document.createElement("span");
+      varName.className = "uniform-variable-name";
+      varName.textContent = constant.variableName;
+      infoLine.appendChild(varName);
+
+      const typeLabel = document.createElement("span");
+      typeLabel.className = "uniform-item-type-inline";
+      typeLabel.textContent = constant.type;
+      infoLine.appendChild(typeLabel);
+
+      const description = document.createElement("input");
+      description.type = "text";
+      description.className = "uniform-description-input";
+      description.placeholder = "Description";
+      description.value = constant.description || "";
+      description.addEventListener("change", () => {
+        constant.description = description.value;
+      });
+      infoLine.appendChild(description);
+
+      nameContainer.appendChild(infoLine);
+      header.appendChild(nameContainer);
+
+      const controls = document.createElement("div");
+      controls.className = "uniform-item-controls";
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "uniform-delete-btn";
+      deleteBtn.textContent = "×";
+      deleteBtn.title = "Delete constant";
+      deleteBtn.addEventListener("click", () => {
+        this.deleteConstant(constant.id);
+      });
+      controls.appendChild(deleteBtn);
+      header.appendChild(controls);
+
+      item.appendChild(header);
+      item.appendChild(this.buildConstantValueControl(constant));
+      this.constantList.appendChild(item);
+    });
+  }
+
+  buildConstantValueControl(constant) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "uniform-value-control";
+
+    const commit = (value) => {
+      this.updateConstantValue(constant.id, value);
+      this.history.pushState("Edit constant value");
+    };
+
+    if (constant.type === "bool") {
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = Boolean(constant.value);
+      checkbox.addEventListener("change", () => commit(checkbox.checked));
+      wrapper.appendChild(checkbox);
+      return wrapper;
+    }
+
+    if (constant.type === "color") {
+      const picker = document.createElement("input");
+      picker.type = "color";
+      const toHex = (v) =>
+        "#" +
+        [0, 1, 2]
+          .map((i) =>
+            Math.round(Math.min(1, Math.max(0, constant.value[i])) * 255)
+              .toString(16)
+              .padStart(2, "0"),
+          )
+          .join("");
+      picker.value = toHex(constant.value);
+      picker.addEventListener("input", () => {
+        const hex = picker.value;
+        commit([
+          parseInt(hex.slice(1, 3), 16) / 255,
+          parseInt(hex.slice(3, 5), 16) / 255,
+          parseInt(hex.slice(5, 7), 16) / 255,
+        ]);
+      });
+      wrapper.appendChild(picker);
+      return wrapper;
+    }
+
+    const components = { vec2: 2, vec3: 3, vec4: 4 }[constant.type] || 1;
+    const row = document.createElement("div");
+    row.className = "uniform-input-row";
+
+    for (let i = 0; i < components; i++) {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.className = "uniform-number-input-compact";
+      if (constant.type === "int") input.step = "1";
+      input.value = components === 1 ? constant.value : constant.value[i];
+      input.addEventListener("change", () => {
+        const n = Number(input.value);
+        if (!Number.isFinite(n)) {
+          input.value = components === 1 ? constant.value : constant.value[i];
+          return;
+        }
+        if (components === 1) {
+          commit(n);
+        } else {
+          const next = [...constant.value];
+          next[i] = n;
+          commit(next);
+        }
+        input.value = components === 1 ? constant.value : constant.value[i];
+      });
+      row.appendChild(input);
+    }
+
+    wrapper.appendChild(row);
+    return wrapper;
   }
 
   showCommentModal(comment) {
@@ -7139,6 +7749,7 @@ class BlueprintSystem {
 
         const boilerplate = this.getBoilerplate(target);
         const uniforms = this.generateUniformDeclarations(target);
+        const constants = this.generateConstantDeclarations(target);
         // Pass extraDeps so function body helpers appear in the dep block.
         const shaderCode = this.generateShader(
           target,
@@ -7147,8 +7758,11 @@ class BlueprintSystem {
           extraDeps,
         );
 
-        // Order: boilerplate → uniforms → function body helper deps (inside shaderCode dep block) → function declarations → main()
+        // Order: boilerplate → uniforms → constants → function body helper deps (inside shaderCode dep block) → function declarations → main()
         // generateShader emits the dep block then main(). We insert declStr between them.
+        // Constants sit after uniforms because a const initialiser must be a
+        // constant expression, so it can never reference a uniform - but a
+        // helper function in the dep block may well reference a constant.
         const depBlockEnd =
           shaderCode.indexOf("\nvoid main") !== -1
             ? shaderCode.indexOf("\nvoid main")
@@ -7158,11 +7772,12 @@ class BlueprintSystem {
           fullShader =
             boilerplate +
             uniforms +
+            constants +
             shaderCode.slice(0, depBlockEnd) +
             declStr +
             shaderCode.slice(depBlockEnd);
         } else {
-          fullShader = boilerplate + uniforms + declStr + shaderCode;
+          fullShader = boilerplate + uniforms + constants + declStr + shaderCode;
         }
         result[target] = fullShader;
       }
@@ -9961,6 +10576,10 @@ class BlueprintSystem {
     const uniformNodeTypes = this.getUniformNodeTypes();
     nodeTypes = [...nodeTypes, ...Object.entries(uniformNodeTypes)];
 
+    // Add constant nodes
+    const constantNodeTypes = this.getConstantNodeTypes();
+    nodeTypes = [...nodeTypes, ...Object.entries(constantNodeTypes)];
+
     // Add custom nodes
     const customNodeTypes = this.getCustomNodeTypes();
     nodeTypes = [...nodeTypes, ...Object.entries(customNodeTypes)];
@@ -10577,6 +11196,11 @@ class BlueprintSystem {
       if (uniform) {
         newNode = this.createUniformNode(uniform, worldX, worldY);
       }
+    } else if (key.startsWith("constant_")) {
+      const constant = this.constants.find((c) => c.id === nodeType.constantId);
+      if (constant) {
+        newNode = this.createConstantNode(constant, worldX, worldY);
+      }
     } else {
       if (nodeType.isFunctionCall && nodeType.targetGraphId) {
         if (
@@ -10762,6 +11386,17 @@ class BlueprintSystem {
         if (uniform) {
           this.createUniformNode(uniform, x, y);
           this.history.pushState("Create uniform node");
+        }
+        return;
+      }
+
+      // Check for constant drop
+      const constantId = parseInt(e.dataTransfer.getData("constantId"));
+      if (constantId) {
+        const constant = this.constants.find((c) => c.id === constantId);
+        if (constant) {
+          this.createConstantNode(constant, x, y);
+          this.history.pushState("Create constant node");
         }
         return;
       }
@@ -12275,6 +12910,10 @@ class BlueprintSystem {
         uniformName: node.uniformName,
         uniformDisplayName: node.uniformDisplayName,
         uniformVariableName: node.uniformVariableName,
+        constantId: node.constantId,
+        constantName: node.constantName,
+        constantDisplayName: node.constantDisplayName,
+        constantType: node.constantType,
         inputPorts: node.inputPorts.map((port) => ({
           name: port.name,
           portType: port.portType,
@@ -12430,6 +13069,10 @@ class BlueprintSystem {
       newNode.uniformName = nodeData.uniformName;
       newNode.uniformDisplayName = nodeData.uniformDisplayName;
       newNode.uniformVariableName = nodeData.uniformVariableName;
+      newNode.constantId = nodeData.constantId;
+      newNode.constantName = nodeData.constantName;
+      newNode.constantDisplayName = nodeData.constantDisplayName;
+      newNode.constantType = nodeData.constantType;
 
       // Restore port values
       newNode.inputPorts.forEach((port, i) => {
@@ -13763,6 +14406,10 @@ class BlueprintSystem {
         newNode.uniformName = node.uniformName;
         newNode.uniformDisplayName = node.uniformDisplayName;
         newNode.uniformVariableName = node.uniformVariableName;
+        newNode.constantId = node.constantId;
+        newNode.constantName = node.constantName;
+        newNode.constantDisplayName = node.constantDisplayName;
+        newNode.constantType = node.constantType;
         for (
           let i = 0;
           i < newNode.inputPorts.length && i < node.inputPorts.length;
@@ -14904,6 +15551,11 @@ class BlueprintSystem {
     this.uniformIdCounter = 1;
     this.renderUniformList();
 
+    // Clear constants
+    this.constants = [];
+    this.constantIdCounter = 1;
+    this.renderConstantList();
+
     // Clear custom nodes
     this.customNodes = [];
     this.customNodeIdCounter = 1;
@@ -14969,6 +15621,7 @@ class BlueprintSystem {
         uniformDisplayName: node.uniformDisplayName,
         uniformVariableName: node.uniformVariableName,
         uniformId: node.uniformId,
+        constantId: node.constantId,
         // NOTE: isVariable is deliberately not saved. It is derived from the
         // node type, and persisting it meant a stale pill/box shape survived a
         // save/load — the constructor computed the right one and the loader
@@ -15017,6 +15670,8 @@ class BlueprintSystem {
       uniforms: this.uniforms,
       deprecatedUniforms: this.deprecatedUniforms,
       uniformIdCounter: this.uniformIdCounter,
+      constants: this.constants,
+      constantIdCounter: this.constantIdCounter,
       customNodes: this.customNodes,
       customNodeIdCounter: this.customNodeIdCounter,
       // Window 0's settings stay at the top level under the name they have
@@ -15299,6 +15954,28 @@ class BlueprintSystem {
             console.warn(`Uniform with ID ${nodeData.uniformId} not found`);
             continue;
           }
+        } else if (
+          nodeData.nodeTypeKey &&
+          nodeData.nodeTypeKey.startsWith("constant_") &&
+          nodeData.constantId !== undefined
+        ) {
+          // Constants are host-level; look them up from this (host)
+          const constant = this.constants.find(
+            (c) => c.id === nodeData.constantId,
+          );
+          if (constant) {
+            nodeType = {
+              ...ConstantNode,
+              name: constant.name,
+              isConstant: true,
+              constantId: constant.id,
+              constantName: constant.variableName,
+              constantType: constant.type,
+            };
+          } else {
+            console.warn(`Constant with ID ${nodeData.constantId} not found`);
+            continue;
+          }
         } else {
           nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
           if (!nodeType) {
@@ -15338,16 +16015,30 @@ class BlueprintSystem {
             };
           }
         }
+        if (nodeData.constantId !== undefined) {
+          node.constantId = nodeData.constantId;
+          const constant = this.constants.find(
+            (c) => c.id === nodeData.constantId,
+          );
+          if (constant) {
+            node.constantName = constant.variableName;
+            node.constantDisplayName = constant.name;
+            node.constantType = constant.type;
+            node.nodeType = { ...node.nodeType, name: constant.name };
+          }
+        }
         // Nodes whose type comes from a live source — the custom-node library,
-        // a callable graph, a uniform — take their name from that source, not
-        // from the file. The type was rebuilt correctly above; trusting the
-        // saved title here is what made a renamed function look un-renamed
-        // again after a reload.
+        // a callable graph, a uniform, a constant — take their name from that
+        // source, not from the file. The type was rebuilt correctly above;
+        // trusting the saved title here is what made a renamed function look
+        // un-renamed again after a reload.
         if (
           node.nodeType.isCustom ||
           node.nodeType.isFunctionCall ||
           node.nodeType.isUniform ||
-          node.uniformId !== undefined
+          node.nodeType.isConstant ||
+          node.uniformId !== undefined ||
+          node.constantId !== undefined
         ) {
           node.title = node.nodeType.name;
         }
@@ -15499,6 +16190,15 @@ class BlueprintSystem {
       }
       this.deprecatedUniformsExpanded = false;
 
+      // Constants are host-level too, and must land before any graph's nodes so
+      // that constant_<id> keys resolve while those nodes are being rebuilt.
+      const normalizedConstants = this.normalizeConstants(data.constants || []);
+      this.constants = normalizedConstants.constants;
+      this.constantIdCounter = Math.max(
+        data.constantIdCounter || 1,
+        normalizedConstants.constantIdCounter,
+      );
+
       // Register additional graph shells BEFORE loading the main graph's nodes,
       // so that function_call_<id> keys resolve during main-graph node loading.
       const additionalGraphEntries = [];
@@ -15536,6 +16236,7 @@ class BlueprintSystem {
       // Post-load UI refresh (active graph is mainGraph at this point).
       this.updateShaderSettingsUI();
       this.renderUniformList();
+      this.renderConstantList();
       this.renderFunctionsList && this.renderFunctionsList();
       this.renderGraphTabBar && this.renderGraphTabBar();
       this.mainGraph.nodes.forEach((node) => {
@@ -15593,6 +16294,11 @@ class BlueprintSystem {
       return `uniform_${nodeType.uniformId}`;
     }
 
+    // Check if it's a constant node
+    if (nodeType.isConstant && nodeType.constantId) {
+      return `constant_${nodeType.constantId}`;
+    }
+
     // Check if it's a function-call caller node
     if (nodeType.isFunctionCall && nodeType.targetGraphId) {
       return `function_call_${nodeType.targetGraphId}`;
@@ -15637,6 +16343,12 @@ class BlueprintSystem {
     const uniformNodeTypes = this.getUniformNodeTypes();
     if (uniformNodeTypes[key]) {
       return uniformNodeTypes[key];
+    }
+
+    // Check constant nodes
+    const constantNodeTypes = this.getConstantNodeTypes();
+    if (constantNodeTypes[key]) {
+      return constantNodeTypes[key];
     }
 
     // Check built-in nodes
@@ -15722,6 +16434,29 @@ class BlueprintSystem {
     return uniform;
   }
 
+  resolveConstantRefFromIr(constantRef) {
+    if (Number.isInteger(Number(constantRef))) {
+      const constant = this.constants.find(
+        (entry) => entry.id === Number(constantRef),
+      );
+      if (!constant) throw new Error(`Constant '${constantRef}' not found`);
+      return constant;
+    }
+
+    const ref = String(constantRef || "").trim();
+    if (!ref) {
+      throw new Error(
+        "Constant reference must be a non-empty string or integer id",
+      );
+    }
+
+    const constant = this.constants.find(
+      (entry) => entry.name === ref || entry.variableName === ref,
+    );
+    if (!constant) throw new Error(`Constant '${ref}' not found`);
+    return constant;
+  }
+
   getIrNodeTypeInfo(irNode) {
     const typeKey = irNode.typeKey ?? irNode.type;
     if (!typeKey || typeof typeKey !== "string") {
@@ -15741,18 +16476,36 @@ class BlueprintSystem {
       if (!nodeType) {
         throw new Error(`Uniform node type for '${uniform.name}' not found`);
       }
-      return { typeKey, uniform, nodeType };
+      return { typeKey, uniform, constant: null, nodeType };
+    }
+
+    if (typeKey === "constant") {
+      const constantRef = irNode.constant ?? irNode.constantId;
+      if (constantRef === undefined || constantRef === null) {
+        throw new Error(`IR node '${irNode.id}' requires a constant reference`);
+      }
+      const constant = this.resolveConstantRefFromIr(constantRef);
+      const nodeType = this.getConstantNodeTypes()[`constant_${constant.id}`];
+      if (!nodeType) {
+        throw new Error(`Constant node type for '${constant.name}' not found`);
+      }
+      return { typeKey, uniform: null, constant, nodeType };
     }
 
     if (typeKey === "output") {
-      return { typeKey, uniform: null, nodeType: NODE_TYPES.output };
+      return {
+        typeKey,
+        uniform: null,
+        constant: null,
+        nodeType: NODE_TYPES.output,
+      };
     }
 
     const nodeType = this.getNodeTypeFromKey(typeKey);
     if (!nodeType) {
       throw new Error(`Unknown node type '${typeKey}'`);
     }
-    return { typeKey, uniform: null, nodeType };
+    return { typeKey, uniform: null, constant: null, nodeType };
   }
 
   applyIrNodePatch(node, irNode) {
@@ -15960,14 +16713,22 @@ class BlueprintSystem {
 
     const nodes = nodesToExport.map((node) => {
       const typeKey = this.getNodeTypeKey(node.nodeType);
+      let irType = typeKey;
+      if (node.nodeType.isUniform) irType = "uniform";
+      else if (node.nodeType.isConstant) irType = "constant";
+
       const irNode = {
         id: localIdByNodeId.get(node.id),
-        type: node.nodeType.isUniform ? "uniform" : typeKey,
+        type: irType,
       };
 
       if (node.nodeType.isUniform) {
         irNode.uniform =
           node.uniformDisplayName || node.uniformName || node.uniformId;
+      }
+      if (node.nodeType.isConstant) {
+        irNode.constant =
+          node.constantDisplayName || node.constantName || node.constantId;
       }
       if (node.operation !== undefined) irNode.operation = node.operation;
       if (node.customInput !== undefined) irNode.customInput = node.customInput;
@@ -16049,6 +16810,8 @@ class BlueprintSystem {
         node = this.getOutputNode();
       } else if (info.typeKey === "uniform") {
         node = this.createUniformNode(info.uniform, cursorX, cursorY);
+      } else if (info.typeKey === "constant") {
+        node = this.createConstantNode(info.constant, cursorX, cursorY);
       } else {
         node = this.addNode(cursorX, cursorY, info.nodeType);
       }
@@ -16155,6 +16918,14 @@ class BlueprintSystem {
         throw new Error(`Uniform ${node.uniformId} not found for duplication`);
       }
       clone = this.createUniformNode(uniform, x, y);
+    } else if (node.nodeType.isConstant && node.constantId !== undefined) {
+      const constant = this.constants.find(
+        (entry) => entry.id === node.constantId,
+      );
+      if (!constant) {
+        throw new Error(`Constant ${node.constantId} not found for duplication`);
+      }
+      clone = this.createConstantNode(constant, x, y);
     } else {
       clone = this.addNode(x, y, node.nodeType);
     }
@@ -16567,9 +17338,10 @@ class BlueprintSystem {
         description: comment.description,
         color: comment.color,
       })),
-      // Uniforms are host-level (shared across graphs)
+      // Uniforms and constants are host-level (shared across graphs)
       uniforms: JSON.parse(JSON.stringify(this.uniforms)),
       deprecatedUniforms: JSON.parse(JSON.stringify(this.deprecatedUniforms)),
+      constants: JSON.parse(JSON.stringify(this.constants)),
       // customNodes is host-level (shared) but we still snapshot it here so
       // that single-graph undo/redo restores the legacy library state.
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
@@ -16581,6 +17353,7 @@ class BlueprintSystem {
       counters: {
         nodeIdCounter: graph.nodeIdCounter,
         uniformIdCounter: this.uniformIdCounter, // host-level
+        constantIdCounter: this.constantIdCounter, // host-level
         customNodeIdCounter: this.customNodeIdCounter,
         commentIdCounter: graph.commentIdCounter,
       },
@@ -16620,6 +17393,19 @@ class BlueprintSystem {
     this.uniformIdCounter = stateData.counters.uniformIdCounter; // host-level
     this.customNodeIdCounter = stateData.counters.customNodeIdCounter;
     graph.commentIdCounter = stateData.counters.commentIdCounter || 1;
+
+    // Restore constants (host-level). Must precede node rebuilding below, since
+    // getNodeTypeFromKey resolves constant_<id> against this.constants.
+    if (stateData.constants !== undefined) {
+      const normalizedConstants = this.normalizeConstants(
+        JSON.parse(JSON.stringify(stateData.constants)),
+      );
+      this.constants = normalizedConstants.constants;
+      this.constantIdCounter = Math.max(
+        stateData.counters?.constantIdCounter || 1,
+        normalizedConstants.constantIdCounter,
+      );
+    }
 
     // Restore uniforms (host-level) and custom nodes
     const normalizedUniformCollections = this.normalizeUniformCollections(
@@ -16666,6 +17452,10 @@ class BlueprintSystem {
       node.uniformName = nodeData.uniformName;
       node.uniformDisplayName = nodeData.uniformDisplayName;
       node.uniformVariableName = nodeData.uniformVariableName;
+      node.constantId = nodeData.constantId;
+      node.constantName = nodeData.constantName;
+      node.constantDisplayName = nodeData.constantDisplayName;
+      node.constantType = nodeData.constantType;
 
       // Restore port values
       node.inputPorts.forEach((port, i) => {
@@ -16752,6 +17542,7 @@ class BlueprintSystem {
     // UI side-effects: only when this graph is currently visible.
     if (graph === this.activeGraph) {
       this.renderUniformList();
+      this.renderConstantList();
       this.renderCustomNodesList();
       this.updateShaderSettingsUI();
       this.renderContractEditor();

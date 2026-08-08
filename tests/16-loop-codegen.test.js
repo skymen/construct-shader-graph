@@ -1129,4 +1129,200 @@ describe("Loop body codegen — Phase 5", () => {
       expect(fnBody).toContain("input.fragUV");
     });
   });
+
+  // ============ WebGL1 constant folding and iteration cap (#126) ============
+  //
+  // GLSL ES 1.00 Appendix A only allows a loop index to be compared against a
+  // constant expression. A Count that folds becomes an exact bound; one that
+  // does not falls back to a capped loop with an early break.
+
+  describe("WebGL1 loop bounds (#126)", () => {
+    // A count the folder cannot see through: a uniform is a genuine runtime
+    // value, which is the case the issue was filed against.
+    function wireDynamicCount(caller) {
+      const uniform = {
+        id: blueprint.uniformIdCounter++,
+        paramId: blueprint.generateUniformParamId(),
+        name: "Amount",
+        variableName: blueprint.buildUniqueUniformVariableName("Amount"),
+        description: "",
+        type: "float",
+        value: 0.0,
+        isPercent: false,
+        isDeprecated: false,
+      };
+      blueprint.uniforms.push(uniform);
+
+      const uniformNode = blueprint.createUniformNode(uniform, 0, 0);
+      const toInt = blueprint.addNode(0, 0, NODE_TYPES.toInt);
+      connect(blueprint, uniformNode.outputPorts[0], toInt.inputPorts[0]);
+      connect(blueprint, toInt.outputPorts[0], caller.inputPorts[0]);
+      return uniformNode;
+    }
+
+    it("an inline literal Count emits an exact bound with no break", () => {
+      const g = buildSimpleSumLoop("LitCount");
+      const caller = addCaller(g);
+      caller.inputPorts[0].value = 8;
+      wireCallerToMainOutput(caller);
+
+      const src = blueprint.generateAllShaders().webgl1;
+      expect(src).toMatch(/for\s*\(int _i = 0; _i < 8; _i\+\+\)/);
+      expect(src).not.toContain("break;");
+    });
+
+    it("an Int Input node above the old 64 cap folds to an exact bound", () => {
+      // The regression the issue is really about: Int Input emits
+      // `int var_N = 200;`, so the old check saw the *name* `var_N`, called it
+      // dynamic, and silently capped a compile-time constant at 64.
+      const g = buildSimpleSumLoop("IntInputCount");
+      const caller = addCaller(g);
+      const intInput = blueprint.addNode(0, 0, NODE_TYPES.intInput);
+      intInput.customInput = "200";
+      connect(blueprint, intInput.outputPorts[0], caller.inputPorts[0]);
+      wireCallerToMainOutput(caller);
+
+      const src = blueprint.generateAllShaders().webgl1;
+      expect(src).toMatch(/for\s*\(int _i = 0; _i < 200; _i\+\+\)/);
+      expect(src).not.toContain("break;");
+    });
+
+    it("folds arithmetic and a To Int conversion", () => {
+      // Math takes genType, which does not admit int, so the realistic
+      // compile-time-arithmetic path is float math into a To Int.
+      const g = buildSimpleSumLoop("MathCount");
+      const caller = addCaller(g);
+      const a = blueprint.addNode(0, 0, NODE_TYPES.floatInput);
+      a.customInput = "30.0";
+      const b = blueprint.addNode(0, 0, NODE_TYPES.floatInput);
+      b.customInput = "4.0";
+      const math = blueprint.addNode(0, 0, NODE_TYPES.math);
+      math.operation = "*";
+      const toInt = blueprint.addNode(0, 0, NODE_TYPES.toInt);
+      connect(blueprint, a.outputPorts[0], math.inputPorts[0]);
+      connect(blueprint, b.outputPorts[0], math.inputPorts[1]);
+      connect(blueprint, math.outputPorts[0], toInt.inputPorts[0]);
+      connect(blueprint, toInt.outputPorts[0], caller.inputPorts[0]);
+      wireCallerToMainOutput(caller);
+
+      const src = blueprint.generateAllShaders().webgl1;
+      expect(src).toMatch(/for\s*\(int _i = 0; _i < 120; _i\+\+\)/);
+    });
+
+    it("a negative literal Count emits a zero-iteration bound", () => {
+      const g = buildSimpleSumLoop("NegCount");
+      const caller = addCaller(g);
+      caller.inputPorts[0].value = -5;
+      wireCallerToMainOutput(caller);
+
+      const src = blueprint.generateAllShaders().webgl1;
+      expect(src).toMatch(/for\s*\(int _i = 0; _i < 0; _i\+\+\)/);
+      expect(src).not.toContain("break;");
+    });
+
+    it("a genuinely dynamic Count still caps at 64 by default", () => {
+      const g = buildSimpleSumLoop("DynCount");
+      const caller = addCaller(g);
+      wireDynamicCount(caller);
+      wireCallerToMainOutput(caller);
+
+      const src = blueprint.generateAllShaders().webgl1;
+      expect(src).toMatch(/for\s*\(int _i = 0; _i < 64; _i\+\+\)/);
+      expect(src).toContain("break;");
+    });
+
+    it("the loop body's maxWebgl1Iterations raises the cap", () => {
+      const g = buildSimpleSumLoop("GraphCap");
+      g.data.maxWebgl1Iterations = 256;
+      const caller = addCaller(g);
+      wireDynamicCount(caller);
+      wireCallerToMainOutput(caller);
+
+      const src = blueprint.generateAllShaders().webgl1;
+      expect(src).toMatch(/for\s*\(int _i = 0; _i < 256; _i\+\+\)/);
+      expect(src).toContain("break;");
+    });
+
+    it("a per-node maxIterations still wins over the loop body's field", () => {
+      const g = buildSimpleSumLoop("NodeCap");
+      g.data.maxWebgl1Iterations = 256;
+      const caller = addCaller(g);
+      caller.data = { maxIterations: 12 };
+      wireDynamicCount(caller);
+      wireCallerToMainOutput(caller);
+
+      const src = blueprint.generateAllShaders().webgl1;
+      expect(src).toMatch(/for\s*\(int _i = 0; _i < 12; _i\+\+\)/);
+    });
+
+    it("the cap never applies to WebGL2 or WebGPU", () => {
+      const g = buildSimpleSumLoop("NoCapOthers");
+      g.data.maxWebgl1Iterations = 8;
+      const caller = addCaller(g);
+      wireDynamicCount(caller);
+      wireCallerToMainOutput(caller);
+
+      const shaders = blueprint.generateAllShaders();
+      expect(shaders.webgl2).not.toContain("break;");
+      expect(shaders.webgpu).not.toContain("break;");
+    });
+
+    it("maxWebgl1Iterations survives a save/load round trip", async () => {
+      const g = buildSimpleSumLoop("PersistCap");
+      g.data.maxWebgl1Iterations = 128;
+      const caller = addCaller(g);
+      wireDynamicCount(caller);
+      wireCallerToMainOutput(caller);
+
+      const json = blueprint.serializeProjectToJSON();
+      await blueprint.loadFromJSON({ text: async () => json });
+
+      const reloaded = [...blueprint.graphs.values()].find(
+        (x) => x.kind === "loopBody",
+      );
+      expect(reloaded.data.maxWebgl1Iterations).toBe(128);
+      expect(blueprint.generateAllShaders().webgl1).toMatch(
+        /for\s*\(int _i = 0; _i < 128; _i\+\+\)/,
+      );
+    });
+
+    it("warns via graph.validate when a loop is actually capped", () => {
+      const g = buildSimpleSumLoop("WarnCap");
+      const caller = addCaller(g);
+      wireDynamicCount(caller);
+      wireCallerToMainOutput(caller);
+
+      const warnings = globalThis.shaderGraphAPI.graph.validate().warnings;
+      const capped = warnings.filter((w) => w.type === "webgl1-loop-capped");
+      expect(capped).toHaveLength(1);
+      expect(capped[0].cap).toBe(64);
+      expect(capped[0].nodeId).toBe(caller.id);
+      expect(capped[0].message).toContain("64");
+    });
+
+    it("does not warn when the Count folds", () => {
+      const g = buildSimpleSumLoop("NoWarn");
+      const caller = addCaller(g);
+      caller.inputPorts[0].value = 8;
+      wireCallerToMainOutput(caller);
+
+      const warnings = globalThis.shaderGraphAPI.graph.validate().warnings;
+      expect(warnings.filter((w) => w.type === "webgl1-loop-capped")).toEqual(
+        [],
+      );
+    });
+
+    it("does not warn when WebGL1 is switched off", () => {
+      const g = buildSimpleSumLoop("NoWarnTarget");
+      const caller = addCaller(g);
+      wireDynamicCount(caller);
+      wireCallerToMainOutput(caller);
+      blueprint.mainGraph.shaderSettings.targetWebgl1 = false;
+
+      const warnings = globalThis.shaderGraphAPI.graph.validate().warnings;
+      expect(warnings.filter((w) => w.type === "webgl1-loop-capped")).toEqual(
+        [],
+      );
+    });
+  });
 });

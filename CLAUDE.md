@@ -25,8 +25,9 @@ Run a single test file: `npx vitest run tests/codegen.test.js`
 | Host/system | `script.js` — `BlueprintSystem` class (16K lines): canvas rendering, event handling, codegen, save/load, preview, dialogs |
 | Graph model | `Graph.js` — per-graph state (nodes, wires, comments, camera, history) |
 | Node definitions | `nodes/index.js` — registry of ~265 node types; each file is a `NodeType` instance |
-| Code generation | Inside `script.js`: `generateShader()`, `calculateExecutionLevels()`, `generateVariableNames()` |
+| Code generation | Inside `script.js`: `generateShader()`, `buildDependencyGraph()`, `topologicalSort()`, `generateVariableNames()` |
 | History | `HistoryManager.js` — snapshot-based undo/redo with 1-second coalescing |
+| Constant folding | `constant-fold.js` — resolves a port to a compile-time value where the target demands a constant expression |
 | Graph kinds | `graph-kinds/` — per-kind dispatch for `function` and `loopBody` graphs |
 | Headless boot | `headless/boot.js` — mounts `index.html` in jsdom and imports `script.js`; shared by tests and CLI |
 | CLI | `cli/` — thin transport over `shaderGraphAPI.call()`; see "CLI" below |
@@ -67,14 +68,15 @@ need a re-export from the Construct editor, which only a human can run. See
 
 Property access on `BlueprintSystem` (e.g., `this.nodes`, `this.wires`) delegates transparently to `activeGraph` via getters/setters.
 
-Uniforms and custom nodes live at the host level, shared across all graphs.
+Uniforms, constants and custom nodes live at the host level, shared across all graphs.
 
 ### Code Generation Pipeline
 
-1. **Topological sort** (`calculateExecutionLevels`) — orders nodes by data dependency
-2. **Variable naming** (`generateVariableNames`) — maps each port to a shader variable name, reusing upstream outputs when safe
-3. **Per-target codegen** — three independent passes (webgl1, webgl2, webgpu); each node's `NodeType.shaderCode[target].execution()` emits one or more lines
-4. **Assembly** — boilerplate + uniform declarations + helper functions + execution code
+1. **Reachability** (`buildDependencyGraph`) — BFS *backwards* from the Output (or pinned preview) node, so anything not feeding the output is never generated
+2. **Topological sort** (`topologicalSort`) — groups the reachable nodes into dependency levels
+3. **Variable naming** (`generateVariableNames`) — maps each port to a shader variable name, reusing upstream outputs when safe
+4. **Per-target codegen** — three independent passes (webgl1, webgl2, webgpu); each node's `NodeType.shaderCode[target].execution()` emits one or more lines
+5. **Assembly** — boilerplate + uniform declarations + constant declarations + helper functions + execution code
 
 Boilerplate templates live in `shaders/`. `getBoilerplate()` injects dynamic uniforms (extra samplers, depth) and placeholder replacements.
 
@@ -117,6 +119,9 @@ new NodeType(
 - **Custom nodes**: host-level library of user-defined `NodeType` instances; `updateCustomNodeInstances()` patches all live instances when a definition changes
 - **Canvas rendering**: text and shadow rendering are skipped below zoom thresholds (`drawTextZoomThreshold`, `drawShadowZoomThreshold`)
 - **Phase 1 infrastructure**: `graph-kinds/` and `Graph.kind` are in place for upcoming subgraph support (functions, loop bodies); see `PLAN.md` for spec
+- **Constants**: host-level named compile-time values, emitted as `const` declarations. One `ConstantNode` serves every type via a `custom` output port plus `getCustomType`. Unlike uniforms they are not addon parameters, so there is no `paramId` and no deprecation tier
+- **Constant folding**: `constant-fold.js` answers "is the value at this port knowable at codegen time?". A node opts in with `NodeType.foldConstant`. It is consulted **only** where the target language demands a constant expression — today, WebGL1 loop bounds, because GLSL ES 1.00 Appendix A is a grammar rule the driver's own folding cannot satisfy. Everywhere else the shader compiler already folds better
+- **WebGL1 loop cap**: a loop whose Count does not fold runs to a constant cap and breaks early. Cap precedence: `callerNode.data.maxIterations` → the loop body's `graph.data.maxWebgl1Iterations` (sidebar field) → 64. `csg validate` warns whenever a loop is actually capped
 
 ### Vite Config Notes
 

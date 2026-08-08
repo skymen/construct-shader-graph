@@ -9,6 +9,9 @@ import {
   TARGET_LABELS,
   enabledTargetsFor,
 } from "./shader-targets.js";
+import { resolveConstantCount } from "./constant-fold.js";
+import { resolveLoopCap } from "./graph-kinds/loop-body-kind.js";
+import { CONSTANT_TYPES } from "./nodes/ConstantNode.js";
 
 const API_VERSION = "1.0.0";
 const API_NAMESPACE = "shaderGraphAPI";
@@ -173,6 +176,12 @@ function getUniformById(bp, uniformId) {
   return uniform;
 }
 
+function getConstantById(bp, constantId) {
+  const constant = bp.constants.find((entry) => entry.id === Number(constantId));
+  assert(constant, `Constant ${constantId} not found`);
+  return constant;
+}
+
 function getDeprecatedUniformById(bp, uniformId) {
   const uniform = bp.deprecatedUniforms.find(
     (entry) => entry.id === Number(uniformId),
@@ -221,6 +230,8 @@ function normalizeTypeSnapshot(nodeType, typeKey) {
     customEditorConfig: cloneValue(nodeType.customEditorConfig || null),
     isUniform: !!nodeType.isUniform,
     uniformId: nodeType.uniformId ?? null,
+    isConstant: !!nodeType.isConstant,
+    constantId: nodeType.constantId ?? null,
     isCustom: !!nodeType.isCustom,
     customNodeId: nodeType.customNodeId ?? null,
     manual: cloneValue(nodeType.manual || null),
@@ -421,6 +432,18 @@ function serializeUniform(uniform, index) {
   };
 }
 
+function serializeConstant(constant, index) {
+  return {
+    id: constant.id,
+    index,
+    name: constant.name,
+    variableName: constant.variableName,
+    description: constant.description,
+    type: constant.type,
+    value: cloneValue(constant.value),
+  };
+}
+
 function serializeWire(bp, wire) {
   return {
     id: getWireId(bp, wire),
@@ -521,6 +544,55 @@ function getAiWarnings(bp) {
       });
     });
   });
+
+  warnings.push(...getCappedLoopWarnings(bp));
+
+  return warnings;
+}
+
+// A loop whose Count is not knowable at codegen time silently stops early on
+// WebGL1 (see graph-kinds/loop-body-kind.js). Nothing on the canvas says so, so
+// say it here.
+//
+// Walks allNodes() rather than bp.nodes: loop callers live in whichever graph
+// the user placed them in, which is very often not the open one.
+function getCappedLoopWarnings(bp) {
+  if (!enabledTargetsFor(bp.mainGraph?.shaderSettings).includes("webgl1")) {
+    return [];
+  }
+
+  const warnings = [];
+
+  for (const { node, graph } of bp.allNodes()) {
+    if (!node.nodeType?.isFunctionCall) continue;
+    if (node.nodeType.callerKind !== "loopBody") continue;
+
+    const countPort = node.inputPorts[0];
+    if (!countPort) continue;
+    if (resolveConstantCount(countPort, bp) !== null) continue;
+
+    const targetGraph = bp.graphs.get(node.nodeType.targetGraphId);
+    const cap = resolveLoopCap(node, targetGraph);
+
+    warnings.push({
+      type: "webgl1-loop-capped",
+      severity: "warning",
+      nodeId: node.id,
+      nodeTypeKey: bp.getNodeTypeKey(node.nodeType),
+      graphId: graph.id,
+      graphName: graph.name,
+      loopBodyId: targetGraph?.id ?? null,
+      loopBodyName: targetGraph?.name ?? null,
+      cap,
+      recommendation:
+        `WebGL1 caps this loop at ${cap} iterations because its Count is not ` +
+        `known at codegen time; any iteration past ${cap} never runs. Either ` +
+        `raise "Max WebGL1 Iterations" on the ` +
+        `"${targetGraph?.name ?? "loop body"}" loop body, or drive Count from ` +
+        `a value that folds (an Int Input, or arithmetic over one) so the ` +
+        `loop compiles to an exact bound.`,
+    });
+  }
 
   return warnings;
 }
@@ -781,9 +853,17 @@ function normalizeIrNodeTypeKey(irNode) {
       uniformRef !== undefined && uniformRef !== null,
       `IR node '${irNode.id}' requires a uniform reference`,
     );
-    return { typeKey: "uniform", uniformRef };
+    return { typeKey: "uniform", uniformRef, constantRef: null };
   }
-  return { typeKey, uniformRef: null };
+  if (typeKey === "constant") {
+    const constantRef = irNode.constant ?? irNode.constantId;
+    assert(
+      constantRef !== undefined && constantRef !== null,
+      `IR node '${irNode.id}' requires a constant reference`,
+    );
+    return { typeKey: "constant", uniformRef: null, constantRef };
+  }
+  return { typeKey, uniformRef: null, constantRef: null };
 }
 
 function getOutputNode(bp) {
@@ -836,14 +916,22 @@ function exportGraphIR(bp) {
     autoLayout: true,
     nodes: nodeSummaries.map(({ localId, node }) => {
       const typeKey = bp.getNodeTypeKey(node.nodeType);
+      let irType = typeKey;
+      if (node.nodeType.isUniform) irType = "uniform";
+      else if (node.nodeType.isConstant) irType = "constant";
+
       const irNode = {
         id: localId,
-        type: node.nodeType.isUniform ? "uniform" : typeKey,
+        type: irType,
       };
 
       if (node.nodeType.isUniform) {
         irNode.uniform =
           node.uniformDisplayName || node.uniformName || node.uniformId;
+      }
+      if (node.nodeType.isConstant) {
+        irNode.constant =
+          node.constantDisplayName || node.constantName || node.constantId;
       }
 
       if (node.operation !== undefined) {
@@ -925,11 +1013,15 @@ function validateGraphIR(bp, ir) {
     }
 
     try {
-      const { typeKey, uniformRef } = normalizeIrNodeTypeKey(irNode);
+      const { typeKey, uniformRef, constantRef } =
+        normalizeIrNodeTypeKey(irNode);
       let nodeType = null;
       if (typeKey === "uniform") {
         const uniform = resolveUniformRefFromIr(bp, uniformRef);
         nodeType = bp.getUniformNodeTypes()[`uniform_${uniform.id}`] || null;
+      } else if (typeKey === "constant") {
+        const constant = bp.resolveConstantRefFromIr(constantRef);
+        nodeType = bp.getConstantNodeTypes()[`constant_${constant.id}`] || null;
       } else {
         nodeType = bp.getNodeTypeFromKey(typeKey);
       }
@@ -1081,13 +1173,17 @@ function importGraphIR(bp, ir, options = {}) {
   const wires = ensureIrWiresArray(ir);
 
   nodes.forEach((irNode, index) => {
-    const { typeKey, uniformRef } = normalizeIrNodeTypeKey(irNode);
+    const { typeKey, uniformRef, constantRef } =
+      normalizeIrNodeTypeKey(irNode);
     let node;
     if (typeKey === "output") {
       node = getOutputNode(bp);
     } else if (typeKey === "uniform") {
       const uniform = resolveUniformRefFromIr(bp, uniformRef);
       node = bp.createUniformNode(uniform, cursorX, cursorY);
+    } else if (typeKey === "constant") {
+      const constant = bp.resolveConstantRefFromIr(constantRef);
+      node = bp.createConstantNode(constant, cursorX, cursorY);
     } else {
       const nodeType = bp.getNodeTypeFromKey(typeKey);
       node = bp.addNode(cursorX, cursorY, nodeType);
@@ -2715,6 +2811,126 @@ const API_METHOD_DESCRIPTORS = [
     returns: { type: "array", description: "Wire summaries." },
   },
   {
+    path: "constants.create",
+    description:
+      "Create a project constant: a named compile-time value emitted as a " +
+      "const declaration and usable from every graph.",
+    mutates: true,
+    args: [
+      {
+        name: "input",
+        type: "object",
+        required: true,
+        description:
+          "Constant name, type (bool|int|float|vec2|vec3|vec4|color), value, description.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized created constant." },
+  },
+  {
+    path: "constants.createNode",
+    description: "Create a graph node for an existing constant.",
+    mutates: true,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional x, y, position, and select.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized created node." },
+  },
+  {
+    path: "constants.getNodeTypes",
+    description: "List the node types generated for the project's constants.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Constant node type snapshots." },
+  },
+  {
+    path: "constants.edit",
+    description: "Edit a constant's name, type, value, or description.",
+    mutates: true,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+      {
+        name: "patch",
+        type: "object",
+        required: true,
+        description: "Any of name, type, value, description.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized updated constant." },
+  },
+  {
+    path: "constants.delete",
+    description:
+      "Delete a constant and remove every node referencing it, in every graph.",
+    mutates: true,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized deleted constant." },
+  },
+  {
+    path: "constants.reorder",
+    description: "Move a constant to a new index in the list.",
+    mutates: true,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+      {
+        name: "newIndex",
+        type: "number",
+        required: true,
+        description: "Target index.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized moved constant." },
+  },
+  {
+    path: "constants.get",
+    description: "Get one constant by id.",
+    mutates: false,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized constant." },
+  },
+  {
+    path: "constants.list",
+    description: "List every project constant.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized constants." },
+  },
+  {
     path: "uniforms.create",
     description: "Create a new uniform.",
     mutates: true,
@@ -3523,6 +3739,9 @@ Read-only calls:
 - \`uniforms.list\`
 - \`uniforms.get\`
 - \`uniforms.getNodeTypes\`
+- \`constants.list\`
+- \`constants.get\`
+- \`constants.getNodeTypes\`
 - \`shader.getInfo\`
 - \`shader.getGeneratedCode\`
 - \`preview.getSettings\`
@@ -3556,6 +3775,11 @@ Side-effecting calls:
 - \`uniforms.edit\`
 - \`uniforms.reorder\`
 - \`uniforms.delete\`
+- \`constants.create\`
+- \`constants.createNode\`
+- \`constants.edit\`
+- \`constants.reorder\`
+- \`constants.delete\`
 - \`shader.updateInfo\`
 - \`preview.updateSettings\`
 - \`preview.clearConsole\`
@@ -3787,6 +4011,23 @@ Uniform workflow usually looks like this:
 Use uniforms for exposed user-facing values that should exist outside a single node.
 
 Prefer direct editable input values for local literals and uniforms for reusable effect controls.
+
+## Constant workflows
+
+Constants are named compile-time values, shared across every graph, emitted as
+\`const\` declarations. They follow the same shape as uniforms:
+
+1. \`constants.create({ name, type, value })\` - type is one of bool, int, float, vec2, vec3, vec4, color
+2. \`constants.createNode(constantId, ...)\`
+3. wire it into the graph
+
+Choose between the three ways of expressing a value:
+
+- editable input port value - a one-off literal used in exactly one place
+- constant - a fixed value reused in several places, or one that has to be a
+  compile-time constant expression (a WebGL1 loop Count is the main case; a
+  uniform there forces a capped loop, a constant does not)
+- uniform - a value the end user is meant to change at runtime from Construct
 
 ## Preview guidance
 
@@ -4036,6 +4277,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "ports",
           "wires",
           "uniforms",
+          "constants",
           "shader",
           "preview",
           "layout",
@@ -5036,6 +5278,195 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       getAll() {
         return blueprint.wires.map((wire) =>
           serializeWireSummary(blueprint, wire),
+        );
+      },
+    },
+
+    constants: {
+      create(input = {}) {
+        assertPlainObject(input, "constants.create requires an input object");
+        const name = String(input.name || "").trim();
+        assert(name, "constants.create requires a name");
+        assertOptionalString(
+          input.description,
+          "constants.create description must be a string",
+        );
+
+        const type = input.type || "float";
+        assert(
+          CONSTANT_TYPES.includes(type),
+          `Constant type must be one of ${CONSTANT_TYPES.join(", ")}`,
+        );
+
+        const constant = blueprint.createConstantRecord({
+          name,
+          type,
+          value: input.value,
+          description: input.description,
+        });
+        blueprint.constants.push(constant);
+        blueprint.renderConstantList();
+        blueprint.onShaderChanged();
+        pushHistory(blueprint, `Create constant (${constant.name})`);
+        return serializeConstant(constant, blueprint.constants.length - 1);
+      },
+
+      createNode(constantId, options = {}) {
+        assert(
+          Number.isInteger(Number(constantId)),
+          "constants.createNode requires a valid constant id",
+        );
+        assertOptionalPlainObject(
+          options,
+          "constants.createNode options must be an object",
+        );
+        assertOptionalFiniteNumber(
+          options.x,
+          "constants.createNode x must be a finite number",
+        );
+        assertOptionalFiniteNumber(
+          options.y,
+          "constants.createNode y must be a finite number",
+        );
+        assertOptionalBoolean(
+          options.select,
+          "constants.createNode select must be a boolean",
+        );
+
+        const constant = getConstantById(blueprint, constantId);
+        const fallbackPosition = worldCenter(blueprint);
+        const node = blueprint.createConstantNode(
+          constant,
+          options.x ?? options.position?.x ?? fallbackPosition.x,
+          options.y ?? options.position?.y ?? fallbackPosition.y,
+        );
+
+        if (options.select) {
+          blueprint.clearSelection();
+          blueprint.selectNode(node, false);
+        }
+
+        pushHistory(blueprint, `Create constant node (${constant.name})`);
+        return serializeNode(blueprint, node);
+      },
+
+      getNodeTypes() {
+        return Object.entries(blueprint.getConstantNodeTypes()).map(
+          ([key, nodeType]) => normalizeTypeSnapshot(nodeType, key),
+        );
+      },
+
+      edit(constantId, patch = {}) {
+        assertPlainObject(patch, "constants.edit requires a patch object");
+        const constant = getConstantById(blueprint, constantId);
+
+        let renamed = false;
+        let changed = false;
+
+        if (patch.name !== undefined) {
+          const nextName = String(patch.name).trim();
+          assert(nextName, "Constant name cannot be empty");
+          if (nextName !== constant.name) {
+            constant.name = nextName;
+            constant.variableName = blueprint.buildUniqueConstantVariableName(
+              nextName,
+              constant.id,
+            );
+            renamed = true;
+            changed = true;
+          }
+        }
+
+        if (patch.type !== undefined) {
+          assert(
+            CONSTANT_TYPES.includes(patch.type),
+            `Constant type must be one of ${CONSTANT_TYPES.join(", ")}`,
+          );
+          if (patch.type !== constant.type) {
+            constant.type = patch.type;
+            // The old value almost never fits the new type, so re-coerce it
+            // rather than leaving a vec3 sitting in an int constant.
+            constant.value = blueprint.coerceConstantValue(
+              patch.type,
+              patch.value !== undefined ? patch.value : constant.value,
+            );
+            renamed = true; // node instances carry constantType too
+            changed = true;
+          }
+        }
+
+        if (patch.description !== undefined) {
+          assertOptionalString(
+            patch.description,
+            "constants.edit description must be a string",
+          );
+          constant.description = String(patch.description);
+          changed = true;
+        }
+
+        if (patch.value !== undefined && patch.type === undefined) {
+          constant.value = blueprint.coerceConstantValue(
+            constant.type,
+            patch.value,
+          );
+          changed = true;
+        }
+
+        if (renamed) blueprint.updateConstantNodeNames(constant.id);
+        if (changed) {
+          blueprint.renderConstantList();
+          blueprint.onShaderChanged();
+          pushHistory(blueprint, `Edit constant (${constant.name})`);
+        }
+
+        return serializeConstant(
+          constant,
+          blueprint.constants.indexOf(constant),
+        );
+      },
+
+      delete(constantId) {
+        const constant = getConstantById(blueprint, constantId);
+        const snapshot = serializeConstant(
+          constant,
+          blueprint.constants.indexOf(constant),
+        );
+        blueprint.deleteConstant(constant.id);
+        return snapshot;
+      },
+
+      reorder(constantId, newIndex) {
+        const constant = getConstantById(blueprint, constantId);
+        assert(
+          Number.isInteger(Number(newIndex)),
+          "constants.reorder requires an integer index",
+        );
+        const from = blueprint.constants.indexOf(constant);
+        const to = Math.max(
+          0,
+          Math.min(blueprint.constants.length - 1, Number(newIndex)),
+        );
+        if (from !== to) {
+          blueprint.constants.splice(from, 1);
+          blueprint.constants.splice(to, 0, constant);
+          blueprint.renderConstantList();
+          blueprint.onShaderChanged();
+          pushHistory(blueprint, `Reorder constant (${constant.name})`);
+        }
+        return serializeConstant(constant, to);
+      },
+
+      get(constantId) {
+        const constant = getConstantById(blueprint, constantId);
+        return serializeConstant(
+          constant,
+          blueprint.constants.indexOf(constant),
+        );
+      },
+
+      list() {
+        return blueprint.constants.map((constant, index) =>
+          serializeConstant(constant, index),
         );
       },
     },

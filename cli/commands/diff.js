@@ -17,6 +17,7 @@ async function snapshot(host, file) {
   const graphs = await host.call("graphs.list");
   const ir = await host.call("graph.exportIR");
   const uniforms = await host.call("uniforms.list");
+  const constants = await host.call("constants.list");
 
   let code = null;
   try {
@@ -25,7 +26,7 @@ async function snapshot(host, file) {
     code = null; // an invalid project still diffs structurally
   }
 
-  return { graphs, ir, uniforms, code };
+  return { graphs, ir, uniforms, constants, code };
 }
 
 function diffLines(a, b) {
@@ -108,6 +109,7 @@ export async function run({ host, args, flags }) {
     out(style.bold("structure"));
     changes += compareSets("graph", a.graphs, b.graphs, "name");
     changes += compareSets("uniform", a.uniforms, b.uniforms, "name");
+    changes += compareSets("constant", a.constants, b.constants, "name");
 
     const nodesA = a.ir?.nodes?.length ?? 0;
     const nodesB = b.ir?.nodes?.length ?? 0;

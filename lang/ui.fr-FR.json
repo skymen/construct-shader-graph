@@ -242,5 +242,14 @@
   "refresh": "rafraîchir",
   "split webgl": "séparer webgl",
   "Minimise Preview": "Réduire l'aperçu",
-  "New Preview Window": "Nouvelle fenêtre d'aperçu"
+  "New Preview Window": "Nouvelle fenêtre d'aperçu",
+  "Constants": "Constantes",
+  "+ Add Constant": "+ Ajouter une constante",
+  "Add Constant": "Ajouter une constante",
+  "MY_CONSTANT": "MA_CONSTANTE",
+  "Int": "Entier",
+  "Boolean": "Booléen",
+  "Vec2": "Vec2",
+  "Vec3": "Vec3",
+  "Vec4": "Vec4"
 }

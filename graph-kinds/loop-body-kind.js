@@ -14,15 +14,41 @@ import {
   newPortId,
   pickFreeGenericType,
 } from "./contract.js";
-import { renderContractEditor as renderSharedContractEditor } from "./contract-editor.js";
+import {
+  renderContractEditor as renderSharedContractEditor,
+  buildLabeledRow,
+} from "./contract-editor.js";
+import { resolveConstantCount } from "../constant-fold.js";
 
 // GLSL ES 1.00 (WebGL 1) Appendix A restricts a for loop to a single index
 // compared against a *constant expression*, so `_i < someUniform` will not
 // compile. A conditional break inside the body is allowed, so a dynamic count
-// becomes a constant-bounded loop that breaks early. This is the cap it runs
-// to; iterations past it never execute. Override per node with
-// `nodes.edit(id, { data: { maxIterations: N } })`.
-const WEBGL1_MAX_LOOP_ITERATIONS = 64;
+// becomes a constant-bounded loop that breaks early. This is the fallback cap it
+// runs to; iterations past it never execute.
+//
+// The cap is only ever reached by a count that genuinely is not knowable at
+// codegen time. A count that folds (see constant-fold.js) becomes an exact
+// bound with no cap and no break.
+export const WEBGL1_MAX_LOOP_ITERATIONS = 64;
+
+// Which cap applies to one caller, most specific first:
+//
+//   1. callerNode.data.maxIterations   per call site. Predates the sidebar field
+//                                      and is reachable only from the console
+//                                      API; kept so existing graphs and scripts
+//                                      keep working.
+//   2. graph.data.maxWebgl1Iterations  per loop body, set in its sidebar. The
+//                                      one users are expected to reach for.
+//   3. WEBGL1_MAX_LOOP_ITERATIONS      64.
+export function resolveLoopCap(callerNode, targetGraph) {
+  const perNode = callerNode?.data?.maxIterations;
+  if (Number.isFinite(perNode)) return Math.max(1, Math.floor(perNode));
+
+  const perGraph = targetGraph?.data?.maxWebgl1Iterations;
+  if (Number.isFinite(perGraph)) return Math.max(1, Math.floor(perGraph));
+
+  return WEBGL1_MAX_LOOP_ITERATIONS;
+}
 
 // A loop body's contract stores each thing exactly once:
 //
@@ -116,6 +142,50 @@ export const loopBodyKindHandler = {
 
   renderContractEditor(graph, host, container) {
     renderSharedContractEditor(this, graph, host, container);
+  },
+
+  // Only meaningful for loops, so it lives here rather than in the shared info
+  // form. Applies to every call site of this loop body; a single call site can
+  // still override it through `nodes.edit(id, { data: { maxIterations: N } })`.
+  renderExtraInfoRows(graph, host, form) {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.placeholder = String(WEBGL1_MAX_LOOP_ITERATIONS);
+    input.title =
+      "WebGL1 cannot compare a loop index against a computed value, so a " +
+      "loop whose Count is not knowable at codegen time runs to this cap and " +
+      "breaks out early. A Count that is knowable ignores this entirely.";
+
+    const stored = graph.data?.maxWebgl1Iterations;
+    input.value = Number.isFinite(stored) ? String(stored) : "";
+
+    input.addEventListener("change", () => {
+      const raw = input.value.trim();
+      const next =
+        raw.length === 0 ? undefined : Math.max(1, Math.floor(Number(raw)));
+
+      // A non-numeric entry reverts rather than writing NaN onto the graph.
+      if (next !== undefined && !Number.isFinite(next)) {
+        input.value = Number.isFinite(graph.data?.maxWebgl1Iterations)
+          ? String(graph.data.maxWebgl1Iterations)
+          : "";
+        return;
+      }
+
+      if (!graph.data) graph.data = {};
+      if (graph.data.maxWebgl1Iterations === next) return;
+
+      if (next === undefined) delete graph.data.maxWebgl1Iterations;
+      else graph.data.maxWebgl1Iterations = next;
+
+      input.value = next === undefined ? "" : String(next);
+      host.onShaderChanged?.();
+      host.history?.pushState("Edit loop iteration cap");
+    });
+
+    form.appendChild(buildLabeledRow("Max WebGL1 Iterations", input));
   },
 
   // ---- Boundary nodes ----
@@ -450,17 +520,18 @@ export const loopBodyKindHandler = {
 
       // For loop. WebGL2 takes a computed bound directly; WebGL1 does not.
       if (target === "webgl1") {
-        // A Count left at its literal is already a constant expression, so it
-        // can be the bound as-is and the loop runs exactly that many times.
-        const literalCount = /^[0-9]+$/.test(String(countVar).trim())
-          ? String(countVar).trim()
-          : null;
-        if (literalCount) {
-          code += `    for (int _i = 0; _i < ${literalCount}; _i++) {\n`;
+        // Anything knowable at codegen time is a constant expression once we
+        // write the number out, so it can be the bound as-is and the loop runs
+        // exactly that many times. This covers a literal on the port, an Int
+        // Input node, and arithmetic over either - all of which used to fall
+        // through to the cap because the old check tested the *variable name*
+        // for digits, and a node's output is always named var_N.
+        const foldedCount = resolveConstantCount(callerNode.inputPorts[0], host);
+
+        if (foldedCount !== null) {
+          code += `    for (int _i = 0; _i < ${foldedCount}; _i++) {\n`;
         } else {
-          const cap = Number.isFinite(callerNode.data?.maxIterations)
-            ? Math.max(1, Math.floor(callerNode.data.maxIterations))
-            : WEBGL1_MAX_LOOP_ITERATIONS;
+          const cap = resolveLoopCap(callerNode, targetGraph);
           code += `    // WebGL1 cannot compare a loop index against a computed value,\n`;
           code += `    // so the loop runs to a constant cap and breaks out early.\n`;
           code += `    for (int _i = 0; _i < ${cap}; _i++) {\n`;

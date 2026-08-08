@@ -242,5 +242,14 @@
   "refresh": "刷新",
   "split webgl": "分割WebGL",
   "Minimise Preview": "最小化预览",
-  "New Preview Window": "新建预览窗口"
+  "New Preview Window": "新建预览窗口",
+  "Constants": "常量",
+  "+ Add Constant": "+ 添加常量",
+  "Add Constant": "添加常量",
+  "MY_CONSTANT": "MY_CONSTANT",
+  "Int": "整数",
+  "Boolean": "布尔值",
+  "Vec2": "Vec2",
+  "Vec3": "Vec3",
+  "Vec4": "Vec4"
 }
