@@ -149,7 +149,10 @@ export class AutoLayoutEngine {
    * Main entry point for auto-arranging nodes
    * @param {boolean} selectedOnly - If true, only arrange selected nodes
    */
-  autoArrange(selectedOnly = false, { recordHistory = true } = {}) {
+  autoArrange(
+    selectedOnly = false,
+    { recordHistory = true, fitComments = true } = {},
+  ) {
     // Get nodes to arrange
     const nodesToArrange =
       selectedOnly && this.bp.selectedNodes.size > 0
@@ -162,6 +165,15 @@ export class AutoLayoutEngine {
     }
 
     console.log(`Auto-arranging ${nodesToArrange.length} nodes...`);
+
+    // Record what each comment encloses before anything moves, so the boxes can
+    // be put back around the same nodes afterwards. Capturing here rather than
+    // just before applyLayout is equivalent - nothing between here and the apply
+    // loop touches node.x/.y - and it keeps both halves inside one _withGraph
+    // scope, which autoArrangeAllGraphs relies on.
+    const commentSnapshot = fitComments
+      ? this.bp.captureCommentMembership()
+      : null;
 
     // Build dependency graph
     const graph = this.buildDependencyGraph(nodesToArrange);
@@ -304,6 +316,18 @@ export class AutoLayoutEngine {
       });
     });
 
+    // Put the comment boxes back around their nodes. Before render() so the first
+    // paint is right, and before centerView() so anything the separation pass
+    // displaced is inside the framed bounds. Separation is skipped for a
+    // selection arrange: packComponentsPreservingRoots anchors on the root node's
+    // live position, so a displaced root would make the group walk further across
+    // the canvas on every subsequent arrange.
+    if (commentSnapshot) {
+      this.bp.refitCommentsToMembership(commentSnapshot, {
+        separate: !selectedOnly,
+      });
+    }
+
     // Render the updated positions
     this.bp.render();
 
@@ -315,7 +339,8 @@ export class AutoLayoutEngine {
     // Record state for undo/redo with descriptive message. Callers that
     // arrange as part of a larger edit (importGraphIR, the fan-out rewrites,
     // deleteDanglingNodes) pass recordHistory: false and push their own single
-    // entry instead of leaving two behind.
+    // entry instead of leaving two behind. The comment refit above is part of
+    // whichever entry that is - do not give it one of its own.
     if (recordHistory) {
       this.bp.history.pushState(
         selectedOnly

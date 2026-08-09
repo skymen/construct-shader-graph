@@ -1541,7 +1541,9 @@ function auditGraph(bp, options = {}) {
 
   // Comment coverage. Membership is geometric, so a node the author meant to
   // include but that drifted out is indistinguishable from one never grouped -
-  // both read the same way and both are reported.
+  // both read the same way and both are reported. Layout passes refit the boxes
+  // around what they held, so an uncommentedNode after an arrange means the node
+  // genuinely was never grouped rather than that the arrange stranded it.
   if (bp.comments.length > 0) {
     for (const node of bp.nodes) {
       const owners = bp.comments.filter((c) => c.containsNode(node));
@@ -1567,17 +1569,7 @@ function auditGraph(bp, options = {}) {
     for (let j = i + 1; j < bp.comments.length; j++) {
       const a = bp.comments[i];
       const b = bp.comments[j];
-      const ox = Math.max(
-        0,
-        Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x),
-      );
-      const oy = Math.max(
-        0,
-        Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y),
-      );
-      const frac =
-        (ox * oy) /
-        Math.max(1, Math.min(a.width * a.height, b.width * b.height));
+      const frac = bp.commentOverlapFraction(a, b);
       if (frac > 0.25) {
         issues.push({
           kind: "overlappingComments",
@@ -3263,7 +3255,7 @@ const API_METHOD_DESCRIPTORS = [
   {
     path: "layout.autoArrange",
     description:
-      "Auto-arrange the active graph, a subset of its nodes, or every graph in the project.",
+      "Auto-arrange the active graph, a subset of its nodes, or every graph in the project. Comment boxes are refitted around the nodes they enclosed, then pushed apart until none overlap.",
     mutates: true,
     args: [
       {
@@ -3271,7 +3263,7 @@ const API_METHOD_DESCRIPTORS = [
         type: "object",
         required: false,
         description:
-          "Optional nodeIds array to arrange only those nodes, or allGraphs to arrange every graph.",
+          "Optional nodeIds array to arrange only those nodes, or allGraphs to arrange every graph. Set fitComments:false to leave comment boxes exactly where they are.",
       },
     ],
     returns: {
@@ -3282,14 +3274,15 @@ const API_METHOD_DESCRIPTORS = [
   {
     path: "layout.tidyVariables",
     description:
-      "Move each Set Variable node next to the node whose output it stores.",
+      "Move each Set Variable node next to the node whose output it stores. Comment boxes follow the nodes they enclosed.",
     mutates: true,
     args: [
       {
         name: "options",
         type: "object",
         required: false,
-        description: "Optional gap and allGraphs.",
+        description:
+          "Optional gap, allGraphs, and fitComments:false to leave comment boxes alone.",
       },
     ],
     returns: { type: "object", description: "How many nodes were moved." },
@@ -6021,7 +6014,8 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
 
     layout: {
       // Park each Set Variable beside the node it stores. The layout places it
-      // by dependency level, which can be the far side of the graph.
+      // by dependency level, which can be the far side of the graph. Comments
+      // follow the nodes they enclosed, as with autoArrange.
       tidyVariables(options = {}) {
         assertOptionalPlainObject(
           options,
@@ -6034,6 +6028,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         assertOptionalBoolean(
           options.allGraphs,
           "layout.tidyVariables allGraphs must be a boolean",
+        );
+        assertOptionalBoolean(
+          options.fitComments,
+          "layout.tidyVariables fitComments must be a boolean",
         );
         return options.allGraphs
           ? blueprint.snapVariableNodesAllGraphs(options)
@@ -6086,6 +6084,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           options.allGraphs,
           "layout.autoArrange allGraphs must be a boolean",
         );
+        assertOptionalBoolean(
+          options.fitComments,
+          "layout.autoArrange fitComments must be a boolean",
+        );
         assert(
           !(options.allGraphs && Array.isArray(options.nodeIds)),
           "layout.autoArrange cannot combine allGraphs with nodeIds",
@@ -6094,7 +6096,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         if (options.allGraphs) {
           return {
             ok: true,
-            graphs: blueprint.autoArrangeAllGraphs(),
+            graphs: blueprint.autoArrangeAllGraphs(options),
             camera: serializeCamera(blueprint),
           };
         }
@@ -6110,7 +6112,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           });
         }
 
-        blueprint.autoArrange();
+        blueprint.autoArrange(options);
         return {
           ok: true,
           camera: serializeCamera(blueprint),

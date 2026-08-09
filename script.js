@@ -963,6 +963,16 @@ const COMMENT_TITLE_HEIGHT = 31;
 const COMMENT_TEXT_MARGIN = 20;
 const COMMENT_DRAG_HANDLE_SIZE = 24; // Size of the drag handle icon
 const COMMENT_FIT_PADDING = 30; // Gap left around nodes when fitting a comment to them
+const COMMENT_SEPARATION_GAP = 24; // Gap left between two comments pushed apart after a refit
+// Description text metrics. drawComment() and the fitting helpers share these so
+// a box sized to hold a description actually holds it.
+const COMMENT_DESCRIPTION_FONT = "12px sans-serif";
+const COMMENT_DESCRIPTION_TOP = 50; // First baseline, relative to comment.y
+const COMMENT_DESCRIPTION_LINE_HEIGHT = 16;
+const COMMENT_DESCRIPTION_DESCENT = 4; // Room under the last baseline
+// Average glyph width for the font above, used when there are no real text
+// metrics to measure with - see measureCommentTextWidth().
+const COMMENT_DESCRIPTION_CHAR_WIDTH = 6.2;
 
 // Wire insertion constants
 const WIRE_INSERTION_THRESHOLD = 30; // Distance threshold for detecting wire insertion
@@ -11108,41 +11118,35 @@ class BlueprintSystem {
     this.render();
   }
 
-  // Create a comment sized to enclose the given nodes. The title bar is drawn
-  // inside the comment's own rect, so it gets its own room above the nodes
-  // rather than overlapping the topmost row.
+  // Create a comment sized to enclose the given nodes, via the same
+  // commentRectForContent() rule a later refit uses - so arranging a graph does
+  // not resize the comments it was just given.
+  //
+  // Keeping it fitted afterwards is captureCommentMembership() /
+  // refitCommentsToMembership(), which anything that moves nodes calls.
   createCommentAroundNodes(nodes, options = {}) {
     const list = (nodes || []).filter(Boolean);
     if (list.length === 0) {
       throw new Error("createCommentAroundNodes requires at least one node");
     }
 
-    const padding = Number.isFinite(options.padding)
-      ? options.padding
-      : COMMENT_FIT_PADDING;
+    const description =
+      options.description !== undefined ? String(options.description) : "";
 
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const node of list) {
-      minX = Math.min(minX, node.x);
-      minY = Math.min(minY, node.y);
-      maxX = Math.max(maxX, node.x + node.width);
-      maxY = Math.max(maxY, node.y + node.height);
-    }
+    const rect = this.commentRectForContent(
+      this._commentContentBounds(list, []),
+      { padding: options.padding, description },
+    );
 
     const comment = new Comment(
-      minX - padding,
-      minY - padding - COMMENT_TITLE_HEIGHT,
-      maxX - minX + padding * 2,
-      maxY - minY + padding * 2 + COMMENT_TITLE_HEIGHT,
+      rect.x,
+      rect.y,
+      rect.width,
+      rect.height,
       this.commentIdCounter++,
     );
     if (options.title !== undefined) comment.title = String(options.title);
-    if (options.description !== undefined) {
-      comment.description = String(options.description);
-    }
+    if (description) comment.description = description;
     if (options.color) comment.color = String(options.color);
 
     this.comments.push(comment);
@@ -11150,6 +11154,459 @@ class BlueprintSystem {
     this.render();
 
     return comment;
+  }
+
+  // Returns a text-width function for the description font, or null when the
+  // canvas has no real metrics to offer. The headless canvas stub answers every
+  // measureText with the same number, which would wrap every paragraph to a
+  // single line and undersize the box, so probe it with two strings that must
+  // differ before trusting it.
+  measureCommentTextWidth() {
+    const ctx = this.ctx;
+    if (!ctx || typeof ctx.measureText !== "function") return null;
+
+    const previousFont = ctx.font;
+    ctx.font = COMMENT_DESCRIPTION_FONT;
+    const narrow = ctx.measureText("i")?.width;
+    const wide = ctx.measureText("MMMMMMMMMMMMMMMMMMMM")?.width;
+    if (Number.isFinite(narrow) && Number.isFinite(wide) && wide > narrow) {
+      return { measure: (text) => ctx.measureText(text).width, previousFont };
+    }
+
+    ctx.font = previousFont;
+    return null;
+  }
+
+  // The lines a description wraps to inside a box of the given width. This is the
+  // greedy fill drawComment() performs, factored out so that measuring a
+  // description and drawing it cannot disagree about how tall it is.
+  wrapCommentDescription(description, boxWidth) {
+    if (!description) return [];
+
+    const maxWidth = boxWidth - COMMENT_TEXT_MARGIN;
+    const metrics = this.measureCommentTextWidth();
+    // Falling back to an average glyph width keeps headless callers (the CLI,
+    // the tests) producing sensible heights. They can differ from the browser's
+    // real metrics by a line, which moves the box's top edge but never makes it
+    // wrong.
+    const measure =
+      metrics?.measure ??
+      ((text) => text.length * COMMENT_DESCRIPTION_CHAR_WIDTH);
+
+    try {
+      const lines = [];
+      for (const paragraph of String(description).split("\n")) {
+        const words = paragraph.split(" ");
+        let line = "";
+        for (let i = 0; i < words.length; i++) {
+          const testLine = line + words[i] + " ";
+          if (measure(testLine) > maxWidth && i > 0) {
+            lines.push(line);
+            line = words[i] + " ";
+          } else {
+            line = testLine;
+          }
+        }
+        // Every paragraph contributes a final line, empty ones included.
+        lines.push(line);
+      }
+      return lines;
+    } finally {
+      if (metrics) this.ctx.font = metrics.previousFont;
+    }
+  }
+
+  // Vertical room a comment has to leave above its nodes: the title bar, plus the
+  // whole description when there is one. The description is painted over the
+  // comment body and nodes are drawn on top of it, so anything that does not fit
+  // in this band ends up underneath a node and unreadable.
+  commentHeaderHeight(description, boxWidth) {
+    const lines = this.wrapCommentDescription(description, boxWidth);
+    if (lines.length === 0) return COMMENT_TITLE_HEIGHT;
+    return (
+      COMMENT_DESCRIPTION_TOP +
+      (lines.length - 1) * COMMENT_DESCRIPTION_LINE_HEIGHT +
+      COMMENT_DESCRIPTION_DESCENT
+    );
+  }
+
+  // The one rule for how big a comment is: snug around its contents on three
+  // sides, and enough room on top for the title bar and description. Used both
+  // when a comment is created and when a layout pass refits it, so the two
+  // cannot drift.
+  commentRectForContent(content, options = {}) {
+    const padding = Number.isFinite(options.padding)
+      ? options.padding
+      : COMMENT_FIT_PADDING;
+    const width = content.maxX - content.minX + padding * 2;
+    const top = this.commentHeaderHeight(options.description, width) + padding;
+    return {
+      x: content.minX - padding,
+      y: content.minY - top,
+      width,
+      height: content.maxY - content.minY + top + padding,
+    };
+  }
+
+  // Fraction of the smaller of two comments that the two of them share. Used by
+  // the `overlappingComments` lint rule, which reports anything above 0.25, and
+  // available to refitCommentsToMembership() for callers that only want
+  // substantial overlaps separated - it resolves any intersection by default.
+  commentOverlapFraction(a, b) {
+    const ox = Math.max(
+      0,
+      Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x),
+    );
+    const oy = Math.max(
+      0,
+      Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y),
+    );
+    return (
+      (ox * oy) / Math.max(1, Math.min(a.width * a.height, b.width * b.height))
+    );
+  }
+
+  // Record what each comment currently encloses, so that whatever moves the
+  // nodes next (auto-arrange, tidyVariables) can put the boxes back around them
+  // with refitCommentsToMembership(). Membership is geometric everywhere in this
+  // app - a comment owns whatever sits inside it right now - so this is a
+  // snapshot of a derived fact, not a grouping the user has to maintain.
+  //
+  // Nothing is written onto the Comment objects: the title-bar drag keeps its own
+  // containedNodes/containedComments there and an interleaved drag must not be
+  // clobbered. Pushes no history either; the caller owns the entry.
+  //
+  // Note this runs after normalizeFanoutsForLayout() in the auto-arrange path, so
+  // Set/Get Variable nodes that rewrite just created are already placed and can be
+  // captured as members. That is intended - a Get node parked next to its consumer
+  // belongs in the same comment - but it does mean a fan-out rewrite can enlarge a
+  // comment.
+  captureCommentMembership() {
+    const comments = this.comments;
+    if (comments.length === 0) return null;
+
+    // containsComment() is mutual for two identical rects, so "is inside" alone
+    // does not give a tree. Ordering by (area, id) is strict and total, and only
+    // admitting a parent that is greater in that order makes the relation acyclic
+    // by construction - no visited set needed.
+    const outranks = (a, b) =>
+      a.width * a.height !== b.width * b.height
+        ? a.width * a.height > b.width * b.height
+        : a.id > b.id;
+
+    const parentOf = new Map();
+    for (const c of comments) {
+      let best = null;
+      for (const p of comments) {
+        if (p === c || !p.containsComment(c) || !outranks(p, c)) continue;
+        // Tightest enclosing box wins, so nesting depth reflects what you see.
+        if (best === null || outranks(best, p)) best = p;
+      }
+      parentOf.set(c, best);
+    }
+
+    const depthOf = new Map();
+    const depthFor = (c) => {
+      if (depthOf.has(c)) return depthOf.get(c);
+      const parent = parentOf.get(c);
+      const depth = parent ? depthFor(parent) + 1 : 0;
+      depthOf.set(c, depth);
+      return depth;
+    };
+
+    const allReroutes = [];
+    for (const wire of this.wires) {
+      for (const rn of wire.rerouteNodes) allReroutes.push(rn);
+    }
+
+    const entries = comments.map((comment) => {
+      const nodes = this.nodes.filter((n) => comment.containsNode(n));
+      const children = comments.filter((c) => parentOf.get(c) === comment);
+      const reroutes = allReroutes.filter((rn) =>
+        comment.containsRerouteNode(rn),
+      );
+
+      const nodeWas = new Map();
+      for (const n of nodes) {
+        nodeWas.set(n, { x: n.x, y: n.y, width: n.width, height: n.height });
+      }
+      const childWas = new Map();
+      for (const c of children) {
+        childWas.set(c, { x: c.x, y: c.y, width: c.width, height: c.height });
+      }
+
+      return {
+        comment,
+        parent: parentOf.get(comment),
+        depth: depthFor(comment),
+        nodes,
+        children,
+        reroutes,
+        // A comment enclosing nothing has no anchor to follow, so it is left
+        // exactly where the author put it rather than being dragged around.
+        frozen: nodes.length === 0 && children.length === 0,
+        nodeWas,
+        childWas,
+      };
+    });
+
+    return { entries, byComment: new Map(entries.map((e) => [e.comment, e])) };
+  }
+
+  // Bounding box of the node rects and nested comment rects a comment is fitted
+  // to. Reroute nodes are deliberately excluded: auto-arrange never moves them,
+  // so sizing a comment to a stale reroute point would only inflate it.
+  _commentContentBounds(nodes, children) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of nodes) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.width);
+      maxY = Math.max(maxY, n.y + n.height);
+    }
+    for (const c of children) {
+      minX = Math.min(minX, c.x);
+      minY = Math.min(minY, c.y);
+      maxX = Math.max(maxX, c.x + c.width);
+      maxY = Math.max(maxY, c.y + c.height);
+    }
+    return minX === Infinity ? null : { minX, minY, maxX, maxY };
+  }
+
+  // Put every comment back around the nodes it held when the snapshot was taken,
+  // snug at the standard padding with room on top for its description, then push
+  // apart any that overlap until none do. Pushes no history: the caller records
+  // one entry covering both the node moves and this.
+  refitCommentsToMembership(snapshot, options = {}) {
+    const result = { refit: 0, separated: 0, passes: 0, converged: true };
+    if (!snapshot || snapshot.entries.length === 0) return result;
+
+    const {
+      separate = true,
+      // Any intersection at all is an overlap. Raise this to only act on
+      // substantial ones (`csg lint` reports above 0.25).
+      overlapThreshold = 0,
+      gap = COMMENT_SEPARATION_GAP,
+      padding = COMMENT_FIT_PADDING,
+      maxPasses = 24,
+    } = options;
+
+    const liveNodes = new Set(this.nodes);
+    const liveComments = new Set(this.comments);
+    // Deepest first, so a parent reads its children's already-refit rects and
+    // expands over them. Fitting a parent to node rects alone would clip the
+    // inner comment's border and title bar.
+    const entries = snapshot.entries
+      .filter((e) => liveComments.has(e.comment))
+      .sort((a, b) => b.depth - a.depth || a.comment.id - b.comment.id);
+
+    const membersOf = (e) => e.nodes.filter((n) => liveNodes.has(n));
+    const childrenOf = (e) => e.children.filter((c) => liveComments.has(c));
+
+    const refitOnce = () => {
+      let refit = 0;
+      for (const e of entries) {
+        if (e.frozen) continue;
+        const nodes = membersOf(e);
+        const children = childrenOf(e);
+        if (nodes.length === 0 && children.length === 0) continue;
+        if (!this._commentContentChanged(e, nodes, children)) continue;
+
+        // Snug on all four sides at the standard padding, with whatever extra
+        // room on top the description needs. Any slack the author had dragged
+        // into the box is dropped: a refit that preserved it would carry a
+        // hand-stretched comment across the canvas for no reason, and the
+        // padding is the same rule a freshly fitted comment gets.
+        const rect = this.commentRectForContent(
+          this._commentContentBounds(nodes, children),
+          { padding, description: e.comment.description },
+        );
+
+        const c = e.comment;
+        c.x = rect.x;
+        c.y = rect.y;
+        c.width = rect.width;
+        c.height = rect.height;
+        refit++;
+      }
+      return refit;
+    };
+
+    result.refit = refitOnce();
+
+    if (!separate) return result;
+
+    // Only a pass that finds nothing left to move proves there are no overlaps.
+    result.converged = false;
+
+    const entryOf = new Map(entries.map((e) => [e.comment, e]));
+    const nodeSets = new Map(entries.map((e) => [e, new Set(e.nodes)]));
+    const descendants = new Map(entries.map((e) => [e, []]));
+    for (const e of entries) {
+      let ancestor = e.parent;
+      while (ancestor) {
+        const ancestorEntry = entryOf.get(ancestor);
+        if (!ancestorEntry) break;
+        descendants.get(ancestorEntry).push(e.comment);
+        ancestor = ancestorEntry.parent;
+      }
+    }
+
+    // Rigid translation. A comment's captured members already include every
+    // descendant's members (a box inside another box encloses a subset of its
+    // nodes), so each object is moved exactly once.
+    const moveGroup = (e, dx, dy) => {
+      e.comment.x += dx;
+      e.comment.y += dy;
+      for (const child of descendants.get(e)) {
+        if (!liveComments.has(child)) continue;
+        child.x += dx;
+        child.y += dy;
+      }
+      for (const n of membersOf(e)) {
+        n.x += dx;
+        n.y += dy;
+      }
+      for (const rn of e.reroutes) {
+        rn.x += dx;
+        rn.y += dy;
+      }
+    };
+
+    // Siblings only. Pairing across nesting levels would tear every nested
+    // comment out of its parent: under the overlap metric a box fully inside
+    // another scores 1.0, the worst possible overlap.
+    const groups = new Map();
+    for (const e of entries) {
+      const key = e.parent && liveComments.has(e.parent) ? e.parent : null;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(e);
+    }
+    const orderedGroups = [...groups.values()].filter((g) => g.length > 1);
+
+    for (let pass = 0; pass < maxPasses; pass++) {
+      result.passes = pass + 1;
+      let moved = 0;
+
+      for (const group of orderedGroups) {
+        for (let i = 0; i < group.length; i++) {
+          for (let j = i + 1; j < group.length; j++) {
+            const a = group[i];
+            const b = group[j];
+            // An empty comment has no nodes to carry, so it stays where the
+            // author put it - but it is still solid, and pushes whatever lands
+            // on it out of the way.
+            if (a.frozen && b.frozen) continue;
+            // Two comments that share a node cannot both keep enclosing it and
+            // be pulled apart, so leave them - `csg lint` reports the pair as
+            // multiCommentedNode.
+            const setA = nodeSets.get(a);
+            if (b.nodes.some((n) => setA.has(n))) continue;
+
+            const ca = a.comment;
+            const cb = b.comment;
+            const ox =
+              Math.min(ca.x + ca.width, cb.x + cb.width) - Math.max(ca.x, cb.x);
+            const oy =
+              Math.min(ca.y + ca.height, cb.y + cb.height) -
+              Math.max(ca.y, cb.y);
+            // Touching edges are fine; only a real intersection is an overlap.
+            if (ox <= 0 || oy <= 0) continue;
+            if (
+              overlapThreshold > 0 &&
+              this.commentOverlapFraction(ca, cb) <= overlapThreshold
+            ) {
+              continue;
+            }
+
+            // Separate along the cheaper axis, fully plus a gap, so the pair
+            // comes apart in one move rather than being nudged to just-touching
+            // and revisited every pass.
+            const horizontal = ox <= oy;
+            const push = (horizontal ? ox : oy) + gap;
+            const centreA = horizontal
+              ? ca.x + ca.width / 2
+              : ca.y + ca.height / 2;
+            const centreB = horizontal
+              ? cb.x + cb.width / 2
+              : cb.y + cb.height / 2;
+            // Deterministic tie-break, so two exactly concentric comments still
+            // come apart the same way every run.
+            const dir =
+              Math.sign(centreA - centreB) || (ca.id < cb.id ? -1 : 1);
+
+            // Split the move evenly, unless one side is pinned - then the other
+            // gives way completely.
+            const shareA = a.frozen ? 0 : b.frozen ? 1 : 0.5;
+            const stepA = dir * push * shareA;
+            const stepB = -dir * push * (1 - shareA);
+
+            if (stepA) moveGroup(a, horizontal ? stepA : 0, horizontal ? 0 : stepA);
+            if (stepB) moveGroup(b, horizontal ? stepB : 0, horizontal ? 0 : stepB);
+            moved++;
+          }
+        }
+      }
+
+      if (moved === 0) {
+        result.converged = true;
+        break;
+      }
+      result.separated += moved;
+      // Parents re-expand over the children a sibling move displaced. Every move
+      // is rigid, so a moved comment's refit reproduces its own rect exactly and
+      // the loop cannot fight itself.
+      refitOnce();
+    }
+
+    // Separating one pair can push a comment onto a third, so this relaxes over
+    // several passes. Crowded graphs can run out before every overlap is gone -
+    // say so rather than reporting a clean layout, `csg lint` will list what is
+    // left as overlappingComments.
+    if (!result.converged) {
+      console.log(
+        `Comment separation stopped after ${result.passes} passes with overlaps remaining`,
+      );
+    }
+
+    return result;
+  }
+
+  // True if anything the comment is fitted to has moved, resized, or gone away.
+  // calculateCommentDiff deep-equals raw floats, so a comment whose members all
+  // sat still has to be left untouched rather than reassigned an arithmetically
+  // equal value - otherwise every arrange writes float noise into its undo entry.
+  _commentContentChanged(entry, nodes, children) {
+    if (nodes.length !== entry.nodes.length) return true;
+    if (children.length !== entry.children.length) return true;
+    for (const n of nodes) {
+      const was = entry.nodeWas.get(n);
+      if (
+        !was ||
+        was.x !== n.x ||
+        was.y !== n.y ||
+        was.width !== n.width ||
+        was.height !== n.height
+      ) {
+        return true;
+      }
+    }
+    for (const c of children) {
+      const was = entry.childWas.get(c);
+      if (
+        !was ||
+        was.x !== c.x ||
+        was.y !== c.y ||
+        was.width !== c.width ||
+        was.height !== c.height
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // "Comment Selection" action: fit a comment around whatever is selected.
@@ -12410,6 +12867,7 @@ class BlueprintSystem {
 
     this.autoLayoutEngine.autoArrange(selectedOnly, {
       recordHistory: options.recordHistory !== false,
+      fitComments: options.fitComments !== false,
     });
   }
 
@@ -12612,6 +13070,12 @@ class BlueprintSystem {
       (node) => this.getNodeTypeKey(node.nodeType) !== "setVariable",
     );
 
+    // Parking a Set Variable elsewhere moves it out from under whatever comment
+    // held it, so the boxes get refitted here for the same reason auto-arrange
+    // does it.
+    const commentSnapshot =
+      options.fitComments !== false ? this.captureCommentMembership() : null;
+
     let moved = 0;
     for (const node of this.nodes) {
       if (this.getNodeTypeKey(node.nodeType) !== "setVariable") continue;
@@ -12641,6 +13105,13 @@ class BlueprintSystem {
         moved++;
       }
       obstacles.push(node);
+    }
+
+    // Refit before the push, so the comment geometry rides in the same entry.
+    // Kept separate from the recordHistory guard: a caller that suppresses the
+    // push still wants the comments to follow, and pushes its own entry.
+    if (moved > 0 && commentSnapshot) {
+      this.refitCommentsToMembership(commentSnapshot);
     }
 
     if (moved > 0 && options.recordHistory !== false) {
@@ -15511,6 +15982,11 @@ class BlueprintSystem {
     this.wires = [];
     this.selectedNodes.clear();
     this.selectedRerouteNodes.clear();
+
+    // Comments too - they were being left behind, so a new project opened with
+    // the previous one's boxes still floating over it.
+    this.comments = [];
+    this.commentIdCounter = 1;
 
     // Reset shader settings to defaults. Shares makeDefaultShaderSettings with
     // Graph.js so a new project cannot end up missing newer settings keys.
@@ -20359,42 +20835,22 @@ class BlueprintSystem {
       ctx.textAlign = "left";
       ctx.fillText(comment.title, comment.x + 35, comment.y + 20);
 
-      // Description text
+      // Description text. The wrap is shared with commentHeaderHeight(), which is
+      // what reserves the room these lines are drawn into.
       if (comment.description) {
         ctx.fillStyle = "#cccccc";
-        ctx.font = "12px sans-serif";
+        ctx.font = COMMENT_DESCRIPTION_FONT;
         ctx.textAlign = "left";
 
-        // Word wrap the description with newline support
-        const maxWidth = comment.width - COMMENT_TEXT_MARGIN;
-        const lineHeight = 16;
-        const paragraphs = comment.description.split("\n");
-        let y = comment.y + 50;
-
-        for (let p = 0; p < paragraphs.length; p++) {
-          if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
-          const words = paragraphs[p].split(" ");
-          let line = "";
-
-          for (let i = 0; i < words.length; i++) {
-            const testLine = line + words[i] + " ";
-            const metrics = ctx.measureText(testLine);
-
-            if (metrics.width > maxWidth && i > 0) {
-              ctx.fillText(line, comment.x + 10, y);
-              line = words[i] + " ";
-              y += lineHeight;
-              if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
-            } else {
-              line = testLine;
-            }
-          }
-
-          // Draw the last line of this paragraph
-          if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
-            ctx.fillText(line, comment.x + 10, y);
-            y += lineHeight;
-          }
+        const bottom = comment.y + comment.height - COMMENT_TEXT_MARGIN;
+        let y = comment.y + COMMENT_DESCRIPTION_TOP;
+        for (const line of this.wrapCommentDescription(
+          comment.description,
+          comment.width,
+        )) {
+          if (y > bottom) break;
+          ctx.fillText(line, comment.x + 10, y);
+          y += COMMENT_DESCRIPTION_LINE_HEIGHT;
         }
       }
     }

@@ -413,6 +413,34 @@ describe("edits do not leak into the next undo entry", () => {
       read: () => blueprint.wires.filter((w) => w.rerouteNodes.length > 0).length,
       expected: 0,
     },
+    {
+      // Auto-arrange refits comment boxes around the nodes they enclosed. That
+      // happens inside the engine, before its own pushState, so it must ride in
+      // the arrange entry rather than leaking into whatever is recorded next.
+      name: "auto-arrange comment refit",
+      act: () => {
+        const a = blueprint.addNode(2000, 2000, NODE_TYPES.floatInput);
+        const b = blueprint.addNode(2400, 2000, NODE_TYPES.toVec4);
+        connect(a.outputPorts[0], b.inputPorts[0]);
+        blueprint.createCommentAroundNodes([a, b], { title: "Refit me" });
+        blueprint.history.pushState("setup");
+        defeatCoalescing();
+        blueprint.clearSelection();
+        blueprint.autoArrange();
+      },
+      // Counted rather than compared to a rect, and read off the graph rather
+      // than a captured reference, since undo rebuilds the Comment instances.
+      // If the refit leaked, undoing the later edit would snap the box back to
+      // its pre-arrange position while the nodes stayed put, and the count
+      // would drop.
+      read: () => {
+        const comment = blueprint.comments.find((c) => c.title === "Refit me");
+        return comment
+          ? blueprint.nodes.filter((n) => comment.containsNode(n)).length
+          : -1;
+      },
+      expected: 2,
+    },
   ];
 
   for (const testCase of CASES) {

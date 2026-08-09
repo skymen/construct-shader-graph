@@ -182,6 +182,58 @@ describe("arrange", () => {
     const written = JSON.parse(fs.readFileSync(target, "utf-8"));
     expect(written.previewScreenshot).toBe(project.previewScreenshot);
   });
+
+  // Comments used to be left behind wherever the nodes had been, which is why
+  // `csg comment` still tells you to arrange first. Both directions now work.
+  it("carries comment boxes along with the nodes they enclosed", async () => {
+    await host.call("projects.loadSaveData", [
+      fs.readFileSync(MULTIGRAPH, "utf-8"),
+    ]);
+    const ids = host.blueprint.nodes.slice(0, 3).map((n) => n.id);
+    const commented = out("commented-then-arranged.c3sg");
+    await runCommand("comment", [MULTIGRAPH], {
+      nodes: ids.join(","),
+      title: "Group",
+      output: commented,
+    });
+
+    const arranged = out("arranged-with-comment.c3sg");
+    await runCommand("arrange", [commented], {
+      allGraphs: true,
+      output: arranged,
+    });
+
+    await host.call("projects.loadSaveData", [
+      fs.readFileSync(arranged, "utf-8"),
+    ]);
+    const comment = host.blueprint.comments.find((c) => c.title === "Group");
+    for (const node of host.blueprint.nodes) {
+      expect(comment.containsNode(node)).toBe(ids.includes(node.id));
+    }
+  });
+
+  it("--no-fit-comments leaves the boxes exactly where they were", async () => {
+    await host.call("projects.loadSaveData", [
+      fs.readFileSync(MULTIGRAPH, "utf-8"),
+    ]);
+    const ids = host.blueprint.nodes.slice(0, 3).map((n) => n.id);
+    const commented = out("commented-frozen.c3sg");
+    await runCommand("comment", [MULTIGRAPH], {
+      nodes: ids.join(","),
+      output: commented,
+    });
+    const before = JSON.parse(fs.readFileSync(commented, "utf-8")).comments;
+
+    const arranged = out("arranged-frozen.c3sg");
+    await runCommand("arrange", [commented], {
+      allGraphs: true,
+      fitComments: false,
+      output: arranged,
+    });
+
+    const after = JSON.parse(fs.readFileSync(arranged, "utf-8")).comments;
+    expect(after).toEqual(before);
+  });
 });
 
 describe("codegen", () => {

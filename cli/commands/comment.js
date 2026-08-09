@@ -10,14 +10,15 @@ export const usage = `csg comment <file.c3sg> --nodes <ids> [options]
   --title <text>      Comment title
   --description <t>   Comment body text
   --color <hex>       Comment color, e.g. #4a90e2
-  --padding <px>      Gap left around the nodes (default: 30)
+  --padding <px>      Gap left around the nodes (default: 30). Only the initial
+                      size - 'csg arrange' refits to the default
   --in-place          Write back over the input file
   -o, --output <f>    Write the result to <f>
   -f, --force         Write even if loading dropped unknown node types
 
-Run 'csg arrange' first. A comment is fitted to where the nodes are when it is
-created and does not follow them, so arranging afterwards leaves it misplaced
-and enclosing the wrong nodes.`;
+Order does not matter: 'csg arrange' refits each comment around the nodes it
+enclosed, so commenting first and arranging afterwards is fine. Pass
+'--no-fit-comments' to arrange if you want the boxes left exactly where they are.`;
 export const booleans = ["inPlace"];
 export const aliases = { o: "output", g: "graph", n: "nodes" };
 
