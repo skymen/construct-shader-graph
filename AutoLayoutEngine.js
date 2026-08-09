@@ -166,6 +166,8 @@ export class AutoLayoutEngine {
 
     console.log(`Auto-arranging ${nodesToArrange.length} nodes...`);
 
+    this.beginLayoutSession();
+
     // Record what each comment encloses before anything moves, so the boxes can
     // be put back around the same nodes afterwards. Capturing here rather than
     // just before applyLayout is equivalent - nothing between here and the apply
@@ -178,6 +180,14 @@ export class AutoLayoutEngine {
     // Build dependency graph
     const graph = this.buildDependencyGraph(nodesToArrange);
 
+    // Stand each comment in for the section it encloses, so the packer places
+    // that section as one block and the box comes out tight. Skipped for a
+    // selection arrange, where a partly-selected comment would contract a partial
+    // set of its members.
+    if (commentSnapshot && !selectedOnly) {
+      this.contractComments(graph, commentSnapshot);
+    }
+
     // Find connected components (subgraphs)
     const components = this.findConnectedComponents(graph);
 
@@ -185,6 +195,9 @@ export class AutoLayoutEngine {
 
     // Layout each component and calculate their bounding boxes
     const componentLayouts = [];
+    // Sinks with no context of their own, parked beside their provider once the
+    // rest of the graph has landed. See the satellite rule below.
+    const satellites = [];
 
     components.forEach((component, index) => {
       console.log(
@@ -192,7 +205,31 @@ export class AutoLayoutEngine {
       );
 
       // Find independent branches within this component
-      const branches = this.findIndependentBranches(component, graph);
+      const allBranches = this.findIndependentBranches(component, graph);
+
+      // A secondary branch that is a single node with inputs elsewhere in the
+      // component has no context of its own - in practice a Set Variable pill
+      // whose whole chain belongs to another sink. Stacking it below the primary
+      // block would leave it a screen away from the node it reads. Park it beside
+      // that node once everything else is placed instead.
+      const branches = [];
+      allBranches.forEach((branch, branchIndex) => {
+        const isSatellite =
+          branchIndex > 0 &&
+          branch.length === 1 &&
+          (graph.get(branch[0])?.inputs || []).some((id) => graph.has(id));
+        if (isSatellite) {
+          const node = this.bp.nodes.find((n) => n.id === branch[0]);
+          if (node) {
+            satellites.push(node);
+            return;
+          }
+        }
+        branches.push(branch);
+      });
+
+      if (branches.length === 0) return;
+
       console.log(`  Found ${branches.length} independent branch(es)`);
 
       let componentWidth = 0;
@@ -214,25 +251,21 @@ export class AutoLayoutEngine {
         componentHeight = branchOffsetY - this.config.branchSpacing;
       } else {
         // Single branch, layout normally
-        const layout = this.layoutComponent(component, graph);
+        const layout = this.layoutComponent(branches[0], graph);
         branchLayouts.push({ layout, offsetX: 0, offsetY: 0 });
         componentWidth = layout.width;
         componentHeight = layout.height;
       }
 
-      // Check if this component contains the output node
-      const hasOutputNode = component.some(
-        (node) => node.nodeType && node.nodeType.name === "Output"
-      );
-
-      // Find root node for this component (for preserving position when selectedOnly)
-      const subgraph = new Map();
-      component.forEach((nodeId) => {
-        if (graph.has(nodeId)) {
-          subgraph.set(nodeId, graph.get(nodeId));
-        }
+      // Anchor for selection arranges: the first branch's root, i.e. the primary
+      // sink. Taking findRootNode over the whole component could hand back a
+      // secondary sink, and packComponentsPreservingRoots would then move the
+      // entire tree to hold that one pill still.
+      const primaryBranch = new Map();
+      branches[0].forEach((nodeId) => {
+        if (graph.has(nodeId)) primaryBranch.set(nodeId, graph.get(nodeId));
       });
-      const rootNodeId = this.findRootNode(subgraph);
+      const rootNodeId = this.findRootNode(primaryBranch);
       const rootNode = rootNodeId
         ? this.bp.nodes.find((n) => n.id === rootNodeId)
         : null;
@@ -242,20 +275,14 @@ export class AutoLayoutEngine {
         branchLayouts,
         width: componentWidth,
         height: componentHeight,
-        hasOutputNode,
         rootNode, // Store root node reference
         x: 0,
         y: 0,
       });
     });
 
-    // Sort components: output node's graph first, then by size (largest first)
-    componentLayouts.sort((a, b) => {
-      if (a.hasOutputNode && !b.hasOutputNode) return -1;
-      if (!a.hasOutputNode && b.hasOutputNode) return 1;
-      // Sort by area (larger first)
-      return b.width * b.height - a.width * a.height;
-    });
+    // Largest first, so the biggest block anchors the packing.
+    componentLayouts.sort((a, b) => b.width * b.height - a.width * a.height);
 
     // Pack components efficiently
     // If selectedOnly, preserve root node positions
@@ -315,6 +342,18 @@ export class AutoLayoutEngine {
         );
       });
     });
+
+    // Park the satellites now that every other node has its final position, and
+    // against every live node rather than just their own component, so they
+    // cannot land on anything. Ordered by this.bp.nodes for determinism.
+    if (satellites.length > 0) {
+      const parkOrder = this.bp.nodes.filter((n) => satellites.includes(n));
+      const obstacles = this.bp.nodes.filter((n) => !satellites.includes(n));
+      for (const node of parkOrder) {
+        this.bp.parkNodeBesideItsSource(node, obstacles);
+        obstacles.push(node);
+      }
+    }
 
     // Put the comment boxes back around their nodes. Before render() so the first
     // paint is right, and before centerView() so anything the separation pass
@@ -703,77 +742,364 @@ export class AutoLayoutEngine {
   }
 
   /**
-   * Find independent branches within a connected component
-   * Branches are groups of nodes that don't share any common ancestors
+   * Split a connected component into the branches that can each be laid out as
+   * their own tree.
+   *
+   * The tree layout hangs everything off ONE root and only covers that root's
+   * backward cone, so a component with several sinks used to lose every node
+   * outside the chosen cone - they were never given a position at all and simply
+   * kept their pre-arrange coordinates. Partitioning by sink cone here means each
+   * sink gets its own tree and every node is placed.
+   *
+   * Cones are claimed in priority order and a node joins the first cone that
+   * wants it. That keeps each residual a valid tree: if Y is in cone i and some
+   * node on Y's path to sink i had been claimed by an earlier cone j, then Y
+   * would reach sink j too and would itself have been claimed by j. So the whole
+   * path stays in the residual, and the sink is the only node in it with no
+   * consumer - exactly what findRootNode looks for.
    */
   findIndependentBranches(nodeIds, graph) {
-    // Build a map of which nodes each node can reach
-    const reachabilityMap = new Map();
-
-    nodeIds.forEach((nodeId) => {
-      const reachable = new Set();
-      this.findReachableNodes(nodeId, graph, reachable, nodeIds);
-      reachabilityMap.set(nodeId, reachable);
+    const inSet = new Set(nodeIds);
+    const sinks = nodeIds.filter((id) => {
+      const data = graph.get(id);
+      return data && !data.outputs.some((out) => inSet.has(out));
     });
 
-    // Group nodes into branches based on shared reachability
-    const branches = [];
-    const assigned = new Set();
+    // The overwhelmingly common case, and byte-identical to the old behaviour.
+    if (sinks.length <= 1) return [nodeIds];
 
-    nodeIds.forEach((nodeId) => {
-      if (assigned.has(nodeId)) return;
-
-      const branch = [nodeId];
-      assigned.add(nodeId);
-
-      const reachable = reachabilityMap.get(nodeId);
-
-      // Find all nodes that share reachability with this node
-      nodeIds.forEach((otherId) => {
-        if (assigned.has(otherId) || otherId === nodeId) return;
-
-        const otherReachable = reachabilityMap.get(otherId);
-
-        // Check if they share any reachable nodes or reach each other
-        const hasOverlap =
-          reachable.has(otherId) ||
-          otherReachable.has(nodeId) ||
-          [...reachable].some((id) => otherReachable.has(id));
-
-        if (hasOverlap) {
-          branch.push(otherId);
-          assigned.add(otherId);
+    // Full cones first, then claim. Sizing the cones after claiming would make
+    // the order depend on itself.
+    const coneOf = new Map();
+    for (const sink of sinks) {
+      const cone = new Set([sink]);
+      const stack = [sink];
+      while (stack.length > 0) {
+        const current = stack.pop();
+        for (const input of graph.get(current)?.inputs || []) {
+          if (!inSet.has(input) || cone.has(input)) continue;
+          cone.add(input);
+          stack.push(input);
         }
-      });
+      }
+      coneOf.set(sink, cone);
+    }
 
-      branches.push(branch);
+    const ordered = [...sinks].sort((a, b) => {
+      const aTerminal = this.isTerminalNode(graph.get(a)?.node) ? 1 : 0;
+      const bTerminal = this.isTerminalNode(graph.get(b)?.node) ? 1 : 0;
+      if (aTerminal !== bTerminal) return bTerminal - aTerminal;
+      const sizeDelta = coneOf.get(b).size - coneOf.get(a).size;
+      if (sizeDelta !== 0) return sizeDelta;
+      // Node id last, so the result never depends on where anything sits.
+      return a < b ? -1 : a > b ? 1 : 0;
     });
+
+    const claimed = new Set();
+    const branches = [];
+    for (const sink of ordered) {
+      // Sink first, so findRootNode meets it on its first iteration.
+      const residual = [sink];
+      claimed.add(sink);
+      for (const id of coneOf.get(sink)) {
+        if (id === sink || claimed.has(id)) continue;
+        claimed.add(id);
+        residual.push(id);
+      }
+      branches.push(residual);
+    }
+
+    // A node in no cone reaches no sink, which means it sits on a cycle. Keep it
+    // in the layout as its own branch rather than dropping it - findRootNode
+    // returns null for it and hierarchicalBottomUpLayout falls back to
+    // traditionalLayout, which places everything.
+    const orphans = nodeIds.filter((id) => !claimed.has(id));
+    if (orphans.length > 0) branches.push(orphans);
 
     return branches;
   }
 
   /**
-   * Find all nodes reachable from a given node (following outputs)
+   * Replace each comment's members with a single stand-in node, so the layout
+   * treats the section as one unit and the comment box ends up tight around it.
+   *
+   * Without this the layout only ever sees individual nodes: two halves of one
+   * comment get packed wherever they fit, the box stretches to reach both, and on
+   * the way it swallows whatever it stretched over.
+   *
+   * A comment can only be contracted if its member set is *convex* - no path
+   * leaves the set and comes back. A non-convex set has a non-member that must be
+   * drawn between two members, so contracting it would make the quotient graph
+   * cyclic and no layout could keep the box tight anyway. Those are left alone
+   * and reported by `csg lint` as nonConvexComment.
    */
-  findReachableNodes(nodeId, graph, reachable, validNodes) {
-    const data = graph.get(nodeId);
-    if (!data) return;
+  contractComments(graph, snapshot) {
+    // Innermost first, so an outer comment contracts over its children's
+    // stand-ins rather than over their raw members.
+    const entries = [...snapshot.entries]
+      .filter((e) => !e.frozen)
+      .sort((a, b) => b.depth - a.depth || a.comment.id - b.comment.id);
 
-    data.outputs.forEach((outputId) => {
-      if (!validNodes.includes(outputId)) return;
-      if (reachable.has(outputId)) return;
+    const unsafe = this.commentsWithTangledMembership(entries);
 
-      reachable.add(outputId);
-      this.findReachableNodes(outputId, graph, reachable, validNodes);
+    let nextClusterId = -1;
+
+    for (const entry of entries) {
+      if (unsafe.has(entry)) continue;
+      // Members that are still in the graph, with any already-contracted child
+      // comment standing in for its own members.
+      const members = new Set();
+      for (const node of entry.nodes) {
+        const clusterId = this.clusterOwnerOf?.get(node.id);
+        if (clusterId !== undefined) members.add(clusterId);
+        else if (graph.has(node.id)) members.add(node.id);
+      }
+      if (members.size < 2) continue;
+      if (!this.isConvexSet(members, graph)) continue;
+
+      const clusterId = nextClusterId--;
+      const interior = this.layoutNodeSet([...members], graph);
+      if (!interior || interior.positions.size === 0) continue;
+
+      // Reserve the comment's own box, not just the nodes': the padding and the
+      // title/description band are part of what has to fit on the canvas. Then
+      // the refit lands exactly inside the rect the packer set aside, so a
+      // contracted comment cannot collide with anything.
+      const box = this.bp.commentRectForContent(
+        { minX: 0, minY: 0, maxX: interior.width, maxY: interior.height },
+        { description: entry.comment.description },
+      );
+
+      this.clusters.set(clusterId, {
+        comment: entry.comment,
+        members,
+        interior,
+        width: box.width,
+        height: box.height,
+        // Where the members sit inside the reserved rect.
+        insetX: -box.x,
+        insetY: -box.y,
+      });
+
+      this.absorbIntoCluster(graph, clusterId, members);
+
+      this.clusterOwnerOf ??= new Map();
+      for (const id of members) {
+        this.clusterOwnerOf.set(id, clusterId);
+        // Anything the child cluster already owned now answers to this one.
+        const nested = this.clusters.get(id);
+        if (nested) {
+          for (const inner of nested.members) {
+            this.clusterOwnerOf.set(inner, clusterId);
+          }
+        }
+      }
+      for (const node of entry.nodes) this.clusterOwnerOf.set(node.id, clusterId);
+    }
+  }
+
+  /**
+   * Comments that must not be contracted because they share a node with another
+   * comment that does not contain them.
+   *
+   * Nesting is fine - an inner comment's nodes belong to its parent by
+   * definition. Two *unrelated* boxes holding the same node are not: neither can
+   * be laid out as a block without the other following it, their boxes have to
+   * overlap, and the separation pass cannot pull them apart either.
+   *
+   * Left uncontracted these behave as they did before clustering existed, which
+   * is merely untidy. Contracted, they feed the next arrange a different
+   * membership than the last one produced and the layout stops settling - press
+   * the shortcut twice, get two answers. `csg lint` reports the pair as
+   * multiCommentedNode.
+   */
+  commentsWithTangledMembership(entries) {
+    const isAncestor = (maybeAncestor, entry) => {
+      const byComment = new Map(entries.map((e) => [e.comment, e]));
+      let current = entry.parent;
+      while (current) {
+        if (current === maybeAncestor.comment) return true;
+        current = byComment.get(current)?.parent;
+      }
+      return false;
+    };
+
+    const owners = new Map();
+    for (const entry of entries) {
+      for (const node of entry.nodes) {
+        if (!owners.has(node)) owners.set(node, []);
+        owners.get(node).push(entry);
+      }
+    }
+
+    const unsafe = new Set();
+    for (const holders of owners.values()) {
+      if (holders.length < 2) continue;
+      for (let i = 0; i < holders.length; i++) {
+        for (let j = i + 1; j < holders.length; j++) {
+          const a = holders[i];
+          const b = holders[j];
+          if (isAncestor(a, b) || isAncestor(b, a)) continue;
+          unsafe.add(a);
+          unsafe.add(b);
+        }
+      }
+    }
+    return unsafe;
+  }
+
+  // A set is convex when no path leaves it and comes back. Step one hop outside
+  // from every member, then walk forwards: reaching a member from out there means
+  // that member's producer and consumer have an outsider between them.
+  //
+  // A direct member-to-member edge is not a violation, so those are not followed.
+  isConvexSet(members, graph) {
+    const seen = new Set();
+    const stack = [];
+    const escape = (id) => {
+      if (members.has(id) || seen.has(id) || !graph.has(id)) return;
+      seen.add(id);
+      stack.push(id);
+    };
+
+    for (const member of members) {
+      for (const out of graph.get(member)?.outputs || []) escape(out);
+    }
+
+    while (stack.length > 0) {
+      const id = stack.pop();
+      for (const out of graph.get(id)?.outputs || []) {
+        if (members.has(out)) return false;
+        escape(out);
+      }
+    }
+
+    return true;
+  }
+
+  // Swap the members out of the graph for one stand-in that inherits every wire
+  // crossing the cluster boundary.
+  absorbIntoCluster(graph, clusterId, members) {
+    const entry = {
+      node: null,
+      clusterId,
+      inputs: [],
+      outputs: [],
+      inputConnections: [],
+      outputConnections: [],
+    };
+
+    for (const id of members) {
+      const data = graph.get(id);
+      if (!data) continue;
+      for (const source of data.inputs) {
+        if (!members.has(source)) entry.inputs.push(source);
+      }
+      for (const target of data.outputs) {
+        if (!members.has(target)) entry.outputs.push(target);
+      }
+      graph.delete(id);
+    }
+
+    // Redirect the outside world's references to the members onto the stand-in.
+    for (const data of graph.values()) {
+      data.inputs = data.inputs.map((id) => (members.has(id) ? clusterId : id));
+      data.outputs = data.outputs.map((id) =>
+        members.has(id) ? clusterId : id,
+      );
+      for (const conn of data.inputConnections) {
+        if (members.has(conn.nodeId)) conn.nodeId = clusterId;
+      }
+      for (const conn of data.outputConnections) {
+        if (members.has(conn.nodeId)) conn.nodeId = clusterId;
+      }
+    }
+
+    graph.set(clusterId, entry);
+  }
+
+  /**
+   * Lay out a set of node ids as a self-contained block: split it into connected
+   * components, split each of those into branches, and pack the result.
+   *
+   * The top level of autoArrange does this to the whole graph; a contracted
+   * comment does it to its own interior, which is why a comment holding two
+   * unconnected sections still comes out as one tidy block.
+   */
+  layoutNodeSet(nodeIds, graph) {
+    const layouts = [];
+    const inSet = new Set(nodeIds);
+    const visited = new Set();
+
+    for (const id of nodeIds) {
+      if (visited.has(id) || !graph.has(id)) continue;
+      // Weakly connected component, restricted to this set.
+      const component = [];
+      const stack = [id];
+      visited.add(id);
+      while (stack.length > 0) {
+        const current = stack.pop();
+        component.push(current);
+        const data = graph.get(current);
+        if (!data) continue;
+        for (const neighbour of [...data.inputs, ...data.outputs]) {
+          if (!inSet.has(neighbour) || visited.has(neighbour)) continue;
+          visited.add(neighbour);
+          stack.push(neighbour);
+        }
+      }
+
+      const branches = this.findIndependentBranches(component, graph);
+      let offsetY = 0;
+      let width = 0;
+      const parts = [];
+      for (const branch of branches) {
+        const layout = this.layoutComponent(branch, graph);
+        parts.push({ layout, offsetY });
+        offsetY += layout.height + this.config.branchSpacing;
+        width = Math.max(width, layout.width);
+      }
+      layouts.push({
+        parts,
+        width,
+        height: Math.max(0, offsetY - this.config.branchSpacing),
+        x: 0,
+        y: 0,
+      });
+    }
+
+    if (layouts.length === 0) return null;
+    layouts.sort((a, b) => b.width * b.height - a.width * a.height);
+    this.packComponents(layouts);
+
+    const positions = new Map();
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const block of layouts) {
+      for (const part of block.parts) {
+        part.layout.positions.forEach((pos, nodeId) => {
+          const x = pos.x + block.x;
+          const y = pos.y + block.y + part.offsetY;
+          positions.set(nodeId, { x, y });
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x + this.nodeWidthOf(nodeId));
+          maxY = Math.max(maxY, y + this.nodeHeightOf(nodeId));
+        });
+      }
+    }
+
+    const normalized = new Map();
+    positions.forEach((pos, nodeId) => {
+      normalized.set(nodeId, { x: pos.x - minX, y: pos.y - minY });
     });
-
-    data.inputs.forEach((inputId) => {
-      if (!validNodes.includes(inputId)) return;
-      if (reachable.has(inputId)) return;
-
-      reachable.add(inputId);
-      this.findReachableNodes(inputId, graph, reachable, validNodes);
-    });
+    return {
+      positions: normalized,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
   }
 
   /**
@@ -789,7 +1115,39 @@ export class AutoLayoutEngine {
     });
 
     // Use hierarchical bottom-up layout
-    return this.hierarchicalBottomUpLayout(subgraph, graph);
+    return this.normalizeLayout(this.hierarchicalBottomUpLayout(subgraph, graph));
+  }
+
+  // Shift a finished layout so its top-left corner is the origin, and measure it
+  // from the actual node rects.
+  //
+  // arrangeBranchWithChildren anchors the parent's right edge at x = 0 and grows
+  // leftwards, so raw positions run from -width to 0 - while packComponents and
+  // the branch stacker both reserve the rect [x, x + width]. The reserved area was
+  // therefore a full component-width to the right of where the nodes actually
+  // landed, so two packed components could be placed straight through each other.
+  // Normalising here fixes the packer, the branch stacker and the camera framing
+  // in one place, and is what lets a contracted comment report an honest size.
+  normalizeLayout(layout) {
+    if (!layout?.positions || layout.positions.size === 0) return layout;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    layout.positions.forEach((pos, nodeId) => {
+      minX = Math.min(minX, pos.x);
+      minY = Math.min(minY, pos.y);
+      maxX = Math.max(maxX, pos.x + this.nodeWidthOf(nodeId));
+      maxY = Math.max(maxY, pos.y + this.nodeHeightOf(nodeId));
+    });
+
+    const positions = new Map();
+    layout.positions.forEach((pos, nodeId) => {
+      positions.set(nodeId, { x: pos.x - minX, y: pos.y - minY });
+    });
+
+    return { positions, width: maxX - minX, height: maxY - minY };
   }
 
   /**
@@ -870,7 +1228,12 @@ export class AutoLayoutEngine {
         if (children.length === 0) {
           // Leaf node - create simple layout
           const layout = {
-            bbox: { x: 0, y: 0, width: 200, height: 100 },
+            bbox: {
+              x: 0,
+              y: 0,
+              width: this.nodeWidthOf(nodeId),
+              height: this.nodeHeightOf(nodeId),
+            },
             positions: new Map([[nodeId, { x: 0, y: 0 }]]),
             nodes: [nodeId],
           };
@@ -931,29 +1294,69 @@ export class AutoLayoutEngine {
    * Find the root node (typically the output node)
    */
   findRootNode(subgraph) {
-    // Look for node with no outputs (or output node type)
+    // The node the whole layout hangs off: the graph's terminal node if it has
+    // one, otherwise any node nothing else consumes.
     let root = null;
+    let fallback = null;
 
-    subgraph.forEach((data, nodeId) => {
+    for (const [nodeId, data] of subgraph) {
+      if (this.isTerminalNode(data.node)) {
+        // First match wins. This used to be a forEach with a bare `return`,
+        // which continues rather than breaking, so the *last* terminal node was
+        // picked instead.
+        root = nodeId;
+        break;
+      }
+
       const outputsInSubgraph = data.outputs.filter((id) => subgraph.has(id));
-      const node = data.node;
-
-      // Prefer actual output nodes (check by title or type name)
-      if (
-        node &&
-        (node.title === "Output" || node.nodeType?.name === "Output")
-      ) {
-        root = nodeId;
-        return;
+      if (outputsInSubgraph.length === 0 && fallback === null) {
+        fallback = nodeId;
       }
+    }
 
-      // Otherwise, node with no outputs
-      if (outputsInSubgraph.length === 0 && !root) {
-        root = nodeId;
-      }
-    });
+    return root !== null ? root : fallback;
+  }
 
-    return root;
+  // Sizes come from one place so that a contracted comment - which is a whole
+  // subgraph standing in for a node, and nothing like 200x100 - measures the same
+  // everywhere the layout asks. Also indexes nodes by id: the arrangement inner
+  // loops used to bp.nodes.find() per comparison, which is quadratic in a hot path.
+  beginLayoutSession() {
+    this.nodeIndex = new Map(this.bp.nodes.map((n) => [n.id, n]));
+    this.clusters = new Map();
+    this.clusterOwnerOf = new Map();
+  }
+
+  nodeRecordOf(nodeId) {
+    if (this.nodeIndex) return this.nodeIndex.get(nodeId) || null;
+    return this.bp.nodes.find((n) => n.id === nodeId) || null;
+  }
+
+  nodeWidthOf(nodeId) {
+    const cluster = this.clusters?.get(nodeId);
+    if (cluster) return cluster.width;
+    return this.nodeRecordOf(nodeId)?.width ?? 200;
+  }
+
+  nodeHeightOf(nodeId) {
+    const cluster = this.clusters?.get(nodeId);
+    if (cluster) return cluster.height;
+    const node = this.nodeRecordOf(nodeId);
+    return node?.height ?? this.estimateNodeHeight(node);
+  }
+
+  // The node a graph is read towards. Function and loopBody graphs end in a
+  // "Function Output" boundary node rather than "Output", and autoArrangeAllGraphs
+  // arranges those too - recognising only "Output" let a stray sink win the root
+  // election there.
+  isTerminalNode(node) {
+    if (!node) return false;
+    const typeName = node.nodeType?.name;
+    return (
+      node.title === "Output" ||
+      typeName === "Output" ||
+      typeName === "Function Output"
+    );
   }
 
   /**
@@ -1195,9 +1598,11 @@ export class AutoLayoutEngine {
     const nodeData = subgraph.get(nodeId);
     const node = nodeData?.node;
 
-    // Estimate node size
-    const nodeWidth = 200;
-    const nodeHeight = this.estimateNodeHeight(node);
+    // Real width, not a flat 200: pills are 120 and regular nodes 180, and a
+    // contracted comment is as wide as the section inside it.
+    const nodeWidth = this.nodeWidthOf(nodeId);
+    const nodeHeight =
+      this.clusters?.get(nodeId)?.height ?? this.estimateNodeHeight(node);
 
     if (children.length === 0) {
       return {
@@ -1506,9 +1911,7 @@ export class AutoLayoutEngine {
         let oscillationDetected = false;
 
         // Calculate where this child will be placed in X
-        // Get the actual child node to check its width (pills are 120px, regular nodes are 180px)
-        const actualChildNode = this.bp.nodes.find((n) => n.id === child.id);
-        const actualChildWidth = actualChildNode?.width || 200;
+        const actualChildWidth = this.nodeWidthOf(child.id);
 
         // The child node itself should be positioned with its RIGHT edge at -(nodeWidth + horizontalSpacing)
         const childNodePos = childLayout.positions.get(child.id);
@@ -1607,11 +2010,9 @@ export class AutoLayoutEngine {
               // Skip this placed child in overlap detection
             } else {
               // Get the actual placed child node to check its width
-              const actualPlacedChildNode = this.bp.nodes.find(
-                (n) => n.id === childLayouts[i].id
+              const actualPlacedChildWidth = this.nodeWidthOf(
+                childLayouts[i].id
               );
-              const actualPlacedChildWidth =
-                actualPlacedChildNode?.width || 200;
 
               const placedChildNodeRightEdge = -nodeWidth - horizontalSpacing;
               const placedChildBaseX =
@@ -1622,15 +2023,15 @@ export class AutoLayoutEngine {
               // Get ALL nodes in the placed child's tree with ACTUAL positions
               const nodesToCheck = [];
               placedChildLayout.positions.forEach((pos, nodeId) => {
-                const node = this.bp.nodes.find((n) => n.id === nodeId);
-                if (node) {
+                const node = this.nodeRecordOf(nodeId);
+                if (node || this.clusters?.has(nodeId)) {
                   nodesToCheck.push({
                     nodeId,
-                    nodeName: node.nodeType?.name || `Node ${nodeId}`,
+                    nodeName: node?.nodeType?.name || `Node ${nodeId}`,
                     x: placedChildBaseX + pos.x,
                     y: placedChildOffset.y + pos.y,
-                    width: node.width || 200,
-                    height: node.height || 100,
+                    width: this.nodeWidthOf(nodeId),
+                    height: this.nodeHeightOf(nodeId),
                   });
                 }
               });
@@ -1836,9 +2237,7 @@ export class AutoLayoutEngine {
         return;
       }
 
-      // Get the actual child node to check its width (pills are 120px, regular nodes are 180px)
-      const actualChildNode = this.bp.nodes.find((n) => n.id === child.id);
-      const actualChildWidth = actualChildNode?.width || 200;
+      const actualChildWidth = this.nodeWidthOf(child.id);
 
       // The child node itself should be positioned with its RIGHT edge at -(nodeWidth + horizontalSpacing)
       // For right-alignment: all nodes' right edges should align regardless of their width
@@ -2374,7 +2773,21 @@ export class AutoLayoutEngine {
    */
   applyLayout(layout, offsetX, offsetY) {
     layout.positions.forEach((pos, nodeId) => {
-      const node = this.bp.nodes.find((n) => n.id === nodeId);
+      // A contracted comment expands here: its interior was laid out once, in its
+      // own coordinates, and is dropped in wherever the stand-in landed. The
+      // inset skips the padding and title band the reserved rect includes.
+      // Recursive, so a comment nested in a comment unpacks too.
+      const cluster = this.clusters?.get(nodeId);
+      if (cluster) {
+        this.applyLayout(
+          cluster.interior,
+          pos.x + offsetX + cluster.insetX,
+          pos.y + offsetY + cluster.insetY,
+        );
+        return;
+      }
+
+      const node = this.nodeRecordOf(nodeId);
       if (node) {
         node.x = pos.x + offsetX;
         node.y = pos.y + offsetY;

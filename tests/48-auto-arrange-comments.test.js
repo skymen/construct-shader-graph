@@ -393,6 +393,161 @@ describe("auto-arrange keeps comments around their nodes", () => {
   });
 });
 
+// Auto-arrange stands each comment in for the section it encloses and lays that
+// section out as one block, so the box comes out tight instead of stretching to
+// reach halves the packer scattered.
+describe("comments are laid out as one block", () => {
+  // The default nodes sit near the origin and would be caught by a comment fitted
+  // around anything placed there, which is the geometric-membership hazard rather
+  // than the thing under test.
+  const clearSeededNodes = () => {
+    for (const node of blueprint.nodes) {
+      node.x = -8000;
+      node.y = -8000;
+    }
+  };
+
+  it("keeps two disconnected sections together in a tight box", () => {
+    clearSeededNodes();
+    const upper = chain(0, 0);
+    const lower = chain(0, 900);
+    const members = [...upper, ...lower];
+    const comment = blueprint.createCommentAroundNodes(members, {
+      title: "Both halves",
+    });
+    const before = rect(comment);
+
+    blueprint.autoArrange();
+
+    // One cluster formed, covering both halves.
+    expect(blueprint.autoLayoutEngine.clusters.size).toBe(1);
+
+    // Tighter than it was, and holding exactly its own nodes - no strangers.
+    expect(rect(comment).height).toBeLessThan(before.height);
+    expect(blueprint.nodes.filter((n) => comment.containsNode(n)).sort()).toEqual(
+      members.sort(),
+    );
+
+    // The two halves end up adjacent rather than packed across the canvas.
+    expect(bounds(upper).minX).toBeCloseTo(bounds(lower).minX, 6);
+    const gap = bounds(lower).minY - bounds(upper).maxY;
+    expect(gap).toBeGreaterThan(0);
+    expect(gap).toBeLessThan(200);
+  });
+
+  it("survives a second arrange", () => {
+    clearSeededNodes();
+    const members = [...chain(0, 0), ...chain(0, 900)];
+    blueprint.createCommentAroundNodes(members, { title: "Both halves" });
+
+    blueprint.autoArrange();
+    const nodesOnce = nodePositions();
+    const rectsOnce = rects();
+
+    blueprint.autoArrange();
+
+    expect(nodePositions()).toEqual(nodesOnce);
+    expect(rects()).toEqual(rectsOnce);
+  });
+
+  it("does not contract when fitComments is off", () => {
+    clearSeededNodes();
+    const members = [...chain(0, 0), ...chain(0, 900)];
+    blueprint.createCommentAroundNodes(members, { title: "Both halves" });
+
+    blueprint.autoArrange({ fitComments: false });
+
+    expect(blueprint.autoLayoutEngine.clusters.size).toBe(0);
+  });
+
+  it("leaves a non-convex comment uncontracted and reports it", () => {
+    clearSeededNodes();
+    // A -> B -> C with only A and C in the comment. B has to be drawn between
+    // them, so no layout can keep the box off it.
+    // b sits well below the line a-c so a box fitted around the two ends misses
+    // it: the grouping really is "the two ends but not the middle".
+    const a = blueprint.addNode(0, 0, NODE_TYPES.floatInput);
+    const b = blueprint.addNode(400, 900, NODE_TYPES.multiply);
+    const c = blueprint.addNode(800, 0, NODE_TYPES.toVec4);
+    connect(a.outputPorts[0], b.inputPorts[0]);
+    connect(b.outputPorts[0], c.inputPorts[0]);
+
+    const comment = blueprint.createCommentAroundNodes([a, c], { title: "Ends" });
+    expect(comment.containsNode(a)).toBe(true);
+    expect(comment.containsNode(c)).toBe(true);
+    expect(comment.containsNode(b)).toBe(false);
+
+    // Reported before the arrange: the refit afterwards fits the box around a
+    // and c, which spans b again, so the shape only exists in the authored state.
+    const audit = api.graph.audit();
+    expect(
+      audit.issues.some(
+        (issue) =>
+          issue.kind === "nonConvexComment" && issue.commentId === comment.id,
+      ),
+    ).toBe(true);
+
+    blueprint.autoArrange();
+    expect(blueprint.autoLayoutEngine.clusters.size).toBe(0);
+  });
+
+  it("does not contract comments that share a node with an unrelated comment", () => {
+    // Two boxes over the same node cannot both be laid out as a block, and
+    // contracting them would make each arrange see a different grouping than the
+    // last one produced. Nesting is fine - these two only partly overlap.
+    clearSeededNodes();
+    const first = blueprint.addNode(0, 0, NODE_TYPES.floatInput);
+    const middle = blueprint.addNode(400, 0, NODE_TYPES.multiply);
+    const last = blueprint.addNode(800, 0, NODE_TYPES.toVec4);
+    connect(first.outputPorts[0], middle.inputPorts[0]);
+    connect(middle.outputPorts[0], last.inputPorts[0]);
+
+    const one = blueprint.createCommentAroundNodes([first, middle], {
+      title: "One",
+    });
+    const two = blueprint.createCommentAroundNodes([middle, last], {
+      title: "Two",
+    });
+    expect(one.containsComment(two)).toBe(false);
+    expect(two.containsComment(one)).toBe(false);
+    expect(one.containsNode(middle) && two.containsNode(middle)).toBe(true);
+
+    blueprint.autoArrange();
+
+    expect(blueprint.autoLayoutEngine.clusters.size).toBe(0);
+  });
+
+  it("keeps a nested comment nested and both boxes tight", () => {
+    clearSeededNodes();
+    const inner = chain(0, 0);
+    const outer = chain(0, 900);
+    const innerComment = blueprint.createCommentAroundNodes(inner, {
+      title: "Inner",
+    });
+    const outerComment = blueprint.createCommentAroundNodes(
+      [
+        ...inner,
+        ...outer,
+        {
+          x: innerComment.x,
+          y: innerComment.y,
+          width: innerComment.width,
+          height: innerComment.height,
+        },
+      ],
+      { title: "Outer" },
+    );
+
+    blueprint.autoArrange();
+
+    expect(outerComment.containsComment(innerComment)).toBe(true);
+    for (const node of inner) expect(innerComment.containsNode(node)).toBe(true);
+    for (const node of [...inner, ...outer]) {
+      expect(outerComment.containsNode(node)).toBe(true);
+    }
+  });
+});
+
 describe("tidyVariables keeps comments around their nodes", () => {
   it("a Set Variable that moves takes its comment with it", () => {
     const source = blueprint.addNode(2000, 2000, NODE_TYPES.floatInput);

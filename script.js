@@ -13062,6 +13062,41 @@ class BlueprintSystem {
   // dependency levels put it. A Set Variable has no outgoing wires, so moving
   // one cannot disturb anything downstream, and it turns the one wire it does
   // have into a short stub.
+  // Park a node immediately to the right of whatever feeds its first input,
+  // aligned to that output port and slid down past anything already there.
+  // Returns true if it moved.
+  //
+  // This is the one definition of "a stored value sits beside the node that
+  // produced it". tidyVariables applies it to every Set Variable; auto-arrange
+  // applies it to sinks the layout could not place in a tree (see the satellite
+  // rule in AutoLayoutEngine). It is also the convention rewriteFanoutAsVariable
+  // uses when it first creates the node.
+  parkNodeBesideItsSource(node, obstacles, gap = 60) {
+    const wire = node.inputPorts[0]?.connections?.[0];
+    if (!wire) return false;
+    const source = wire.startPort.node;
+
+    const x = source.x + source.width + gap;
+    let y = wire.startPort.getPosition().y - node.height / 2;
+
+    const collides = (py) =>
+      obstacles.some(
+        (o) =>
+          o !== node &&
+          x < o.x + o.width + 20 &&
+          x + node.width + 20 > o.x &&
+          py < o.y + o.height + 20 &&
+          py + node.height + 20 > o.y,
+      );
+    let guard = 0;
+    while (collides(y) && guard++ < 40) y += 50;
+
+    if (node.x === x && node.y === y) return false;
+    node.x = x;
+    node.y = y;
+    return true;
+  }
+
   snapVariableNodesToSources(options = {}) {
     const gap = Number.isFinite(options.gap) ? options.gap : 60;
     // Placed Set Variables count as obstacles too: a node with two stored
@@ -13079,31 +13114,7 @@ class BlueprintSystem {
     let moved = 0;
     for (const node of this.nodes) {
       if (this.getNodeTypeKey(node.nodeType) !== "setVariable") continue;
-      const wire = node.inputPorts[0]?.connections?.[0];
-      if (!wire) continue;
-      const source = wire.startPort.node;
-
-      let x = source.x + source.width + gap;
-      let y = wire.startPort.getPosition().y - node.height / 2;
-
-      // Slide down past anything already sitting there.
-      const collides = (px, py) =>
-        obstacles.some(
-          (o) =>
-            o !== node &&
-            px < o.x + o.width + 20 &&
-            px + node.width + 20 > o.x &&
-            py < o.y + o.height + 20 &&
-            py + node.height + 20 > o.y,
-        );
-      let guard = 0;
-      while (collides(x, y) && guard++ < 40) y += 50;
-
-      if (node.x !== x || node.y !== y) {
-        node.x = x;
-        node.y = y;
-        moved++;
-      }
+      if (this.parkNodeBesideItsSource(node, obstacles, gap)) moved++;
       obstacles.push(node);
     }
 

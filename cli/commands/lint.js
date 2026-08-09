@@ -19,6 +19,9 @@ Checks:
   uncommentedNode      sits inside no comment
   multiCommentedNode   sits inside several comments at once
   overlappingComments  two comments overlap by more than 25%
+  nonConvexComment     an unrelated node sits on a path between two of the
+                       comment's own nodes, so the box cannot stay tight
+  commentSwallowsNode  a node inside a comment is wired to nothing else in it
   autoNamedVariable    still carries the name auto-arrange generated
   unroutedFanout       one output wired straight into many consumers
   wireOverNode         a wire is drawn over a node it does not connect to
@@ -37,6 +40,8 @@ const ORDER = [
   "backwardEntry",
   "uncommentedNode",
   "multiCommentedNode",
+  "nonConvexComment",
+  "commentSwallowsNode",
   "overlappingComments",
 ];
 

@@ -1565,6 +1565,84 @@ function auditGraph(bp, options = {}) {
     }
   }
 
+  // Why a comment box came out huge after an arrange. Auto-arrange stands each
+  // comment in for the section it holds, which keeps the box tight - but only if
+  // the section is a section. These two rules name the shapes it cannot do that
+  // for, so a bad-looking box points at the grouping rather than the layout.
+  if (bp.comments.length > 0) {
+    const forward = new Map(bp.nodes.map((n) => [n.id, []]));
+    const backward = new Map(bp.nodes.map((n) => [n.id, []]));
+    for (const wire of bp.wires) {
+      forward.get(wire.startPort.node.id)?.push(wire.endPort.node.id);
+      backward.get(wire.endPort.node.id)?.push(wire.startPort.node.id);
+    }
+
+    for (const comment of bp.comments) {
+      const members = bp.nodes.filter((n) => comment.containsNode(n));
+      if (members.length < 2) continue;
+      const memberIds = new Set(members.map((n) => n.id));
+
+      // Convexity: step one hop outside the set, then walk forwards. Getting
+      // back to a member means an unrelated node has to be drawn between two
+      // members, so no layout can keep the box tight around them.
+      const seen = new Set();
+      const stack = [];
+      for (const id of memberIds) {
+        for (const next of forward.get(id) || []) {
+          if (memberIds.has(next) || seen.has(next)) continue;
+          seen.add(next);
+          stack.push(next);
+        }
+      }
+      let intruder = null;
+      while (stack.length > 0 && intruder === null) {
+        const id = stack.pop();
+        for (const next of forward.get(id) || []) {
+          if (memberIds.has(next)) {
+            intruder = id;
+            break;
+          }
+          if (seen.has(next)) continue;
+          seen.add(next);
+          stack.push(next);
+        }
+      }
+      if (intruder !== null) {
+        const node = bp.nodes.find((n) => n.id === intruder);
+        issues.push({
+          kind: "nonConvexComment",
+          commentId: comment.id,
+          nodeId: intruder,
+          message: `"${comment.title}" has "${node?.title ?? intruder}" on a path between two of its own nodes, so auto-arrange cannot keep the box tight`,
+        });
+      }
+
+      // A node inside the box that neither feeds nor is fed by anything in it.
+      // It is in the group only because the rectangle reached it.
+      for (const node of members) {
+        const touches =
+          (forward.get(node.id) || []).some((id) => memberIds.has(id)) ||
+          (backward.get(node.id) || []).some((id) => memberIds.has(id));
+        if (touches) continue;
+        // A comment of unconnected nodes is a deliberate grouping, not a swallow.
+        if (members.length === 1) continue;
+        const anyConnected = members.some(
+          (other) =>
+            other !== node &&
+            ((forward.get(other.id) || []).some((id) => memberIds.has(id)) ||
+              (backward.get(other.id) || []).some((id) => memberIds.has(id))),
+        );
+        if (!anyConnected) continue;
+        issues.push({
+          kind: "commentSwallowsNode",
+          commentId: comment.id,
+          nodeId: node.id,
+          message: `"${comment.title}" encloses "${node.title}", which is wired to nothing else inside it`,
+        });
+      }
+    }
+  }
+
   for (let i = 0; i < bp.comments.length; i++) {
     for (let j = i + 1; j < bp.comments.length; j++) {
       const a = bp.comments[i];
