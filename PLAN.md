@@ -1,7 +1,10 @@
 # Function & Loop Body Subgraphs — Implementation Plan
 
 Branch: `functions-and-loops` (off `main`)
-Status: Ready to execute
+Status: **Delivered in 1.0.0.** All nine phases shipped; the "Sub Graph Update"
+milestone is closed. Kept as the design record — the decision table in §2 and the
+generics/monomorphization spec are still the reference for how this works.
+Anything here written in the future tense describes code that now exists.
 Supersedes: `FUNCTIONS_FORLOOP_PLAN.md` from the abandoned `experimental-2` branch.
 
 ---

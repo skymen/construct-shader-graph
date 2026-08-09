@@ -30,12 +30,25 @@ export async function loadProject(host, file) {
   lastLoadLoss.set(host, {
     unknownNodeTypes: result?.unknownNodeTypes ?? [],
     droppedWires: result?.droppedWires ?? 0,
+    newerFormatVersion: result?.newerFormatVersion ?? null,
   });
+  if (result?.newerFormatVersion) {
+    process.stderr.write(
+      `warning: ${file} uses save format ${result.newerFormatVersion}, newer than this build understands\n`,
+    );
+  }
   return file;
 }
 
 export async function saveProject(host, file, flags = {}) {
   const loss = lastLoadLoss.get(host);
+  if (loss && loss.newerFormatVersion && !flags.force) {
+    throw new CliError(
+      `refusing to write: ${file} was made with a newer save format (${loss.newerFormatVersion})\n` +
+        `  this build would silently drop anything it does not recognise\n` +
+        `  pass -f to do it anyway`,
+    );
+  }
   if (loss && loss.unknownNodeTypes.length > 0 && !flags.force) {
     const wires = loss.droppedWires;
     const wireNote =

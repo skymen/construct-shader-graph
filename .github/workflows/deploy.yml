@@ -39,7 +39,6 @@ jobs:
         env:
           NODE_ENV: production
           VITE_BASE_PATH: /construct-shader-graph/
-          VITE_IS_EXPERIMENTAL: false
 
       - name: Prepare main build
         run: |
@@ -73,7 +72,6 @@ jobs:
         env:
           NODE_ENV: production
           VITE_BASE_PATH: /construct-shader-graph/experimental/
-          VITE_IS_EXPERIMENTAL: true
 
       - name: Prepare experimental build
         if: steps.check-experimental.outputs.exists == 'true'

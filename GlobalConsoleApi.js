@@ -4710,6 +4710,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         const report = blueprint.lastLoadReport || {
           unknownNodeTypes: [],
           droppedWires: 0,
+          newerFormatVersion: null,
         };
         return {
           ok: true,
@@ -4717,6 +4718,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           graphs: listGraphs(blueprint),
           unknownNodeTypes: report.unknownNodeTypes,
           droppedWires: report.droppedWires,
+          // Set when the file declares a save format this build predates. Same
+          // reasoning as the dropped node types above: writing it back would
+          // strip whatever the newer build put there.
+          newerFormatVersion: report.newerFormatVersion ?? null,
         };
       },
     },

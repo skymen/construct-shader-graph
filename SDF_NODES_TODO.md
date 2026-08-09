@@ -1,5 +1,9 @@
 # SDF Nodes TODO
 
+> **Delivered in 1.0.0.** Every node below ships — see `nodes/*SDFNode.js` and
+> the registry in `nodes/index.js` — plus `SDF Gradient Color`, which this spec
+> did not call for. Kept as the reference for what each node's inputs mean.
+
 ## Shape SDF Nodes
 
 Output raw signed distance (negative=inside, zero=edge, positive=outside).

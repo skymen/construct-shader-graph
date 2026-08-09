@@ -65,6 +65,14 @@ import {
 } from "./shader-targets.js";
 import { languageManager } from "./LanguageManager.js";
 import { installGlobalConsoleApi } from "./GlobalConsoleApi.js";
+import { APP_VERSION, isExperimentalBuild, versionLabel } from "./version.js";
+import { renderMarkdown } from "./markdown.js";
+import { CHANGELOG_ENTRIES, entriesSince } from "./changelog.js";
+import {
+  SAVE_FORMAT_VERSION,
+  applySaveMigrations,
+  saveFormatOf,
+} from "./save-format.js";
 // Import boilerplate files as raw text
 import boilerplateWebGL1 from "./shaders/boilerplate-webgl1.glsl?raw";
 import boilerplateWebGL2 from "./shaders/boilerplate-webgl2.glsl?raw";
@@ -1387,6 +1395,7 @@ class BlueprintSystem {
     this.setupCustomNodeModal();
     this.setupOpenFilesModal();
     this.setupManualModal();
+    this.setupChangelogModal();
     this.setupIrGraphModal();
     // Before setupPreview: building a preview window can already want to report
     // an error, and it has nowhere to put one until notifications exist.
@@ -1396,6 +1405,7 @@ class BlueprintSystem {
     this.setupMinimap();
     this.render();
     this.updateUndoRedoButtons();
+    this.setupVersionBadge();
 
     // Initialize UI text with current language
     // this.updateUIText();
@@ -12255,6 +12265,12 @@ class BlueprintSystem {
         handler: () => this.showManualModal(),
       },
       {
+        label: "What's New",
+        menu: "Help",
+        action: "whatsNew",
+        handler: () => this.showChangelogModal(),
+      },
+      {
         label: "Report Issue",
         menu: "Help",
         action: "reportIssue",
@@ -15163,6 +15179,126 @@ class BlueprintSystem {
     });
   }
 
+  // ==================== Version badge and What's New ====================
+
+  setupVersionBadge() {
+    const badge = document.getElementById("appVersion");
+    if (!badge) return;
+    badge.textContent = versionLabel();
+    badge.addEventListener("click", () => this.showChangelogModal());
+  }
+
+  /**
+   * Where "which release has this user already been shown" is remembered.
+   *
+   * The suffix is not optional. The stable build and the experimental build are
+   * served from the same origin (/construct-shader-graph/ and
+   * /construct-shader-graph/experimental/), so they share one localStorage -
+   * without it, acknowledging What's New on one channel silently suppresses it
+   * on the other.
+   */
+  lastSeenVersionKey() {
+    return `shader-graph-last-seen-version${
+      isExperimentalBuild() ? ":experimental" : ""
+    }`;
+  }
+
+  getLastSeenVersion() {
+    try {
+      return localStorage.getItem(this.lastSeenVersionKey());
+    } catch {
+      // Private mode, disabled storage - the changelog is not worth failing over.
+      return null;
+    }
+  }
+
+  markChangelogSeen() {
+    try {
+      localStorage.setItem(this.lastSeenVersionKey(), APP_VERSION);
+    } catch {
+      // As above.
+    }
+  }
+
+  setupChangelogModal() {
+    const modal = document.getElementById("changelogModal");
+    if (!modal) return;
+    const close = () => {
+      modal.style.display = "none";
+      // Stamped on dismiss rather than on show, so a reload part-way through
+      // reading brings it back instead of losing it.
+      this.markChangelogSeen();
+    };
+
+    document
+      .getElementById("changelogModalClose")
+      ?.addEventListener("click", close);
+    document
+      .getElementById("changelogModalOk")
+      ?.addEventListener("click", close);
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) close();
+    });
+  }
+
+  /**
+   * @param {{sinceVersion?: string|null}} [options] When given, show only the
+   *   entries released after that version. Omitted (the Help menu and the
+   *   toolbar badge) shows the whole changelog.
+   */
+  showChangelogModal({ sinceVersion = null } = {}) {
+    const modal = document.getElementById("changelogModal");
+    const body = document.getElementById("changelogModalBody");
+    if (!modal || !body) return;
+
+    const entries = sinceVersion
+      ? entriesSince(CHANGELOG_ENTRIES, sinceVersion)
+      : CHANGELOG_ENTRIES;
+
+    const markdown = entries
+      .map((entry) => `## ${entry.heading}\n\n${entry.body}`)
+      .join("\n\n");
+
+    // Safe because the markdown is bundled into the build from CHANGELOG.md -
+    // it is repo-owned, as trusted as this file. Never point this at markdown
+    // that came from a user or a loaded project.
+    body.innerHTML = renderMarkdown(markdown);
+    body.scrollTop = 0;
+
+    const versionEl = document.getElementById("changelogModalVersion");
+    if (versionEl) versionEl.textContent = versionLabel();
+
+    const title = document.getElementById("changelogModalTitle");
+    if (title) {
+      title.textContent = sinceVersion
+        ? `What's New in ${APP_VERSION}`
+        : "What's New";
+    }
+
+    modal.style.display = "flex";
+  }
+
+  /** Auto-show once per release. Called from startup; see the block at the end of this file. */
+  maybeShowWhatsNew() {
+    const seen = this.getLastSeenVersion();
+    if (seen === APP_VERSION) return;
+
+    // First visit ever: stamp and show nothing. Someone who has never used the
+    // app has nothing to catch up on.
+    if (!seen) {
+      this.markChangelogSeen();
+      return;
+    }
+
+    const entries = entriesSince(CHANGELOG_ENTRIES, seen);
+    if (!entries.length) {
+      this.markChangelogSeen();
+      return;
+    }
+
+    this.showChangelogModal({ sinceVersion: seen });
+  }
+
   showManualModal() {
     const modal = document.getElementById("manualModal");
     const categoriesContainer = document.getElementById("manualCategories");
@@ -16006,7 +16142,11 @@ class BlueprintSystem {
   createNewFile() {
     // A fresh project has lost nothing, so any report from a prior load is
     // stale and must not keep blocking writes.
-    this.lastLoadReport = { unknownNodeTypes: [], droppedWires: 0 };
+    this.lastLoadReport = {
+      unknownNodeTypes: [],
+      droppedWires: 0,
+      newerFormatVersion: null,
+    };
 
     // Drop any non-main graphs from the previous project, then reset main
     // back to active.
@@ -16151,7 +16291,11 @@ class BlueprintSystem {
   _buildSaveData({ previewScreenshot = null } = {}) {
     const main = this._serializeGraphPayload(this.mainGraph);
     const data = {
+      // File-type sentinel, read for truthiness only. Deliberately NOT the app
+      // version - coupling it would change every save file on every release.
+      // The real format version is `formatVersion`; see save-format.js.
       version: "1.0.0",
+      formatVersion: SAVE_FORMAT_VERSION,
       ...main,
       // Host-level fields (shared across graphs)
       uniforms: this.uniforms,
@@ -16624,7 +16768,11 @@ class BlueprintSystem {
     const previousFileHandle = this.fileHandle;
     // Cleared up front so a report from the previous project can never be
     // mistaken for this one's.
-    this.lastLoadReport = { unknownNodeTypes: [], droppedWires: 0 };
+    this.lastLoadReport = {
+      unknownNodeTypes: [],
+      droppedWires: 0,
+      newerFormatVersion: null,
+    };
     try {
       const text = await file.text();
       const data = JSON.parse(text);
@@ -16632,6 +16780,18 @@ class BlueprintSystem {
       if (!data.version) {
         throw new Error("Invalid blueprint file: missing version");
       }
+
+      // `version` above is only a file-type sentinel. `formatVersion` is the
+      // real one - see save-format.js for why the two are separate and why the
+      // migration table is empty.
+      const fileFormat = saveFormatOf(data);
+      // A file from a newer build is the one case shape-sniffing cannot cover:
+      // it loads fine, then silently loses every field this build has no name
+      // for the next time it is saved. Warn and carry on rather than refuse -
+      // the tolerant loader usually copes, and refusing would strand the file.
+      const newerFormatVersion =
+        fileFormat > SAVE_FORMAT_VERSION ? fileFormat : null;
+      applySaveMigrations(data, fileFormat);
 
       // Reset to single main graph; drop any other graphs from a prior project.
       for (const id of Array.from(this.graphs.keys())) {
@@ -16770,7 +16930,22 @@ class BlueprintSystem {
       // notification below is a DOM affordance; the CLI has no DOM, and a
       // silent drop there is worse than in the app because the next `--write`
       // makes it permanent with nobody watching.
-      this.lastLoadReport = { unknownNodeTypes, droppedWires };
+      this.lastLoadReport = {
+        unknownNodeTypes,
+        droppedWires,
+        newerFormatVersion,
+      };
+      if (newerFormatVersion) {
+        this.showNotification({
+          type: "error",
+          title: "This file comes from a newer version",
+          message:
+            `It uses save format ${newerFormatVersion}; this build understands ` +
+            `${SAVE_FORMAT_VERSION}. It has been opened anyway, but anything ` +
+            `this version does not recognise will be lost if you save it.`,
+          duration: 10000,
+        });
+      }
       if (unknownNodeTypes.length > 0) {
         const wireNote =
           droppedWires > 0
@@ -17828,6 +18003,8 @@ class BlueprintSystem {
   // undo/redo restores them along with the graph state.
   _exportGraphState(graph) {
     return {
+      // A history snapshot never leaves the session, so this is inert. Left as
+      // a literal for the same reason the save file's is: not the app version.
       version: "1.0.0",
       nodes: graph.nodes.map((node) => ({
         id: node.id,
@@ -22200,15 +22377,11 @@ if (typeof globalThis !== "undefined") {
 
 blueprint.createNewFile();
 
-// Experimental build dialog
+// Experimental build dialog. Content is the repo-owned public/EXPERIMENTAL_INFO.md;
+// unlike the changelog it is fetched rather than bundled, so the notice can be
+// reworded without a rebuild.
 async function showExperimentalDialog() {
-  const isExperimental =
-    window.location.pathname.endsWith("/experimental/") ||
-    window.location.pathname.endsWith("/experimental");
-
-  if (!isExperimental) {
-    return;
-  }
+  if (!isExperimentalBuild()) return;
 
   try {
     const response = await fetch(
@@ -22221,81 +22394,44 @@ async function showExperimentalDialog() {
 
     const markdown = await response.text();
 
-    let html = markdown
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>");
-
-    html = html.split("\n").reduce(
-      (acc, line) => {
-        const trimmed = line.trim();
-        if (trimmed.startsWith("### ")) {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<h3>${trimmed.slice(4)}</h3>`;
-        } else if (trimmed.startsWith("## ")) {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<h2>${trimmed.slice(3)}</h2>`;
-        } else if (trimmed.startsWith("# ")) {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<h1>${trimmed.slice(2)}</h1>`;
-        } else if (trimmed.startsWith("- ")) {
-          if (!acc.inList) {
-            acc.result += "<ul>";
-            acc.inList = true;
-          }
-          acc.result += `<li>${trimmed.slice(2)}</li>`;
-        } else if (trimmed === "") {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-        } else {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<p>${trimmed}</p>`;
-        }
-        return acc;
-      },
-      { result: "", inList: false },
-    );
-    if (html.inList) html.result += "</ul>";
-    html = html.result;
-
     const modal = document.getElementById("experimentalModal");
     const content = modal.querySelector(".experimental-info-content");
     const okButton = document.getElementById("experimentalModalOk");
 
-    content.innerHTML = html;
+    content.innerHTML = renderMarkdown(markdown);
     modal.style.display = "flex";
-
-    okButton.onclick = () => {
-      modal.style.display = "none";
-    };
 
     modal.onclick = (e) => {
       if (e.target === modal) {
         // Don't close - user must acknowledge
       }
     };
+
+    // Resolves on acknowledgement so the startup sequence below can wait for
+    // it, rather than stacking What's New on top of an unread warning.
+    await new Promise((resolve) => {
+      okButton.onclick = () => {
+        modal.style.display = "none";
+        resolve();
+      };
+    });
   } catch (error) {
     console.error("Error loading experimental info:", error);
   }
 }
 
-if (
-  window.location.pathname.endsWith("/experimental/") ||
-  window.location.pathname.endsWith("/experimental")
-) {
-  setTimeout(showExperimentalDialog, 500);
+// The headless boot (tests and the CLI) mounts index.html into jsdom and
+// imports this file, so anything that opens a dialog on a timer opens it there
+// too - and a modal left up makes isAnyDialogOpen() true for the rest of the
+// run, which silently disables every keyboard test. showExperimentalDialog got
+// away with it only because jsdom's URL is http://localhost/; What's New has no
+// such accident, since jsdom's localStorage starts empty every run.
+const isHeadlessHost = () => /jsdom/i.test(navigator.userAgent || "");
+
+if (!isHeadlessHost()) {
+  setTimeout(async () => {
+    // The experimental warning is a blocking acknowledgement, so it goes first.
+    await showExperimentalDialog();
+    blueprint.maybeShowWhatsNew();
+  }, 500);
 }

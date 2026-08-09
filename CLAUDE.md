@@ -28,6 +28,8 @@ Run a single test file: `npx vitest run tests/codegen.test.js`
 | Code generation | Inside `script.js`: `generateShader()`, `buildDependencyGraph()`, `topologicalSort()`, `generateVariableNames()` |
 | History | `HistoryManager.js` — snapshot-based undo/redo with 1-second coalescing |
 | Constant folding | `constant-fold.js` — resolves a port to a compile-time value where the target demands a constant expression |
+| Versioning | `version.js` — `APP_VERSION` from `package.json`; `save-format.js` — `SAVE_FORMAT_VERSION` and the (empty) migration table |
+| Changelog | `CHANGELOG.md` bundled via `?raw` by `changelog.js`; rendered by `markdown.js`, shared with the experimental-build notice |
 | Graph kinds | `graph-kinds/` — per-kind dispatch for `function` and `loopBody` graphs |
 | Headless boot | `headless/boot.js` — mounts `index.html` in jsdom and imports `script.js`; shared by tests and CLI |
 | CLI | `cli/` — thin transport over `shaderGraphAPI.call()`; see "CLI" below |
@@ -107,6 +109,23 @@ new NodeType(
 
 `exportState()` captures only persistent state. `Graph.js` owns both; HistoryManager snapshots only the persistent subset.
 
+### Save Format Compatibility
+
+**Backwards compatibility is structural, not version-gated, and that is the contract.** A `.c3sg` carries two version-ish fields and they are not the same thing:
+
+- `version: "1.0.0"` — a frozen literal. It is the **file-type sentinel**: `loadFromJSON` reads it for truthiness only, to answer "is this a `.c3sg` at all". Nothing compares it. It is *not* the app version and must never be coupled to `APP_VERSION`, or every save file and every golden changes on each release. Same for the `version` in `_exportGraphState`, which never leaves the session.
+- `formatVersion` — the real one (`SAVE_FORMAT_VERSION` in `save-format.js`), an integer, compared on load.
+
+The loader tolerates old files by **sniffing shape**: `data.uniforms === undefined` means the old per-graph uniform layout, a missing `_additionalGraphs` means a single-graph file, `constants` defaults to `[]`, `shaderSettings` is spread over freshly-built defaults so a file predating a setting picks up its default. That covers every *additive* change, which is every change made so far — hence `SAVE_MIGRATIONS` is empty.
+
+Three rules follow:
+
+- **Additive fields only, by default.** Adding a field costs nothing and needs no bump. Sniff for it; don't compare versions.
+- **Renaming a node type or reordering a node's ports is a breaking change.** There is no alias table — an unknown `nodeTypeKey` is *dropped* along with every wire touching it, and port values are restored **by index** (`script.js`, in `_loadGraphPayload`), so a reorder silently rewires old files. Loss is surfaced loudly instead: `lastLoadReport`, a notification in the app, and `csg` refusing to write over the project without `-f`. A change like this is what `SAVE_FORMAT_VERSION` and a `SAVE_MIGRATIONS` entry exist for.
+- **The forward guard is the one thing sniffing can't do.** A file declaring a `formatVersion` above this build's loads with a warning rather than a refusal, because unknown fields are silently dropped on the next save. It rides `lastLoadReport.newerFormatVersion`, so the CLI sees it too.
+
+The two migrations that already exist — `_migrateLoopBodyContract` (`script.js`) and `migratePreviewSettings` (`preview-settings.js`) — stay shape-driven and deliberately do **not** live in `SAVE_MIGRATIONS`: they predate it and run for every file regardless of version.
+
 ### Undo/Redo Contract
 
 `pushState()` diffs the current graph against `currentStates` — the **last pushed** snapshot — and stores full before/after snapshots. Three consequences that anyone adding a mutation has to respect:
@@ -123,7 +142,9 @@ Push targeting follows `_graphOverride` (see `targetGraphId()`), so a mutation p
 
 ### Tests
 
-`tests/` has 13 test files (bootstrap, history, codegen, serialization, multi-graph contracts, uniforms). `tests/setup.js` stubs Canvas 2D, IndexedDB, WebSocket, and RAF for jsdom.
+`tests/` has 53 test files (bootstrap, history, codegen, serialization, multi-graph contracts, uniforms, subgraphs, preview settings, layout, CLI parity, versioning). `tests/setup.js` stubs Canvas 2D, IndexedDB, WebSocket, and RAF for jsdom.
+
+**Nothing may open a dialog on a timer at startup without a headless gate.** The tests and the CLI both boot by mounting `index.html` into jsdom and importing `script.js`, so a startup `setTimeout` that shows a modal shows it there too — and a modal left up makes `isAnyDialogOpen()` true for the rest of the run, silently disabling every keyboard test. The What's New / experimental block at the end of `script.js` is gated on `isHeadlessHost()` for exactly this reason.
 
 ### Notable Non-Obvious Details
 

@@ -25,6 +25,11 @@
         <div class="toolbar-section toolbar-branding">
           <img src="/favicon.svg" alt="Logo" class="toolbar-logo" />
           <h1>CAW Shader</h1>
+          <button
+            id="appVersion"
+            class="app-version"
+            title="What's New"
+          ></button>
           <select
             id="languageSelect"
             class="language-select"
@@ -317,6 +322,13 @@
                 >
                   <span class="dropdown-item-label">Manual</span>
                   <span class="dropdown-item-shortcut">F1</span>
+                </button>
+                <button
+                  id="whatsNewBtn"
+                  class="dropdown-item"
+                  data-action="whatsNew"
+                >
+                  <span class="dropdown-item-label">What's New</span>
                 </button>
                 <div class="dropdown-separator"></div>
                 <button
@@ -2049,7 +2061,7 @@
 
     <!-- Experimental Build Info Modal -->
     <div id="experimentalModal" class="modal" style="display: none">
-      <div class="modal-content experimental-modal">
+      <div class="modal-content md-modal">
         <div class="modal-header">
           <h2>⚠️ Experimental Build</h2>
         </div>
@@ -2060,6 +2072,22 @@
           <button id="experimentalModalOk" class="primary-btn">
             I Understand
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- What's New / Changelog Modal. Content comes from CHANGELOG.md, which
+         is bundled into the build - see changelog.js. -->
+    <div id="changelogModal" class="modal" style="display: none">
+      <div class="modal-content md-modal changelog-modal">
+        <div class="modal-header">
+          <h2 id="changelogModalTitle">What's New</h2>
+          <button class="modal-close" id="changelogModalClose">×</button>
+        </div>
+        <div class="modal-body" id="changelogModalBody"></div>
+        <div class="modal-footer">
+          <span class="changelog-version" id="changelogModalVersion"></span>
+          <button id="changelogModalOk" class="primary-btn">Got it</button>
         </div>
       </div>
     </div>

@@ -2,6 +2,10 @@
 
 A visual node-based shader graph editor that generates shaders for WebGL 1, WebGL 2, and WebGPU.
 
+The version you are running is shown next to the wordmark in the toolbar; click
+it, or use **Help > What's New**, for the changelog. See
+[CHANGELOG.md](CHANGELOG.md).
+
 ## Support the Project
 
 If you find this project useful, consider supporting its development:
@@ -24,7 +28,7 @@ Run the development server:
 npm run dev
 ```
 
-This will start Vite's development server and open the application in your browser at `http://localhost:3000`.
+This will start Vite's development server and open the application in your browser at `http://localhost:3002`.
 
 ### Build
 
@@ -62,7 +66,7 @@ npm link && csg <command>     # or install `csg` globally
 | | Follow it with `layout.tidyVariables` and `layout.routeWires` to park variable nodes and route wires around obstacles. |
 | `csg codegen <f>` | Generate shader code. `--target`, and `--graph` to emit one function graph's declarations. |
 | `csg export <f>` | Build the `.c3addon`. `--bump`, `--version`, `--unpacked`. |
-| `csg comment <f>` | Fit a comment around nodes: `--nodes 3,4,5 --title "..."`. Run `arrange` first — see below. |
+| `csg comment <f>` | Fit a comment around nodes: `--nodes 3,4,5 --title "..."`. |
 | `csg preview <f>` | Render the preview to a PNG in a headless browser (needs Playwright). |
 | `csg run <s.js> <f>` | Run a script against a live `sg`. `-e` for an inline expression, `--write` to save. |
 | `csg repl [f]` | Interactive REPL with `sg`, `blueprint` and `NODE_TYPES` in scope. |
@@ -83,17 +87,17 @@ csg paramid shader.c3sg --baseline published-1.2.0.0.c3addon
 csg run -e 'sg.nodes.search({ query: "noise" })' shader.c3sg
 ```
 
-Four things worth knowing:
+A few things worth knowing:
 
 - **`csg lint` is not `csg validate`.** `validate` asks whether the shader
   compiles; `lint` asks whether the graph is readable afterwards. Codegen is
   perfectly happy with dead nodes, variables named `math_result`, and wires
   crossing the whole canvas, so none of that shows up in `validate`.
 
-- **Arrange before you comment.** A comment is fitted to where its nodes are at
-  the moment it is created and does not follow them afterwards, so arranging
-  later leaves it the wrong size and around the wrong nodes. Always
-  `csg arrange … --in-place` first, then `csg comment`.
+- **Comments survive an arrange.** The layout engine treats a comment as a
+  constraint: it lays the members out as a unit, reserves the box's own rect,
+  and refits the comment afterwards. So `arrange` and `comment` can run in
+  either order. Pass `fitComments: false` to opt out.
 
 - **`csg preview` really compiles the shader.** It runs the Construct 3 runtime
   in headless Chromium, so a compile error on any backend fails the command.

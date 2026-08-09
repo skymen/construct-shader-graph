@@ -94,9 +94,29 @@ body {
 .toolbar-branding h1 {
   font-size: 18px;
   font-weight: 600;
-  margin-right: 20px;
   color: #fff;
   letter-spacing: 0.3px;
+}
+
+/* Sits right under the wordmark so "which build am I on?" is answerable at a
+   glance (issue #88). Clicking it opens What's New. */
+.app-version {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 20px;
+  align-self: flex-end;
+  margin-bottom: 2px;
+  color: #888;
+  font-size: 11px;
+  font-family: inherit;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.app-version:hover {
+  color: #ccc;
 }
 
 .language-select {
@@ -4118,8 +4138,14 @@ body {
   font-style: italic;
 }
 
-/* ==================== Experimental Modal ==================== */
-#experimentalModal {
+/* ==================== Markdown modals ====================
+   Shared chrome for the two modals whose body is rendered markdown: the
+   experimental-build notice and What's New. Both carry .md-modal; the
+   per-modal classes below only set what actually differs. This block used to
+   exist twice, verbatim - if you find yourself copying it a third time, add a
+   class here instead. */
+#experimentalModal,
+#changelogModal {
   display: none;
   position: fixed;
   top: 0;
@@ -4132,7 +4158,7 @@ body {
   align-items: center;
 }
 
-.experimental-modal {
+.md-modal {
   background: #2a2a2a;
   border: 2px solid #4a4a4a;
   border-radius: 8px;
@@ -4145,7 +4171,38 @@ body {
   position: relative;
 }
 
-.experimental-modal .modal-header {
+/* What's New reads as prose, so it is narrower than the notice. */
+.changelog-modal {
+  max-width: 720px;
+}
+
+.md-modal .modal-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color 0.15s ease;
+}
+
+.md-modal .modal-close:hover {
+  color: #e0e0e0;
+}
+
+.md-modal .modal-body a {
+  color: #4a90e2;
+}
+
+/* Sits opposite the button, so the footer doubles as an About line. */
+.changelog-version {
+  color: #777;
+  font-size: 12px;
+  align-self: center;
+}
+
+.md-modal .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -4153,13 +4210,13 @@ body {
   border-bottom: 1px solid #4a4a4a;
 }
 
-.experimental-modal .modal-header h2 {
+.md-modal .modal-header h2 {
   margin: 0;
   color: #f0f0f0;
   font-size: 20px;
 }
 
-.experimental-modal .modal-body {
+.md-modal .modal-body {
   padding: 16px 24px;
   overflow-y: auto;
   color: #ccc;
@@ -4168,7 +4225,7 @@ body {
   position: relative;
 }
 
-.experimental-modal .modal-body::before {
+.md-modal .modal-body::before {
   content: "";
   position: absolute;
   top: 50%;
@@ -4186,7 +4243,7 @@ body {
   filter: brightness(0) invert(1);
 }
 
-.experimental-modal .modal-body h2 {
+.md-modal .modal-body h2 {
   color: #e0e0e0;
   font-size: 16px;
   font-weight: 600;
@@ -4195,7 +4252,7 @@ body {
   z-index: 1;
 }
 
-.experimental-modal .modal-body h3 {
+.md-modal .modal-body h3 {
   color: #d0d0d0;
   font-size: 14px;
   font-weight: 600;
@@ -4204,35 +4261,40 @@ body {
   z-index: 1;
 }
 
-.experimental-modal .modal-body p {
+.md-modal .modal-body p {
   margin: 8px 0;
   position: relative;
   z-index: 1;
 }
 
-.experimental-modal .modal-body ul {
+.md-modal .modal-body ul {
   padding-left: 20px;
   margin: 6px 0;
   position: relative;
   z-index: 1;
 }
 
-.experimental-modal .modal-body li {
+.md-modal .modal-body li {
   margin: 4px 0;
 }
 
-.experimental-modal .modal-body strong {
+.md-modal .modal-body strong {
   color: #e0e0e0;
 }
 
-.experimental-modal .modal-footer {
+.md-modal .modal-footer {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
   padding: 15px 25px;
   border-top: 1px solid #4a4a4a;
 }
 
-.experimental-modal .modal-footer .primary-btn {
+.changelog-modal .modal-footer {
+  justify-content: space-between;
+}
+
+.md-modal .modal-footer .primary-btn {
   background: #4a90e2;
   color: #fff;
   border: none;
@@ -4243,7 +4305,7 @@ body {
   transition: background 0.2s;
 }
 
-.experimental-modal .modal-footer .primary-btn:hover {
+.md-modal .modal-footer .primary-btn:hover {
   background: #357abd;
 }
 
@@ -4259,134 +4321,6 @@ body {
   z-index: 10000;
   justify-content: center;
   align-items: center;
-}
-
-#experimentalModal {
-  display: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.8);
-  z-index: 10000;
-  justify-content: center;
-  align-items: center;
-}
-
-.experimental-modal {
-  background: #2a2a2a;
-  border: 2px solid #4a4a4a;
-  border-radius: 8px;
-  width: 90%;
-  max-width: 900px;
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-}
-
-.experimental-modal .modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 25px;
-  border-bottom: 1px solid #4a4a4a;
-}
-
-.experimental-modal .modal-header h2 {
-  margin: 0;
-  color: #f0f0f0;
-  font-size: 20px;
-}
-
-.experimental-modal .modal-body {
-  padding: 16px 24px;
-  overflow-y: auto;
-  color: #ccc;
-  line-height: 1.6;
-  font-size: 14px;
-  position: relative;
-}
-
-.experimental-modal .modal-body::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 400px;
-  height: 400px;
-  background-image: url("/favicon.svg");
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.03;
-  filter: brightness(0) invert(1);
-}
-
-.experimental-modal .modal-body h2 {
-  color: #e0e0e0;
-  font-size: 16px;
-  font-weight: 600;
-  margin: 18px 0 8px;
-  position: relative;
-  z-index: 1;
-}
-
-.experimental-modal .modal-body h3 {
-  color: #d0d0d0;
-  font-size: 14px;
-  font-weight: 600;
-  margin: 14px 0 6px;
-  position: relative;
-  z-index: 1;
-}
-
-.experimental-modal .modal-body p {
-  margin: 8px 0;
-  position: relative;
-  z-index: 1;
-}
-
-.experimental-modal .modal-body ul {
-  padding-left: 20px;
-  margin: 6px 0;
-  position: relative;
-  z-index: 1;
-}
-
-.experimental-modal .modal-body li {
-  margin: 4px 0;
-}
-
-.experimental-modal .modal-body strong {
-  color: #e0e0e0;
-}
-
-.experimental-modal .modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding: 15px 25px;
-  border-top: 1px solid #4a4a4a;
-}
-
-.experimental-modal .modal-footer .primary-btn {
-  background: #4a90e2;
-  color: #fff;
-  border: none;
-  padding: 10px 30px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.2s;
-}
-
-.experimental-modal .modal-footer .primary-btn:hover {
-  background: #357abd;
 }
 
 .manual-modal {
