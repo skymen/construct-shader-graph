@@ -4282,6 +4282,33 @@ body {
   color: #e0e0e0;
 }
 
+/* Inline code, matching .manual-custom-content code - the app's other
+   markdown surface. Sized in em rather than px so a token keeps its
+   proportions inside a heading as well as body text: a monospace face at 1em
+   next to this sans reads a size too big, which is what made `const` and
+   `Index` look like a font glitch rather than code. */
+.md-modal .modal-body code {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #7ec8e3;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
+  font-size: 0.875em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  /* A token that wraps mid-line would otherwise lose its padding and rounded
+     corners on one of the two fragments. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  position: relative;
+  z-index: 1;
+}
+
+/* Inside a bold lead-in the surrounding text is lighter, so the chip would
+   otherwise fight it for emphasis. */
+.md-modal .modal-body strong code {
+  font-weight: 500;
+}
+
 .md-modal .modal-footer {
   display: flex;
   justify-content: flex-end;
