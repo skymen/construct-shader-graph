@@ -71,3 +71,13 @@ export const ToFloatNode = new NodeType(
   "Conversion",
   ["cast", "convert", "int to float", "type"]
 );
+
+// Mirrors the execution above for the scalar cases. Vectors take .x there, but
+// vector folding is out of scope (see MathNode.foldConstant).
+ToFloatNode.foldConstant = (node, inputs) => {
+  const { value, type } = inputs[0];
+  if (type === "bool") return value ? 1 : 0;
+  if (type !== "float" && type !== "int") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};

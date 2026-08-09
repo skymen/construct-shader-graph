@@ -1,5 +1,5 @@
 // IR (Intermediate Representation) export/import round-trip.
-// IR is the structured format used by the AI/MCP integration. Stable identity
+// IR is the structured format used by the AI integration. Stable identity
 // across export -> import -> export is required.
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
@@ -45,8 +45,10 @@ describe("Graph IR round-trip", () => {
     const ir2 = blueprint.exportGraphIR();
     const wireCount2 = (ir2.wires || []).length;
 
-    // Import is additive; original default wires + imported wires.
-    // At minimum, ir2 must have >= the imported wire count.
+    // Import is additive (merges into the fresh graph's existing default
+    // nodes). The result must contain at least the imported wires and at
+    // most double (no runaway duplication).
     expect(wireCount2).toBeGreaterThanOrEqual(wireCount1);
+    expect(wireCount2).toBeLessThanOrEqual(wireCount1 * 2);
   });
 });

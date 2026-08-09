@@ -1,0 +1,768 @@
+// The anti-drift guard for preview settings.
+//
+// Every preview setting is described once in preview-settings.js, and six
+// places loop over that table: the host's defaults, resetPreviewSettings,
+// the projectReady resend, updatePreviewSettingsUI, the scripting API's
+// validator and patcher, and the CLI's flags. These tests pin the table against
+// the things it claims - that its DOM ids exist, that its enums match the actual
+// <select> options, that its CLI flags parse - because the failure mode of a
+// wrong descriptor is a control that silently does nothing.
+
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { bootstrap } from "./helpers/bootstrap.js";
+import { parseArgs } from "../cli/args.js";
+import * as previewCommand from "../cli/commands/preview.js";
+import {
+  PREVIEW_SETTINGS,
+  PREVIEW_SETTING_KEYS,
+  makeDefaultPreviewSettings,
+  effectiveObjectScale,
+  effectiveObjectAngle,
+  effectiveObjectOffset,
+  effectiveRenderResolution,
+  PREVIEW_MODELS,
+  migratePreviewSettings,
+} from "../preview-settings.js";
+
+let blueprint, api;
+
+beforeAll(async () => {
+  ({ blueprint, api } = await bootstrap());
+});
+
+beforeEach(() => {
+  blueprint.createNewFile();
+  blueprint.previewSettings = makeDefaultPreviewSettings();
+});
+
+// Controls live inside a cloned preview panel, not in the document at large -
+// there can be several panels and they must not see each other's. `el` resolves
+// a control the way the app does: by `data-preview-el`, within one window.
+const win = () => blueprint.defaultPreviewTarget();
+const el = (name) => win().el(name);
+const panel = (selector) => win().root.querySelector(selector);
+const panelAll = (selector) => win().root.querySelectorAll(selector);
+
+describe("the settings table is the single source of truth", () => {
+  it("seeds exactly the keys the host carries", () => {
+    expect(Object.keys(blueprint.previewSettings).sort()).toEqual(
+      [...PREVIEW_SETTING_KEYS].sort(),
+    );
+  });
+
+  it("names DOM elements that actually exist", () => {
+    const missing = [];
+    for (const d of PREVIEW_SETTINGS) {
+      if (!d.dom) continue;
+      for (const slot of ["el", "valueEl", "previewEl", "clearBtnEl"]) {
+        const id = d.dom[slot];
+        if (id && !el(id)) {
+          missing.push(`${d.key}.${slot} -> #${id}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("keeps every enum in step with its <select> options", () => {
+    let checked = 0;
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.kind !== "enum" || !d.dom?.el) continue;
+      const control = el(d.dom.el);
+      if (control.tagName !== "SELECT") continue;
+      expect(
+        [...control.options].map((o) => o.value),
+        `${d.key} options`,
+      ).toEqual(d.values);
+      checked++;
+    }
+    // Guard against the loop quietly matching nothing.
+    expect(checked).toBeGreaterThanOrEqual(5);
+  });
+
+  it("gives every number descriptor bounds that match its markup", () => {
+    // Covers both the sliders and the typed boxes - the resolution inputs are
+    // `type="number"` because a 16-4096 range slider would be unusable.
+    let checked = 0;
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.kind !== "number" || !d.dom?.el) continue;
+      const control = el(d.dom.el);
+      if (control.type !== "range" && control.type !== "number") continue;
+      expect(Number(control.min), `${d.key} min`).toBe(d.min);
+      expect(Number(control.max), `${d.key} max`).toBe(d.max);
+      checked++;
+    }
+    expect(checked).toBeGreaterThanOrEqual(5);
+  });
+
+  it("keeps updateUIText's :has() label selectors matching", () => {
+    // These select a label by the control it sits beside, so they break
+    // silently whenever the panel markup is reshaped.
+    blueprint.updateUIText();
+    for (const id of [
+      "objectSelect",
+      "cameraModeSelect",
+      "samplingModeSelect",
+      "anisotropicFilteringSelect",
+    ]) {
+      const selector = `[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='${id}']) > label`;
+      expect(panelAll(selector).length, id).toBe(1);
+    }
+
+    // Rotation and offset put their label inside the axis group's header rather
+    // than directly under the control group, so they need their own shape.
+    for (const id of ["objectAngleSlider", "objectOffsetXSlider"]) {
+      const selector = `[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='${id}']) .preview-scale-header > label`;
+      expect(panelAll(selector).length, id).toBe(1);
+    }
+  });
+
+  it("puts every descriptor's control in the tab its section names", () => {
+    // A control filed under the wrong section ends up on a tab the user will
+    // not think to look at.
+    let checked = 0;
+    for (const d of PREVIEW_SETTINGS) {
+      const id = d.dom?.el ?? d.dom?.previewEl;
+      if (!id) continue;
+      const pane = el(id).closest(".preview-tab-content");
+      expect(pane?.dataset.tab, `${d.key} is on the wrong tab`).toBe(d.section);
+      checked++;
+    }
+    expect(checked).toBeGreaterThanOrEqual(15);
+  });
+
+  it("declares a default that every descriptor's own rules accept", () => {
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.kind === "enum") {
+        expect(d.values, `${d.key} default`).toContain(d.default);
+      }
+      if (d.kind === "number") {
+        expect(typeof d.default, `${d.key} default`).toBe("number");
+      }
+    }
+  });
+});
+
+describe("hover tooltips", () => {
+  const hover = (el, from) =>
+    el.dispatchEvent(
+      new window.MouseEvent("mouseover", {
+        bubbles: true,
+        relatedTarget: from,
+      }),
+    );
+  const unhover = (el, to) =>
+    el.dispatchEvent(
+      new window.MouseEvent("mouseout", { bubbles: true, relatedTarget: to }),
+    );
+
+  it("shows the anchor's text and hides again on the way out", () => {
+    const tooltip = document.getElementById("ui-tooltip");
+    const label = panel(
+      "[data-preview-el='preview-controls'] label[data-tooltip]",
+    );
+    expect(label).toBeTruthy();
+
+    hover(label);
+    expect(tooltip.classList.contains("visible")).toBe(true);
+    expect(tooltip.textContent).toBe(label.dataset.tooltip);
+
+    unhover(label, document.body);
+    expect(tooltip.classList.contains("visible")).toBe(false);
+  });
+
+  it("stays up while the pointer moves within the anchor", () => {
+    const tooltip = document.getElementById("ui-tooltip");
+    const anchor = panel("[data-preview-el='preview-controls'] .scale-lock");
+    const inner = anchor.querySelector("svg");
+    anchor.dataset.tooltip = "Link the axes";
+
+    hover(anchor);
+    expect(tooltip.classList.contains("visible")).toBe(true);
+
+    // Crossing onto a child fires mouseout on the anchor, but has not left it.
+    unhover(anchor, inner);
+    expect(tooltip.classList.contains("visible")).toBe(true);
+
+    delete anchor.dataset.tooltip;
+  });
+
+  it("every tooltip anchor carries non-empty text", () => {
+    const anchors = panelAll(
+      "[data-preview-el='preview-controls'] [data-tooltip]",
+    );
+    expect(anchors.length).toBeGreaterThanOrEqual(5);
+    for (const el of anchors) {
+      expect(el.dataset.tooltip.trim().length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("preview.updateSettings validation", () => {
+  it("accepts the 3D shapes the preview actually supports", () => {
+    expect(api.preview.updateSettings({ object: "prism" }).object).toBe(
+      "prism",
+    );
+    expect(api.preview.updateSettings({ object: "corner-in" }).object).toBe(
+      "corner-in",
+    );
+  });
+
+  it("accepts the imported 3D models", () => {
+    for (const model of PREVIEW_MODELS) {
+      expect(api.preview.updateSettings({ object: model }).object).toBe(model);
+    }
+  });
+
+  it("rejects objects that do not exist", () => {
+    // The API used to validate `object` against a list of shapes the preview
+    // has never had - sphere, cylinder, cone, torus, capsule, plane - while
+    // rejecting the real ones. Six of those six are now genuine imported models,
+    // so the guard is these two: never a Shape3D solid, never a model.
+    expect(() => api.preview.updateSettings({ object: "plane" })).toThrow();
+    expect(() =>
+      api.preview.updateSettings({ object: "dodecahedron" }),
+    ).toThrow();
+  });
+
+  it("rejects an unknown key", () => {
+    expect(() => api.preview.updateSettings({ nope: 1 })).toThrow(
+      /Unknown preview setting/,
+    );
+  });
+
+  it("rejects wrong types per kind", () => {
+    expect(() => api.preview.updateSettings({ autoRotate: "yes" })).toThrow(
+      /must be a boolean/,
+    );
+    expect(() => api.preview.updateSettings({ objectScale: "abc" })).toThrow(
+      /must be a finite number/,
+    );
+    expect(() =>
+      api.preview.updateSettings({ cameraMode: "isometric" }),
+    ).toThrow(/must be one of/);
+  });
+
+  it("keeps effectTarget and object in step", () => {
+    expect(api.preview.updateSettings({ effectTarget: "shape3D" }).object).toBe(
+      "box",
+    );
+    expect(api.preview.updateSettings({ object: "sprite" }).effectTarget).toBe(
+      "sprite",
+    );
+  });
+});
+
+describe("the settings added in this batch", () => {
+  it("accepts a hex colour and rejects anything else", () => {
+    expect(
+      api.preview.updateSettings({ objectColor: "#ff8800" }).objectColor,
+    ).toBe("#ff8800");
+    expect(() => api.preview.updateSettings({ objectColor: "red" })).toThrow();
+    expect(() => api.preview.updateSettings({ objectColor: "#f80" })).toThrow();
+  });
+
+  it("accepts the anisotropy modes the C3 runtime knows", () => {
+    for (const mode of ["auto", "off", "2x", "3x", "4x", "8x", "16x"]) {
+      expect(
+        api.preview.updateSettings({ anisotropicFiltering: mode })
+          .anisotropicFiltering,
+      ).toBe(mode);
+    }
+    expect(() =>
+      api.preview.updateSettings({ anisotropicFiltering: "32x" }),
+    ).toThrow();
+  });
+
+  it("shows the rotation readout as whole degrees", () => {
+    api.preview.updateSettings({ objectAngle: 90 });
+    expect(el("objectAngleValue").textContent).toBe("90");
+  });
+});
+
+describe("object rotation (#129)", () => {
+  it("keeps objectAngle as the Z axis, a plain number", () => {
+    // Old .c3sg files and preview.updateSettings({objectAngle: 90}) callers name
+    // only this key, so it has to keep meaning what it always meant.
+    api.preview.updateSettings({ objectAngle: 90 });
+    expect(typeof blueprint.previewSettings.objectAngle).toBe("number");
+    expect(effectiveObjectAngle(blueprint.previewSettings).z).toBe(90);
+  });
+
+  it("resolves the three keys into one vector", () => {
+    api.preview.updateSettings({
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectAngle: 15,
+    });
+    expect(effectiveObjectAngle(blueprint.previewSettings)).toEqual({
+      x: 55,
+      y: 30,
+      z: 15,
+    });
+  });
+
+  it("rejects a non-numeric angle", () => {
+    expect(() => api.preview.updateSettings({ objectAngleX: "abc" })).toThrow(
+      /finite number/,
+    );
+  });
+
+  it("writes each axis into its own slider and readout", () => {
+    api.preview.updateSettings({
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectAngle: 15,
+    });
+    for (const [id, value] of [
+      ["objectAngleX", "55"],
+      ["objectAngleY", "30"],
+      ["objectAngle", "15"],
+    ]) {
+      expect(el(`${id}Slider`).value, id).toBe(value);
+      expect(el(`${id}Value`).textContent, id).toBe(value);
+    }
+  });
+});
+
+describe("object offset", () => {
+  it("resolves the three keys into one vector", () => {
+    api.preview.updateSettings({
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+    });
+    expect(effectiveObjectOffset(blueprint.previewSettings)).toEqual({
+      x: 25,
+      y: -10,
+      z: 40,
+    });
+  });
+
+  it("accepts a negative offset, since it is measured from the centre", () => {
+    // The whole range is -50..50; a validator that rejected negatives would
+    // silently halve the control.
+    expect(
+      api.preview.updateSettings({ objectOffsetX: -50 }).objectOffsetX,
+    ).toBe(-50);
+  });
+
+  it("writes each axis into its own slider and readout", () => {
+    api.preview.updateSettings({
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+    });
+    for (const [id, value] of [
+      ["objectOffsetX", "25"],
+      ["objectOffsetY", "-10"],
+      ["objectOffsetZ", "40"],
+    ]) {
+      expect(el(`${id}Slider`).value, id).toBe(value);
+      expect(el(`${id}Value`).textContent, id).toBe(value);
+    }
+  });
+});
+
+describe("rendering resolution (#84)", () => {
+  it("leaves Construct alone on the native preset", () => {
+    // No w/h at all: the preview reads that as "restore full quality", and a
+    // stray size here would put it back on a fixed render surface.
+    api.preview.updateSettings({ renderResolution: "native" });
+    expect(effectiveRenderResolution(blueprint.previewSettings)).toEqual({
+      mode: "native",
+    });
+  });
+
+  it("resolves a preset into a square size", () => {
+    api.preview.updateSettings({ renderResolution: "256" });
+    expect(effectiveRenderResolution(blueprint.previewSettings)).toEqual({
+      mode: "preset",
+      w: 256,
+      h: 256,
+    });
+  });
+
+  it("resolves the two custom keys into one size", () => {
+    api.preview.updateSettings({
+      renderResolution: "custom",
+      canvasWidth: 480,
+      canvasHeight: 320,
+    });
+    expect(effectiveRenderResolution(blueprint.previewSettings)).toEqual({
+      mode: "custom",
+      w: 480,
+      h: 320,
+    });
+  });
+
+  it("writes both boxes", () => {
+    api.preview.updateSettings({ canvasWidth: 512, canvasHeight: 128 });
+    expect(el("canvasWidthInput").value).toBe("512");
+    expect(el("canvasHeightInput").value).toBe("128");
+  });
+
+  it("shows the custom boxes only for the custom preset", () => {
+    api.preview.updateSettings({ renderResolution: "256" });
+    expect(el("customResolutionRow").style.display).toBe("none");
+    api.preview.updateSettings({ renderResolution: "custom" });
+    expect(el("customResolutionRow").style.display).toBe("");
+  });
+
+  it("rejects a non-numeric size", () => {
+    expect(() => api.preview.updateSettings({ canvasWidth: "big" })).toThrow(
+      /finite number/,
+    );
+  });
+
+  it("rejects a preset it has no size for", () => {
+    expect(() =>
+      api.preview.updateSettings({ renderResolution: "4k" }),
+    ).toThrow();
+  });
+
+  it("turns the fullscreen quality down when a resolution is picked", () => {
+    // At high quality the draw surface is the panel's, so the resolution would
+    // be set and do nothing - the exact trap the old canvas-size control was.
+    api.preview.updateSettings({ renderResolution: "256" });
+    expect(blueprint.previewSettings.fullscreenQuality).toBe("low");
+
+    api.preview.updateSettings({ renderResolution: "native" });
+    expect(blueprint.previewSettings.fullscreenQuality).toBe("high");
+  });
+
+  it("lets a patch naming both keep the quality it asked for", () => {
+    api.preview.updateSettings({
+      renderResolution: "256",
+      fullscreenQuality: "high",
+    });
+    expect(blueprint.previewSettings.fullscreenQuality).toBe("high");
+  });
+
+  it("leaves a hand-set quality alone until the resolution moves again", () => {
+    api.preview.updateSettings({ renderResolution: "256" });
+    api.preview.updateSettings({ fullscreenQuality: "high" });
+    expect(blueprint.previewSettings.fullscreenQuality).toBe("high");
+  });
+
+  it("is a live command, not an iframe reload", () => {
+    // A reload would throw away every texture the user has loaded, which is why
+    // this one does not travel in the query string the way sampling does.
+    for (const key of ["renderResolution", "canvasWidth", "canvasHeight"]) {
+      const d = PREVIEW_SETTINGS.find((x) => x.key === key);
+      expect(d.reload, key).toBeFalsy();
+      expect(d.command, key).toBe("setRenderResolution");
+    }
+  });
+});
+
+describe("background mode (#62)", () => {
+  it("offers the camera-following default and the three overrides", () => {
+    const d = PREVIEW_SETTINGS.find((x) => x.key === "backgroundMode");
+    expect(d.default).toBe("auto");
+    expect(d.values).toEqual(["auto", "none", "2d", "3d"]);
+    expect(d.command).toBe("setBackgroundMode");
+  });
+
+  it("writes the select", () => {
+    api.preview.updateSettings({ backgroundMode: "2d" });
+    expect(el("backgroundModeSelect").value).toBe("2d");
+  });
+
+  it("carries an old file's checkbox over", () => {
+    // false meant "no backdrop": in 2D camera mode the checkbox governed
+    // nothing, so there is no old file where it meant "hide only the cube".
+    expect(migratePreviewSettings({ showBackgroundCube: false })).toEqual({
+      backgroundMode: "none",
+    });
+    expect(migratePreviewSettings({ showBackgroundCube: true })).toEqual({
+      backgroundMode: "auto",
+    });
+  });
+});
+
+describe("object scale (#108)", () => {
+  it("ignores the Y and Z keys while the axes are linked", () => {
+    api.preview.updateSettings({
+      objectScale: 2,
+      objectScaleY: 0.5,
+      objectScaleZ: 0.25,
+      objectScaleLinked: true,
+    });
+    expect(effectiveObjectScale(blueprint.previewSettings)).toEqual({
+      x: 2,
+      y: 2,
+      z: 2,
+    });
+  });
+
+  it("uses them once unlinked, without touching the base value", () => {
+    api.preview.updateSettings({
+      objectScale: 2,
+      objectScaleY: 0.5,
+      objectScaleZ: 3,
+      objectScaleLinked: false,
+    });
+    expect(blueprint.previewSettings.objectScale).toBe(2);
+    expect(effectiveObjectScale(blueprint.previewSettings)).toEqual({
+      x: 2,
+      y: 0.5,
+      z: 3,
+    });
+  });
+
+  it("keeps the base scale a plain number, so old files keep working", () => {
+    // Promoting objectScale to an object would break every saved .c3sg while
+    // the save-data fixed-point test carried on passing.
+    api.preview.updateSettings({ objectScale: 1.6 });
+    expect(typeof blueprint.previewSettings.objectScale).toBe("number");
+  });
+
+  it("reveals the Y row only when unlinked", () => {
+    const row = el("objectScaleYRow");
+    const chip = el("objectScaleXChip");
+
+    api.preview.updateSettings({ objectScaleLinked: true });
+    expect(row.style.display).toBe("none");
+    expect(chip.style.display).toBe("none");
+
+    api.preview.updateSettings({ objectScaleLinked: false });
+    expect(row.style.display).toBe("flex");
+    expect(chip.style.display).not.toBe("none");
+  });
+
+  it("reveals the Z row only for a 3D shape, since a sprite has no depth", () => {
+    const row = el("objectScaleZRow");
+
+    api.preview.updateSettings({ objectScaleLinked: false, object: "sprite" });
+    expect(row.style.display).toBe("none");
+
+    api.preview.updateSettings({ object: "box" });
+    expect(row.style.display).toBe("flex");
+
+    api.preview.updateSettings({ objectScaleLinked: true });
+    expect(row.style.display).toBe("none");
+  });
+});
+
+describe("migrating a file saved before the scales merged", () => {
+  it("folds spriteScale into objectScale", () => {
+    expect(migratePreviewSettings({ spriteScale: 1.6, shapeScale: 2 })).toEqual(
+      {
+        objectScale: 1.6,
+      },
+    );
+  });
+
+  it("falls back to shapeScale when that is all the file has", () => {
+    expect(migratePreviewSettings({ shapeScale: 2 })).toEqual({
+      objectScale: 2,
+    });
+  });
+
+  it("leaves keys it does not know about alone", () => {
+    // A file from a newer build should survive a round-trip through this one.
+    expect(migratePreviewSettings({ somethingNewer: 7 })).toEqual({
+      somethingNewer: 7,
+    });
+  });
+});
+
+describe("reset and UI push", () => {
+  it("resetSettings returns exactly the declared defaults", () => {
+    api.preview.updateSettings({ objectScale: 2.5, cameraMode: "perspective" });
+    expect(api.preview.resetSettings()).toEqual(makeDefaultPreviewSettings());
+  });
+
+  it("writes numbers into both the slider and its readout", () => {
+    api.preview.updateSettings({ objectScale: 2.5 });
+    expect(el("objectScaleSlider").value).toBe("2.5");
+    expect(el("objectScaleValue").textContent).toBe("2.50");
+  });
+
+  it("hides the auto-rotate group in 2D and shows it otherwise", () => {
+    const group = el("autoRotateGroup");
+    api.preview.updateSettings({ cameraMode: "2d" });
+    expect(group.style.display).toBe("none");
+    api.preview.updateSettings({ cameraMode: "perspective" });
+    expect(group.style.display).toBe("flex");
+  });
+});
+
+// Stand in for a booted preview iframe and record what it is told.
+function fakeTarget() {
+  const sent = [];
+  return {
+    sent,
+    ready: true,
+    post(message) {
+      sent.push(message);
+    },
+    send(command, value) {
+      sent.push({ type: "previewCommand", command, value });
+    },
+    owns() {
+      return false;
+    },
+  };
+}
+
+describe("what a patch actually sends", () => {
+  let target, realTarget;
+
+  beforeEach(() => {
+    realTarget = blueprint.previewTargets[0];
+    target = fakeTarget();
+    blueprint.previewTargets[0] = target;
+  });
+
+  afterEach(() => {
+    blueprint.previewTargets[0] = realTarget;
+  });
+
+  it("sends one fully-resolved scale command per patch, not one per axis", () => {
+    // The four keys resolve into a single setObjectScale. Sending as each key
+    // landed would push {x: 2, y: 2, z: 2} before the axes had been stored.
+    api.preview.updateSettings({
+      objectScale: 2,
+      objectScaleY: 0.5,
+      objectScaleZ: 3,
+      objectScaleLinked: false,
+    });
+
+    const scaleCommands = target.sent.filter(
+      (m) => m.command === "setObjectScale",
+    );
+    expect(scaleCommands).toHaveLength(1);
+    expect(scaleCommands[0].value).toEqual({ x: 2, y: 0.5, z: 3 });
+  });
+
+  it("sends one fully-resolved offset per patch, not one per axis", () => {
+    api.preview.updateSettings({
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+    });
+
+    const offsetCommands = target.sent.filter(
+      (m) => m.command === "setObjectOffset",
+    );
+    expect(offsetCommands).toHaveLength(1);
+    expect(offsetCommands[0].value).toEqual({ x: 25, y: -10, z: 40 });
+  });
+
+  it("sends one fully-resolved resolution per patch, not one per key", () => {
+    api.preview.updateSettings({
+      renderResolution: "custom",
+      canvasWidth: 480,
+      canvasHeight: 320,
+    });
+
+    const sizeCommands = target.sent.filter(
+      (m) => m.command === "setRenderResolution",
+    );
+    expect(sizeCommands).toHaveLength(1);
+    expect(sizeCommands[0].value).toEqual({ mode: "custom", w: 480, h: 320 });
+  });
+
+  it("sends one fully-resolved rotation command per patch, not one per axis", () => {
+    api.preview.updateSettings({
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectAngle: 15,
+    });
+
+    const angleCommands = target.sent.filter(
+      (m) => m.command === "setObjectAngle",
+    );
+    expect(angleCommands).toHaveLength(1);
+    expect(angleCommands[0].value).toEqual({ x: 55, y: 30, z: 15 });
+  });
+
+  it("sends the sibling that a linked setting dragged along", () => {
+    api.preview.updateSettings({ effectTarget: "shape3D" });
+
+    const commands = target.sent.map((m) => m.command);
+    expect(commands).toContain("setEffectTarget");
+    expect(commands).toContain("setObject");
+  });
+
+  it("does not send a setting that travels in the iframe URL", () => {
+    api.preview.updateSettings({ samplingMode: "nearest" });
+    expect(target.sent.map((m) => m.command)).not.toContain("setSamplingMode");
+  });
+});
+
+describe("applyPreviewSettingsTo", () => {
+  it("sends textures before scales, because loading one re-derives the base size", () => {
+    const target = fakeTarget();
+    blueprint.previewSettings.spriteTextureUrl = "data:image/png;base64,AA==";
+
+    blueprint.applyPreviewSettingsTo(target);
+
+    const textureAt = target.sent.findIndex(
+      (m) => m.type === "callFunction" && m.function === "loadSpriteUrl",
+    );
+    const scaleAt = target.sent.findIndex(
+      (m) => m.command === "setObjectScale",
+    );
+    expect(textureAt).toBeGreaterThanOrEqual(0);
+    expect(scaleAt).toBeGreaterThan(textureAt);
+  });
+
+  it("never sends the settings that travel in the iframe URL", () => {
+    const target = fakeTarget();
+    blueprint.applyPreviewSettingsTo(target);
+
+    const commands = target.sent.map((m) => m.command);
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.reload === true) expect(commands).not.toContain(d.command);
+    }
+  });
+
+  it("sends each command at most once", () => {
+    const target = fakeTarget();
+    blueprint.applyPreviewSettingsTo(target);
+
+    const commands = target.sent.map((m) => m.command).filter(Boolean);
+    expect(commands.length).toBe(new Set(commands).size);
+  });
+});
+
+describe("the CLI derives its flags from the same table", () => {
+  it("has a unique flag per setting, each naming a real key", () => {
+    const flags = PREVIEW_SETTINGS.filter((d) => d.cli).map((d) => d.cli.flag);
+    expect(flags.length).toBe(new Set(flags).size);
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.cli) expect(PREVIEW_SETTING_KEYS.has(d.key)).toBe(true);
+    }
+  });
+
+  it("lists every boolean setting in `booleans`", () => {
+    // Miss one and the parser treats --no-auto-rotate as a flag that eats the
+    // next token, silently swallowing the filename. tests/28 cannot catch this:
+    // the preview command needs Playwright and is not exercised there.
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.kind === "bool" && d.cli) {
+        expect(previewCommand.booleans, d.key).toContain(d.cli.flag);
+      }
+    }
+  });
+
+  it("parses --no-auto-rotate without eating the filename", () => {
+    const { _, flags } = parseArgs(["--no-auto-rotate", "x.c3sg"], {
+      booleans: previewCommand.booleans,
+      aliases: previewCommand.aliases,
+    });
+    expect(flags.autoRotate).toBe(false);
+    expect(_).toEqual(["x.c3sg"]);
+  });
+
+  it("documents a value placeholder for every non-boolean flag", () => {
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.cli && d.kind !== "bool") {
+        expect(d.cli.arg, `${d.key} cli.arg`).toBeTruthy();
+      }
+    }
+  });
+});

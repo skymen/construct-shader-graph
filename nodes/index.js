@@ -41,6 +41,7 @@ import { StepNode } from "./StepNode.js";
 import { SmoothstepNode } from "./SmoothstepNode.js";
 import { CosNode } from "./CosNode.js";
 import { SinNode } from "./SinNode.js";
+import { OscillateNode } from "./OscillateNode.js";
 import { TanNode } from "./TanNode.js";
 import { AsinNode } from "./AsinNode.js";
 import { AcosNode } from "./AcosNode.js";
@@ -68,6 +69,7 @@ import { PerlinNoise3DNode } from "./PerlinNoise3DNode.js";
 import { SimplexNoise3DNode } from "./SimplexNoise3DNode.js";
 import { VoronoiNoise3DNode } from "./VoronoiNoise3DNode.js";
 import { FBMNode } from "./FBMNode.js";
+import { FBM3DNode } from "./FBM3DNode.js";
 import { Vec2Node } from "./Vec2Node.js";
 import { Vec3Node } from "./Vec3Node.js";
 import { Vec4Node } from "./Vec4Node.js";
@@ -143,10 +145,14 @@ import { BuiltinLayoutCenterNode } from "./BuiltinLayoutCenterNode.js";
 import { BuiltinLayoutSizeNode } from "./BuiltinLayoutSizeNode.js";
 import { TexelSizeNode } from "./TexelSizeNode.js";
 import { PixelSizeNode } from "./PixelSizeNode.js";
+import { SrcOriginSizePxNode } from "./SrcOriginSizePxNode.js";
+import { AspectCorrectNode } from "./AspectCorrectNode.js";
 import { LayoutPixelSizeNode } from "./LayoutPixelSizeNode.js";
 import { SrcOriginToNormNode } from "./SrcOriginToNormNode.js";
 import { GetLayoutPosNode } from "./GetLayoutPosNode.js";
 import { FromLayoutPosNode } from "./FromLayoutPosNode.js";
+import { GetLayoutPosRotationSafeNode } from "./GetLayoutPosRotationSafeNode.js";
+import { FromLayoutPosRotationSafeNode } from "./FromLayoutPosRotationSafeNode.js";
 import { UnpremultiplyNode } from "./UnpremultiplyNode.js";
 import { PremultiplyNode } from "./PremultiplyNode.js";
 import { LinearizeDepthNode } from "./LinearizeDepthNode.js";
@@ -193,6 +199,10 @@ import { DrawFloatNode } from "./DrawFloatNode.js";
 // Import variable nodes
 import { SetVariableNode } from "./SetVariableNode.js";
 import { GetVariableNode } from "./GetVariableNode.js";
+
+// Import function boundary nodes
+import { FunctionInputNode } from "./FunctionInputNode.js";
+import { FunctionOutputNode } from "./FunctionOutputNode.js";
 
 // Import input nodes
 import { FloatInputNode } from "./FloatInputNode.js";
@@ -265,6 +275,7 @@ import { SDFRoundNode } from "./SDFRoundNode.js";
 import { SDFFillNode } from "./SDFFillNode.js";
 import { SDFStrokeNode } from "./SDFStrokeNode.js";
 import { SDFColorNode } from "./SDFColorNode.js";
+import { SDFGradientColorNode } from "./SDFGradientColorNode.js";
 
 // Import radial symmetry node
 import { RadialSymmetryNode } from "./RadialSymmetryNode.js";
@@ -352,6 +363,7 @@ export const NODE_TYPES = {
   smoothstep: SmoothstepNode,
   cos: CosNode,
   sin: SinNode,
+  oscillate: OscillateNode,
   tan: TanNode,
   asin: AsinNode,
   acos: AcosNode,
@@ -379,6 +391,7 @@ export const NODE_TYPES = {
   simplexNoise3D: SimplexNoise3DNode,
   voronoiNoise3D: VoronoiNoise3DNode,
   fbm: FBMNode,
+  fbm3D: FBM3DNode,
   vec2: Vec2Node,
   vec3: Vec3Node,
   vec4: Vec4Node,
@@ -451,10 +464,14 @@ export const NODE_TYPES = {
   builtinZFar: BuiltinZFarNode,
   texelSize: TexelSizeNode,
   pixelSize: PixelSizeNode,
+  srcOriginSizePx: SrcOriginSizePxNode,
+  aspectCorrect: AspectCorrectNode,
   layoutPixelSize: LayoutPixelSizeNode,
   srcOriginToNorm: SrcOriginToNormNode,
   getLayoutPos: GetLayoutPosNode,
   fromLayoutPos: FromLayoutPosNode,
+  getLayoutPosRotationSafe: GetLayoutPosRotationSafeNode,
+  fromLayoutPosRotationSafe: FromLayoutPosRotationSafeNode,
   unpremultiply: UnpremultiplyNode,
   premultiply: PremultiplyNode,
   linearizeDepth: LinearizeDepthNode,
@@ -502,6 +519,10 @@ export const NODE_TYPES = {
   // Variable nodes
   setVariable: SetVariableNode,
   getVariable: GetVariableNode,
+
+  // Function boundary nodes (visible only inside function/loopBody graphs)
+  functionInput: FunctionInputNode,
+  functionOutput: FunctionOutputNode,
 
   // Input nodes
   floatInput: FloatInputNode,
@@ -572,6 +593,7 @@ export const NODE_TYPES = {
   sdfFill: SDFFillNode,
   sdfStroke: SDFStrokeNode,
   sdfColor: SDFColorNode,
+  sdfGradientColor: SDFGradientColorNode,
 
   // Radial symmetry
   radialSymmetry: RadialSymmetryNode,

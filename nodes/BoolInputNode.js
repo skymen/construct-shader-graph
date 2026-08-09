@@ -39,3 +39,7 @@ BoolInputNode.operationOptions = [
   { value: "false", label: "False" },
   { value: "true", label: "True" },
 ];
+
+// The value lives on `operation` rather than `customInput` here, because the
+// widget is the true/false dropdown rather than a text field.
+BoolInputNode.foldConstant = (node) => node.operation === "true";

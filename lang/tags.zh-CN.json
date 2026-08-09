@@ -383,5 +383,19 @@
   "zoom": "缩放",
   "|": "|",
   "||": "||",
-  "~": "~"
+  "~": "~",
+  "aspect": "宽高比",
+  "correct": "校正",
+  "shape": "形状",
+  "wave": "波",
+  "wobble": "摆动",
+  "sway": "摇摆",
+  "pulse": "脉冲",
+  "period": "周期",
+  "animate": "动画",
+  "clip": "裁剪",
+  "bleed": "溢色",
+  "spritesheet": "精灵表",
+  "atlas": "图集",
+  "pixels": "像素"
 }

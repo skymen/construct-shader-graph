@@ -1,28 +1,22 @@
 import { NODE_TYPES } from "./nodes/index.js";
+import {
+  PREVIEW_SETTINGS,
+  PREVIEW_SETTING_KEYS,
+  coercePreviewSetting,
+} from "./preview-settings.js";
+import {
+  SHADER_TARGETS,
+  TARGET_LABELS,
+  enabledTargetsFor,
+} from "./shader-targets.js";
+import { resolveConstantCount } from "./constant-fold.js";
+import { resolveLoopCap } from "./graph-kinds/loop-body-kind.js";
+import { CONSTANT_TYPES } from "./nodes/ConstantNode.js";
 
 const API_VERSION = "1.0.0";
 const API_NAMESPACE = "shaderGraphAPI";
 const API_ALIAS = "sg";
 const PREVIEWABLE_TYPES = new Set(["float", "vec2", "vec3", "vec4"]);
-const PREVIEW_SETTING_KEYS = new Set([
-  "effectTarget",
-  "object",
-  "cameraMode",
-  "autoRotate",
-  "samplingMode",
-  "shaderLanguage",
-  "spriteTextureUrl",
-  "shapeTextureUrl",
-  "bgTextureUrl",
-  "showBackgroundCube",
-  "spriteScale",
-  "shapeScale",
-  "roomScale",
-  "bgOpacity",
-  "bg3dOpacity",
-  "zoomLevel",
-  "startupScript",
-]);
 
 function cloneValue(value) {
   if (value === undefined) {
@@ -182,6 +176,12 @@ function getUniformById(bp, uniformId) {
   return uniform;
 }
 
+function getConstantById(bp, constantId) {
+  const constant = bp.constants.find((entry) => entry.id === Number(constantId));
+  assert(constant, `Constant ${constantId} not found`);
+  return constant;
+}
+
 function getDeprecatedUniformById(bp, uniformId) {
   const uniform = bp.deprecatedUniforms.find(
     (entry) => entry.id === Number(uniformId),
@@ -230,6 +230,8 @@ function normalizeTypeSnapshot(nodeType, typeKey) {
     customEditorConfig: cloneValue(nodeType.customEditorConfig || null),
     isUniform: !!nodeType.isUniform,
     uniformId: nodeType.uniformId ?? null,
+    isConstant: !!nodeType.isConstant,
+    constantId: nodeType.constantId ?? null,
     isCustom: !!nodeType.isCustom,
     customNodeId: nodeType.customNodeId ?? null,
     manual: cloneValue(nodeType.manual || null),
@@ -430,6 +432,18 @@ function serializeUniform(uniform, index) {
   };
 }
 
+function serializeConstant(constant, index) {
+  return {
+    id: constant.id,
+    index,
+    name: constant.name,
+    variableName: constant.variableName,
+    description: constant.description,
+    type: constant.type,
+    value: cloneValue(constant.value),
+  };
+}
+
 function serializeWire(bp, wire) {
   return {
     id: getWireId(bp, wire),
@@ -531,6 +545,55 @@ function getAiWarnings(bp) {
     });
   });
 
+  warnings.push(...getCappedLoopWarnings(bp));
+
+  return warnings;
+}
+
+// A loop whose Count is not knowable at codegen time silently stops early on
+// WebGL1 (see graph-kinds/loop-body-kind.js). Nothing on the canvas says so, so
+// say it here.
+//
+// Walks allNodes() rather than bp.nodes: loop callers live in whichever graph
+// the user placed them in, which is very often not the open one.
+function getCappedLoopWarnings(bp) {
+  if (!enabledTargetsFor(bp.mainGraph?.shaderSettings).includes("webgl1")) {
+    return [];
+  }
+
+  const warnings = [];
+
+  for (const { node, graph } of bp.allNodes()) {
+    if (!node.nodeType?.isFunctionCall) continue;
+    if (node.nodeType.callerKind !== "loopBody") continue;
+
+    const countPort = node.inputPorts[0];
+    if (!countPort) continue;
+    if (resolveConstantCount(countPort, bp) !== null) continue;
+
+    const targetGraph = bp.graphs.get(node.nodeType.targetGraphId);
+    const cap = resolveLoopCap(node, targetGraph);
+
+    warnings.push({
+      type: "webgl1-loop-capped",
+      severity: "warning",
+      nodeId: node.id,
+      nodeTypeKey: bp.getNodeTypeKey(node.nodeType),
+      graphId: graph.id,
+      graphName: graph.name,
+      loopBodyId: targetGraph?.id ?? null,
+      loopBodyName: targetGraph?.name ?? null,
+      cap,
+      recommendation:
+        `WebGL1 caps this loop at ${cap} iterations because its Count is not ` +
+        `known at codegen time; any iteration past ${cap} never runs. Either ` +
+        `raise "Max WebGL1 Iterations" on the ` +
+        `"${targetGraph?.name ?? "loop body"}" loop body, or drive Count from ` +
+        `a value that folds (an Int Input, or arithmetic over one) so the ` +
+        `loop compiles to an exact bound.`,
+    });
+  }
+
   return warnings;
 }
 
@@ -566,6 +629,60 @@ async function runAiDebugCheck(bp, api, options = {}) {
     warnings,
     screenshot,
   };
+}
+
+function serializeComment(comment) {
+  return {
+    id: comment.id,
+    x: comment.x,
+    y: comment.y,
+    width: comment.width,
+    height: comment.height,
+    title: comment.title,
+    description: comment.description,
+    color: comment.color,
+  };
+}
+
+function getCommentById(bp, commentId) {
+  const comment = bp.comments.find((entry) => entry.id === Number(commentId));
+  assert(comment, `Comment ${commentId} not found`);
+  return comment;
+}
+
+function serializeGraph(bp, graph) {
+  return {
+    id: graph.id,
+    name: graph.name,
+    kind: graph.kind,
+    isMain: graph.id === bp.mainGraphId,
+    isActive: graph.id === bp.activeGraphId,
+    nodeCount: graph.nodes.length,
+    wireCount: graph.wires.length,
+    commentCount: graph.comments.length,
+    contractVersion: graph.contractVersion,
+  };
+}
+
+function listGraphs(bp) {
+  return [...bp.graphs.values()].map((graph) => serializeGraph(bp, graph));
+}
+
+// Resolve a graph by id, by name, or by the literal "main"/"active".
+function resolveGraphRef(bp, graphRef) {
+  if (graphRef == null || graphRef === "active") return bp.activeGraph;
+  if (graphRef === "main") return bp.mainGraph;
+
+  const ref = String(graphRef);
+  if (bp.graphs.has(ref)) return bp.graphs.get(ref);
+
+  const byName = [...bp.graphs.values()].filter((g) => g.name === ref);
+  assert(byName.length > 0, `Graph '${ref}' not found`);
+  assert(
+    byName.length === 1,
+    `Graph name '${ref}' is ambiguous (${byName.length} matches); use the graph id`,
+  );
+  return byName[0];
 }
 
 function serializeCamera(bp) {
@@ -736,9 +853,17 @@ function normalizeIrNodeTypeKey(irNode) {
       uniformRef !== undefined && uniformRef !== null,
       `IR node '${irNode.id}' requires a uniform reference`,
     );
-    return { typeKey: "uniform", uniformRef };
+    return { typeKey: "uniform", uniformRef, constantRef: null };
   }
-  return { typeKey, uniformRef: null };
+  if (typeKey === "constant") {
+    const constantRef = irNode.constant ?? irNode.constantId;
+    assert(
+      constantRef !== undefined && constantRef !== null,
+      `IR node '${irNode.id}' requires a constant reference`,
+    );
+    return { typeKey: "constant", uniformRef: null, constantRef };
+  }
+  return { typeKey, uniformRef: null, constantRef: null };
 }
 
 function getOutputNode(bp) {
@@ -791,14 +916,22 @@ function exportGraphIR(bp) {
     autoLayout: true,
     nodes: nodeSummaries.map(({ localId, node }) => {
       const typeKey = bp.getNodeTypeKey(node.nodeType);
+      let irType = typeKey;
+      if (node.nodeType.isUniform) irType = "uniform";
+      else if (node.nodeType.isConstant) irType = "constant";
+
       const irNode = {
         id: localId,
-        type: node.nodeType.isUniform ? "uniform" : typeKey,
+        type: irType,
       };
 
       if (node.nodeType.isUniform) {
         irNode.uniform =
           node.uniformDisplayName || node.uniformName || node.uniformId;
+      }
+      if (node.nodeType.isConstant) {
+        irNode.constant =
+          node.constantDisplayName || node.constantName || node.constantId;
       }
 
       if (node.operation !== undefined) {
@@ -880,11 +1013,15 @@ function validateGraphIR(bp, ir) {
     }
 
     try {
-      const { typeKey, uniformRef } = normalizeIrNodeTypeKey(irNode);
+      const { typeKey, uniformRef, constantRef } =
+        normalizeIrNodeTypeKey(irNode);
       let nodeType = null;
       if (typeKey === "uniform") {
         const uniform = resolveUniformRefFromIr(bp, uniformRef);
         nodeType = bp.getUniformNodeTypes()[`uniform_${uniform.id}`] || null;
+      } else if (typeKey === "constant") {
+        const constant = bp.resolveConstantRefFromIr(constantRef);
+        nodeType = bp.getConstantNodeTypes()[`constant_${constant.id}`] || null;
       } else {
         nodeType = bp.getNodeTypeFromKey(typeKey);
       }
@@ -1036,13 +1173,17 @@ function importGraphIR(bp, ir, options = {}) {
   const wires = ensureIrWiresArray(ir);
 
   nodes.forEach((irNode, index) => {
-    const { typeKey, uniformRef } = normalizeIrNodeTypeKey(irNode);
+    const { typeKey, uniformRef, constantRef } =
+      normalizeIrNodeTypeKey(irNode);
     let node;
     if (typeKey === "output") {
       node = getOutputNode(bp);
     } else if (typeKey === "uniform") {
       const uniform = resolveUniformRefFromIr(bp, uniformRef);
       node = bp.createUniformNode(uniform, cursorX, cursorY);
+    } else if (typeKey === "constant") {
+      const constant = bp.resolveConstantRefFromIr(constantRef);
+      node = bp.createConstantNode(constant, cursorX, cursorY);
     } else {
       const nodeType = bp.getNodeTypeFromKey(typeKey);
       node = bp.addNode(cursorX, cursorY, nodeType);
@@ -1158,7 +1299,14 @@ function importGraphIR(bp, ir, options = {}) {
 
 function rewriteFanoutAsVariable(
   bp,
-  { nodeId, outputIndex = 0, outputName, variableName, autoLayout = true } = {},
+  {
+    nodeId,
+    outputIndex = 0,
+    outputName,
+    variableName,
+    autoLayout = true,
+    allowSingle = false,
+  } = {},
 ) {
   assert(
     Number.isInteger(Number(nodeId)),
@@ -1170,9 +1318,15 @@ function rewriteFanoutAsVariable(
       ? node.outputPorts.find((port) => port.name === outputName)
       : node.outputPorts[Number(outputIndex) || 0];
   assert(outputPort, `Output port not found on node ${node.id}`);
+  // A single consumer is still worth routing when the wire would otherwise run
+  // the width of the graph: the Get node lands next to whoever reads it.
   assert(
-    outputPort.connections.length > 1,
-    `Node ${node.id} output '${outputPort.name}' does not fan out`,
+    outputPort.connections.length > 1 || allowSingle,
+    `Node ${node.id} output '${outputPort.name}' does not fan out (pass allowSingle to route it anyway)`,
+  );
+  assert(
+    outputPort.connections.length > 0,
+    `Node ${node.id} output '${outputPort.name}' is not connected to anything`,
   );
 
   const connections = [...outputPort.connections];
@@ -1264,6 +1418,384 @@ function rewriteFanoutAsVariable(
     setNodeId: setNode.id,
     getNodeIds: createdGetNodes.map((entry) => entry.id),
     replacedConnectionCount: connections.length,
+  };
+}
+
+// Nodes that eventually reach an Output or a Set Variable. Anything else is
+// dead: it costs graph area and reading effort and emits no code.
+function collectLiveNodeIds(bp) {
+  const live = new Set();
+  const stack = [];
+
+  bp.nodes.forEach((node) => {
+    const typeKey = bp.getNodeTypeKey(node.nodeType);
+    if (typeKey === "output" || typeKey === "setVariable") {
+      live.add(node.id);
+      stack.push(node);
+    }
+  });
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    node.inputPorts.forEach((port) => {
+      port.connections.forEach((wire) => {
+        const upstream = wire.startPort.node;
+        if (!live.has(upstream.id)) {
+          live.add(upstream.id);
+          stack.push(upstream);
+        }
+      });
+    });
+  }
+
+  return live;
+}
+
+// A wire's full polyline, including any reroute points.
+function wirePoints(wire) {
+  if (typeof wire.getPoints === "function") return wire.getPoints();
+  const a = wire.startPort.node;
+  const b = wire.endPort.node;
+  return [
+    { x: a.x + a.width, y: a.y + a.height / 2 },
+    { x: b.x, y: b.y + b.height / 2 },
+  ];
+}
+
+function segmentsOf(wire) {
+  const pts = wirePoints(wire);
+  const out = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    out.push({
+      x1: pts[i].x,
+      y1: pts[i].y,
+      x2: pts[i + 1].x,
+      y2: pts[i + 1].y,
+    });
+  }
+  return out;
+}
+
+function segmentsCross(p, q) {
+  const d = (ax, ay, bx, by, cx, cy) =>
+    Math.sign((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
+  const d1 = d(p.x1, p.y1, p.x2, p.y2, q.x1, q.y1);
+  const d2 = d(p.x1, p.y1, p.x2, p.y2, q.x2, q.y2);
+  const d3 = d(q.x1, q.y1, q.x2, q.y2, p.x1, p.y1);
+  const d4 = d(q.x1, q.y1, q.x2, q.y2, p.x2, p.y2);
+  return d1 !== d2 && d3 !== d4;
+}
+
+// Does a segment enter a rectangle? Used to find wires drawn over nodes they
+// have nothing to do with, which is the thing that actually looks broken.
+function segmentHitsRect(seg, rect) {
+  const { x, y, w, h } = rect;
+  const inside = (px, py) => px >= x && px <= x + w && py >= y && py <= y + h;
+  if (inside(seg.x1, seg.y1) || inside(seg.x2, seg.y2)) return true;
+  const edges = [
+    { x1: x, y1: y, x2: x + w, y2: y },
+    { x1: x + w, y1: y, x2: x + w, y2: y + h },
+    { x1: x + w, y1: y + h, x2: x, y2: y + h },
+    { x1: x, y1: y + h, x2: x, y2: y },
+  ];
+  return edges.some((edge) => segmentsCross(seg, edge));
+}
+
+// The name normalizeFanoutsForLayout would invent for this port. A Set
+// Variable still carrying it means nobody named the value.
+function autoVariableNameFor(bp, node) {
+  const wire = node.inputPorts[0]?.connections?.[0];
+  if (!wire) return null;
+  const source = wire.startPort.node;
+  return bp.sanitizeGraphLocalId(
+    `${source.title}_${wire.startPort.name}`,
+    "graph_value",
+  );
+}
+
+/**
+ * Readability audit. Everything here is something that makes a graph harder to
+ * read but that codegen is perfectly happy with, so none of it shows up in
+ * graph.validate.
+ */
+function auditGraph(bp, options = {}) {
+  const maxFanout = Number.isFinite(options.maxFanout) ? options.maxFanout : 2;
+  // Roughly four node widths: past that a wire reads as a haul across the
+  // canvas rather than a local connection.
+  const maxWireLength = Number.isFinite(options.maxWireLength)
+    ? options.maxWireLength
+    : 700;
+  const issues = [];
+
+  const live = collectLiveNodeIds(bp);
+  for (const node of bp.nodes) {
+    const typeKey = bp.getNodeTypeKey(node.nodeType);
+    if (typeKey === "output" || live.has(node.id)) continue;
+    issues.push({
+      kind: "deadNode",
+      nodeId: node.id,
+      typeKey,
+      message: `"${node.title}" reaches neither the Output nor a Set Variable`,
+    });
+  }
+
+  // Comment coverage. Membership is geometric, so a node the author meant to
+  // include but that drifted out is indistinguishable from one never grouped -
+  // both read the same way and both are reported. Layout passes refit the boxes
+  // around what they held, so an uncommentedNode after an arrange means the node
+  // genuinely was never grouped rather than that the arrange stranded it.
+  if (bp.comments.length > 0) {
+    for (const node of bp.nodes) {
+      const owners = bp.comments.filter((c) => c.containsNode(node));
+      if (owners.length === 0) {
+        issues.push({
+          kind: "uncommentedNode",
+          nodeId: node.id,
+          typeKey: bp.getNodeTypeKey(node.nodeType),
+          message: `"${node.title}" is not inside any comment`,
+        });
+      } else if (owners.length > 1) {
+        issues.push({
+          kind: "multiCommentedNode",
+          nodeId: node.id,
+          commentIds: owners.map((c) => c.id),
+          message: `"${node.title}" is inside ${owners.length} comments at once`,
+        });
+      }
+    }
+  }
+
+  // Why a comment box came out huge after an arrange. Auto-arrange stands each
+  // comment in for the section it holds, which keeps the box tight - but only if
+  // the section is a section. These two rules name the shapes it cannot do that
+  // for, so a bad-looking box points at the grouping rather than the layout.
+  if (bp.comments.length > 0) {
+    const forward = new Map(bp.nodes.map((n) => [n.id, []]));
+    const backward = new Map(bp.nodes.map((n) => [n.id, []]));
+    for (const wire of bp.wires) {
+      forward.get(wire.startPort.node.id)?.push(wire.endPort.node.id);
+      backward.get(wire.endPort.node.id)?.push(wire.startPort.node.id);
+    }
+
+    for (const comment of bp.comments) {
+      const members = bp.nodes.filter((n) => comment.containsNode(n));
+      if (members.length < 2) continue;
+      const memberIds = new Set(members.map((n) => n.id));
+
+      // Convexity: step one hop outside the set, then walk forwards. Getting
+      // back to a member means an unrelated node has to be drawn between two
+      // members, so no layout can keep the box tight around them.
+      const seen = new Set();
+      const stack = [];
+      for (const id of memberIds) {
+        for (const next of forward.get(id) || []) {
+          if (memberIds.has(next) || seen.has(next)) continue;
+          seen.add(next);
+          stack.push(next);
+        }
+      }
+      let intruder = null;
+      while (stack.length > 0 && intruder === null) {
+        const id = stack.pop();
+        for (const next of forward.get(id) || []) {
+          if (memberIds.has(next)) {
+            intruder = id;
+            break;
+          }
+          if (seen.has(next)) continue;
+          seen.add(next);
+          stack.push(next);
+        }
+      }
+      if (intruder !== null) {
+        const node = bp.nodes.find((n) => n.id === intruder);
+        issues.push({
+          kind: "nonConvexComment",
+          commentId: comment.id,
+          nodeId: intruder,
+          message: `"${comment.title}" has "${node?.title ?? intruder}" on a path between two of its own nodes, so auto-arrange cannot keep the box tight`,
+        });
+      }
+
+      // A node inside the box that neither feeds nor is fed by anything in it.
+      // It is in the group only because the rectangle reached it.
+      for (const node of members) {
+        const touches =
+          (forward.get(node.id) || []).some((id) => memberIds.has(id)) ||
+          (backward.get(node.id) || []).some((id) => memberIds.has(id));
+        if (touches) continue;
+        // A comment of unconnected nodes is a deliberate grouping, not a swallow.
+        if (members.length === 1) continue;
+        const anyConnected = members.some(
+          (other) =>
+            other !== node &&
+            ((forward.get(other.id) || []).some((id) => memberIds.has(id)) ||
+              (backward.get(other.id) || []).some((id) => memberIds.has(id))),
+        );
+        if (!anyConnected) continue;
+        issues.push({
+          kind: "commentSwallowsNode",
+          commentId: comment.id,
+          nodeId: node.id,
+          message: `"${comment.title}" encloses "${node.title}", which is wired to nothing else inside it`,
+        });
+      }
+    }
+  }
+
+  for (let i = 0; i < bp.comments.length; i++) {
+    for (let j = i + 1; j < bp.comments.length; j++) {
+      const a = bp.comments[i];
+      const b = bp.comments[j];
+      const frac = bp.commentOverlapFraction(a, b);
+      if (frac > 0.25) {
+        issues.push({
+          kind: "overlappingComments",
+          commentIds: [a.id, b.id],
+          overlapFraction: Number(frac.toFixed(3)),
+          message: `"${a.title}" and "${b.title}" overlap by ${Math.round(frac * 100)}%`,
+        });
+      }
+    }
+  }
+
+  for (const node of bp.nodes) {
+    if (bp.getNodeTypeKey(node.nodeType) !== "setVariable") continue;
+    const auto = autoVariableNameFor(bp, node);
+    if (auto && node.customInput === auto) {
+      issues.push({
+        kind: "autoNamedVariable",
+        nodeId: node.id,
+        name: node.customInput,
+        message: `Variable "${node.customInput}" still has the name auto-arrange generated; say what the value means`,
+      });
+    }
+  }
+
+  // Fan-out that was never routed through a variable is the main source of
+  // long crossing wires.
+  for (const node of bp.nodes) {
+    for (const port of node.outputPorts) {
+      const targets = new Set(
+        port.connections.map((wire) => wire.endPort.node.id),
+      );
+      if (targets.size > maxFanout) {
+        issues.push({
+          kind: "unroutedFanout",
+          nodeId: node.id,
+          port: port.name,
+          targets: targets.size,
+          message: `"${node.title}.${port.name}" feeds ${targets.size} nodes directly; route it through a named variable`,
+        });
+      }
+    }
+  }
+
+  // What actually reads as broken: a wire drawn straight over a node it has
+  // nothing to do with, and a wire arriving at a port from the right instead
+  // of cleanly from the left. Leaving a comment is fine as long as the wire
+  // itself is clean, so that is only counted, never reported.
+  const rects = bp.nodes.map((node) => ({
+    id: node.id,
+    title: node.title,
+    x: node.x,
+    y: node.y,
+    w: node.width,
+    h: node.height,
+  }));
+
+  for (const wire of bp.wires) {
+    const from = wire.startPort.node;
+    const to = wire.endPort.node;
+    const segs = segmentsOf(wire);
+    const hit = new Set();
+    for (const seg of segs) {
+      for (const rect of rects) {
+        if (rect.id === from.id || rect.id === to.id) continue;
+        if (segmentHitsRect(seg, rect)) hit.add(rect.title);
+      }
+    }
+    if (hit.size > 0) {
+      issues.push({
+        kind: "wireOverNode",
+        fromNodeId: from.id,
+        toNodeId: to.id,
+        over: [...hit],
+        message: `"${from.title}.${wire.startPort.name}" -> "${to.title}.${wire.endPort.name}" is drawn over ${[...hit].slice(0, 3).join(", ")}${hit.size > 3 ? ` and ${hit.size - 3} more` : ""}`,
+      });
+    }
+
+    // A wire that travels a long way is a diagonal sweeping across the graph
+    // even when it happens to miss every node. The fix is a variable: the Get
+    // node lands beside whoever reads it.
+    // Straight-line port-to-port distance, not the routed polyline: reroute
+    // points are the cure for a bad wire, so they must not count as the
+    // disease.
+    const ends = wirePoints(wire);
+    const span = Math.hypot(
+      ends[ends.length - 1].x - ends[0].x,
+      ends[ends.length - 1].y - ends[0].y,
+    );
+    if (span > maxWireLength) {
+      issues.push({
+        kind: "longWire",
+        fromNodeId: from.id,
+        toNodeId: to.id,
+        length: Math.round(span),
+        message: `"${from.title}.${wire.startPort.name}" -> "${to.title}.${wire.endPort.name}" runs ${Math.round(span)}px; route it through a named variable`,
+      });
+    }
+
+    // The last leg should approach the input port heading right.
+    const pts = wirePoints(wire);
+    const last = pts[pts.length - 2];
+    const end = pts[pts.length - 1];
+    if (last && end && last.x > end.x) {
+      issues.push({
+        kind: "backwardEntry",
+        fromNodeId: from.id,
+        toNodeId: to.id,
+        message: `"${from.title}.${wire.startPort.name}" -> "${to.title}.${wire.endPort.name}" enters the port from the right`,
+      });
+    }
+  }
+
+  let crossStageWires = 0;
+  if (bp.comments.length > 0) {
+    const commentOf = (node) => bp.comments.find((c) => c.containsNode(node));
+    for (const wire of bp.wires) {
+      const from = commentOf(wire.startPort.node);
+      const to = commentOf(wire.endPort.node);
+      if (from && to && from !== to) crossStageWires++;
+    }
+  }
+
+  const segments = bp.wires.flatMap((wire) => segmentsOf(wire));
+  let crossings = 0;
+  for (let i = 0; i < segments.length; i++) {
+    for (let j = i + 1; j < segments.length; j++) {
+      if (segmentsCross(segments[i], segments[j])) crossings++;
+    }
+  }
+
+  const backward = issues.filter((i) => i.kind === "backwardEntry").length;
+
+  return {
+    ok: issues.length === 0,
+    stats: {
+      nodes: bp.nodes.length,
+      wires: bp.wires.length,
+      comments: bp.comments.length,
+      deadNodes: issues.filter((i) => i.kind === "deadNode").length,
+      uncommentedNodes: issues.filter((i) => i.kind === "uncommentedNode")
+        .length,
+      crossStageWires,
+      wireOverNode: issues.filter((i) => i.kind === "wireOverNode").length,
+      longWires: issues.filter((i) => i.kind === "longWire").length,
+      crossings,
+      backwardEntries: backward,
+    },
+    issues,
   };
 }
 
@@ -1503,146 +2035,65 @@ function applyNodePatch(bp, node, patch) {
   node.recalculateHeight();
 }
 
+// Apply a validated patch to the host's preview settings, then push whatever
+// changed to the running preview. Everything the loop needs - the coercion, the
+// command name, whether it reloads - comes from PREVIEW_SETTINGS.
+//
+// Two passes on purpose: every value has to be stored before anything is sent,
+// because a descriptor's `apply` may read sibling keys. The scale axes do -
+// setSpriteScale resolves {x, y} out of three keys, and sending it while only
+// the first of them had landed would push a half-applied patch.
 function syncPreviewSettings(bp, patch) {
   let shouldReload = false;
-  let shouldUpdateUi = false;
+  const changed = new Set();
 
-  if (patch.effectTarget !== undefined) {
-    const target = patch.effectTarget;
-    bp.previewSettings.effectTarget = target;
-    shouldUpdateUi = true;
+  // There can be several preview windows, each with its own settings. The API
+  // addresses the first one - that is what "the preview" means to a script or
+  // to the CLI.
+  const previewTarget = target(bp);
+  const settings = previewTarget?.settings ?? bp.previewSettings;
 
-    if (target === "sprite") {
-      bp.previewSettings.object = "sprite";
-    } else if (target === "shape3D" && bp.previewSettings.object === "sprite") {
-      bp.previewSettings.object = "box";
+  for (const d of PREVIEW_SETTINGS) {
+    if (patch[d.key] === undefined) continue;
+
+    const value = coercePreviewSetting(d, patch[d.key]);
+    settings[d.key] = value;
+    changed.add(d.key);
+
+    // effectTarget and object imply each other; a link mutates its sibling in
+    // place and names it so it gets resent too.
+    if (d.link) {
+      for (const key of d.link(settings, value)) changed.add(key);
     }
 
-    if (bp.previewReady) {
-      bp.sendPreviewCommand("setEffectTarget", target);
-      bp.sendPreviewCommand("setObject", bp.previewSettings.object);
+    if (d.reload === true || (d.reload === "whenEmpty" && !value)) {
+      shouldReload = true;
     }
   }
 
-  if (patch.object !== undefined) {
-    const object = patch.object;
-    bp.previewSettings.object = object;
-    shouldUpdateUi = true;
+  if (!changed.size) return;
 
-    if (
-      object === "sprite" &&
-      bp.previewSettings.effectTarget !== "sprite" &&
-      bp.previewSettings.effectTarget !== "layout" &&
-      bp.previewSettings.effectTarget !== "layer"
-    ) {
-      bp.previewSettings.effectTarget = "sprite";
-      if (bp.previewReady) {
-        bp.sendPreviewCommand("setEffectTarget", "sprite");
+  if (bp.previewReady) {
+    // Keys that resolve into one command (the scale axes) send it once for the
+    // whole patch, not once per key.
+    const sentGroups = new Set();
+    for (const d of PREVIEW_SETTINGS) {
+      if (!changed.has(d.key)) continue;
+      if (d.reload === true) continue;
+      if (d.applyGroup) {
+        if (sentGroups.has(d.applyGroup)) continue;
+        sentGroups.add(d.applyGroup);
       }
-    } else if (
-      object !== "sprite" &&
-      bp.previewSettings.effectTarget === "sprite"
-    ) {
-      bp.previewSettings.effectTarget = "shape3D";
-      if (bp.previewReady) {
-        bp.sendPreviewCommand("setEffectTarget", "shape3D");
-      }
-    }
-
-    if (bp.previewReady) {
-      bp.sendPreviewCommand("setObject", object);
+      bp.applyPreviewSetting(d, settings[d.key], previewTarget, settings);
     }
   }
 
-  if (patch.cameraMode !== undefined) {
-    bp.previewSettings.cameraMode = patch.cameraMode;
-    shouldUpdateUi = true;
-    if (bp.previewReady) {
-      bp.sendPreviewCommand("setCameraMode", patch.cameraMode);
-    }
-  }
+  bp.updatePreviewSettingsUI(previewTarget);
+  if (shouldReload) bp.updatePreview(previewTarget);
+}
 
-  if (patch.autoRotate !== undefined) {
-    bp.previewSettings.autoRotate = !!patch.autoRotate;
-    shouldUpdateUi = true;
-    if (bp.previewReady) {
-      bp.sendPreviewCommand("setAutoRotate", !!patch.autoRotate);
-    }
-  }
-
-  if (patch.showBackgroundCube !== undefined) {
-    bp.previewSettings.showBackgroundCube = !!patch.showBackgroundCube;
-    shouldUpdateUi = true;
-    if (bp.previewReady) {
-      bp.sendPreviewCommand(
-        "setShowBackgroundCube",
-        !!patch.showBackgroundCube,
-      );
-    }
-  }
-
-  [
-    ["spriteScale", "setSpriteScale"],
-    ["shapeScale", "setShapeScale"],
-    ["roomScale", "setRoomScale"],
-    ["bgOpacity", "setBgOpacity"],
-    ["bg3dOpacity", "setBg3dOpacity"],
-    ["zoomLevel", "setZoomLevel"],
-  ].forEach(([key, command]) => {
-    if (patch[key] !== undefined) {
-      bp.previewSettings[key] = Number(patch[key]);
-      shouldUpdateUi = true;
-      if (bp.previewReady) {
-        bp.sendPreviewCommand(command, bp.previewSettings[key]);
-      }
-    }
-  });
-
-  if (patch.samplingMode !== undefined) {
-    bp.previewSettings.samplingMode = patch.samplingMode;
-    shouldReload = true;
-    shouldUpdateUi = true;
-  }
-
-  if (patch.shaderLanguage !== undefined) {
-    bp.previewSettings.shaderLanguage = patch.shaderLanguage;
-    shouldReload = true;
-    shouldUpdateUi = true;
-  }
-
-  [
-    ["spriteTextureUrl", "sprite"],
-    ["shapeTextureUrl", "shape"],
-    ["bgTextureUrl", "bg"],
-  ].forEach(([key, type]) => {
-    if (patch[key] !== undefined) {
-      bp.previewSettings[key] = patch[key] || null;
-      shouldUpdateUi = true;
-      if (patch[key]) {
-        if (bp.previewReady) {
-          bp.loadPreviewTexture(type, patch[key]);
-        }
-      } else {
-        shouldReload = true;
-      }
-    }
-  });
-
-  if (patch.startupScript !== undefined) {
-    bp.previewSettings.startupScript = String(patch.startupScript || "");
-    shouldUpdateUi = true;
-    if (bp.previewReady && bp.previewSettings.startupScript) {
-      bp.sendStartupScript(bp.previewSettings.startupScript);
-    }
-  }
-
-  if (shouldUpdateUi) {
-    bp.updatePreviewSettingsUI();
-  }
-
-  if (shouldReload) {
-    bp.updatePreview();
-  }
+function target(bp) {
+  return bp.defaultPreviewTarget?.() ?? null;
 }
 
 function getPreviewNodeState(bp) {
@@ -1791,7 +2242,7 @@ const API_METHOD_DESCRIPTORS = [
   },
   {
     path: "getManifest",
-    description: "Get the machine-readable API manifest for MCP clients.",
+    description: "Get the machine-readable API manifest for API clients.",
     mutates: false,
     args: [],
     returns: {
@@ -1802,7 +2253,7 @@ const API_METHOD_DESCRIPTORS = [
   {
     path: "getGuidance",
     description:
-      "Get the MCP guidance content, including best practices, workflows, and domain knowledge for AI agents.",
+      "Get the API guidance content, including best practices, workflows, and domain knowledge for AI agents.",
     mutates: false,
     args: [],
     returns: {
@@ -1824,6 +2275,36 @@ const API_METHOD_DESCRIPTORS = [
       },
     ],
     returns: { type: "object", description: "Batch execution results." },
+  },
+  {
+    path: "graph.validate",
+    description:
+      "Check the project without a preview: call-DAG and contract errors, lint warnings, and whether codegen succeeds.",
+    mutates: false,
+    args: [],
+    returns: {
+      type: "object",
+      description: "Validation result with ok, errors, warnings, and graphs.",
+    },
+  },
+  {
+    path: "graph.audit",
+    description:
+      "Audit graph readability: dead nodes, comment coverage, auto-named variables, unrouted fan-out, wire crossings.",
+    mutates: false,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description:
+          "Optional maxFanout (direct consumers allowed before a variable is expected) and maxWireLength.",
+      },
+    ],
+    returns: {
+      type: "object",
+      description: "Audit result with ok, stats, and a list of issues.",
+    },
   },
   {
     path: "graph.validateIR",
@@ -1994,6 +2475,77 @@ const API_METHOD_DESCRIPTORS = [
     returns: {
       type: "object",
       description: "Export result with the active version.",
+    },
+  },
+  {
+    path: "projects.buildAddonBundle",
+    description:
+      "Build the .c3addon file contents in memory without downloading them.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional version or bumpVersion applied before building.",
+      },
+    ],
+    returns: {
+      type: "object",
+      description:
+        "Bundle with filename, addonId, version, and a files map of path to contents.",
+    },
+  },
+  {
+    path: "projects.create",
+    description:
+      "Start a fresh project, optionally applying shader settings to it.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description:
+          "Optional shaderSettings patch to apply to the new project.",
+      },
+    ],
+    returns: {
+      type: "object",
+      description: "New project's shader settings and graph list.",
+    },
+  },
+  {
+    path: "projects.getAddonJson",
+    description:
+      "Get the addon manifest for the current project without generating shader code.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "addon.json contents." },
+  },
+  {
+    path: "projects.getSaveData",
+    description: "Get the project save object that a .c3sg file contains.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Serializable project save data." },
+  },
+  {
+    path: "projects.loadSaveData",
+    description:
+      "Replace the current project with save data from a .c3sg file body.",
+    mutates: true,
+    args: [
+      {
+        name: "json",
+        type: "string|object",
+        required: true,
+        description: "Project save data as a JSON string or object.",
+      },
+    ],
+    returns: {
+      type: "object",
+      description: "Load result with the shader name and graph list.",
     },
   },
   {
@@ -2329,6 +2881,126 @@ const API_METHOD_DESCRIPTORS = [
     returns: { type: "array", description: "Wire summaries." },
   },
   {
+    path: "constants.create",
+    description:
+      "Create a project constant: a named compile-time value emitted as a " +
+      "const declaration and usable from every graph.",
+    mutates: true,
+    args: [
+      {
+        name: "input",
+        type: "object",
+        required: true,
+        description:
+          "Constant name, type (bool|int|float|vec2|vec3|vec4|color), value, description.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized created constant." },
+  },
+  {
+    path: "constants.createNode",
+    description: "Create a graph node for an existing constant.",
+    mutates: true,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional x, y, position, and select.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized created node." },
+  },
+  {
+    path: "constants.getNodeTypes",
+    description: "List the node types generated for the project's constants.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Constant node type snapshots." },
+  },
+  {
+    path: "constants.edit",
+    description: "Edit a constant's name, type, value, or description.",
+    mutates: true,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+      {
+        name: "patch",
+        type: "object",
+        required: true,
+        description: "Any of name, type, value, description.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized updated constant." },
+  },
+  {
+    path: "constants.delete",
+    description:
+      "Delete a constant and remove every node referencing it, in every graph.",
+    mutates: true,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized deleted constant." },
+  },
+  {
+    path: "constants.reorder",
+    description: "Move a constant to a new index in the list.",
+    mutates: true,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+      {
+        name: "newIndex",
+        type: "number",
+        required: true,
+        description: "Target index.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized moved constant." },
+  },
+  {
+    path: "constants.get",
+    description: "Get one constant by id.",
+    mutates: false,
+    args: [
+      {
+        name: "constantId",
+        type: "number",
+        required: true,
+        description: "Constant id.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized constant." },
+  },
+  {
+    path: "constants.list",
+    description: "List every project constant.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized constants." },
+  },
+  {
     path: "uniforms.create",
     description: "Create a new uniform.",
     mutates: true,
@@ -2408,7 +3080,10 @@ const API_METHOD_DESCRIPTORS = [
         description: "Uniform id to delete.",
       },
     ],
-    returns: { type: "object", description: "Deprecation status and uniform id." },
+    returns: {
+      type: "object",
+      description: "Deprecation status and uniform id.",
+    },
   },
   {
     path: "uniforms.reorder",
@@ -2513,9 +3188,18 @@ const API_METHOD_DESCRIPTORS = [
   },
   {
     path: "shader.getGeneratedCode",
-    description: "Generate shader code for the current graph.",
+    description:
+      "Generate shader code. Defaults to the whole shader from the main graph; given a function or loop-body graph, returns that graph's declarations instead.",
     mutates: false,
-    args: [],
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description:
+          "Optional graph (id, name, 'main' or 'active') and target (webgl1, webgl2, webgpu, all).",
+      },
+    ],
     returns: { type: "object", description: "Generated shaders payload." },
   },
   {
@@ -2648,20 +3332,151 @@ const API_METHOD_DESCRIPTORS = [
   },
   {
     path: "layout.autoArrange",
-    description: "Auto-arrange the full graph or a subset of nodes.",
+    description:
+      "Auto-arrange the active graph, a subset of its nodes, or every graph in the project. Comment boxes are refitted around the nodes they enclosed, then pushed apart until none overlap.",
     mutates: true,
     args: [
       {
         name: "options",
         type: "object",
         required: false,
-        description: "Optional nodeIds array to arrange only selected nodes.",
+        description:
+          "Optional nodeIds array to arrange only those nodes, or allGraphs to arrange every graph. Set fitComments:false to leave comment boxes exactly where they are.",
       },
     ],
     returns: {
       type: "object",
       description: "Arrangement status and resulting camera state.",
     },
+  },
+  {
+    path: "layout.tidyVariables",
+    description:
+      "Move each Set Variable node next to the node whose output it stores. Comment boxes follow the nodes they enclosed.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description:
+          "Optional gap, allGraphs, and fitComments:false to leave comment boxes alone.",
+      },
+    ],
+    returns: { type: "object", description: "How many nodes were moved." },
+  },
+  {
+    path: "layout.routeWires",
+    description:
+      "Insert reroute points so wires are not drawn over unrelated nodes and enter their ports from the left.",
+    mutates: true,
+    args: [
+      {
+        name: "options",
+        type: "object",
+        required: false,
+        description: "Optional margin, clearance, and allGraphs.",
+      },
+    ],
+    returns: { type: "object", description: "How many wires were rerouted." },
+  },
+  {
+    path: "graphs.list",
+    description: "List every graph in the project.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized graph summaries." },
+  },
+  {
+    path: "graphs.get",
+    description: "Get one graph by id, by name, or by 'main' / 'active'.",
+    mutates: false,
+    args: [
+      {
+        name: "graphRef",
+        type: "string",
+        required: true,
+        description: "Graph id, graph name, 'main', or 'active'.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized graph summary." },
+  },
+  {
+    path: "graphs.getActive",
+    description: "Get the graph currently open in the editor.",
+    mutates: false,
+    args: [],
+    returns: { type: "object", description: "Serialized graph summary." },
+  },
+  {
+    path: "graphs.setActive",
+    description: "Open a graph in the editor.",
+    mutates: true,
+    args: [
+      {
+        name: "graphRef",
+        type: "string",
+        required: true,
+        description: "Graph id, graph name, 'main', or 'active'.",
+      },
+    ],
+    returns: { type: "object", description: "Serialized graph summary." },
+  },
+  {
+    path: "comments.list",
+    description: "List the comments in the active graph.",
+    mutates: false,
+    args: [],
+    returns: { type: "array", description: "Serialized comments." },
+  },
+  {
+    path: "comments.create",
+    description: "Create a comment sized to enclose a set of nodes.",
+    mutates: true,
+    args: [
+      {
+        name: "input",
+        type: "object",
+        required: true,
+        description:
+          "nodeIds array plus optional title, description, color, and padding.",
+      },
+    ],
+    returns: { type: "object", description: "The created comment." },
+  },
+  {
+    path: "comments.edit",
+    description: "Patch a comment's text, color, position, or size.",
+    mutates: true,
+    args: [
+      {
+        name: "commentId",
+        type: "number",
+        required: true,
+        description: "Target comment id.",
+      },
+      {
+        name: "patch",
+        type: "object",
+        required: true,
+        description: "Any of title, description, color, x, y, width, height.",
+      },
+    ],
+    returns: { type: "object", description: "The updated comment." },
+  },
+  {
+    path: "comments.delete",
+    description: "Delete a comment from the active graph.",
+    mutates: true,
+    args: [
+      {
+        name: "commentId",
+        type: "number",
+        required: true,
+        description: "Target comment id.",
+      },
+    ],
+    returns: { type: "object", description: "Deletion status." },
   },
   {
     path: "selection.get",
@@ -2839,35 +3654,33 @@ function getApiManifest(api) {
   };
 }
 
-function getMcpGuidance() {
-  const skill = `# Construct Shader Graph MCP Guidance
+function getApiGuidance() {
+  const skill = `# Construct Shader Graph API Guidance
 
-Use this guidance when controlling Construct Shader Graph through the MCP bridge.
+Use this guidance when controlling Construct Shader Graph through the public API.
 
-This document is intentionally focused on best practices, workflow, and domain knowledge. All execution should happen through MCP tools.
+This document is intentionally focused on best practices, workflow, and domain knowledge. All execution should happen through API calls.
 
 ## Purpose
 
-- Use MCP as the only execution surface.
+- Use the API as the only execution surface.
 - Inspect the current graph, make targeted edits, validate the result, and report progress clearly.
 - Treat the graph as the source of truth for shader logic.
 - Use preview tools only to inspect, debug, or visually validate the graph.
 
-## MCP tool contract
+## API contract
 
-Use these MCP tools for all work:
+There are two transports over the same API:
 
-- \`list_projects\`
-- \`select_project\`
-- \`get_project_manifest\`
-- \`call_project_method\`
+- The browser console: \`shaderGraphAPI\` (aliased \`sg\`) on the running page.
+- The headless CLI: \`csg api <method> [json-args] -f <file.c3sg>\`, or \`csg run\` for a
+  script that receives the same \`sg\` object.
 
 Execution rules:
 
-- Always begin with \`list_projects\`.
-- Always choose the active project using \`shader.getInfo()\` metadata, especially \`name\` and \`version\`.
-- Always use exact return values from MCP calls; never guess state.
-- Always inspect the manifest if available methods, method names, or argument shapes are unclear.
+- Always identify the project with \`shader.getInfo()\` metadata, especially \`name\` and \`version\`.
+- Always use exact return values from API calls; never guess state.
+- Always inspect the manifest (\`getManifest\`, or \`csg api --list\`) if available methods, method names, or argument shapes are unclear.
 - If a call returns an id, use that id for follow-up operations instead of searching by labels.
 
 ## Operating contract
@@ -2961,16 +3774,16 @@ If the graph is non-trivial, reading the IR first prevents mistakes like:
 
 ## Method mapping
 
-Use \`call_project_method\` with method names from the manifest.
+Use method names from the manifest, either directly on \`shaderGraphAPI\` or through \`call\`.
 
 Examples:
 
-- \`call_project_method({ method: "shader.getInfo", args: [] })\`
-- \`call_project_method({ method: "nodes.create", args: [{ ... }] })\`
-- \`call_project_method({ method: "wires.create", args: [{ ... }] })\`
-- \`call_project_method({ method: "session.initAIWork", args: [{ ... }] })\`
+- \`shaderGraphAPI.shader.getInfo()\` / \`shaderGraphAPI.call("shader.getInfo", [])\`
+- \`shaderGraphAPI.nodes.create({ ... })\`
+- \`shaderGraphAPI.wires.create({ ... })\`
+- \`shaderGraphAPI.session.initAIWork({ ... })\`
 
-The method names match the public API names; MCP only changes the transport.
+The CLI uses the same names: \`csg api nodes.create '{ ... }' -f shader.c3sg --write\`.
 
 ## Safe vs side-effecting calls
 
@@ -2995,6 +3808,9 @@ Read-only calls:
 - \`uniforms.list\`
 - \`uniforms.get\`
 - \`uniforms.getNodeTypes\`
+- \`constants.list\`
+- \`constants.get\`
+- \`constants.getNodeTypes\`
 - \`shader.getInfo\`
 - \`shader.getGeneratedCode\`
 - \`preview.getSettings\`
@@ -3028,6 +3844,11 @@ Side-effecting calls:
 - \`uniforms.edit\`
 - \`uniforms.reorder\`
 - \`uniforms.delete\`
+- \`constants.create\`
+- \`constants.createNode\`
+- \`constants.edit\`
+- \`constants.reorder\`
+- \`constants.delete\`
 - \`shader.updateInfo\`
 - \`preview.updateSettings\`
 - \`preview.clearConsole\`
@@ -3260,6 +4081,23 @@ Use uniforms for exposed user-facing values that should exist outside a single n
 
 Prefer direct editable input values for local literals and uniforms for reusable effect controls.
 
+## Constant workflows
+
+Constants are named compile-time values, shared across every graph, emitted as
+\`const\` declarations. They follow the same shape as uniforms:
+
+1. \`constants.create({ name, type, value })\` - type is one of bool, int, float, vec2, vec3, vec4, color
+2. \`constants.createNode(constantId, ...)\`
+3. wire it into the graph
+
+Choose between the three ways of expressing a value:
+
+- editable input port value - a one-off literal used in exactly one place
+- constant - a fixed value reused in several places, or one that has to be a
+  compile-time constant expression (a WebGL1 loop Count is the main case; a
+  uniform there forces a capped loop, a constant does not)
+- uniform - a value the end user is meant to change at runtime from Construct
+
 ## Preview guidance
 
 - Default preview compiles from \`Output\`.
@@ -3399,12 +4237,11 @@ Bad:
 
 ## Troubleshooting
 
-- \`No projects listed\`
-  - Make sure the page is connected to the MCP bridge.
-  - Re-run \`list_projects\`.
-- \`Wrong project selected\`
-  - Re-check \`shader.getInfo()\` metadata from the selected project.
-  - Pick the correct session with \`select_project\`.
+- \`API not available\`
+  - In the browser, make sure the page finished loading; \`shaderGraphAPI\` is installed on boot.
+  - From the CLI, pass the project with \`-f <file.c3sg>\`.
+- \`Wrong project\`
+  - Re-check \`shader.getInfo()\` metadata and confirm it is the file you meant to edit.
 - \`Node not found\`
   - Re-run \`nodes.list\` and resolve the correct id.
 - \`Unknown node type\`
@@ -3430,21 +4267,20 @@ Bad:
   - Use a variable for reused computed branches.
   - Duplicate tiny leaf nodes when that is simpler and cleaner.`;
 
-  const quickstart = `# Construct Shader Graph MCP Quickstart
+  const quickstart = `# Construct Shader Graph API Quickstart
 
-Use MCP tools only.
+Use shaderGraphAPI (browser console) or the csg CLI. Both call the same methods.
 
 ## Core loop
 
-1. Call list_projects.
-2. Select the correct project with select_project.
-3. Read get_project_manifest if methods or arguments are unclear.
-4. Start the task with session.initAIWork.
-5. Read the graph IR with graph.exportIR() to understand the full structure before mutating.
-6. Make one small edit at a time.
-7. Re-read affected nodes, ports, wires, or settings.
-8. Validate with shader.getGeneratedCode, preview.getErrors, and screenshots when needed.
-9. Finish with session.endAIWork.
+1. Confirm the project with shader.getInfo.
+2. Read getManifest if methods or arguments are unclear.
+3. Start the task with session.initAIWork.
+4. Read the graph IR with graph.exportIR() to understand the full structure before mutating.
+5. Make one small edit at a time.
+6. Re-read affected nodes, ports, wires, or settings.
+7. Validate with shader.getGeneratedCode, preview.getErrors, and screenshots when needed.
+8. Finish with session.endAIWork.
 
 ## Best practices
 
@@ -3501,11 +4337,14 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "customNodes",
           "ai",
           "graph",
+          "graphs",
+          "comments",
           "nodes",
           "nodeTypes",
           "ports",
           "wires",
           "uniforms",
+          "constants",
           "shader",
           "preview",
           "layout",
@@ -3530,7 +4369,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
     },
 
     getGuidance() {
-      return getMcpGuidance();
+      return getApiGuidance();
     },
 
     call(methodPath, args = []) {
@@ -3782,6 +4621,109 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           version: blueprint.shaderSettings.version,
         };
       },
+
+      buildAddonBundle(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "projects.buildAddonBundle options must be an object",
+        );
+        if (options.version !== undefined) {
+          options.version = validateVersionString(options.version);
+        }
+        if (options.bumpVersion !== undefined) {
+          options.bumpVersion = validateBumpVersion(options.bumpVersion);
+        }
+        assert(
+          !(options.version !== undefined && options.bumpVersion !== undefined),
+          "projects.buildAddonBundle accepts either version or bumpVersion, not both",
+        );
+
+        if (options.version) {
+          blueprint.shaderSettings.version = options.version;
+          blueprint.updateShaderSettingsUI();
+        } else if (options.bumpVersion) {
+          blueprint.shaderSettings.version = blueprint.bumpVersionString(
+            blueprint.shaderSettings.version,
+            options.bumpVersion,
+          );
+          blueprint.updateShaderSettingsUI();
+        }
+
+        const bundle = blueprint.buildAddonBundle();
+        assert(
+          bundle,
+          `Failed to build the addon bundle. ${blueprint.codegenFailureMessage()}`,
+        );
+        return bundle;
+      },
+
+      // Start a fresh project: the same blank slate the app's New File action
+      // produces, which is a main graph with the default nodes in it. Optional
+      // shader settings are applied on top so a project can be created and
+      // named in one call.
+      create(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "projects.create options must be an object",
+        );
+
+        blueprint.createNewFile();
+
+        if (options.shaderSettings !== undefined) {
+          assertPlainObject(
+            options.shaderSettings,
+            "projects.create shaderSettings must be an object",
+          );
+          api.shader.updateInfo(options.shaderSettings);
+        }
+
+        return {
+          ok: true,
+          shaderSettings: cloneValue(blueprint.shaderSettings),
+          graphs: listGraphs(blueprint),
+        };
+      },
+
+      // The addon manifest on its own, without generating any shader code.
+      // Useful for checking parameter identity on a project that does not
+      // currently compile.
+      getAddonJson() {
+        return blueprint.generateAddonJson();
+      },
+
+      getSaveData() {
+        return blueprint._buildSaveData();
+      },
+
+      async loadSaveData(json) {
+        assert(
+          typeof json === "string" || isPlainObject(json),
+          "projects.loadSaveData requires a JSON string or object",
+        );
+        const text = typeof json === "string" ? json : JSON.stringify(json);
+        // loadFromJSON takes anything with a .text() method, so the whole
+        // load path (including format migrations) is reused verbatim.
+        await blueprint.loadFromJSON({ text: async () => text });
+        // The app reports dropped node types as a notification, which headless
+        // callers never see. Hand it back so they can refuse to write over a
+        // project the loader had to shrink.
+        const report = blueprint.lastLoadReport || {
+          unknownNodeTypes: [],
+          droppedWires: 0,
+          newerFormatVersion: null,
+        };
+        return {
+          ok: true,
+          shaderName: blueprint.shaderSettings?.name || null,
+          graphs: listGraphs(blueprint),
+          unknownNodeTypes: report.unknownNodeTypes,
+          droppedWires: report.droppedWires,
+          // Set when the file declares a save format this build predates. Same
+          // reasoning as the dropped node types above: writing it back would
+          // strip whatever the newer build put there.
+          newerFormatVersion: report.newerFormatVersion ?? null,
+        };
+      },
     },
 
     customNodes: {
@@ -3839,6 +4781,95 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
     },
 
     graph: {
+      // Whole-project health check that needs no preview: call-DAG and
+      // function-contract errors, lint warnings, and whether codegen actually
+      // succeeds for all three targets. ai.runDebugCheck is the superset that
+      // also consults the running preview.
+      validate() {
+        const errors = blueprint._validateCallDAG().map((entry) => ({
+          ...entry,
+          source: "callDAG",
+        }));
+
+        // Nodes the loader could not resolve are already gone from the graph,
+        // so nothing downstream can detect them. Without this the project
+        // validates clean while being a strict subset of the file on disk.
+        const loadReport = blueprint.lastLoadReport;
+        if (loadReport && loadReport.unknownNodeTypes.length > 0) {
+          const wires = loadReport.droppedWires;
+          const many = loadReport.unknownNodeTypes.length !== 1;
+          const wireNote =
+            wires > 0
+              ? ` ${wires} connection${wires === 1 ? "" : "s"} dropped with ${many ? "them" : "it"}.`
+              : "";
+          errors.push({
+            message:
+              `Unknown node type${many ? "s" : ""}: ` +
+              `${loadReport.unknownNodeTypes.join(", ")}.${wireNote} ` +
+              `These were dropped on load; writing this project would discard them.`,
+            source: "load",
+            unknownNodeTypes: loadReport.unknownNodeTypes,
+          });
+        }
+
+        let generated = null;
+        try {
+          generated = blueprint.generateAllShaders();
+        } catch (error) {
+          errors.push({
+            message: `Code generation threw: ${error.message}`,
+            source: "codegen",
+          });
+        }
+        if (!generated && errors.length === 0) {
+          // The host knows exactly why; don't invent a guess.
+          for (const entry of blueprint.lastCodegenErrors || []) {
+            errors.push({ ...entry, source: "codegen" });
+          }
+          if (errors.length === 0) {
+            errors.push({
+              message: blueprint.codegenFailureMessage(),
+              source: "codegen",
+            });
+          }
+        }
+
+        // Normalize each warning to carry a `message` and a `node` alias
+        // alongside its own fields. Warnings are authored with a
+        // `recommendation` and a bare `nodeId`, so every consumer that
+        // reasonably expected `message` — `csg validate` among them — printed
+        // "warning undefined". Fixed here rather than in cli/, which is meant
+        // to hold no logic of its own.
+        const warnings = getAiWarnings(blueprint).map((warning) => ({
+          ...warning,
+          message: warning.message ?? warning.recommendation ?? warning.type,
+          node: warning.node ?? (warning.nodeId != null ? { id: warning.nodeId } : null),
+        }));
+
+        return {
+          ok: errors.length === 0,
+          errors,
+          warnings,
+          targets: generated ? Object.keys(generated) : [],
+          graphs: listGraphs(blueprint),
+        };
+      },
+
+      // Readability audit: dead nodes, comment coverage, unnamed variables,
+      // unrouted fan-out, wire crossings. All things codegen accepts happily,
+      // so none of it is covered by graph.validate.
+      audit(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "graph.audit options must be an object",
+        );
+        assertOptionalFiniteNumber(
+          options.maxFanout,
+          "graph.audit maxFanout must be a finite number",
+        );
+        return auditGraph(blueprint, options);
+      },
+
       validateIR(ir) {
         if (typeof blueprint.validateGraphIR === "function") {
           return blueprint.validateGraphIR(ir);
@@ -3903,6 +4934,10 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         assertOptionalString(
           options.outputName,
           "graph.rewriteFanoutAsVariable outputName must be a string",
+        );
+        assertOptionalBoolean(
+          options.allowSingle,
+          "graph.rewriteFanoutAsVariable allowSingle must be a boolean",
         );
         assertOptionalString(
           options.variableName,
@@ -3976,124 +5011,124 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           blueprint.activeGraph ||
           null;
         const runCreate = () => {
-        const typeKey = input.typeKey || input.type;
-        assertNonEmptyString(
-          typeKey,
-          "nodes.create requires a non-empty type or typeKey string",
-        );
-        assertOptionalFiniteNumber(
-          input.x,
-          "nodes.create x must be a finite number",
-        );
-        assertOptionalFiniteNumber(
-          input.y,
-          "nodes.create y must be a finite number",
-        );
-        assertOptionalPlainObject(
-          input.position,
-          "nodes.create position must be an object",
-        );
-        if (input.position) {
-          assertOptionalFiniteNumber(
-            input.position.x,
-            "nodes.create position.x must be a finite number",
+          const typeKey = input.typeKey || input.type;
+          assertNonEmptyString(
+            typeKey,
+            "nodes.create requires a non-empty type or typeKey string",
           );
           assertOptionalFiniteNumber(
-            input.position.y,
-            "nodes.create position.y must be a finite number",
+            input.x,
+            "nodes.create x must be a finite number",
           );
-        }
-        assertOptionalPlainObject(
-          input.patch,
-          "nodes.create patch must be an object",
-        );
-        assertOptionalString(
-          input.operation,
-          "nodes.create operation must be a string",
-        );
-        assertOptionalString(
-          input.customInput,
-          "nodes.create customInput must be a string",
-        );
-        assertOptionalString(
-          input.selectedVariable,
-          "nodes.create selectedVariable must be a string",
-        );
-        assertOptionalBoolean(
-          input.select,
-          "nodes.create select must be a boolean",
-        );
-
-        if (typeKey === "output") {
-          assert(
-            !blueprint.nodes.some(
-              (node) => blueprint.getNodeTypeKey(node.nodeType) === "output",
-            ),
-            "Only one Output node can exist",
+          assertOptionalFiniteNumber(
+            input.y,
+            "nodes.create y must be a finite number",
           );
-        }
-
-        const nodeType = blueprint.getNodeTypeFromKey(typeKey);
-        assert(nodeType, `Unknown node type '${typeKey}'`);
-
-        const fallbackPosition = worldCenter(blueprint);
-        let node;
-
-        if (typeKey.startsWith("uniform_")) {
-          const uniformId = Number(typeKey.replace("uniform_", ""));
-          const uniform = getUniformById(blueprint, uniformId);
-          node = blueprint.createUniformNode(
-            uniform,
-            input.x ?? input.position?.x ?? fallbackPosition.x,
-            input.y ?? input.position?.y ?? fallbackPosition.y,
+          assertOptionalPlainObject(
+            input.position,
+            "nodes.create position must be an object",
           );
-        } else {
-          node = blueprint.addNode(
-            input.x ?? input.position?.x ?? fallbackPosition.x,
-            input.y ?? input.position?.y ?? fallbackPosition.y,
-            nodeType,
+          if (input.position) {
+            assertOptionalFiniteNumber(
+              input.position.x,
+              "nodes.create position.x must be a finite number",
+            );
+            assertOptionalFiniteNumber(
+              input.position.y,
+              "nodes.create position.y must be a finite number",
+            );
+          }
+          assertOptionalPlainObject(
+            input.patch,
+            "nodes.create patch must be an object",
           );
-          blueprint.updateDependencyList();
-          blueprint.onShaderChanged();
-        }
+          assertOptionalString(
+            input.operation,
+            "nodes.create operation must be a string",
+          );
+          assertOptionalString(
+            input.customInput,
+            "nodes.create customInput must be a string",
+          );
+          assertOptionalString(
+            input.selectedVariable,
+            "nodes.create selectedVariable must be a string",
+          );
+          assertOptionalBoolean(
+            input.select,
+            "nodes.create select must be a boolean",
+          );
 
-        assignMissingWireIds(blueprint);
+          if (typeKey === "output") {
+            assert(
+              !blueprint.nodes.some(
+                (node) => blueprint.getNodeTypeKey(node.nodeType) === "output",
+              ),
+              "Only one Output node can exist",
+            );
+          }
 
-        if (input.patch) {
-          applyNodePatch(blueprint, node, input.patch);
-        }
+          const nodeType = blueprint.getNodeTypeFromKey(typeKey);
+          assert(nodeType, `Unknown node type '${typeKey}'`);
 
-        if (input.operation !== undefined) {
-          applyNodePatch(blueprint, node, { operation: input.operation });
-        }
+          const fallbackPosition = worldCenter(blueprint);
+          let node;
 
-        if (input.customInput !== undefined) {
-          applyNodePatch(blueprint, node, { customInput: input.customInput });
-        }
+          if (typeKey.startsWith("uniform_")) {
+            const uniformId = Number(typeKey.replace("uniform_", ""));
+            const uniform = getUniformById(blueprint, uniformId);
+            node = blueprint.createUniformNode(
+              uniform,
+              input.x ?? input.position?.x ?? fallbackPosition.x,
+              input.y ?? input.position?.y ?? fallbackPosition.y,
+            );
+          } else {
+            node = blueprint.addNode(
+              input.x ?? input.position?.x ?? fallbackPosition.x,
+              input.y ?? input.position?.y ?? fallbackPosition.y,
+              nodeType,
+            );
+            blueprint.updateDependencyList();
+            blueprint.onShaderChanged();
+          }
 
-        if (input.selectedVariable !== undefined) {
-          applyNodePatch(blueprint, node, {
-            selectedVariable: input.selectedVariable,
-          });
-        }
+          assignMissingWireIds(blueprint);
 
-        if (input.inputValues !== undefined) {
-          applyNodePatch(blueprint, node, { inputValues: input.inputValues });
-        }
+          if (input.patch) {
+            applyNodePatch(blueprint, node, input.patch);
+          }
 
-        if (input.gradientStops !== undefined) {
-          applyNodePatch(blueprint, node, {
-            gradientStops: input.gradientStops,
-          });
-        }
+          if (input.operation !== undefined) {
+            applyNodePatch(blueprint, node, { operation: input.operation });
+          }
 
-        if (input.select) {
-          blueprint.clearSelection();
-          blueprint.selectNode(node, false);
-        }
+          if (input.customInput !== undefined) {
+            applyNodePatch(blueprint, node, { customInput: input.customInput });
+          }
 
-        pushHistory(blueprint, `Create node (${node.title})`);
-        return serializeNode(blueprint, node);
+          if (input.selectedVariable !== undefined) {
+            applyNodePatch(blueprint, node, {
+              selectedVariable: input.selectedVariable,
+            });
+          }
+
+          if (input.inputValues !== undefined) {
+            applyNodePatch(blueprint, node, { inputValues: input.inputValues });
+          }
+
+          if (input.gradientStops !== undefined) {
+            applyNodePatch(blueprint, node, {
+              gradientStops: input.gradientStops,
+            });
+          }
+
+          if (input.select) {
+            blueprint.clearSelection();
+            blueprint.selectNode(node, false);
+          }
+
+          pushHistory(blueprint, `Create node (${node.title})`);
+          return serializeNode(blueprint, node);
         };
         if (
           targetGraph &&
@@ -4349,6 +5384,195 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
       },
     },
 
+    constants: {
+      create(input = {}) {
+        assertPlainObject(input, "constants.create requires an input object");
+        const name = String(input.name || "").trim();
+        assert(name, "constants.create requires a name");
+        assertOptionalString(
+          input.description,
+          "constants.create description must be a string",
+        );
+
+        const type = input.type || "float";
+        assert(
+          CONSTANT_TYPES.includes(type),
+          `Constant type must be one of ${CONSTANT_TYPES.join(", ")}`,
+        );
+
+        const constant = blueprint.createConstantRecord({
+          name,
+          type,
+          value: input.value,
+          description: input.description,
+        });
+        blueprint.constants.push(constant);
+        blueprint.renderConstantList();
+        blueprint.onShaderChanged();
+        pushHistory(blueprint, `Create constant (${constant.name})`);
+        return serializeConstant(constant, blueprint.constants.length - 1);
+      },
+
+      createNode(constantId, options = {}) {
+        assert(
+          Number.isInteger(Number(constantId)),
+          "constants.createNode requires a valid constant id",
+        );
+        assertOptionalPlainObject(
+          options,
+          "constants.createNode options must be an object",
+        );
+        assertOptionalFiniteNumber(
+          options.x,
+          "constants.createNode x must be a finite number",
+        );
+        assertOptionalFiniteNumber(
+          options.y,
+          "constants.createNode y must be a finite number",
+        );
+        assertOptionalBoolean(
+          options.select,
+          "constants.createNode select must be a boolean",
+        );
+
+        const constant = getConstantById(blueprint, constantId);
+        const fallbackPosition = worldCenter(blueprint);
+        const node = blueprint.createConstantNode(
+          constant,
+          options.x ?? options.position?.x ?? fallbackPosition.x,
+          options.y ?? options.position?.y ?? fallbackPosition.y,
+        );
+
+        if (options.select) {
+          blueprint.clearSelection();
+          blueprint.selectNode(node, false);
+        }
+
+        pushHistory(blueprint, `Create constant node (${constant.name})`);
+        return serializeNode(blueprint, node);
+      },
+
+      getNodeTypes() {
+        return Object.entries(blueprint.getConstantNodeTypes()).map(
+          ([key, nodeType]) => normalizeTypeSnapshot(nodeType, key),
+        );
+      },
+
+      edit(constantId, patch = {}) {
+        assertPlainObject(patch, "constants.edit requires a patch object");
+        const constant = getConstantById(blueprint, constantId);
+
+        let renamed = false;
+        let changed = false;
+
+        if (patch.name !== undefined) {
+          const nextName = String(patch.name).trim();
+          assert(nextName, "Constant name cannot be empty");
+          if (nextName !== constant.name) {
+            constant.name = nextName;
+            constant.variableName = blueprint.buildUniqueConstantVariableName(
+              nextName,
+              constant.id,
+            );
+            renamed = true;
+            changed = true;
+          }
+        }
+
+        if (patch.type !== undefined) {
+          assert(
+            CONSTANT_TYPES.includes(patch.type),
+            `Constant type must be one of ${CONSTANT_TYPES.join(", ")}`,
+          );
+          if (patch.type !== constant.type) {
+            constant.type = patch.type;
+            // The old value almost never fits the new type, so re-coerce it
+            // rather than leaving a vec3 sitting in an int constant.
+            constant.value = blueprint.coerceConstantValue(
+              patch.type,
+              patch.value !== undefined ? patch.value : constant.value,
+            );
+            renamed = true; // node instances carry constantType too
+            changed = true;
+          }
+        }
+
+        if (patch.description !== undefined) {
+          assertOptionalString(
+            patch.description,
+            "constants.edit description must be a string",
+          );
+          constant.description = String(patch.description);
+          changed = true;
+        }
+
+        if (patch.value !== undefined && patch.type === undefined) {
+          constant.value = blueprint.coerceConstantValue(
+            constant.type,
+            patch.value,
+          );
+          changed = true;
+        }
+
+        if (renamed) blueprint.updateConstantNodeNames(constant.id);
+        if (changed) {
+          blueprint.renderConstantList();
+          blueprint.onShaderChanged();
+          pushHistory(blueprint, `Edit constant (${constant.name})`);
+        }
+
+        return serializeConstant(
+          constant,
+          blueprint.constants.indexOf(constant),
+        );
+      },
+
+      delete(constantId) {
+        const constant = getConstantById(blueprint, constantId);
+        const snapshot = serializeConstant(
+          constant,
+          blueprint.constants.indexOf(constant),
+        );
+        blueprint.deleteConstant(constant.id);
+        return snapshot;
+      },
+
+      reorder(constantId, newIndex) {
+        const constant = getConstantById(blueprint, constantId);
+        assert(
+          Number.isInteger(Number(newIndex)),
+          "constants.reorder requires an integer index",
+        );
+        const from = blueprint.constants.indexOf(constant);
+        const to = Math.max(
+          0,
+          Math.min(blueprint.constants.length - 1, Number(newIndex)),
+        );
+        if (from !== to) {
+          blueprint.constants.splice(from, 1);
+          blueprint.constants.splice(to, 0, constant);
+          blueprint.renderConstantList();
+          blueprint.onShaderChanged();
+          pushHistory(blueprint, `Reorder constant (${constant.name})`);
+        }
+        return serializeConstant(constant, to);
+      },
+
+      get(constantId) {
+        const constant = getConstantById(blueprint, constantId);
+        return serializeConstant(
+          constant,
+          blueprint.constants.indexOf(constant),
+        );
+      },
+
+      list() {
+        return blueprint.constants.map((constant, index) =>
+          serializeConstant(constant, index),
+        );
+      },
+    },
+
     uniforms: {
       create(input = {}) {
         assertPlainObject(input, "uniforms.create requires an input object");
@@ -4472,11 +5696,13 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           );
 
           uniform.variableName = nextVariableName;
-          blueprint.updateUniformNodeNames(oldVariableName, nextVariableName);
+          blueprint.updateUniformNodeNames(uniform.id, oldVariableName);
         }
 
         if (patch.paramId !== undefined) {
-          const requestedParamId = blueprint.sanitizeUniformParamId(patch.paramId);
+          const requestedParamId = blueprint.sanitizeUniformParamId(
+            patch.paramId,
+          );
           assert(requestedParamId, "Uniform paramId cannot be empty");
           assert(
             !blueprint.isUniformParamIdTaken(requestedParamId, uniform.id),
@@ -4542,7 +5768,9 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         const restoredUniform = getUniformById(blueprint, uniform.id);
         return serializeUniform(
           restoredUniform,
-          blueprint.uniforms.findIndex((entry) => entry.id === restoredUniform.id),
+          blueprint.uniforms.findIndex(
+            (entry) => entry.id === restoredUniform.id,
+          ),
         );
       },
 
@@ -4628,12 +5856,55 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         return cloneValue(blueprint.shaderSettings);
       },
 
-      getGeneratedCode() {
-        const shaders = blueprint.generateAllShaders();
-        assert(
-          shaders,
-          "Failed to generate shaders. Make sure the graph has an Output node and valid connections.",
+      // With no options this generates the whole shader from the main graph.
+      // Given a function/loopBody graph it returns that graph's declarations
+      // instead - the same thing View Code shows when a subgraph is open.
+      getGeneratedCode(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "shader.getGeneratedCode options must be an object",
         );
+        assertOptionalOneOf(
+          options.target,
+          [...SHADER_TARGETS, "all"],
+          `shader.getGeneratedCode target must be one of ${SHADER_TARGETS.join(", ")} or all`,
+        );
+
+        const enabled = enabledTargetsFor(blueprint.mainGraph.shaderSettings);
+
+        // Asking for a language the project has switched off is a mistake worth
+        // reporting, not an undefined to hand back.
+        if (options.target && options.target !== "all") {
+          assert(
+            enabled.includes(options.target),
+            `${TARGET_LABELS[options.target]} is disabled for this project. Enabled: ${enabled
+              .map((t) => TARGET_LABELS[t])
+              .join(", ")}.`,
+          );
+        }
+
+        const graph =
+          options.graph === undefined && options.graphId === undefined
+            ? blueprint.mainGraph
+            : resolveGraphRef(blueprint, options.graph ?? options.graphId);
+
+        let shaders;
+        if (graph === blueprint.mainGraph) {
+          shaders = blueprint.generateAllShaders();
+          assert(shaders, blueprint.codegenFailureMessage());
+        } else {
+          shaders = {};
+          for (const target of enabled) {
+            shaders[target] = blueprint._generateCallableGraphPreview(
+              graph,
+              target,
+            );
+          }
+        }
+
+        if (options.target && options.target !== "all") {
+          return { [options.target]: shaders[options.target] };
+        }
         return shaders;
       },
     },
@@ -4668,7 +5939,9 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           "preview.getConsoleEntries limit must be a finite number",
         );
 
-        let entries = blueprint.consoleEntries.map((entry) =>
+        // Each preview window keeps its own console. The API reads the first
+        // one's, the same window the rest of preview.* addresses.
+        let entries = (target(blueprint)?.consoleEntries ?? []).map((entry) =>
           serializePreviewConsoleEntry(entry),
         );
 
@@ -4716,72 +5989,39 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           );
         });
 
-        assertOptionalOneOf(
-          patch.effectTarget,
-          ["sprite", "shape3D", "layout", "layer"],
-          "preview.updateSettings effectTarget must be one of sprite, shape3D, layout, or layer",
-        );
-        assertOptionalOneOf(
-          patch.object,
-          [
-            "sprite",
-            "box",
-            "sphere",
-            "cylinder",
-            "capsule",
-            "cone",
-            "torus",
-            "plane",
-          ],
-          "preview.updateSettings object must be a supported preview object",
-        );
-        assertOptionalOneOf(
-          patch.cameraMode,
-          ["2d", "perspective", "orthographic"],
-          "preview.updateSettings cameraMode must be 2d, perspective, or orthographic",
-        );
-        assertOptionalOneOf(
-          patch.samplingMode,
-          ["trilinear", "bilinear", "nearest"],
-          "preview.updateSettings samplingMode must be trilinear, bilinear, or nearest",
-        );
-        assertOptionalOneOf(
-          patch.shaderLanguage,
-          ["webgpu", "webgl2", "webgl1"],
-          "preview.updateSettings shaderLanguage must be webgpu, webgl2, or webgl1",
-        );
-        assertOptionalBoolean(
-          patch.autoRotate,
-          "preview.updateSettings autoRotate must be a boolean",
-        );
-        assertOptionalBoolean(
-          patch.showBackgroundCube,
-          "preview.updateSettings showBackgroundCube must be a boolean",
-        );
-        [
-          "spriteScale",
-          "shapeScale",
-          "roomScale",
-          "bgOpacity",
-          "bg3dOpacity",
-          "zoomLevel",
-        ].forEach((key) => {
-          assertOptionalFiniteNumber(
-            patch[key],
-            `preview.updateSettings ${key} must be a finite number`,
-          );
-        });
-        [
-          "spriteTextureUrl",
-          "shapeTextureUrl",
-          "bgTextureUrl",
-          "startupScript",
-        ].forEach((key) => {
-          assertOptionalString(
-            patch[key],
-            `preview.updateSettings ${key} must be a string`,
-          );
-        });
+        for (const d of PREVIEW_SETTINGS) {
+          const value = patch[d.key];
+          if (value === undefined) continue;
+          const where = `preview.updateSettings ${d.key}`;
+
+          switch (d.kind) {
+            case "enum":
+              assertOptionalOneOf(
+                value,
+                d.values,
+                `${where} must be one of ${d.values.join(", ")}`,
+              );
+              break;
+            case "bool":
+              assertOptionalBoolean(value, `${where} must be a boolean`);
+              break;
+            case "number":
+              assertOptionalFiniteNumber(
+                value,
+                `${where} must be a finite number`,
+              );
+              break;
+            case "color":
+              assertOptionalString(value, `${where} must be a string`);
+              assert(
+                /^#[0-9a-fA-F]{6}$/.test(value),
+                `${where} must be a #rrggbb hex colour`,
+              );
+              break;
+            default:
+              assertOptionalString(value, `${where} must be a string`);
+          }
+        }
 
         syncPreviewSettings(blueprint, patch);
         return cloneValue(blueprint.previewSettings);
@@ -4805,7 +6045,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         if (nodeIdOrNull == null) {
           blueprint.previewNode = null;
           blueprint.previewNeedsUpdate = true;
-          blueprint.updatePreview();
+          blueprint.updateAllPreviews();
           blueprint.render();
           return getPreviewNodeState(blueprint);
         }
@@ -4814,7 +6054,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         validatePreviewNode(node);
         blueprint.previewNode = node;
         blueprint.previewNeedsUpdate = true;
-        blueprint.updatePreview();
+        blueprint.updateAllPreviews();
         blueprint.render();
         return getPreviewNodeState(blueprint);
       },
@@ -4856,6 +6096,56 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
     },
 
     layout: {
+      // Park each Set Variable beside the node it stores. The layout places it
+      // by dependency level, which can be the far side of the graph. Comments
+      // follow the nodes they enclosed, as with autoArrange.
+      tidyVariables(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "layout.tidyVariables options must be an object",
+        );
+        assertOptionalFiniteNumber(
+          options.gap,
+          "layout.tidyVariables gap must be a finite number",
+        );
+        assertOptionalBoolean(
+          options.allGraphs,
+          "layout.tidyVariables allGraphs must be a boolean",
+        );
+        assertOptionalBoolean(
+          options.fitComments,
+          "layout.tidyVariables fitComments must be a boolean",
+        );
+        return options.allGraphs
+          ? blueprint.snapVariableNodesAllGraphs(options)
+          : blueprint.snapVariableNodesToSources(options);
+      },
+
+      // Insert reroute points so wires stop being drawn over unrelated nodes
+      // and arrive at their ports heading right. Run after autoArrange: it
+      // places nodes and leaves the wires to find their own way.
+      routeWires(options = {}) {
+        assertOptionalPlainObject(
+          options,
+          "layout.routeWires options must be an object",
+        );
+        assertOptionalFiniteNumber(
+          options.margin,
+          "layout.routeWires margin must be a finite number",
+        );
+        assertOptionalFiniteNumber(
+          options.clearance,
+          "layout.routeWires clearance must be a finite number",
+        );
+        assertOptionalBoolean(
+          options.allGraphs,
+          "layout.routeWires allGraphs must be a boolean",
+        );
+        return options.allGraphs
+          ? blueprint.routeWiresAllGraphs(options)
+          : blueprint.routeWiresAroundNodes(options);
+      },
+
       autoArrange(options = {}) {
         assertOptionalPlainObject(
           options,
@@ -4873,6 +6163,27 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
             );
           });
         }
+        assertOptionalBoolean(
+          options.allGraphs,
+          "layout.autoArrange allGraphs must be a boolean",
+        );
+        assertOptionalBoolean(
+          options.fitComments,
+          "layout.autoArrange fitComments must be a boolean",
+        );
+        assert(
+          !(options.allGraphs && Array.isArray(options.nodeIds)),
+          "layout.autoArrange cannot combine allGraphs with nodeIds",
+        );
+
+        if (options.allGraphs) {
+          return {
+            ok: true,
+            graphs: blueprint.autoArrangeAllGraphs(options),
+            camera: serializeCamera(blueprint),
+          };
+        }
+
         if (Array.isArray(options.nodeIds) && options.nodeIds.length > 0) {
           const ids = new Set(options.nodeIds.map((id) => Number(id)));
           blueprint.selectedNodes.clear();
@@ -4884,11 +6195,109 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           });
         }
 
-        blueprint.autoArrange();
+        blueprint.autoArrange(options);
         return {
           ok: true,
           camera: serializeCamera(blueprint),
         };
+      },
+    },
+
+    graphs: {
+      list() {
+        return listGraphs(blueprint);
+      },
+
+      get(graphRef) {
+        return serializeGraph(blueprint, resolveGraphRef(blueprint, graphRef));
+      },
+
+      getActive() {
+        return serializeGraph(blueprint, blueprint.activeGraph);
+      },
+
+      setActive(graphRef) {
+        const graph = resolveGraphRef(blueprint, graphRef);
+        blueprint.setActiveGraph(graph.id);
+        return serializeGraph(blueprint, graph);
+      },
+    },
+
+    comments: {
+      list() {
+        return blueprint.comments.map((comment) => serializeComment(comment));
+      },
+
+      // Fit a comment around a set of nodes. This is the same sizing the
+      // "Comment Selection" action uses.
+      create(input = {}) {
+        assertPlainObject(input, "comments.create requires an input object");
+        assert(
+          Array.isArray(input.nodeIds) && input.nodeIds.length > 0,
+          "comments.create requires a non-empty nodeIds array",
+        );
+        assertOptionalString(
+          input.title,
+          "comments.create title must be a string",
+        );
+        assertOptionalString(
+          input.description,
+          "comments.create description must be a string",
+        );
+        assertOptionalString(
+          input.color,
+          "comments.create color must be a string",
+        );
+        assertOptionalFiniteNumber(
+          input.padding,
+          "comments.create padding must be a finite number",
+        );
+
+        const nodes = input.nodeIds.map((nodeId) =>
+          getNodeById(blueprint, nodeId),
+        );
+        const comment = blueprint.createCommentAroundNodes(nodes, {
+          title: input.title,
+          description: input.description,
+          color: input.color,
+          padding: input.padding,
+        });
+
+        return serializeComment(comment);
+      },
+
+      edit(commentId, patch = {}) {
+        assertPlainObject(patch, "comments.edit patch must be an object");
+        const comment = getCommentById(blueprint, commentId);
+        for (const key of ["title", "description", "color"]) {
+          if (patch[key] !== undefined) {
+            assertOptionalString(
+              patch[key],
+              `comments.edit ${key} must be a string`,
+            );
+            comment[key] = patch[key];
+          }
+        }
+        for (const key of ["x", "y", "width", "height"]) {
+          if (patch[key] !== undefined) {
+            assertFiniteNumber(
+              patch[key],
+              `comments.edit ${key} must be a finite number`,
+            );
+            comment[key] = patch[key];
+          }
+        }
+        pushHistory(blueprint, "Edit comment");
+        blueprint.render();
+        return serializeComment(comment);
+      },
+
+      delete(commentId) {
+        const comment = getCommentById(blueprint, commentId);
+        blueprint.comments.splice(blueprint.comments.indexOf(comment), 1);
+        pushHistory(blueprint, "Delete comment");
+        blueprint.render();
+        return { ok: true, deletedId: comment.id };
       },
     },
 

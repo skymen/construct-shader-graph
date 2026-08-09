@@ -76,5 +76,8 @@
   "WebGPU": "WebGPU",
   "X": "X",
   "Y": "Y",
-  "Z": "Z"
+  "Z": "Z",
+  "Aspect": "宽高比",
+  "Period": "周期",
+  "Phase": "相位"
 }

@@ -28,5 +28,5 @@ export const SrcToDestNode = new NodeType(
     },
   },
   "Utility",
-  ["source", "destination", "coordinates", "uv", "convert", "map"]
+  ["source", "destination", "coordinates", "uv", "convert", "map"],
 );

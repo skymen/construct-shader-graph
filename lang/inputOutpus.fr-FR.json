@@ -76,5 +76,8 @@
   "WebGPU": "WebGPU",
   "X": "X",
   "Y": "Y",
-  "Z": "Z"
+  "Z": "Z",
+  "Aspect": "Aspect",
+  "Period": "Période",
+  "Phase": "Phase"
 }

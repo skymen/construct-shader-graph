@@ -6,7 +6,21 @@ import {
   isGenericType,
   getAllowedTypesForGeneric,
   toShaderValue,
+  toWGSLType,
 } from "./nodes/index.js";
+import {
+  getHandler,
+  wouldCreateCycle,
+  getCyclePath,
+  detectCycleInDAG,
+} from "./graph-kinds/index.js";
+
+// Convert an arbitrary string to a valid GLSL/WGSL identifier.
+function _sanitizeId(str) {
+  return String(str)
+    .replace(/[^a-zA-Z0-9_]/g, "_")
+    .replace(/^([^a-zA-Z_])/, "_$1");
+}
 
 // Debug mode detection
 function isDebugMode() {
@@ -19,18 +33,46 @@ function isDebugMode() {
 }
 import { UniformFloatNode } from "./nodes/UniformFloatNode.js";
 import { UniformColorNode } from "./nodes/UniformColorNode.js";
+import {
+  ConstantNode,
+  CONSTANT_TYPES,
+  constantPortType,
+  defaultConstantValue,
+} from "./nodes/ConstantNode.js";
 import JSZip from "jszip";
 import { HistoryManager } from "./HistoryManager.js";
 import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
 import { Graph, makeDefaultShaderSettings } from "./Graph.js";
+import {
+  PREVIEW_SETTINGS,
+  makeDefaultPreviewSettings,
+  migratePreviewSettings,
+  effectiveObjectScale,
+  effectiveObjectAngle,
+  effectiveObjectOffset,
+  effectiveRenderResolution,
+  linkRenderResolution,
+  PREVIEW_SETTINGS_BY_KEY,
+  PREVIEW_TEXTURES_BY_TYPE,
+} from "./preview-settings.js";
+import {
+  SHADER_TARGETS,
+  TARGET_SETTING_KEYS,
+  TARGET_RENDERERS,
+  TARGET_FILENAMES,
+  TARGET_LABELS,
+  enabledTargetsFor,
+} from "./shader-targets.js";
 import { languageManager } from "./LanguageManager.js";
 import { installGlobalConsoleApi } from "./GlobalConsoleApi.js";
+import { APP_VERSION, isExperimentalBuild, versionLabel } from "./version.js";
+import { renderMarkdown } from "./markdown.js";
+import { CHANGELOG_ENTRIES, entriesSince } from "./changelog.js";
 import {
-  DEFAULT_MCP_URL,
-  McpBridgeClient,
-  normalizeWebSocketUrl,
-} from "./McpBridgeClient.js";
-
+  SAVE_FORMAT_VERSION,
+  applySaveMigrations,
+  saveFormatOf,
+} from "./save-format.js";
 // Import boilerplate files as raw text
 import boilerplateWebGL1 from "./shaders/boilerplate-webgl1.glsl?raw";
 import boilerplateWebGL2 from "./shaders/boilerplate-webgl2.glsl?raw";
@@ -115,6 +157,9 @@ class Port {
     this.displayName = node.nodeType.noTranslation?.ports
       ? portDef.name
       : languageManager.getPortDisplayName(portDef.name); // Translated name for display
+
+    // Stable contract port id, used when rebuilding caller nodes after contract edits.
+    this.contractPortId = portDef.contractPortId || null;
 
     // Store value for editable input ports
     // Custom types are never editable as their type can change dynamically
@@ -299,7 +344,7 @@ class Port {
 
   getColor() {
     const resolvedType = this.getResolvedType();
-    return PORT_TYPES[resolvedType]?.color || PORT_TYPES.any.color;
+    return PORT_TYPES[resolvedType]?.color || "#888888";
   }
 
   canConnectTo(otherPort) {
@@ -353,15 +398,28 @@ class Port {
 
     const resolvedType = this.getResolvedType();
     const portTypeInfo = PORT_TYPES[resolvedType];
+    const canReuseValueForResolvedType = () => {
+      if (this.value === undefined || !portTypeInfo?.editable) return false;
+      if (resolvedType === "float") return typeof this.value === "number";
+      if (resolvedType === "int") return Number.isInteger(this.value);
+      if (resolvedType === "bool") return typeof this.value === "boolean";
+      if (resolvedType === "vec2")
+        return Array.isArray(this.value) && this.value.length === 2;
+      if (resolvedType === "vec3")
+        return Array.isArray(this.value) && this.value.length === 3;
+      if (resolvedType === "vec4")
+        return Array.isArray(this.value) && this.value.length === 4;
+      return false;
+    };
 
     // If the resolved type is editable and we don't have connections, make it editable
     if (portTypeInfo?.editable && this.connections.length === 0) {
-      if (!this.isEditable) {
-        this.isEditable = true;
-        // Initialize value if not already set
-        if (this.value === undefined) {
-          this.value = portTypeInfo.defaultValue;
-        }
+      this.isEditable = true;
+      // Generic ports can temporarily become non-editable during type
+      // propagation. Preserve the user's value when it still matches the
+      // newly resolved concrete type; only fall back to a default when needed.
+      if (!canReuseValueForResolvedType()) {
+        this.value = portTypeInfo.defaultValue;
       }
     } else if (this.connections.length > 0) {
       // If we have connections, we're not editable
@@ -369,7 +427,9 @@ class Port {
     } else if (!portTypeInfo?.editable && this.isEditable) {
       // If the resolved type is no longer editable, clear the value and mark as non-editable
       this.isEditable = false;
-      this.value = undefined;
+      if (!isGenericType(this.portType)) {
+        this.value = undefined;
+      }
     }
   }
 }
@@ -381,10 +441,8 @@ class Node {
     this.y = y;
     this.nodeType = nodeType;
     this.title = nodeType.name; // Keep original name for logic
-    // Only translate node name if noTranslation.name is not set
-    this.displayTitle = nodeType.noTranslation?.name
-      ? nodeType.name
-      : languageManager.getNodeName(nodeType.name); // Translated name for display
+    // displayTitle is derived below, once the ports exist, by
+    // refreshDisplayNames() — one definition shared with onLanguageChanged.
     this.headerColor = nodeType.color;
     this.isSelected = false;
 
@@ -418,71 +476,75 @@ class Node {
       (outputDef, index) => new Port(this, "output", index, outputDef),
     );
 
-    // Determine if this is a variable node (pill-shaped)
-    // Variable nodes: no inputs, has outputs, and no special UI elements
-    this.isVariable =
+    // Names and shape, all derived from the node type.
+    this.refreshDisplayNames();
+    this.applyShapeMetrics();
+
+    this.isDragging = false;
+    this.dragOffsetX = 0;
+    this.dragOffsetY = 0;
+  }
+
+  // Is this a "variable" node — the small pill shape, drawn with no header bar?
+  // Nothing on the left to hang inputs off, and no in-node widgets to make room
+  // for.
+  computeIsVariable() {
+    const nodeType = this.nodeType;
+    return (
       nodeType.inputs.length === 0 &&
       nodeType.outputs.length > 0 &&
       !nodeType.hasOperation &&
       !nodeType.hasCustomInput &&
       !nodeType.hasVariableDropdown &&
-      !nodeType.hasCustomEditor;
+      !nodeType.hasCustomEditor
+    );
+  }
 
-    // Variable nodes are smaller and pill-shaped
+  // Recompute isVariable + width + height from the current node type and ports.
+  // Called by the constructor and by refreshShape(); this used to be inline in
+  // the constructor, which is why a node whose type changed under it kept the
+  // shape it was born with.
+  applyShapeMetrics() {
+    this.isVariable = this.computeIsVariable();
+
     if (this.isVariable) {
-      // Dynamic width based on variable name length
+      // Pill: width tracks the title, height is fixed.
       const minWidth = 120;
       const maxWidth = 160;
       const baseWidth = 80; // Base width for padding and port
       const charWidth = 7; // Approximate width per character
 
-      // Calculate width based on title length
       const titleWidth = baseWidth + this.title.length * charWidth;
       this.width = Math.min(Math.max(minWidth, titleWidth), maxWidth);
       this.height = 35;
     } else {
       this.width = 180;
-      // Calculate height based on number of ports and their extra heights
-      const maxPorts = Math.max(
-        this.inputPorts.length,
-        this.outputPorts.length,
-      );
-
-      // Calculate extra height from input ports' value boxes
-      let extraHeight = 0;
-      this.inputPorts.forEach((port) => {
-        extraHeight += port.getExtraHeight();
-      });
-
-      // Add extra space for operation dropdown if node has operations
-      const dropdownSpace = nodeType.hasOperation ? 30 : 0;
-      // Add extra space for custom input if node has it
-      const hasLabel =
-        nodeType.hasCustomInput && nodeType.customInputConfig.label;
-      const customInputSpace = nodeType.hasCustomInput
-        ? hasLabel
-          ? 45
-          : 30
-        : 0;
-      // Add extra space for variable dropdown if node has it
-      const variableDropdownSpace = nodeType.hasVariableDropdown ? 45 : 0;
-      const customEditorSpace = nodeType.hasCustomEditor
-        ? (nodeType.customEditorConfig?.height || 38) + 28
-        : 0;
-      this.height =
-        50 +
-        dropdownSpace +
-        customInputSpace +
-        variableDropdownSpace +
-        customEditorSpace +
-        maxPorts * 40 +
-        extraHeight +
-        10;
+      this.recalculateHeight();
     }
+  }
 
-    this.isDragging = false;
-    this.dragOffsetX = 0;
-    this.dragOffsetY = 0;
+  // Re-derive everything display-related from the current node type: the name,
+  // the header colour and the shape. Call this after swapping node.nodeType on
+  // a live instance — editing a custom node, renaming a function, renaming a
+  // uniform. Pass `title` when the name itself changed.
+  refreshShape({ title } = {}) {
+    if (title !== undefined) this.title = title;
+    if (this.nodeType.color) this.headerColor = this.nodeType.color;
+    this.refreshDisplayNames();
+    this.applyShapeMetrics();
+  }
+
+  // Re-translate the node name and port names. Shared with onLanguageChanged so
+  // there is one definition of how a display name is derived.
+  refreshDisplayNames() {
+    this.displayTitle = this.nodeType.noTranslation?.name
+      ? this.title
+      : languageManager.getNodeName(this.title);
+    this.getAllPorts().forEach((port) => {
+      port.displayName = this.nodeType.noTranslation?.ports
+        ? port.name
+        : languageManager.getPortDisplayName(port.name);
+    });
   }
 
   isPointInside(px, py) {
@@ -555,13 +617,29 @@ class Node {
     return this.resolvedGenerics[genericType] || null;
   }
 
-  // Update resolved generic types based on a new connection
-  updateResolvedGenerics(portType, concreteType) {
-    if (isGenericType(portType) && !isGenericType(concreteType)) {
-      // Set the generic to the concrete type
-      this.resolvedGenerics[portType] = concreteType;
+  // Update resolved generic types based on a new connection.
+  // Accepts concrete types directly, and also accepts a narrower generic
+  // (one whose allowed types are a strict subset of this port's allowed types).
+  updateResolvedGenerics(portType, resolvedType) {
+    if (!isGenericType(portType)) return false;
+    if (this.resolvedGenerics[portType] === resolvedType) return false;
+
+    if (!isGenericType(resolvedType)) {
+      this.resolvedGenerics[portType] = resolvedType;
       return true;
     }
+
+    // Generic-to-generic: accept only if resolvedType is strictly narrower
+    const portAllowed = getAllowedTypesForGeneric(portType);
+    const resolvedAllowed = getAllowedTypesForGeneric(resolvedType);
+    if (
+      resolvedAllowed.length < portAllowed.length &&
+      resolvedAllowed.every((t) => portAllowed.includes(t))
+    ) {
+      this.resolvedGenerics[portType] = resolvedType;
+      return true;
+    }
+
     return false;
   }
 
@@ -669,6 +747,29 @@ class Node {
   updateCustomInput(newValue, editor) {
     const oldValue = this.customInput;
     this.customInput = newValue;
+
+    // A Get Variable is bound to its Set Variable by name and nothing else, so
+    // renaming the setter has to carry the getters with it - otherwise they
+    // silently point at a variable that no longer exists and fall back to
+    // float. Scoped to the owning graph, same as the name itself.
+    if (
+      this.nodeType.name === "Set Variable" &&
+      oldValue &&
+      oldValue !== newValue
+    ) {
+      const owner = this._graph || this._blueprintSystem;
+      if (owner) {
+        owner.nodes.forEach((n) => {
+          if (
+            n.nodeType.name === "Get Variable" &&
+            n.selectedVariable === oldValue
+          ) {
+            n.selectedVariable = newValue;
+            n.outputPorts.forEach((port) => port.updateEditability());
+          }
+        });
+      }
+    }
 
     // Check if any ports have custom types
     const customPorts = this.getAllPorts().filter(
@@ -892,6 +993,17 @@ const COMMENT_HANDLE_OPACITY = "ff"; // 0xaa = 170 decimal, ~67% opacity (170/25
 const COMMENT_TITLE_HEIGHT = 31;
 const COMMENT_TEXT_MARGIN = 20;
 const COMMENT_DRAG_HANDLE_SIZE = 24; // Size of the drag handle icon
+const COMMENT_FIT_PADDING = 30; // Gap left around nodes when fitting a comment to them
+const COMMENT_SEPARATION_GAP = 24; // Gap left between two comments pushed apart after a refit
+// Description text metrics. drawComment() and the fitting helpers share these so
+// a box sized to hold a description actually holds it.
+const COMMENT_DESCRIPTION_FONT = "12px sans-serif";
+const COMMENT_DESCRIPTION_TOP = 50; // First baseline, relative to comment.y
+const COMMENT_DESCRIPTION_LINE_HEIGHT = 16;
+const COMMENT_DESCRIPTION_DESCENT = 4; // Room under the last baseline
+// Average glyph width for the font above, used when there are no real text
+// metrics to measure with - see measureCommentTextWidth().
+const COMMENT_DESCRIPTION_CHAR_WIDTH = 6.2;
 
 // Wire insertion constants
 const WIRE_INSERTION_THRESHOLD = 30; // Distance threshold for detecting wire insertion
@@ -900,6 +1012,13 @@ const WIRE_HIGHLIGHT_GLOW_WIDTH = 8; // Width of the glow effect
 const WIRE_HIGHLIGHT_WIDTH = 4; // Width of the highlighted wire
 const WIRE_NORMAL_WIDTH = 3; // Normal wire width
 const WIRE_HIGHLIGHT_SHADOW_BLUR = 15; // Shadow blur for glow effect
+
+// Set Variable / Get Variable pairs are joined by name rather than by a wire.
+// Selecting either end draws the link as a dotted curve in the variable colour.
+const VARIABLE_LINK_COLOR = "#9b59b6";
+const VARIABLE_LINK_WIDTH = 2;
+const VARIABLE_LINK_DASH = [9, 7];
+const VARIABLE_LINK_ENDPOINT_RADIUS = 4;
 
 class Comment {
   constructor(x, y, width, height, id) {
@@ -1020,6 +1139,112 @@ class Comment {
   }
 }
 
+let __previewTargetCounter = 0;
+
+// One preview: its panel, its runtime, and its own settings.
+//
+// Everything that is per-preview lives here rather than on the host, which is
+// what lets there be more than one of them (issue #78). The host keeps a list
+// in `previewTargets` and addresses each by target; nothing outside this class
+// knows whether a given preview is in the docked iframe or a window of its own,
+// because both are just a Window to postMessage at and both go through `win`.
+//
+// The panel is a clone of #preview-window-template, so no element inside it
+// carries a shared id. `el(name)` is the only way in - it resolves
+// `data-preview-el` within this window's own root, so two panels can hold two
+// controls with the same name and never see each other's.
+class PreviewTarget {
+  constructor(root, settings) {
+    this.id = ++__previewTargetCounter;
+    this.root = root ?? null;
+    this.iframe = root
+      ? root.querySelector('[data-preview-el="preview-iframe"]')
+      : null;
+    // Set while this preview lives in its own browser window.
+    this.popup = null;
+    this.ready = false;
+    this.settings = settings ?? makeDefaultPreviewSettings();
+
+    // Console and error state, per preview - output belongs to the window that
+    // produced it, not to whichever window happens to be first.
+    this.consoleEntries = [];
+    this.errorCount = 0;
+    this.notificationCount = 0;
+    this.errorKeys = new Set();
+    this.lastRenderSize = null;
+  }
+
+  // A control inside this preview's own panel. Never document-wide.
+  el(name) {
+    return this.root?.querySelector(`[data-preview-el="${name}"]`) ?? null;
+  }
+
+  // The window the runtime is actually in, or null if there isn't one.
+  get win() {
+    return this.popup ?? this.iframe?.contentWindow ?? null;
+  }
+
+  get isPoppedOut() {
+    return !!this.popup;
+  }
+
+  post(message) {
+    this.win?.postMessage(message, "*");
+  }
+
+  send(command, value) {
+    this.post({ type: "previewCommand", command, value });
+  }
+
+  // Does this target own the window a postMessage came from?
+  owns(source) {
+    return !!source && source === this.win;
+  }
+
+  // Point the runtime at a new URL. Reloading is how the settings that can only
+  // be read at boot (shader language, sampling, rotated frames) take effect, so
+  // both destinations need to do it.
+  navigate(url) {
+    if (this.popup) {
+      if (!this.popup.closed) this.popup.location.replace(url);
+    } else if (this.iframe) {
+      this.iframe.src = url;
+    }
+  }
+
+  // Where the panel is on screen, so it can be saved and put back.
+  get geometry() {
+    if (!this.root) return null;
+    const style = this.root.style;
+    return {
+      left: style.left || null,
+      top: style.top || null,
+      width: style.width || null,
+      height: style.height || null,
+    };
+  }
+
+  set geometry(geo) {
+    if (!this.root || !geo) return;
+    if (geo.left) {
+      this.root.style.left = geo.left;
+      this.root.style.right = "auto";
+    }
+    if (geo.top) {
+      this.root.style.top = geo.top;
+      this.root.style.bottom = "auto";
+    }
+    if (geo.width) this.root.style.width = geo.width;
+    if (geo.height) this.root.style.height = geo.height;
+  }
+}
+
+// The sidebar checkbox that switches a shader language on or off. Derived so
+// the id and the settings key cannot drift apart.
+function targetCheckboxId(target) {
+  return `setting${TARGET_SETTING_KEYS[target].charAt(0).toUpperCase()}${TARGET_SETTING_KEYS[target].slice(1)}`;
+}
+
 class BlueprintSystem {
   constructor(canvas) {
     this.canvas = canvas;
@@ -1038,6 +1263,9 @@ class BlueprintSystem {
     this.graphs.set(__mainGraph.id, __mainGraph);
     this.mainGraphId = __mainGraph.id;
     this.activeGraphId = __mainGraph.id;
+    // Tabs currently shown in the tab bar. Session-only; not persisted.
+    // Main's tab is always present.
+    this.openTabs = new Set([__mainGraph.id]);
 
     this.nodes = [];
     this.wires = [];
@@ -1053,6 +1281,8 @@ class BlueprintSystem {
     this.draggedNode = null;
     this.activeWire = null;
     this.hoveredPort = null;
+    this.hoveredNodeButton = null;
+    this.pendingButtonClick = null;
     this.draggedRerouteNode = null;
     this.draggedComment = null;
     this.resizingComment = null;
@@ -1094,40 +1324,36 @@ class BlueprintSystem {
     // File System Access API support
     this.fileHandle = null;
 
+    // Why the last codegen attempt failed. Transient host state — never
+    // serialized, never snapshotted into history.
+    this.lastCodegenErrors = [];
+
     this.setupCanvas();
 
-    // Shader settings
-    this.shaderSettings = {
-      name: "",
-      version: "0.0.0.0",
-      author: "",
-      website: "",
-      documentation: "",
-      description: "",
-      category: "color",
-      blendsBackground: false,
-      crossSampling: false,
-      preservesOpaqueness: true,
-      animated: false,
-      isDeprecated: false,
-      usesDepth: false,
-      mustPredraw: false,
-      supports3DDirectRendering: false,
-      extendBoxH: 0,
-      extendBoxV: 0,
-    };
+    // Shader settings. Same factory the Graph constructor uses - this used to be
+    // a second, hand-maintained copy of the same object literal.
+    this.shaderSettings = makeDefaultShaderSettings();
 
-    // Uniforms
+    // Uniforms (host-level: shared across all graphs, not per-graph)
     this.uniforms = [];
     this.deprecatedUniforms = [];
     this.uniformIdCounter = 1;
     this.deprecatedUniformsExpanded = false;
 
+    // Constants (host-level, same as uniforms). Unlike uniforms these are not
+    // Construct addon parameters, so there is no paramId to keep stable across
+    // versions and no deprecation tier - deleting one is a plain delete.
+    this.constants = [];
+    this.constantIdCounter = 1;
+
     // Custom Nodes (host-level: shared across graphs; declared above)
     this.editingCustomNode = null;
 
-    // Preview
-    this.previewIframe = null;
+    // Previews. `previewTargets` must exist before previewIframe/previewReady/
+    // previewSettings are touched - all are accessors that proxy
+    // previewTargets[0]. Windows are built in setupPreview() from the template.
+    this.previewTargets = [];
+    this._orphanPreviewSettings = makeDefaultPreviewSettings();
     this.previewReady = false;
     this.previewNeedsUpdate = true;
 
@@ -1135,29 +1361,17 @@ class BlueprintSystem {
     this.previewNode = null;
     this.previewAnimationTime = 0;
 
-    // Preview settings (not part of undo/redo)
-    this.previewSettings = {
-      effectTarget: "sprite",
-      object: "sprite",
-      cameraMode: "2d",
-      autoRotate: true,
-      samplingMode: "trilinear",
-      shaderLanguage: "webgpu",
-      spriteTextureUrl: null,
-      shapeTextureUrl: null,
-      bgTextureUrl: null,
-      showBackgroundCube: true,
-      spriteScale: 1,
-      shapeScale: 1,
-      roomScale: 1,
-      bgOpacity: 0.15,
-      bg3dOpacity: 0.15,
-      zoomLevel: 1,
-      startupScript: "",
-    };
+    // Preview settings (not part of undo/redo). Described once in
+    // preview-settings.js; see PREVIEW_SETTINGS there before adding a key.
+    // Per-window: this is window 0's set. See PreviewTarget.settings.
+    this.previewSettings = makeDefaultPreviewSettings();
+    // How many previews can be open at once. Each is a whole Construct runtime
+    // with its own workers and GPU context, and browsers start dropping the
+    // oldest context somewhere past a dozen.
+    this.maxPreviewWindows = 4;
 
-    // History Manager: per-graph; the active Graph already owns its history,
-    // so reading `this.history` (delegated) returns activeGraph.history.
+    // Unified host-level undo/redo history (shared across all graphs).
+    this.history = new HistoryManager(this);
 
     // Auto Layout Engine
     this.autoLayoutEngine = new AutoLayoutEngine(this);
@@ -1177,17 +1391,21 @@ class BlueprintSystem {
     this.setupSearchMenu();
     this.setupShaderSettings();
     this.setupUniformSidebar();
+    this.setupConstantSidebar();
     this.setupCustomNodeModal();
     this.setupOpenFilesModal();
     this.setupManualModal();
+    this.setupChangelogModal();
     this.setupIrGraphModal();
+    // Before setupPreview: building a preview window can already want to report
+    // an error, and it has nowhere to put one until notifications exist.
+    // Each preview panel wires its own console, in wirePreviewWindow.
+    this.setupNotifications();
     this.setupPreview();
     this.setupMinimap();
-    this.setupNotifications();
-    this.setupPreviewConsole();
-    this.setupMcpBridge();
     this.render();
     this.updateUndoRedoButtons();
+    this.setupVersionBadge();
 
     // Initialize UI text with current language
     // this.updateUIText();
@@ -1202,176 +1420,19 @@ class BlueprintSystem {
       this.showOpenFilesModal();
     }, 100);
 
-    setTimeout(() => {
-      this.mcpBridge.autoConnect();
-    }, 0);
-
     // Initialize history after setup
     setTimeout(() => {
-      this.history.currentState = this.exportState();
+      this.history.initGraphState(
+        this.mainGraphId,
+        this._exportGraphState(this.mainGraph),
+      );
     }, 0);
   }
 
   // Called when language is changed
-  setupMcpBridge() {
-    this.mcpBridge = new McpBridgeClient({
-      getApi: () => globalThis.shaderGraphAPI || null,
-      onStatusChange: () => {
-        this.updateMenuItemStates();
-      },
-      onNotification: ({
-        type = "info",
-        title,
-        message = "",
-        duration = 3000,
-      }) => {
-        this.showNotification({ type, title, message, duration });
-      },
-    });
-  }
-
-  getMcpStatusLabel() {
-    const status = this.mcpBridge?.getStatus?.();
-    if (!status) {
-      return "Connect MCP";
-    }
-
-    if (status.status === "connected") {
-      return "Disconnect MCP";
-    }
-
-    if (status.status === "connecting") {
-      return "Connecting MCP...";
-    }
-
-    return "Connect MCP";
-  }
-
-  getMcpMenuTitle() {
-    const status = this.mcpBridge?.getStatus?.();
-    if (status?.status === "connected") {
-      return "MCP (Connected)";
-    }
-
-    return "MCP";
-  }
-
-  updateMcpMenuAppearance() {
-    const status = this.mcpBridge?.getStatus?.();
-    const menuBtn = document.getElementById("mcpMenuBtn");
-    if (!menuBtn) {
-      return;
-    }
-
-    const isConnected = status?.status === "connected";
-    menuBtn.classList.toggle("dropdown-item-mcp", isConnected);
-    menuBtn.classList.toggle("dropdown-item-subtle", !isConnected);
-  }
-
-  async toggleMcpConnection() {
-    const status = this.mcpBridge.getStatus();
-
-    if (status.status === "connected" || status.status === "connecting") {
-      this.mcpBridge.disconnect();
-      this.showNotification({
-        type: "info",
-        title: "MCP disconnected",
-        message: "Saved MCP URL cleared. The app will stop auto-connecting.",
-        duration: 2500,
-      });
-      this.updateMenuItemStates();
-      return;
-    }
-
-    const suggestedUrl = status.savedUrl || DEFAULT_MCP_URL;
-    const response = window.prompt("Enter MCP WebSocket URL", suggestedUrl);
-    if (response == null) {
-      return;
-    }
-
-    let normalizedUrl;
-    try {
-      normalizedUrl = normalizeWebSocketUrl(response);
-    } catch (error) {
-      this.showNotification({
-        type: "error",
-        title: "Invalid MCP URL",
-        message: error instanceof Error ? error.message : String(error),
-        duration: 4000,
-      });
-      return;
-    }
-
-    try {
-      await this.mcpBridge.connect(normalizedUrl, { persist: true });
-      this.showNotification({
-        type: "success",
-        title: "MCP connected",
-        message: `Connected to ${normalizedUrl}`,
-        duration: 3000,
-      });
-    } catch (error) {
-      this.showNotification({
-        type: "error",
-        title: "MCP connection failed",
-        message: error instanceof Error ? error.message : String(error),
-        duration: 4500,
-      });
-    }
-
-    this.updateMenuItemStates();
-  }
-
-  showMcpStatus() {
-    const status = this.mcpBridge.getStatus();
-    const project = status.project || {
-      name: "Untitled Shader",
-      version: "0.0.0.0",
-    };
-    const parts = [
-      `Project: ${project.name}`,
-      `Version: ${project.version || "0.0.0.0"}`,
-      `Status: ${status.status}`,
-      `URL: ${status.url || status.savedUrl || "Not configured"}`,
-      `Session: ${status.sessionId}`,
-    ];
-
-    if (status.lastError?.message) {
-      parts.push(`Last error: ${status.lastError.message}`);
-    }
-
-    this.showNotification({
-      type: status.status === "connected" ? "success" : "info",
-      title: "MCP status",
-      message: parts.join(" | "),
-      duration: 7000,
-    });
-  }
-
-  announceMcpProjectUpdate(reason = "state-changed") {
-    if (!this.mcpBridge) {
-      return;
-    }
-
-    this.mcpBridge.sendProjectUpdate(reason);
-    this.updateMenuItemStates();
-  }
-
   onLanguageChanged() {
     // Update all existing nodes with new translations
-    this.nodes.forEach((node) => {
-      // Skip node name translation if noTranslation.name is set
-      node.displayTitle = node.nodeType.noTranslation?.name
-        ? node.title
-        : languageManager.getNodeName(node.title);
-      // Update port display names
-      node.getAllPorts().forEach((port) => {
-        // Skip port translation if noTranslation.ports is set on the node type
-        port.displayName = node.nodeType.noTranslation?.ports
-          ? port.name
-          : languageManager.getPortDisplayName(port.name);
-      });
-    });
+    this.nodes.forEach((node) => node.refreshDisplayNames());
 
     // Update search results if menu is open
     if (this.searchMenu.classList.contains("visible")) {
@@ -1418,159 +1479,35 @@ class BlueprintSystem {
     updateButton("exportBtn", "Export", "Export Addon");
     updateButton("reportIssueBtn", "Report Issue", "Report an Issue on GitHub");
 
-    // Preview header
-    const previewHeader = document.querySelector("#preview-header span");
-    if (previewHeader) previewHeader.textContent = t("Preview");
-
-    // Preview buttons
-    const updatePreviewButton = (id, titleKey) => {
-      const btn = document.getElementById(id);
-      if (btn) btn.title = t(titleKey);
-    };
-
-    updatePreviewButton("togglePreviewSettingsBtn", "Toggle Settings");
-    updatePreviewButton("reloadPreviewBtn", "Reload Preview");
-    updatePreviewButton("screenshotPreviewBtn", "Screenshot Preview");
-    updatePreviewButton("closePreviewBtn", "Close Preview");
-
-    // Preview controls labels
-    const updateLabel = (selector, textKey) => {
-      const labels = document.querySelectorAll(selector);
-      labels.forEach((label) => {
-        const text = label.childNodes[0];
-        debugger;
-        if (text) {
-          text.textContent = t(textKey);
-        }
-      });
-    };
-
-    updateLabel(
-      "#preview-controls .preview-control-group label[for='effectTargetSelect'], .preview-control-group:has(#effectTargetSelect) > label",
-      "Effect Target:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#objectSelect) > label",
-      "Object:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#cameraModeSelect) > label",
-      "Camera:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#autoRotateCheckbox) label",
-      "Auto Rotate",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#samplingModeSelect) > label",
-      "Sampling:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#shaderLanguageSelect) > label",
-      "Shader Language:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#spriteTextureInput) > label",
-      "Sprite Texture:",
-    );
-    updateLabel(
-      "#preview-controls .preview-control-group:has(#shapeTextureInput) > label",
-      "Shape Texture:",
-    );
-
-    // Preview select options
-    const effectTargetSelect = document.getElementById("effectTargetSelect");
-    if (effectTargetSelect) {
-      effectTargetSelect.options[0].text = t("Sprite");
-      effectTargetSelect.options[1].text = t("3D Shape");
-      effectTargetSelect.options[2].text = t("Layout");
-      effectTargetSelect.options[3].text = t("Layer");
+    // Preview panels, one pass each.
+    for (const previewTarget of this.previewTargets) {
+      this.updatePreviewPanelText(previewTarget, t);
     }
-
-    const objectSelect = document.getElementById("objectSelect");
-    if (objectSelect) {
-      objectSelect.options[0].text = t("Sprite");
-      objectSelect.options[1].text = t("Box");
-      objectSelect.options[2].text = t("Prism");
-      objectSelect.options[3].text = t("Wedge");
-      objectSelect.options[4].text = t("Pyramid");
-      objectSelect.options[5].text = t("Corner Out");
-      objectSelect.options[6].text = t("Corner In");
-    }
-
-    const cameraModeSelect = document.getElementById("cameraModeSelect");
-    if (cameraModeSelect) {
-      cameraModeSelect.options[0].text = t("2D");
-      cameraModeSelect.options[1].text = t("Perspective");
-      cameraModeSelect.options[2].text = t("Orthographic");
-    }
-
-    const samplingModeSelect = document.getElementById("samplingModeSelect");
-    if (samplingModeSelect) {
-      samplingModeSelect.options[0].text = t("Trilinear");
-      samplingModeSelect.options[1].text = t("Bilinear");
-      samplingModeSelect.options[2].text = t("Nearest");
-    }
-
-    const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect",
-    );
-    if (shaderLanguageSelect) {
-      shaderLanguageSelect.options[0].text = t("WebGPU");
-      shaderLanguageSelect.options[1].text = t("WebGL 2");
-      shaderLanguageSelect.options[2].text = t("WebGL 1");
-    }
-
-    // Preview buttons with titles
-    const spriteTextureBtn = document.getElementById("spriteTextureBtn");
-    if (spriteTextureBtn) spriteTextureBtn.title = t("Load sprite texture");
-
-    const clearSpriteTextureBtn = document.getElementById(
-      "clearSpriteTextureBtn",
-    );
-    if (clearSpriteTextureBtn)
-      clearSpriteTextureBtn.title = t("Clear sprite texture");
-
-    const shapeTextureBtn = document.getElementById("shapeTextureBtn");
-    if (shapeTextureBtn) shapeTextureBtn.title = t("Load shape texture");
-
-    const clearShapeTextureBtn = document.getElementById(
-      "clearShapeTextureBtn",
-    );
-    if (clearShapeTextureBtn)
-      clearShapeTextureBtn.title = t("Clear shape texture");
-
-    const resetPreviewSettingsBtn = document.getElementById(
-      "resetPreviewSettingsBtn",
-    );
-    if (resetPreviewSettingsBtn)
-      resetPreviewSettingsBtn.textContent = t("Reset Preview Settings");
-
-    // Texture preview "No image" text
-    const updateTexturePreview = (id) => {
-      const preview = document.getElementById(id);
-      if (preview) {
-        const span = preview.querySelector("span");
-        if (span) span.textContent = t("No image");
-      }
-    };
-
-    updateTexturePreview("spriteTexturePreview");
-    updateTexturePreview("shapeTexturePreview");
+    // Headers and close-button titles depend on the window count, not just the
+    // language, so they come from here.
+    this.renumberPreviewWindows();
+    this.updateOpenPreviewButton();
 
     // Sidebar sections
-    const shaderInfoHeaders = document.querySelectorAll(
+    const shaderInfoHeader = document.querySelector(
+      "#shader-info-section .sidebar-section-header h2",
+    );
+    if (shaderInfoHeader) shaderInfoHeader.textContent = t("Shader Info");
+    const shaderSettingsHeader = document.querySelector(
       "#shader-settings-section .sidebar-section-header h2",
     );
-    if (shaderInfoHeaders[0])
-      shaderInfoHeaders[0].textContent = t("Shader Info");
-    if (shaderInfoHeaders[1])
-      shaderInfoHeaders[1].textContent = t("Shader Settings");
+    if (shaderSettingsHeader)
+      shaderSettingsHeader.textContent = t("Shader Settings");
 
     const uniformsHeader = document.querySelector(
       "#uniforms-section .sidebar-section-header h2",
     );
     if (uniformsHeader) uniformsHeader.textContent = t("Uniforms");
+
+    const constantsHeader = document.querySelector(
+      "#constants-section .sidebar-section-header h2",
+    );
+    if (constantsHeader) constantsHeader.textContent = t("Constants");
 
     const customNodesHeader = document.querySelector(
       "#custom-nodes-section .sidebar-section-header h2",
@@ -1669,6 +1606,9 @@ class BlueprintSystem {
     // Buttons
     const addUniformBtn = document.getElementById("addUniformBtn");
     if (addUniformBtn) addUniformBtn.textContent = t("+ Add Uniform");
+
+    const addConstantBtn = document.getElementById("addConstantBtn");
+    if (addConstantBtn) addConstantBtn.textContent = t("+ Add Constant");
 
     const addCustomNodeBtn = document.getElementById("addCustomNodeBtn");
     if (addCustomNodeBtn)
@@ -1803,6 +1743,65 @@ class BlueprintSystem {
     const uniformModalAdd = document.getElementById("uniformModalAdd");
     if (uniformModalAdd) uniformModalAdd.textContent = t("Add");
 
+    // Constant Modal. Same shape as the uniform modal above; the type select
+    // has a longer option list rather than two.
+    const constantModalH3 = document.querySelector("#constantModal h3");
+    if (constantModalH3) constantModalH3.textContent = t("Add Constant");
+
+    const constantNameLabel = document.querySelector(
+      "label:has(#constantNameInput)",
+    );
+    if (constantNameLabel?.childNodes[0]) {
+      constantNameLabel.childNodes[0].textContent = t("Name:") + " ";
+    }
+
+    const constantNameInput = document.getElementById("constantNameInput");
+    if (constantNameInput) constantNameInput.placeholder = t("MY_CONSTANT");
+
+    const constantDescLabel = document.querySelector(
+      "label:has(#constantDescriptionInput)",
+    );
+    if (constantDescLabel?.childNodes[0]) {
+      constantDescLabel.childNodes[0].textContent = t("Description:") + " ";
+    }
+
+    const constantDescriptionInput = document.getElementById(
+      "constantDescriptionInput",
+    );
+    if (constantDescriptionInput)
+      constantDescriptionInput.placeholder = t("Optional description");
+
+    const constantTypeLabel = document.querySelector(
+      "label:has(#constantTypeSelect)",
+    );
+    if (constantTypeLabel?.childNodes[0]) {
+      constantTypeLabel.childNodes[0].textContent = t("Type:") + " ";
+    }
+
+    const constantTypeSelect = document.getElementById("constantTypeSelect");
+    if (constantTypeSelect) {
+      const labels = [
+        "Float",
+        "Int",
+        "Boolean",
+        "Vec2",
+        "Vec3",
+        "Vec4",
+        "Color (Vec3)",
+      ];
+      labels.forEach((label, i) => {
+        if (constantTypeSelect.options[i]) {
+          constantTypeSelect.options[i].text = t(label);
+        }
+      });
+    }
+
+    const constantModalCancel = document.getElementById("constantModalCancel");
+    if (constantModalCancel) constantModalCancel.textContent = t("Cancel");
+
+    const constantModalAdd = document.getElementById("constantModalAdd");
+    if (constantModalAdd) constantModalAdd.textContent = t("Add");
+
     const commentModalCancel = document.getElementById("commentModalCancel");
     if (commentModalCancel) commentModalCancel.textContent = t("Cancel");
 
@@ -1893,9 +1892,72 @@ class BlueprintSystem {
     return this.graphs ? this.graphs.get(this.activeGraphId) : null;
   }
 
+  // The project's name, for filenames and addon ids. Reads the MAIN graph's
+  // settings for the same reason generateAllShaders does: one project ships one
+  // addon, and `this.shaderSettings` delegates to whatever graph is open — a
+  // subgraph's default name is "", which used to degrade saved filenames to
+  // "blueprint.c3sg" whenever you saved from inside a function.
+  get projectName() {
+    return this.mainGraph?.shaderSettings?.name || "";
+  }
+
+  // Previews are host-level and there can be several. The first one is the
+  // default: it is what the scripting API, the CLI and the save file mean when
+  // they say "the preview" without naming one.
+  //
+  // `previewIframe` / `previewReady` / `previewSettings` are kept as properties
+  // so the many call sites that read them carry on working; all proxy
+  // previewTargets[0].
+  defaultPreviewTarget() {
+    return this.previewTargets[0] ?? null;
+  }
+
+  // Which target did this postMessage come from?
+  targetForSource(source) {
+    return this.previewTargets.find((target) => target.owns(source)) ?? null;
+  }
+
+  targetById(id) {
+    return this.previewTargets.find((target) => target.id === id) ?? null;
+  }
+
+  // The target a DOM event inside a preview panel belongs to.
+  targetForElement(node) {
+    const root = node?.closest?.('[data-preview-el="preview-window"]');
+    if (!root) return null;
+    return this.previewTargets.find((target) => target.root === root) ?? null;
+  }
+
+  get previewIframe() {
+    return this.previewTargets[0]?.iframe ?? null;
+  }
+
+  get previewReady() {
+    return !!this.previewTargets[0]?.ready;
+  }
+
+  set previewReady(ready) {
+    if (this.previewTargets[0]) this.previewTargets[0].ready = !!ready;
+  }
+
+  get previewSettings() {
+    return this.previewTargets[0]?.settings ?? this._orphanPreviewSettings;
+  }
+
+  set previewSettings(settings) {
+    // Before the first window exists (constructor, and createNewFile ordering)
+    // there is nowhere to put these yet, so hold them until one is built.
+    if (this.previewTargets[0]) {
+      this.previewTargets[0].settings = settings;
+    } else {
+      this._orphanPreviewSettings = settings;
+    }
+  }
+
   _installGraphDelegation() {
     // Per-graph fields that should transparently route to activeGraph.
     // Order matters only for documentation; install order is irrelevant.
+    // NOTE: uniforms live on host (shared across all graphs), NOT delegated.
     const fields = [
       // editable graph data
       "nodes",
@@ -1905,7 +1967,6 @@ class BlueprintSystem {
       "nodeIdCounter",
       "commentIdCounter",
       "wireIdCounter",
-      "uniformIdCounter",
       // selection
       "selectedNodes",
       "selectedRerouteNodes",
@@ -1918,6 +1979,8 @@ class BlueprintSystem {
       "draggedNode",
       "activeWire",
       "hoveredPort",
+      "hoveredNodeButton",
+      "pendingButtonClick",
       "draggedRerouteNode",
       "draggedComment",
       "resizingComment",
@@ -1932,18 +1995,14 @@ class BlueprintSystem {
       "camera",
       "isPanning",
       "panStart",
-      // file
-      "fileHandle",
-      // shader settings + uniforms
+      // NOTE: fileHandle is NOT delegated. One project is one file, so the
+      // handle belongs to the host; delegating it meant a subgraph saw null
+      // and Save re-opened the file picker.
+      // shader settings (uniforms are host-level, not delegated)
       "shaderSettings",
-      "uniforms",
-      "deprecatedUniforms",
-      "deprecatedUniformsExpanded",
       // preview pin
       "previewNode",
       "previewAnimationTime",
-      // history
-      "history",
     ];
     for (const field of fields) {
       Object.defineProperty(this, field, {
@@ -1962,6 +2021,48 @@ class BlueprintSystem {
         },
       });
     }
+  }
+
+  // Every node in the project, not just the open graph.
+  //
+  // `this.nodes` delegates to activeGraph, so host-level operations that patch
+  // or remove node instances — editing a custom node, renaming a uniform —
+  // silently skipped every other graph when written against it.
+  *allNodes() {
+    for (const graph of this.graphs.values()) {
+      // Copy, so callers can remove nodes while iterating.
+      for (const node of [...graph.nodes]) yield { node, graph };
+    }
+  }
+
+  // Remove every node matching `predicate`, in every graph, along with its
+  // wires. Returns the graph ids that actually changed, for the caller to feed
+  // to runMultiGraphTransaction.
+  //
+  // Writes go to `graph` directly rather than through the delegating `this.*`
+  // accessors, which would only ever hit the active graph — the bug this
+  // helper exists to avoid. disconnectWire is already graph-agnostic (it finds
+  // the owning graph via node._graph), so it needs no wrapper.
+  _removeNodesAllGraphs(predicate) {
+    const graphIds = new Set();
+    let removed = 0;
+
+    for (const graph of this.graphs.values()) {
+      const doomed = graph.nodes.filter((node) => predicate(node, graph));
+      if (doomed.length === 0) continue;
+
+      for (const node of doomed) {
+        node.getAllPorts().forEach((port) => {
+          [...port.connections].forEach((wire) => this.disconnectWire(wire));
+        });
+        graph.selectedNodes.delete(node);
+      }
+      graph.nodes = graph.nodes.filter((node) => !doomed.includes(node));
+      graphIds.add(graph.id);
+      removed += doomed.length;
+    }
+
+    return { removed, graphIds: [...graphIds] };
   }
 
   // Run `fn()` with all delegated per-graph reads/writes routed to `graph`
@@ -1984,6 +2085,907 @@ class BlueprintSystem {
     return g;
   }
 
+  // Create a function-kind graph and bootstrap its boundary nodes.
+  createFunctionGraph(opts = {}) {
+    const handler = getHandler("function");
+    // Seed with one input + one output, both sharing generic T.
+    const mkId = (suffix) =>
+      `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const seedInputs = [{ id: mkId("in"), name: "value", type: "T" }];
+    const seedOutputs = [{ id: mkId("out"), name: "result", type: "T" }];
+    const g = this.createGraph({
+      kind: "function",
+      data: {
+        contract: { inputs: seedInputs, outputs: seedOutputs },
+        notes: "",
+      },
+      ...opts,
+    });
+    if (handler) handler.bootstrapGraph(g, this);
+    this.history.initGraphState(g.id, this._exportGraphState(g));
+    this.openTabs && this.openTabs.add(g.id);
+    this.renderFunctionsList();
+    this.renderGraphTabBar();
+    return g;
+  }
+
+  // Create a loopBody-kind graph and bootstrap its boundary nodes.
+  createLoopBodyGraph(opts = {}) {
+    // Seeded with one accumulator and no arguments. Accumulators live in
+    // `outputs`; `inputs` holds arguments. See graph-kinds/loop-body-kind.js.
+    const accId = `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_acc`;
+    const g = this.createGraph({
+      kind: "loopBody",
+      data: {
+        contract: {
+          inputs: [],
+          outputs: [{ id: accId, name: "value", type: "T" }],
+        },
+        notes: "",
+      },
+      ...opts,
+    });
+    const handler = getHandler("loopBody");
+    if (handler) handler.bootstrapGraph(g, this);
+    this.history.initGraphState(g.id, this._exportGraphState(g));
+    this.openTabs && this.openTabs.add(g.id);
+    this.renderFunctionsList();
+    this.renderGraphTabBar();
+    return g;
+  }
+
+  // All callable (function + loopBody) graphs on this host.
+  getCallableGraphs() {
+    return [...this.graphs.values()].filter(
+      (g) => g.kind === "function" || g.kind === "loopBody",
+    );
+  }
+
+  // Reconcile a boundary/caller node's ports against the new contract defs.
+  // Matches old ports to new defs by `contractPortId` and preserves wires
+  // whenever name + type are unchanged. When type changes, tries to carry
+  // the wire over if still compatible; otherwise the wire is dropped.
+  // Ports present before but missing from the new defs have their wires
+  // disconnected. Defs without a contractPortId always become fresh ports.
+  //
+  // inputDefs / outputDefs: [{ name, type, contractPortId? }]
+  _rebuildBoundaryNodePorts(node, inputDefs, outputDefs) {
+    let droppedWires = 0;
+    const reconcile = (oldPorts, defs, portKind) => {
+      const oldById = new Map();
+      for (const p of oldPorts) {
+        if (p.contractPortId) oldById.set(p.contractPortId, p);
+      }
+      const adopted = new Set();
+
+      const newPorts = defs.map((def, i) => {
+        const existing = def.contractPortId
+          ? oldById.get(def.contractPortId)
+          : null;
+        if (existing && !adopted.has(existing)) {
+          adopted.add(existing);
+          if (existing.portType === def.type && existing.name === def.name) {
+            // Unchanged: reuse the Port instance so wires stay intact.
+            existing.index = i;
+            return existing;
+          }
+          // Type or name changed. Try to preserve the single connected wire if the
+          // new port can still accept it; otherwise drop it cleanly.
+          const saved = existing.connections[0] || null;
+          if (saved) existing.connections.length = 0;
+          const fresh = new Port(node, portKind, i, def);
+          if (saved) {
+            const other =
+              saved.startPort === existing ? saved.endPort : saved.startPort;
+            // The compatibility check below uses getResolvedType(), which
+            // reads `node.resolvedGenerics`. That map may still carry the
+            // resolution produced by THIS wire under the old contract
+            // (e.g. genType -> float). Clear it for the check so we test
+            // the raw port-type compatibility, then let
+            // resolveGenericsForConnection re-populate it with the new type.
+            let stashedResolved;
+            if (
+              other &&
+              isGenericType(other.portType) &&
+              other.node.resolvedGenerics &&
+              other.node.resolvedGenerics[other.portType] !== undefined
+            ) {
+              stashedResolved = other.node.resolvedGenerics[other.portType];
+              delete other.node.resolvedGenerics[other.portType];
+            }
+            const compatible =
+              other &&
+              (portKind === "input"
+                ? fresh.canConnectTo(other)
+                : other.canConnectTo(fresh));
+            if (!compatible && stashedResolved !== undefined) {
+              // Restore the stale resolution — the wire is about to be
+              // dropped, and the drop branch expects normal state.
+              other.node.resolvedGenerics[other.portType] = stashedResolved;
+            }
+            if (compatible) {
+              fresh.connections.push(saved);
+              if (saved.startPort === existing) saved.startPort = fresh;
+              else saved.endPort = fresh;
+              // Re-propagate types across the preserved wire so any generic
+              // on `other` (and its downstream) picks up the new concrete
+              // type instead of keeping the stale resolution from the old
+              // contract.
+              this.resolveGenericsForConnection(saved.startPort, saved.endPort);
+              other.updateEditability();
+              other.node.inputPorts.forEach((p) => p.updateEditability());
+              other.node.recalculateHeight();
+            } else {
+              // Drop the wire on both sides and the owning graph's list.
+              // Use the node's own graph — `this.wires` delegates to the
+              // active graph, which may not own this wire.
+              if (other) {
+                const ix = other.connections.indexOf(saved);
+                if (ix > -1) other.connections.splice(ix, 1);
+                // Refresh the other side so it goes back to using its default
+                // value (editability is driven by connections.length).
+                if (isGenericType(other.portType)) {
+                  this.reevaluateGenericType(other.node, other.portType);
+                }
+                other.updateEditability();
+                other.node.inputPorts.forEach((p) => p.updateEditability());
+                other.node.recalculateHeight();
+              }
+              const ownerGraph = node._graph || this.activeGraph;
+              const ownerWires = ownerGraph?.wires;
+              if (ownerWires) {
+                const wx = ownerWires.indexOf(saved);
+                if (wx > -1) ownerWires.splice(wx, 1);
+              }
+              droppedWires++;
+            }
+          }
+          return fresh;
+        }
+        return new Port(node, portKind, i, def);
+      });
+
+      // Any old port not adopted → no longer in the contract. Disconnect cleanly.
+      for (const p of oldPorts) {
+        if (!adopted.has(p)) {
+          for (const w of [...p.connections]) {
+            this.disconnectWire(w);
+            droppedWires++;
+          }
+        }
+      }
+      return newPorts;
+    };
+
+    node.inputPorts = reconcile(node.inputPorts, inputDefs, "input");
+    node.outputPorts = reconcile(node.outputPorts, outputDefs, "output");
+    // Not just the height: dropping the last input turns a node into a pill and
+    // adding one turns it back, and recalculateHeight() bails out on pills.
+    node.applyShapeMetrics();
+    return { droppedWires };
+  }
+
+  // Compile a function graph's body into shader code and collect helper deps.
+  // signature must include { resolvedInputTypes, resolvedOutputTypes, fnName, bindings }.
+  // Returns { bodyCode: string, deps: Map<string, Set<string>> }.
+  _compileFunctionBody(graph, signature, target) {
+    const { resolvedInputTypes, resolvedOutputTypes, fnName } = signature;
+    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+
+    const inputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionInput,
+    );
+    const outputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionOutput,
+    );
+    if (!inputNode || !outputNode) {
+      return { bodyCode: "    // missing boundary nodes\n", deps: new Map() };
+    }
+
+    // BFS from FunctionOutput backwards to build levels for this body.
+    const visited = new Set();
+    const dependencies = new Map();
+    const queue = [outputNode];
+    visited.add(outputNode);
+    while (queue.length > 0) {
+      const node = queue.shift();
+      const nodeDeps = new Set();
+      for (const port of node.inputPorts) {
+        for (const wire of port.connections) {
+          if (wire.startPort?.node) {
+            const dep = wire.startPort.node;
+            nodeDeps.add(dep);
+            if (!visited.has(dep)) {
+              visited.add(dep);
+              queue.push(dep);
+            }
+          }
+        }
+      }
+      // Variable nodes: depend on their Set Variable counterpart (graph-local).
+      if (node.nodeType.name === "Get Variable" && node.selectedVariable) {
+        const setVarNode = graph.nodes.find(
+          (n) =>
+            n.nodeType.name === "Set Variable" &&
+            n.customInput === node.selectedVariable,
+        );
+        if (setVarNode) {
+          nodeDeps.add(setVarNode);
+          if (!visited.has(setVarNode)) {
+            visited.add(setVarNode);
+            queue.push(setVarNode);
+          }
+        }
+      }
+      dependencies.set(node, nodeDeps);
+    }
+
+    const levels = this.topologicalSort(dependencies, visited);
+
+    // Build portToVarName: FunctionInput outputs -> parameter names; rest -> fv_N.
+    //
+    // The name comes from the PORT, not from indexing into contract.inputs.
+    // enforceBoundaryRules decides what these ports are and in what order —
+    // for a loop body that is [Index, Count, ...accumulators, ...arguments],
+    // which is not contract.inputs at all — and the emitted parameter list is
+    // built from the same place. Indexing the contract here meant the body and
+    // the declaration could disagree about which name meant which value.
+    const portToVarName = new Map();
+    let varCounter = 0;
+    inputNode.outputPorts.forEach((port, i) => {
+      if (graph.kind === "loopBody" && i === 0) {
+        portToVarName.set(port, "i"); // Index
+      } else if (graph.kind === "loopBody" && i === 1) {
+        portToVarName.set(port, "n"); // Count
+      } else {
+        portToVarName.set(
+          port,
+          port.name ? `in_${_sanitizeId(port.name)}` : `in_p${i}`,
+        );
+      }
+    });
+
+    for (const level of levels) {
+      for (const node of level) {
+        // FunctionInput's output ports were pre-seeded as parameter names; skip.
+        if (node.nodeType === NODE_TYPES.functionInput) continue;
+        const isOutputNode = node.nodeType === NODE_TYPES.functionOutput;
+        for (const port of node.inputPorts) {
+          if (port.connections.length > 0) {
+            const src = port.connections[0].startPort;
+            if (portToVarName.has(src))
+              portToVarName.set(port, portToVarName.get(src));
+          } else if (port.isEditable && port.value !== undefined) {
+            portToVarName.set(
+              port,
+              toShaderValue(port.value, port.getResolvedType(), target),
+            );
+          } else if (!isOutputNode) {
+            // Unbound FunctionOutput inputs fall back to "0.0" at emission; no need to allocate fv_.
+            portToVarName.set(port, `fv_${varCounter++}`);
+          }
+        }
+        for (const port of node.outputPorts) {
+          if (!portToVarName.has(port))
+            portToVarName.set(port, `fv_${varCounter++}`);
+        }
+      }
+    }
+
+    // Build a full binding map from the call-site signature. The signature
+    // binds contract-level generics (e.g. T → vec2). Body nodes may have
+    // narrowed T to genType internally. Trace through body resolvedGenerics
+    // to propagate the concrete type to intermediate generics (genType → vec2).
+    const fullBindings = { ...signature.bindings };
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const node of graph.nodes) {
+        for (const [key, val] of Object.entries(node.resolvedGenerics || {})) {
+          if (isGenericType(val) && fullBindings[key] && !fullBindings[val]) {
+            fullBindings[val] = fullBindings[key];
+            changed = true;
+          }
+        }
+      }
+    }
+
+    // Temporarily override body nodes' resolvedGenerics so getResolvedType()
+    // returns concrete types during compilation.
+    const savedGenerics = new Map();
+    for (const node of graph.nodes) {
+      savedGenerics.set(node, { ...node.resolvedGenerics });
+      for (const port of node.getAllPorts()) {
+        if (isGenericType(port.portType) && fullBindings[port.portType]) {
+          node.resolvedGenerics[port.portType] = fullBindings[port.portType];
+        }
+        const cur = node.resolvedGenerics[port.portType];
+        if (isGenericType(cur) && fullBindings[cur]) {
+          node.resolvedGenerics[port.portType] = fullBindings[cur];
+        }
+      }
+    }
+
+    // Generate body code and collect helper deps.
+    const deps = new Map();
+    let bodyCode = "";
+
+    for (const level of levels) {
+      for (const node of level) {
+        if (
+          node.nodeType === NODE_TYPES.functionInput ||
+          node.nodeType === NODE_TYPES.functionOutput
+        )
+          continue;
+
+        if (typeof node.nodeType.getDependency === "function") {
+          const dep = node.nodeType.getDependency(target);
+          if (dep) {
+            if (!deps.has(dep)) deps.set(dep, new Set());
+            deps.get(dep).add(node.nodeType.name);
+          }
+        }
+
+        const execution =
+          typeof node.nodeType.getExecution === "function"
+            ? node.nodeType.getExecution(target)
+            : node.nodeType.shaderCode?.[target]?.execution || null;
+
+        if (execution) {
+          const inputVars = node.inputPorts.map(
+            (p) => portToVarName.get(p) || "0.0",
+          );
+          const outputVars = node.outputPorts.map((p) => portToVarName.get(p));
+          const inputTypes = node.inputPorts.map((p) => p.getResolvedType());
+          const outputTypes = node.outputPorts.map((p) => p.getResolvedType());
+          bodyCode += `\n    // ${node.nodeType.name}\n`;
+          bodyCode +=
+            execution(inputVars, outputVars, node, inputTypes, outputTypes) +
+            "\n";
+        } else if (node.nodeType.isFunctionCall) {
+          // Nested FunctionCall inside a function body. Compute its signature
+          // and emit the call site; the nested declaration is collected by
+          // _generateFunctionDeclarations in a separate pass.
+          const callerHandler = getHandler(
+            node.nodeType.callerKind || "function",
+          );
+          if (callerHandler) {
+            const nestedSig = callerHandler.computeCallSiteSignature(
+              node,
+              this,
+            );
+            node._computedSignature = nestedSig;
+            bodyCode += `\n    // ${node.nodeType.name}\n`;
+            bodyCode +=
+              callerHandler.emitCallSite(node, nestedSig, {
+                target,
+                portToVarName,
+                fnName: nestedSig.fnName,
+                host: this,
+              }) + "\n";
+          }
+        }
+      }
+    }
+
+    // Emit return / output assignments.
+    const isWebGPU = target === "webgpu";
+    if (resolvedOutputTypes.length === 1) {
+      const retVar = portToVarName.get(outputNode.inputPorts[0]) || "0.0";
+      bodyCode += `    return ${retVar};\n`;
+    } else if (resolvedOutputTypes.length > 1) {
+      if (isWebGPU) {
+        const structName = `${fnName}_Out`;
+        const fields = outputNode.inputPorts
+          .map((p) => portToVarName.get(p) || "0.0")
+          .join(", ");
+        bodyCode += `    return ${structName}(${fields});\n`;
+      } else {
+        contract.outputs.forEach((op, i) => {
+          const src = portToVarName.get(outputNode.inputPorts[i]) || "0.0";
+          bodyCode += `    out_${_sanitizeId(op.name)} = ${src};\n`;
+        });
+      }
+    }
+
+    // Restore original resolvedGenerics so editing state isn't mutated.
+    for (const [node, saved] of savedGenerics) {
+      node.resolvedGenerics = saved;
+    }
+
+    return { bodyCode, deps };
+  }
+
+  // Collect all function declarations reachable from the current levels.
+  // Also caches the computed signature on each FunctionCall node for use in
+  // emitCallSite during the main generateShader pass.
+  // Returns { declStr: string, extraDeps: Map<string, Set<string>> }.
+  _generateFunctionDeclarations(target, levels, portToVarName) {
+    // Collect variants in discovery order: main's call sites first, then any
+    // nested call sites reached by compiling a function body. Emit in
+    // callee-first order (reverse-topological) so forward declarations aren't
+    // needed in GLSL. Deduped by (targetGraphId, sigHash).
+    const variantByKey = new Map(); // key → { graph, signature, handler, declaration, deps, callees: Set<key> }
+    const extraDeps = new Map();
+    const worklist = [];
+
+    const enqueue = (node) => {
+      if (!node.nodeType.isFunctionCall) return null;
+      const handler = getHandler(node.nodeType.callerKind || "function");
+      if (!handler) return null;
+      const sig = handler.computeCallSiteSignature(node, this);
+      node._computedSignature = sig;
+      const key = `${node.nodeType.targetGraphId}_${sig.sigHash}`;
+      if (!variantByKey.has(key)) {
+        const graph = this.graphs.get(node.nodeType.targetGraphId);
+        if (!graph) return null;
+        variantByKey.set(key, {
+          graph,
+          signature: sig,
+          handler,
+          declaration: "",
+          deps: new Map(),
+          callees: new Set(),
+        });
+        worklist.push(key);
+      }
+      return key;
+    };
+
+    // Seed: every FunctionCall reachable at the top level (inside main()).
+    for (const level of levels) {
+      for (const node of level) enqueue(node);
+    }
+
+    // Expand: compile each variant's body; during that compilation, the body
+    // walks its own FunctionCall nodes and caches their signatures on them.
+    // After compilation we scan the body for nested callers and enqueue them.
+    while (worklist.length > 0) {
+      const key = worklist.shift();
+      const entry = variantByKey.get(key);
+      const { declaration, deps } = entry.handler.emitFunctionDeclaration(
+        entry.graph,
+        entry.signature,
+        target,
+        this,
+      );
+      entry.declaration = declaration;
+      entry.deps = deps;
+      for (const [dep, names] of deps) {
+        if (!extraDeps.has(dep)) extraDeps.set(dep, new Set());
+        for (const n of names) extraDeps.get(dep).add(n);
+      }
+      // Discover nested callees.
+      for (const n of entry.graph.nodes) {
+        const calleeKey = enqueue(n);
+        if (calleeKey) entry.callees.add(calleeKey);
+      }
+    }
+
+    if (variantByKey.size === 0) return { declStr: "", extraDeps };
+
+    // DFS postorder to emit callees before their callers.
+    const emitted = new Set();
+    const ordered = [];
+    const stack = new Set(); // for cycle guard (shouldn't happen; Phase 6 prevents)
+    const visit = (key) => {
+      if (emitted.has(key)) return;
+      if (stack.has(key)) return; // cycle fallback
+      stack.add(key);
+      const entry = variantByKey.get(key);
+      for (const ck of entry.callees) visit(ck);
+      stack.delete(key);
+      emitted.add(key);
+      ordered.push(key);
+    };
+    for (const key of variantByKey.keys()) visit(key);
+
+    let declStr = "\n// --- Function declarations ---\n";
+    for (const key of ordered) {
+      declStr += variantByKey.get(key).declaration + "\n";
+    }
+
+    return { declStr, extraDeps };
+  }
+
+  // Build a standalone preview of a callable graph's declarations. Used by
+  // the View Code modal when the active graph is a function/loopBody.
+  _generateCallableGraphPreview(graph, target) {
+    const handler = getHandler(graph.kind);
+    if (!handler) return "// (no handler for this graph kind)\n";
+
+    // Collect existing caller signatures across all graphs.
+    const variantByKey = new Map();
+    const worklist = [];
+    const enqueueFromCaller = (node) => {
+      if (!node.nodeType.isFunctionCall) return null;
+      const h = getHandler(node.nodeType.callerKind || "function");
+      if (!h) return null;
+      const sig = h.computeCallSiteSignature(node, this);
+      node._computedSignature = sig;
+      const g = this.graphs.get(node.nodeType.targetGraphId);
+      if (!g) return null;
+      const key = `${g.id}_${sig.sigHash}`;
+      if (!variantByKey.has(key)) {
+        variantByKey.set(key, {
+          graph: g,
+          signature: sig,
+          handler: h,
+          declaration: "",
+          callees: new Set(),
+        });
+        worklist.push(key);
+      }
+      return key;
+    };
+
+    for (const g of this.graphs.values()) {
+      for (const n of g.nodes) {
+        if (
+          n.nodeType.isFunctionCall &&
+          n.nodeType.targetGraphId === graph.id
+        ) {
+          enqueueFromCaller(n);
+        }
+      }
+    }
+
+    // If no callers exist, synthesize a default signature from the contract.
+    if (variantByKey.size === 0) {
+      const sig = this._synthesizeDefaultSignature(graph);
+      if (sig) {
+        const key = `${graph.id}_${sig.sigHash}`;
+        variantByKey.set(key, {
+          graph,
+          signature: sig,
+          handler,
+          declaration: "",
+          callees: new Set(),
+        });
+        worklist.push(key);
+      }
+    }
+
+    // Expand: emit each variant's declaration and discover nested callees.
+    while (worklist.length > 0) {
+      const key = worklist.shift();
+      const entry = variantByKey.get(key);
+      const { declaration } = entry.handler.emitFunctionDeclaration(
+        entry.graph,
+        entry.signature,
+        target,
+        this,
+      );
+      entry.declaration = declaration;
+      for (const n of entry.graph.nodes) {
+        const calleeKey = enqueueFromCaller(n);
+        if (calleeKey) entry.callees.add(calleeKey);
+      }
+    }
+
+    if (variantByKey.size === 0) return "// (no declarations to show)\n";
+
+    // DFS postorder so callees come before callers.
+    const emitted = new Set();
+    const ordered = [];
+    const stack = new Set();
+    const visit = (key) => {
+      if (emitted.has(key)) return;
+      if (stack.has(key)) return;
+      stack.add(key);
+      const entry = variantByKey.get(key);
+      for (const ck of entry.callees) visit(ck);
+      stack.delete(key);
+      emitted.add(key);
+      ordered.push(key);
+    };
+    for (const key of variantByKey.keys()) visit(key);
+
+    const hdr = `// ${graph.kind} "${graph.name}" — ${target}\n`;
+    const ownKey = `${graph.id}_`;
+    let own = "";
+    let nested = "";
+    for (const key of ordered) {
+      const entry = variantByKey.get(key);
+      const label = `// ${entry.signature.fnName} (${entry.signature.sigStr})\n`;
+      const block = label + entry.declaration + "\n";
+      if (key.startsWith(ownKey)) own += block;
+      else nested += block;
+    }
+    return (
+      hdr + own + (nested ? "\n// --- transitive callees ---\n" + nested : "")
+    );
+  }
+
+  // Build a synthetic "default" call-site signature by treating generic
+  // letters as float, mirroring the fallback in computeCallSiteSignature.
+  _synthesizeDefaultSignature(graph) {
+    const handler = getHandler(graph.kind);
+    if (!handler) return null;
+    // Fake a caller node with unconnected input ports so the handler's
+    // computeCallSiteSignature path walks the same code.  Use the caller
+    // node type's port layout (which differs from the raw contract for
+    // ForLoop callers: Count + Initial accs + args).
+    const fakeCallerType = handler.createCallerNodeType(graph, this);
+    const fakeInputs = fakeCallerType
+      ? fakeCallerType.inputs.map(() => ({ connections: [] }))
+      : [];
+    const fakeOutputs = fakeCallerType
+      ? fakeCallerType.outputs.map(() => ({ connections: [] }))
+      : [];
+    const fakeNode = {
+      nodeType: { targetGraphId: graph.id, callerKind: graph.kind },
+      inputPorts: fakeInputs,
+      outputPorts: fakeOutputs,
+    };
+    try {
+      return handler.computeCallSiteSignature(fakeNode, this);
+    } catch {
+      return null;
+    }
+  }
+
+  // Propagate resolved generics from a function graph's boundary nodes down to
+  // every caller. If the body collapses `T` to `vec2` (e.g. by wiring a vec2
+  // node to the FunctionInput's T port), callers should display and enforce
+  // `vec2` instead of the generic letter.
+  _syncCallersBodyGenerics(graph) {
+    if (!graph || (graph.kind !== "function" && graph.kind !== "loopBody"))
+      return;
+    const inputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionInput,
+    );
+    const outputNode = graph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionOutput,
+    );
+    const resolved = {};
+    if (inputNode?.resolvedGenerics)
+      Object.assign(resolved, inputNode.resolvedGenerics);
+    if (outputNode?.resolvedGenerics)
+      Object.assign(resolved, outputNode.resolvedGenerics);
+
+    for (const g of this.graphs.values()) {
+      for (const caller of g.nodes) {
+        if (!caller.nodeType.isFunctionCall) continue;
+        if (caller.nodeType.targetGraphId !== graph.id) continue;
+        let changed = false;
+        // Letters whose concrete resolution on the caller actually changed —
+        // wires on those ports may no longer be compatible.
+        const changedLetters = new Set();
+        // Gather which generic letters the caller actually uses on its ports.
+        const callerGenerics = new Set();
+        for (const p of caller.getAllPorts()) {
+          if (isGenericType(p.portType)) callerGenerics.add(p.portType);
+        }
+        // Apply the body's resolutions. A missing entry (body no longer
+        // constrains that letter) clears any prior body-driven resolution.
+        for (const gen of callerGenerics) {
+          const next = resolved[gen];
+          const curr = caller.resolvedGenerics[gen];
+          if (next && curr !== next) {
+            // If the body narrows to a generic (e.g. T→genType) and the caller
+            // already has a concrete resolution from its own wires that is valid
+            // within that generic, keep the caller's concrete resolution.
+            if (isGenericType(next) && curr) {
+              if (!isGenericType(curr)) {
+                const allowed = getAllowedTypesForGeneric(next);
+                if (allowed.includes(curr)) continue;
+              } else {
+                const nextAllowed = getAllowedTypesForGeneric(next);
+                const currAllowed = getAllowedTypesForGeneric(curr);
+                if (currAllowed.every((t) => nextAllowed.includes(t))) continue;
+              }
+            }
+            caller.resolvedGenerics[gen] = next;
+            changed = true;
+            changedLetters.add(gen);
+          } else if (!next && curr !== undefined) {
+            // Only clear if no local wire is forcing the same resolution.
+            const localWireForces = caller
+              .getAllPorts()
+              .some((p) => p.portType === gen && p.connections.length > 0);
+            if (!localWireForces) {
+              delete caller.resolvedGenerics[gen];
+              changed = true;
+              changedLetters.add(gen);
+            }
+          }
+        }
+        if (changed) {
+          caller.inputPorts.forEach((p) => p.updateEditability());
+          caller.recalculateHeight();
+        }
+        // A body-driven resolution shift can make existing wires on the
+        // caller's same-letter ports incompatible (e.g. caller.output[T]
+        // was float, body now says vec3 — an outgoing wire to a float input
+        // must drop). Re-check and disconnect.
+        if (changedLetters.size > 0) {
+          const wiresToDrop = [];
+          for (const port of caller.getAllPorts()) {
+            if (!changedLetters.has(port.portType)) continue;
+            for (const wire of port.connections) {
+              const other =
+                wire.startPort === port ? wire.endPort : wire.startPort;
+              if (!other) continue;
+              const outputPort = port.type === "output" ? port : other;
+              const inputPort = port.type === "input" ? port : other;
+              if (
+                !areTypesCompatible(
+                  outputPort.portType,
+                  inputPort.portType,
+                  outputPort.getResolvedType(),
+                  inputPort.getResolvedType(),
+                )
+              ) {
+                wiresToDrop.push(wire);
+              }
+            }
+          }
+          for (const wire of wiresToDrop) this.disconnectWire(wire);
+        }
+      }
+    }
+  }
+
+  // Refresh caller generics for every callable graph. Cheap enough to run
+  // after any wire op — the hot path is only O(graphs × callers).
+  _syncAllCallerBodyGenerics() {
+    for (const g of this.graphs.values()) {
+      if (g.kind === "function" || g.kind === "loopBody") {
+        this._syncCallersBodyGenerics(g);
+      }
+    }
+  }
+
+  // Capture snapshots of the listed graphs before and after running `fn`, then
+  // push a single unified undo entry covering all changed graphs.
+  runMultiGraphTransaction(graphIds, fn, description = "Contract edit") {
+    this.history.runTransaction(graphIds, fn, description);
+  }
+
+  // Update all caller nodes in every graph whose targetGraphId matches `graph.id`.
+  // Preserves wires by contractPortId. Surfaces a notification listing changes.
+  syncContractCallers(graph) {
+    // Identify all graphs that might be affected (the function graph itself +
+    // any graph containing a caller targeting it).
+    const affectedIds = new Set([graph.id]);
+    for (const g of this.graphs.values()) {
+      for (const node of g.nodes) {
+        if (
+          node.nodeType.isFunctionCall &&
+          node.nodeType.targetGraphId === graph.id
+        ) {
+          affectedIds.add(g.id);
+        }
+      }
+    }
+
+    this.runMultiGraphTransaction(
+      [...affectedIds],
+      () => {
+        this._syncContractCallersImpl(graph);
+      },
+      `Contract edit on "${graph.name}"`,
+    );
+  }
+
+  _syncContractCallersImpl(graph) {
+    graph.contractVersion = (graph.contractVersion || 0) + 1;
+    const handler = getHandler(graph.kind);
+    if (!handler) return;
+
+    // Rebuild boundary nodes in the function graph itself.
+    handler.enforceBoundaryRules(graph, this);
+
+    const newType = handler.createCallerNodeType(graph, this);
+    const contract = graph.data?.contract || { inputs: [], outputs: [] };
+
+    let affectedCount = 0;
+    let totalDropped = 0;
+
+    for (const g of this.graphs.values()) {
+      for (const node of g.nodes) {
+        if (!node.nodeType.isFunctionCall) continue;
+        if (node.nodeType.targetGraphId !== graph.id) continue;
+
+        // Update the node type. Name, colour and shape are re-derived from it
+        // after the ports are reconciled, below.
+        node.nodeType = newType;
+
+        // Reconcile ports against the new caller node type — wires survive for
+        // ports whose (contractPortId, name, type) are unchanged.  Use the
+        // newType's ports (not the raw contract) because ForLoop callers have
+        // a transformed layout (Count + Initial acc + args → acc outputs).
+        const { droppedWires } = this._rebuildBoundaryNodePorts(
+          node,
+          newType.inputs.map((p) => ({
+            name: p.name,
+            type: p.type,
+            contractPortId: p.contractPortId || p.id,
+          })),
+          newType.outputs.map((p) => ({
+            name: p.name,
+            type: p.type,
+            contractPortId: p.contractPortId || p.id,
+          })),
+        );
+
+        // The caller draws `displayTitle || title`, both frozen at construction
+        // — so without this a renamed function kept its old name on every
+        // caller node, in this graph and every other one. (#114)
+        node.refreshShape({ title: newType.name });
+
+        totalDropped += droppedWires;
+        affectedCount++;
+      }
+    }
+
+    if (affectedCount > 0 || totalDropped > 0) {
+      const msg =
+        totalDropped > 0
+          ? `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt, ${totalDropped} incompatible wire(s) removed.`
+          : `Contract updated on "${graph.name}": ${affectedCount} caller(s) rebuilt.`;
+      this.showNotification({
+        type: "info",
+        title: "Contract updated",
+        message: msg,
+      });
+      this.onShaderChanged();
+    }
+  }
+
+  // Abandon whatever the pointer was in the middle of on `graph`.
+  //
+  // Interaction state (draggedNode, dragStartPositions, the box-select fields,
+  // ...) is per-graph and delegated, so leaving a graph mid-drag stranded it in
+  // a state no mouseup would ever clear: the cleanup in onMouseUp runs against
+  // whichever graph is active *by then*. Coming back, the first mousemove found
+  // draggedNode still set and snapped the whole selection to the cursor.
+  //
+  // Writes go to `graph` directly, never through `this` — the caller is
+  // typically switching away from this graph, so the delegating accessors would
+  // point at the wrong one.
+  _cancelActiveInteraction(graph = this.activeGraph) {
+    if (this.autoPanInterval) {
+      clearInterval(this.autoPanInterval);
+      this.autoPanInterval = null;
+    }
+    if (!graph) return;
+
+    // These own live DOM <input>s, so they need their real teardown rather than
+    // just nulling the field. They read the delegated `this.editingPort` /
+    // `this.editingCustomInput`, which is why this runs before activeGraphId
+    // changes.
+    if (this.editingPort) this.cancelEditingPort();
+    if (this.editingCustomInput) this.cancelEditingCustomInput();
+
+    if (graph.draggedNode) graph.draggedNode.isDragging = false;
+    graph.nodes.forEach((n) => {
+      n.isDragging = false;
+    });
+    graph.draggedNode = null;
+    graph.draggedRerouteNode = null;
+    graph.draggedComment = null;
+    graph.resizingComment = null;
+    graph.dragStartPositions?.clear();
+
+    graph.isBoxSelecting = false;
+    graph.boxSelectStart = null;
+    graph.boxSelectEnd = null;
+    graph.boxSelectInitialNodes = new Set();
+    graph.boxSelectInitialRerouteNodes = new Set();
+
+    graph.activeWire = null;
+    graph.highlightedWire = null;
+    graph.hoveredPort = null;
+    graph.hoveredNodeButton = null;
+    graph.pendingButtonClick = null;
+    graph.pendingCustomEditorClick = null;
+    graph.isPanning = false;
+
+    if (this.canvas) this.canvas.style.cursor = "default";
+  }
+
   // Switch the editor's active graph. Sidebars/UI are refreshed if available.
   setActiveGraph(id) {
     if (!this.graphs.has(id)) {
@@ -1991,33 +2993,24 @@ class BlueprintSystem {
     }
     if (id === this.activeGraphId) return;
 
-    // Cancel any in-flight auto-pan tied to the previous active graph.
-    if (this.autoPanInterval) {
-      clearInterval(this.autoPanInterval);
-      this.autoPanInterval = null;
-    }
-    this.activeGraphId = id;
+    // Whatever the pointer was doing belongs to the graph we're leaving; no
+    // mouseup will ever land on it once we've switched away.
+    this._cancelActiveInteraction(this.activeGraph);
 
-    // Refresh UI to reflect the newly active graph (best-effort; some
-    // sidebars may not exist in test environments).
-    try {
-      this.renderUniformList && this.renderUniformList();
-    } catch {}
-    try {
-      this.renderCustomNodesList && this.renderCustomNodesList();
-    } catch {}
-    try {
-      this.updateShaderSettingsUI && this.updateShaderSettingsUI();
-    } catch {}
-    try {
-      this.updateDependencyList && this.updateDependencyList();
-    } catch {}
-    try {
-      this.updateUndoRedoButtons && this.updateUndoRedoButtons();
-    } catch {}
-    try {
-      this.render && this.render();
-    } catch {}
+    this.activeGraphId = id;
+    this.openTabs.add(id);
+
+    this.renderUniformList();
+    this.renderConstantList();
+    this.renderCustomNodesList();
+    this.updateShaderSettingsUI();
+    this.updateDependencyList();
+    this.updateUndoRedoButtons();
+    this._applyKindSidebarVisibility();
+    this.renderGraphTabBar();
+    this.renderFunctionsList();
+    this.renderContractEditor();
+    this.render();
   }
 
   // Delete a non-main graph. Throws if asked to delete the main graph.
@@ -2032,6 +3025,10 @@ class BlueprintSystem {
       this.setActiveGraph(this.mainGraphId);
     }
     this.graphs.delete(id);
+    // Creating a graph is not undoable, so neither is deleting one. Drop the
+    // entries that referenced it rather than leaving undo steps that silently
+    // do nothing.
+    this.history.forgetGraph(id);
   }
 
   // Resolve a routing target from API options. Default = active graph;
@@ -2384,7 +3381,6 @@ class BlueprintSystem {
       this.closeGradientEditor();
     });
     this.gradientEditorSaveBtn.addEventListener("click", () => {
-      debugger;
       this.saveGradientEditor();
     });
     document.addEventListener("mousemove", (e) => {
@@ -2747,9 +3743,20 @@ class BlueprintSystem {
     extendBoxHInput.value = this.shaderSettings.extendBoxH;
     extendBoxVInput.value = this.shaderSettings.extendBoxV;
 
+    // shaderSettings is part of the undo snapshot, so every one of these
+    // listeners has to record a point. Text fields write the model on `input`
+    // (so the rest of the UI stays live) but only commit on `change`, which
+    // fires once on blur - otherwise typing a name would be one undo entry per
+    // keystroke.
+
     // Name input
     nameInput.addEventListener("input", () => {
       this.shaderSettings.name = nameInput.value.trim();
+      // Popped-out windows are titled after the shader.
+      this.renumberPreviewWindows();
+    });
+    nameInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit shader name");
     });
 
     // Version validation (X.X.X.X format)
@@ -2761,6 +3768,7 @@ class BlueprintSystem {
         versionInput.value = this.shaderSettings.version;
       } else {
         this.shaderSettings.version = value || "0.0.0.0";
+        this._commitShaderSetting("Edit shader version");
       }
     });
 
@@ -2775,10 +3783,12 @@ class BlueprintSystem {
           } catch {
             alert("Please enter a valid URL (e.g., https://example.com)");
             input.value = this.shaderSettings[settingKey];
+            return;
           }
         } else {
           this.shaderSettings[settingKey] = "";
         }
+        this._commitShaderSetting(`Edit shader ${settingKey}`);
       });
     };
 
@@ -2789,57 +3799,64 @@ class BlueprintSystem {
     authorInput.addEventListener("input", () => {
       this.shaderSettings.author = authorInput.value;
     });
+    authorInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit shader author");
+    });
 
     descriptionInput.addEventListener("input", () => {
       this.shaderSettings.description = descriptionInput.value;
+    });
+    descriptionInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit shader description");
     });
 
     // Category select
     categorySelect.addEventListener("change", () => {
       this.shaderSettings.category = categorySelect.value;
+      this._commitShaderSetting("Edit shader category");
     });
 
     // Checkboxes
     blendsBackgroundCheckbox.addEventListener("change", () => {
       this.shaderSettings.blendsBackground = blendsBackgroundCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     crossSamplingCheckbox.addEventListener("change", () => {
       this.shaderSettings.crossSampling = crossSamplingCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     preservesOpaquenessCheckbox.addEventListener("change", () => {
       this.shaderSettings.preservesOpaqueness =
         preservesOpaquenessCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     animatedCheckbox.addEventListener("change", () => {
       this.shaderSettings.animated = animatedCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     isDeprecatedCheckbox.addEventListener("change", () => {
       this.shaderSettings.isDeprecated = isDeprecatedCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     usesDepthCheckbox.addEventListener("change", () => {
       this.shaderSettings.usesDepth = usesDepthCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     mustPredrawCheckbox.addEventListener("change", () => {
       this.shaderSettings.mustPredraw = mustPredrawCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     supports3DDirectRenderingCheckbox.addEventListener("change", () => {
       this.shaderSettings.supports3DDirectRendering =
         supports3DDirectRenderingCheckbox.checked;
-      this.onShaderChanged();
+      this._commitShaderSetting("Edit shader settings");
     });
 
     // Extend box inputs
@@ -2847,11 +3864,83 @@ class BlueprintSystem {
       this.shaderSettings.extendBoxH = parseFloat(extendBoxHInput.value) || 0;
       this.onShaderChanged();
     });
+    extendBoxHInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit extend box");
+    });
 
     extendBoxVInput.addEventListener("input", () => {
       this.shaderSettings.extendBoxV = parseFloat(extendBoxVInput.value) || 0;
       this.onShaderChanged();
     });
+    extendBoxVInput.addEventListener("change", () => {
+      this._commitShaderSetting("Edit extend box");
+    });
+
+    // Shader language toggles. One handler shape for all three, since the only
+    // thing that differs is which settings key it writes.
+    for (const target of SHADER_TARGETS) {
+      const checkbox = document.getElementById(targetCheckboxId(target));
+      if (!checkbox) continue;
+      checkbox.addEventListener("change", () => {
+        this.setTargetEnabled(target, checkbox.checked);
+      });
+    }
+    this.updateTargetCheckboxes();
+  }
+
+  // Commit a shader-settings edit: refresh anything derived from it, then
+  // record an undo point. Every listener in setupShaderSettings ends here so
+  // there is one place that decides what committing a setting means.
+  _commitShaderSetting(description) {
+    this.onShaderChanged();
+    this.history.pushState(description);
+  }
+
+  // Switch a shader language on or off. Refuses to switch off the last one -
+  // a project that generates nothing has nothing to preview or export.
+  setTargetEnabled(target, enabled) {
+    if (!enabled && this.enabledTargets().length === 1) {
+      this.updateTargetCheckboxes();
+      return false;
+    }
+
+    this.shaderSettings[TARGET_SETTING_KEYS[target]] = !!enabled;
+    this.updateTargetCheckboxes();
+    // A disabled language must not stay selected in the preview or the code
+    // viewer, both of which would otherwise show a shader that no longer exists.
+    this.clampAllPreviewShaderLanguages();
+    this.updateShaderLanguageTabs();
+    this.onShaderChanged();
+    this.history.pushState(
+      `${enabled ? "Enable" : "Disable"} ${TARGET_LABELS[target]}`,
+    );
+    return true;
+  }
+
+  // State -> DOM for the three language checkboxes, including disabling the
+  // last remaining one so it cannot be unchecked.
+  updateTargetCheckboxes() {
+    const enabled = this.enabledTargets();
+    const isLastOne = enabled.length === 1;
+
+    for (const target of SHADER_TARGETS) {
+      const checkbox = document.getElementById(targetCheckboxId(target));
+      if (!checkbox) continue;
+      const on = enabled.includes(target);
+      checkbox.checked = on;
+      checkbox.disabled = on && isLastOne;
+      const label = checkbox.closest("label");
+      if (label) {
+        if (checkbox.disabled) {
+          label.setAttribute(
+            "data-tooltip",
+            "At least one shader language must stay enabled.",
+          );
+        } else {
+          label.removeAttribute("data-tooltip");
+        }
+      }
+    }
   }
 
   // Helper function to sanitize variable names
@@ -3130,6 +4219,308 @@ class BlueprintSystem {
     ];
   }
 
+  // ==================== Constants (host-level) ====================
+  //
+  // Named compile-time values, defined once and usable from every graph. They
+  // emit `const` declarations rather than uniforms, so unlike a uniform they are
+  // a constant expression in the generated source - which is what makes one
+  // valid as a WebGL1 loop bound (see constant-fold.js).
+
+  buildUniqueConstantVariableName(
+    name,
+    excludeConstantId = null,
+    usedVariableNames = null,
+  ) {
+    const baseVariableName = `const_${this.sanitizeVariableName(name)}`;
+    const isTaken = (candidate) =>
+      usedVariableNames
+        ? usedVariableNames.has(candidate)
+        : this.constants.some(
+            (constant) =>
+              constant.id !== excludeConstantId &&
+              constant.variableName === candidate,
+          );
+
+    let variableName = baseVariableName;
+    let counter = 1;
+    while (isTaken(variableName)) {
+      variableName = `${baseVariableName}_${counter}`;
+      counter++;
+    }
+
+    if (usedVariableNames) usedVariableNames.add(variableName);
+    return variableName;
+  }
+
+  // Force a stored value into something the declared type can actually emit.
+  // A hand-edited .c3sg can carry anything, and toShaderValue on a mismatched
+  // shape produces `vec3(undefined, ...)` rather than failing loudly.
+  coerceConstantValue(type, value) {
+    const num = (v, fallback = 0) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const vec = (length) => {
+      const source = Array.isArray(value) ? value : [];
+      const fallback = defaultConstantValue(type);
+      return Array.from({ length }, (_, i) => num(source[i], fallback[i]));
+    };
+
+    switch (type) {
+      case "bool":
+        return Boolean(value);
+      case "int":
+        return Math.trunc(num(value));
+      case "vec2":
+        return vec(2);
+      case "vec3":
+      case "color":
+        return vec(3);
+      case "vec4":
+        return vec(4);
+      default:
+        return num(value);
+    }
+  }
+
+  cloneConstantRecord(constant) {
+    return {
+      ...constant,
+      value: this.coerceConstantValue(constant.type, constant.value),
+    };
+  }
+
+  // Load/undo normalizer, mirroring normalizeUniformCollections: reassigns bad
+  // ids, coerces unknown types, and regenerates invalid or duplicate variable
+  // names so a hand-edited file cannot produce uncompilable source.
+  normalizeConstants(constants = []) {
+    const usedVariableNames = new Set();
+    let nextGeneratedId = 1;
+    let maxConstantId = 0;
+
+    const normalized = (constants || []).map((data) => {
+      const rawId = Number(data?.id);
+      const id =
+        Number.isInteger(rawId) && rawId > 0 ? rawId : nextGeneratedId++;
+      maxConstantId = Math.max(maxConstantId, id);
+      nextGeneratedId = Math.max(nextGeneratedId, maxConstantId + 1);
+
+      const name = String(data?.name || "Constant").trim() || "Constant";
+      const type = CONSTANT_TYPES.includes(data?.type) ? data.type : "float";
+
+      let variableName = String(data?.variableName || "").trim();
+      if (
+        !variableName ||
+        !this.isValidVariableName(variableName) ||
+        usedVariableNames.has(variableName)
+      ) {
+        variableName = this.buildUniqueConstantVariableName(
+          name,
+          id,
+          usedVariableNames,
+        );
+      } else {
+        usedVariableNames.add(variableName);
+      }
+
+      return {
+        id,
+        name,
+        variableName,
+        description: String(data?.description || ""),
+        type,
+        value: this.coerceConstantValue(type, data?.value),
+      };
+    });
+
+    return {
+      constants: normalized,
+      constantIdCounter: Math.max(1, maxConstantId + 1),
+    };
+  }
+
+  createConstantRecord({ name, type = "float", value, description = "" } = {}) {
+    const safeType = CONSTANT_TYPES.includes(type) ? type : "float";
+    return {
+      id: this.constantIdCounter++,
+      name: String(name || "Constant").trim() || "Constant",
+      variableName: this.buildUniqueConstantVariableName(name),
+      description: String(description || ""),
+      type: safeType,
+      value: this.coerceConstantValue(
+        safeType,
+        value === undefined ? defaultConstantValue(safeType) : value,
+      ),
+    };
+  }
+
+  addConstant() {
+    const name = this.constantNameInput.value.trim();
+    if (!name) {
+      alert("Please enter a constant name");
+      return;
+    }
+
+    const constant = this.createConstantRecord({
+      name,
+      type: this.constantTypeSelect.value,
+      description: this.constantDescriptionInput.value.trim(),
+    });
+
+    this.constants.push(constant);
+    this.hideConstantModal();
+    this.renderConstantList();
+    this.onShaderChanged();
+    this.history.pushState(`Add constant '${constant.name}'`);
+  }
+
+  // A plain delete, unlike deleteUniform's deprecate-instead. Constants are not
+  // addon parameters, so nothing downstream depends on a deleted one still
+  // occupying its slot.
+  deleteConstant(constantId) {
+    const index = this.constants.findIndex((c) => c.id === constantId);
+    if (index === -1) return;
+
+    const isConstantNode = (node) => node.constantId === constantId;
+    const affectedGraphIds = [];
+    for (const { node, graph } of this.allNodes()) {
+      if (isConstantNode(node) && !affectedGraphIds.includes(graph.id)) {
+        affectedGraphIds.push(graph.id);
+      }
+    }
+
+    const name = this.constants[index].name;
+    this.runMultiGraphTransaction(
+      affectedGraphIds,
+      () => {
+        this._removeNodesAllGraphs(isConstantNode);
+        this.constants.splice(index, 1);
+      },
+      `Delete constant '${name}'`,
+    );
+
+    this.renderConstantList();
+    this.render();
+    this.onShaderChanged();
+  }
+
+  updateConstantValue(constantId, value) {
+    const constant = this.constants.find((c) => c.id === constantId);
+    if (!constant) return;
+    constant.value = this.coerceConstantValue(constant.type, value);
+    // Unlike a uniform, a constant is baked into the source, so a value change
+    // needs a full regenerate rather than a parameter push to the preview.
+    this.onShaderChanged();
+  }
+
+  // Push a constant's current name onto every node that references it, in every
+  // graph. Same reasoning as updateUniformNodeNames: ConstantNode emits
+  // node.constantName straight into the shader, so a stale instance in a
+  // subgraph generates a reference to an identifier that no longer exists.
+  updateConstantNodeNames(constantId) {
+    const constant = this.constants.find((c) => c.id === constantId);
+    if (!constant) return;
+
+    const affected = [];
+    const affectedGraphIds = new Set();
+    for (const { node, graph } of this.allNodes()) {
+      if (node.constantId !== constantId) continue;
+      affected.push(node);
+      affectedGraphIds.add(graph.id);
+    }
+    if (affected.length === 0) return;
+
+    const apply = () => {
+      affected.forEach((node) => {
+        node.constantName = constant.variableName;
+        node.constantDisplayName = constant.name;
+        node.constantType = constant.type;
+        node.nodeType = { ...node.nodeType, name: constant.name };
+        node.refreshShape({ title: constant.name });
+      });
+    };
+
+    if (this.history?.isApplyingUndoRedo) {
+      apply();
+    } else {
+      this.runMultiGraphTransaction(
+        [...affectedGraphIds],
+        apply,
+        "Rename constant",
+      );
+    }
+    this.render();
+  }
+
+  getConstantNodeTypes() {
+    const types = {};
+    this.constants.forEach((constant) => {
+      types[`constant_${constant.id}`] = {
+        ...ConstantNode,
+        name: constant.name,
+        isConstant: true,
+        constantId: constant.id,
+        constantName: constant.variableName,
+        constantType: constant.type,
+      };
+    });
+    return types;
+  }
+
+  createConstantNode(constant, x, y) {
+    const center = this.getWorldCenterPosition();
+    const posX = x !== undefined ? x : center.x;
+    const posY = y !== undefined ? y : center.y;
+
+    const nodeType = {
+      ...ConstantNode,
+      name: constant.name,
+      isConstant: true,
+      constantId: constant.id,
+      constantName: constant.variableName,
+      constantType: constant.type,
+    };
+
+    const node = new Node(posX, posY, this.nodeIdCounter++, nodeType);
+    node._blueprintSystem = this;
+    node._graph = this.activeGraph;
+    // getCustomType reads these off the node instance, so they have to be set
+    // before refreshShape resolves the output port's type.
+    node.constantId = constant.id;
+    node.constantName = constant.variableName;
+    node.constantDisplayName = constant.name;
+    node.constantType = constant.type;
+
+    node.refreshShape({ title: constant.name });
+
+    this.nodes.push(node);
+    this.render();
+    this.onShaderChanged();
+    return node;
+  }
+
+  // Module-scope `const` declarations, emitted right after the uniform block.
+  // Every declared constant is emitted whether or not a node references it,
+  // matching generateUniformDeclarations - an unused const costs nothing and
+  // keeps the block stable as the graph is edited.
+  generateConstantDeclarations(target) {
+    if (this.constants.length === 0) return "";
+
+    let declarations = "\n// Project Constants\n";
+    for (const constant of this.constants) {
+      const portType = constantPortType(constant.type);
+      const literal = toShaderValue(constant.value, portType, target);
+      if (target === "webgpu") {
+        declarations += `const ${constant.variableName} : ${toWGSLType(
+          portType,
+        )} = ${literal};\n`;
+      } else {
+        declarations += `const ${portType} ${constant.variableName} = ${literal};\n`;
+      }
+    }
+    return declarations + "\n";
+  }
+
   setupUniformSidebar() {
     this.uniformModal = document.getElementById("uniformModal");
     this.uniformNameInput = document.getElementById("uniformNameInput");
@@ -3300,6 +4691,233 @@ class BlueprintSystem {
     this.uniformModal.classList.remove("visible");
   }
 
+  setupConstantSidebar() {
+    this.constantModal = document.getElementById("constantModal");
+    this.constantNameInput = document.getElementById("constantNameInput");
+    this.constantDescriptionInput = document.getElementById(
+      "constantDescriptionInput",
+    );
+    this.constantTypeSelect = document.getElementById("constantTypeSelect");
+    this.constantList = document.getElementById("constant-list");
+
+    document.getElementById("addConstantBtn").addEventListener("click", () => {
+      this.showConstantModal();
+    });
+
+    document
+      .getElementById("constantModalCancel")
+      .addEventListener("click", () => {
+        this.hideConstantModal();
+      });
+
+    document
+      .getElementById("constantModalAdd")
+      .addEventListener("click", () => {
+        this.addConstant();
+      });
+
+    this.constantModal.addEventListener("mousedown", (e) => {
+      if (e.target === this.constantModal) this.hideConstantModal();
+    });
+
+    this.constantNameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this.addConstant();
+      else if (e.key === "Escape") this.hideConstantModal();
+    });
+  }
+
+  showConstantModal() {
+    this.constantNameInput.value = "";
+    this.constantDescriptionInput.value = "";
+    this.constantTypeSelect.value = "float";
+    this.constantModal.classList.add("visible");
+    setTimeout(() => this.constantNameInput.focus(), 0);
+  }
+
+  hideConstantModal() {
+    this.constantModal.classList.remove("visible");
+  }
+
+  // Reuses the uniform list's CSS classes wholesale. The two lists are the same
+  // widget - a draggable named row with a type label and a value editor - and
+  // duplicating ~200 lines of styling to render an identical thing would just be
+  // two things to keep in sync.
+  renderConstantList() {
+    if (!this.constantList) return;
+    this.constantList.innerHTML = "";
+
+    this.constants.forEach((constant) => {
+      const item = document.createElement("div");
+      item.className = "uniform-item";
+      item.dataset.constantId = constant.id;
+
+      const header = document.createElement("div");
+      header.className = "uniform-item-header";
+
+      const handle = document.createElement("div");
+      handle.className = "uniform-drag-handle";
+      handle.textContent = "⋮⋮";
+      handle.title = "Drag onto the canvas to place a node";
+      handle.addEventListener("mousedown", () => {
+        item.draggable = true;
+      });
+      handle.addEventListener("mouseup", () => {
+        item.draggable = false;
+      });
+      item.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("constantId", String(constant.id));
+        e.dataTransfer.effectAllowed = "copy";
+      });
+      item.addEventListener("dragend", () => {
+        item.draggable = false;
+      });
+      header.appendChild(handle);
+
+      const nameContainer = document.createElement("div");
+      nameContainer.className = "uniform-name-container";
+
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.className = "uniform-item-name-input";
+      nameInput.value = constant.name;
+      nameInput.addEventListener("change", () => {
+        const next = nameInput.value.trim();
+        if (!next || next === constant.name) {
+          nameInput.value = constant.name;
+          return;
+        }
+        constant.name = next;
+        constant.variableName = this.buildUniqueConstantVariableName(
+          next,
+          constant.id,
+        );
+        this.updateConstantNodeNames(constant.id);
+        this.renderConstantList();
+        this.onShaderChanged();
+        this.history.pushState("Rename constant");
+      });
+      nameContainer.appendChild(nameInput);
+
+      const infoLine = document.createElement("div");
+      infoLine.className = "uniform-info-line";
+
+      const varName = document.createElement("span");
+      varName.className = "uniform-variable-name";
+      varName.textContent = constant.variableName;
+      infoLine.appendChild(varName);
+
+      const typeLabel = document.createElement("span");
+      typeLabel.className = "uniform-item-type-inline";
+      typeLabel.textContent = constant.type;
+      infoLine.appendChild(typeLabel);
+
+      const description = document.createElement("input");
+      description.type = "text";
+      description.className = "uniform-description-input";
+      description.placeholder = "Description";
+      description.value = constant.description || "";
+      description.addEventListener("change", () => {
+        constant.description = description.value;
+        this.history.pushState("Edit constant description");
+      });
+      infoLine.appendChild(description);
+
+      nameContainer.appendChild(infoLine);
+      header.appendChild(nameContainer);
+
+      const controls = document.createElement("div");
+      controls.className = "uniform-item-controls";
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "uniform-delete-btn";
+      deleteBtn.textContent = "×";
+      deleteBtn.title = "Delete constant";
+      deleteBtn.addEventListener("click", () => {
+        this.deleteConstant(constant.id);
+      });
+      controls.appendChild(deleteBtn);
+      header.appendChild(controls);
+
+      item.appendChild(header);
+      item.appendChild(this.buildConstantValueControl(constant));
+      this.constantList.appendChild(item);
+    });
+  }
+
+  buildConstantValueControl(constant) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "uniform-value-control";
+
+    const commit = (value) => {
+      this.updateConstantValue(constant.id, value);
+      this.history.pushState("Edit constant value");
+    };
+
+    if (constant.type === "bool") {
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = Boolean(constant.value);
+      checkbox.addEventListener("change", () => commit(checkbox.checked));
+      wrapper.appendChild(checkbox);
+      return wrapper;
+    }
+
+    if (constant.type === "color") {
+      const picker = document.createElement("input");
+      picker.type = "color";
+      const toHex = (v) =>
+        "#" +
+        [0, 1, 2]
+          .map((i) =>
+            Math.round(Math.min(1, Math.max(0, constant.value[i])) * 255)
+              .toString(16)
+              .padStart(2, "0"),
+          )
+          .join("");
+      picker.value = toHex(constant.value);
+      picker.addEventListener("input", () => {
+        const hex = picker.value;
+        commit([
+          parseInt(hex.slice(1, 3), 16) / 255,
+          parseInt(hex.slice(3, 5), 16) / 255,
+          parseInt(hex.slice(5, 7), 16) / 255,
+        ]);
+      });
+      wrapper.appendChild(picker);
+      return wrapper;
+    }
+
+    const components = { vec2: 2, vec3: 3, vec4: 4 }[constant.type] || 1;
+    const row = document.createElement("div");
+    row.className = "uniform-input-row";
+
+    for (let i = 0; i < components; i++) {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.className = "uniform-number-input-compact";
+      if (constant.type === "int") input.step = "1";
+      input.value = components === 1 ? constant.value : constant.value[i];
+      input.addEventListener("change", () => {
+        const n = Number(input.value);
+        if (!Number.isFinite(n)) {
+          input.value = components === 1 ? constant.value : constant.value[i];
+          return;
+        }
+        if (components === 1) {
+          commit(n);
+        } else {
+          const next = [...constant.value];
+          next[i] = n;
+          commit(next);
+        }
+        input.value = components === 1 ? constant.value : constant.value[i];
+      });
+      row.appendChild(input);
+    }
+
+    wrapper.appendChild(row);
+    return wrapper;
+  }
+
   showCommentModal(comment) {
     this.editingComment = comment;
     this.commentTitleInput.value = comment.title;
@@ -3374,42 +4992,38 @@ class BlueprintSystem {
 
     const uniform = this.uniforms[uniformIndex];
 
-    // Find all nodes using this uniform
-    const nodesToDelete = this.nodes.filter((node) => node.uniformId === id);
+    // Nodes for this uniform can be in any graph, not just the open one — a
+    // leftover node in a subgraph would keep emitting a uniform that no longer
+    // gets declared.
+    const isUniformNode = (node) => node.uniformId === id;
+    const affectedGraphIds = [];
+    for (const graph of this.graphs.values()) {
+      if (graph.nodes.some(isUniformNode)) affectedGraphIds.push(graph.id);
+    }
 
-    // Remove wires connected to these nodes
-    nodesToDelete.forEach((node) => {
-      const connectedWires = [];
-      node.getAllPorts().forEach((port) => {
-        connectedWires.push(...port.connections);
+    // Node removal and the deprecation itself are one action, so they go in
+    // one transaction. Splitting them left two undo entries, and undoing once
+    // brought the uniform back without its nodes.
+    const apply = () => {
+      this._removeNodesAllGraphs(isUniformNode);
+      // Deprecate the uniform instead of deleting it forever
+      this.uniforms.splice(uniformIndex, 1);
+      this.deprecatedUniforms.push({
+        ...this.cloneUniformRecord(uniform),
+        isDeprecated: true,
       });
-      connectedWires.forEach((wire) => {
-        this.disconnectWire(wire);
-      });
-    });
+    };
 
-    // Remove the nodes
-    this.nodes = this.nodes.filter((node) => node.uniformId !== id);
-
-    // Deprecate the uniform instead of deleting it forever
-    this.uniforms.splice(uniformIndex, 1);
-    this.deprecatedUniforms.push({
-      ...this.cloneUniformRecord(uniform),
-      isDeprecated: true,
-    });
-
-    // Clear selection if any deleted nodes were selected
-    nodesToDelete.forEach((node) => {
-      this.selectedNodes.delete(node);
-    });
+    this.runMultiGraphTransaction(
+      affectedGraphIds.length > 0 ? affectedGraphIds : [this.activeGraphId],
+      apply,
+      "Deprecate uniform",
+    );
 
     this.renderUniformList();
     this.render();
     this.updateDependencyList();
     this.onShaderChanged();
-
-    // Push state for undo/redo
-    this.history.pushState("Deprecate uniform");
   }
 
   restoreDeprecatedUniform(id) {
@@ -3482,6 +5096,24 @@ class BlueprintSystem {
       document.getElementById("customNodeOutputs");
     this.customNodesList = document.getElementById("custom-nodes-list");
 
+    // Phase 4: graph tab bar + Functions sidebar + contract editor containers
+    this.graphTabsEl = document.getElementById("graph-tabs");
+    this.functionsListEl = document.getElementById("functions-list");
+    this.functionInfoSection = document.getElementById("function-info-section");
+    this.functionInputsSection = document.getElementById(
+      "function-inputs-section",
+    );
+    this.functionOutputsSection = document.getElementById(
+      "function-outputs-section",
+    );
+    this.functionInfoForm = document.getElementById("function-info-form");
+    this.functionInputsList = document.getElementById("function-inputs-list");
+    this.functionOutputsList = document.getElementById("function-outputs-list");
+    this.shaderInfoSection = document.getElementById("shader-info-section");
+    this.shaderSettingsSection = document.getElementById(
+      "shader-settings-section",
+    );
+
     // Code editor container
     this.customNodeCodeEditorContainer = document.getElementById(
       "customNodeCodeEditor",
@@ -3547,32 +5179,7 @@ class BlueprintSystem {
           return;
         }
 
-        // Save current content
-        if (this.codeMirrorEditor) {
-          this.customNodeCodeData[this.currentShaderLang][
-            this.currentCodeType
-          ] = this.codeMirrorEditor.state.doc.toString();
-        }
-
-        // Switch tab
-        shaderTabs.forEach((t) => t.classList.remove("active"));
-        tab.classList.add("active");
-        this.currentShaderLang = tab.dataset.shader;
-
-        // Load new content
-        if (this.codeMirrorEditor) {
-          const newContent =
-            this.customNodeCodeData[this.currentShaderLang][
-              this.currentCodeType
-            ];
-          this.codeMirrorEditor.dispatch({
-            changes: {
-              from: 0,
-              to: this.codeMirrorEditor.state.doc.length,
-              insert: newContent,
-            },
-          });
-        }
+        this.switchCustomNodeShaderLang(tab.dataset.shader);
       });
     });
 
@@ -3587,35 +5194,7 @@ class BlueprintSystem {
         webgl2Tab.classList.add("disabled");
         // If currently on WebGL 2 tab, switch to WebGL 1
         if (this.currentShaderLang === "webgl2") {
-          // Save current content first
-          if (this.codeMirrorEditor) {
-            this.customNodeCodeData[this.currentShaderLang][
-              this.currentCodeType
-            ] = this.codeMirrorEditor.state.doc.toString();
-          }
-
-          // Switch to WebGL 1
-          document
-            .querySelectorAll(".shader-tab")
-            .forEach((t) => t.classList.remove("active"));
-          document
-            .querySelector('.shader-tab[data-shader="webgl1"]')
-            .classList.add("active");
-          this.currentShaderLang = "webgl1";
-
-          if (this.codeMirrorEditor) {
-            const newContent =
-              this.customNodeCodeData[this.currentShaderLang][
-                this.currentCodeType
-              ];
-            this.codeMirrorEditor.dispatch({
-              changes: {
-                from: 0,
-                to: this.codeMirrorEditor.state.doc.length,
-                insert: newContent,
-              },
-            });
-          }
+          this.switchCustomNodeShaderLang("webgl1");
         }
       }
     });
@@ -3652,6 +5231,75 @@ class BlueprintSystem {
       .addEventListener("click", () => {
         this.showCustomNodeModal();
       });
+
+    // Phase 4: Functions sidebar — add buttons
+    const addFunctionBtn = document.getElementById("addFunctionBtn");
+    if (addFunctionBtn) {
+      addFunctionBtn.addEventListener("click", () => {
+        const name = this._pickNewCallableName("Function");
+        const g = this.createFunctionGraph({ name });
+        this.setActiveGraph(g.id);
+        this.centerView();
+      });
+    }
+    const addLoopBodyBtn = document.getElementById("addLoopBodyBtn");
+    if (addLoopBodyBtn) {
+      addLoopBodyBtn.addEventListener("click", () => {
+        const name = this._pickNewCallableName("LoopBody");
+        const g = this.createLoopBodyGraph({ name });
+        this.setActiveGraph(g.id);
+        this.centerView();
+      });
+    }
+
+    // Phase 4: Contract editor — add input/output buttons
+    const addContractInputBtn = document.getElementById("addContractInputBtn");
+    if (addContractInputBtn) {
+      addContractInputBtn.addEventListener("click", () => {
+        this._addContractPort("inputs");
+      });
+    }
+    const addContractOutputBtn = document.getElementById(
+      "addContractOutputBtn",
+    );
+    if (addContractOutputBtn) {
+      addContractOutputBtn.addEventListener("click", () => {
+        this._addContractPort("outputs");
+      });
+    }
+  }
+
+  _pickNewCallableName(base) {
+    const existing = new Set(this.getCallableGraphs().map((g) => g.name));
+    let n = 1;
+    while (existing.has(`${base}${n}`)) n++;
+    return `${base}${n}`;
+  }
+
+  _addContractPort(which) {
+    const g = this.activeGraph;
+    if (!g || g.kind === "main") return;
+    const handler = getHandler(g.kind);
+    if (!handler) return;
+    // Assign back: `g.data.contract` may be absent on a hand-built graph, and
+    // the fallback object used to be filled in and then dropped on the floor.
+    if (!g.data.contract) g.data.contract = { inputs: [], outputs: [] };
+    const contract = g.data.contract;
+    if (!contract[which]) contract[which] = [];
+    // Pin the undo baseline before mutating: syncContractCallers records the
+    // transaction against currentStates, which has to still be pre-edit.
+    this.history.syncBaseline(g.id);
+    // Pass the whole contract so a new port picks a generic not already in use
+    // anywhere in it, rather than only on its own side.
+    contract[which].push(
+      handler.defaultPort([
+        ...(contract.inputs || []),
+        ...(contract.outputs || []),
+      ]),
+    );
+    this.syncContractCallers(g);
+    this.renderContractEditor();
+    this.renderFunctionsList();
   }
 
   showCustomNodeModal(customNode = null) {
@@ -3748,12 +5396,47 @@ class BlueprintSystem {
       });
     }
 
+    // A language the project no longer ships has no tab to write code into.
+    this.updateShaderLanguageTabs();
+
     this.customNodeModal.classList.add("visible");
   }
 
   hideCustomNodeModal() {
     this.customNodeModal.classList.remove("visible");
     this.editingCustomNode = null;
+  }
+
+  // Move the custom node editor to another shader language, flushing whatever
+  // is in the editor into the buffer for the language being left. Three callers
+  // need this - the tab click, the splitWebGL checkbox, and a language being
+  // disabled out from under the current tab - and losing the flush is how
+  // edits used to go missing.
+  switchCustomNodeShaderLang(target) {
+    if (!target || target === this.currentShaderLang) return;
+
+    if (this.codeMirrorEditor) {
+      this.customNodeCodeData[this.currentShaderLang][this.currentCodeType] =
+        this.codeMirrorEditor.state.doc.toString();
+    }
+
+    document
+      .querySelectorAll(".shader-tab")
+      .forEach((t) => t.classList.remove("active"));
+    document
+      .querySelector(`.shader-tab[data-shader="${target}"]`)
+      ?.classList.add("active");
+    this.currentShaderLang = target;
+
+    if (this.codeMirrorEditor) {
+      this.codeMirrorEditor.dispatch({
+        changes: {
+          from: 0,
+          to: this.codeMirrorEditor.state.doc.length,
+          insert: this.customNodeCodeData[target][this.currentCodeType],
+        },
+      });
+    }
   }
 
   initializeCodeMirror() {
@@ -4333,117 +6016,359 @@ class BlueprintSystem {
   }
 
   setupPreview() {
-    this.previewIframe = document.getElementById("preview-iframe");
-    const previewWindow = document.getElementById("preview-window");
-    const previewHeader = document.getElementById("preview-header");
-    const closePreviewBtn = document.getElementById("closePreviewBtn");
-    const openPreviewBtn = document.getElementById("openPreviewBtn");
+    // App-wide preview plumbing only. Everything that belongs to one panel is
+    // in wirePreviewWindow(), which runs once per window.
+    this.previewWindowsContainer = document.getElementById("preview-windows");
+    this.previewWindowTemplate = document.getElementById(
+      "preview-window-template",
+    );
 
-    // Error tracking with rate limiting
-    this.previewErrorCount = 0; // Total errors for console
-    this.previewNotificationCount = 0; // Errors shown as notifications
-    this.previewErrorKeys = new Set(); // Track unique errors
+    // The eye brings back everything that is minimised, however many that is,
+    // and hides itself once nothing is left to restore. Opening a *new* window
+    // is the header's plus button and the View menu - a separate intent.
+    document.getElementById("openPreviewBtn")?.addEventListener("click", () => {
+      for (const target of this.minimisedPreviews()) {
+        this.showPreviewWindow(target);
+      }
+    });
 
-    // Make preview window draggable
+    // Window 0: what the scripting API, the CLI and the save file mean by "the
+    // preview". It takes over whatever settings the host was holding.
+    //
+    // `reload: false` because this runs from the constructor, before the app
+    // has a graph - createNewFile() adds the default nodes afterwards. Asking
+    // for a shader now would only produce "no Output node", which is true and
+    // useless. createNewFile() and loadFromJSON() drive the first real load.
+    this.addPreviewWindow({
+      settings: this._orphanPreviewSettings,
+      reload: false,
+    });
+
+    // One listener for every preview. Which window a message came from is
+    // resolved from event.source, not assumed.
+    window.addEventListener("message", (event) => this.onPreviewMessage(event));
+
+    // Hover tooltips (app-wide, but the preview panel is what needs them most)
+    this.setupTooltips();
+
+    // Minimap controls
+    this.setupMinimapControls();
+  }
+
+  // Build another preview window: clone the template, mount it, give it its own
+  // settings, and wire its controls to itself.
+  addPreviewWindow({ settings, geometry, reload = true } = {}) {
+    if (!this.previewWindowTemplate || !this.previewWindowsContainer) {
+      return null;
+    }
+    if (this.previewTargets.length >= this.maxPreviewWindows) {
+      this.showNotification({
+        type: "warning",
+        title: "Preview limit reached",
+        message: `${this.maxPreviewWindows} preview windows is the cap - each one is a whole Construct runtime with its own GPU context.`,
+        duration: 4000,
+      });
+      return null;
+    }
+
+    const fragment = this.previewWindowTemplate.content.cloneNode(true);
+    const root = fragment.querySelector('[data-preview-el="preview-window"]');
+    if (!root) return null;
+
+    const target = new PreviewTarget(
+      root,
+      settings ?? makeDefaultPreviewSettings(),
+    );
+
+    // Real ids, generated per window, so duplicated markup never collides and
+    // <label data-preview-for> still points at something.
+    for (const el of root.querySelectorAll("[data-preview-el]")) {
+      el.id = `${el.dataset.previewEl}__w${target.id}`;
+    }
+    for (const label of root.querySelectorAll("[data-preview-for]")) {
+      const el = target.el(label.dataset.previewFor);
+      if (el) label.htmlFor = el.id;
+    }
+
+    // Cascade, so a new window does not land on top of the one it came from.
+    // Offset by more than the header height, or the two read as one window.
+    const offset = this.previewTargets.length * 36;
+    root.style.right = `${20 + offset}px`;
+    root.style.bottom = `${20 + offset}px`;
+
+    this.previewWindowsContainer.appendChild(root);
+    this.previewTargets.push(target);
+    if (geometry) target.geometry = geometry;
+
+    this.wirePreviewWindow(target);
+    // In front: it is the one the user just asked for.
+    this.raisePreviewWindow(target);
+    this.renumberPreviewWindows();
+    this.updateOpenPreviewButton();
+    this.updatePreviewSettingsUI(target);
+    if (reload) this.updatePreview(target);
+
+    return target;
+  }
+
+  // What a new window should start from. Copying the window it was opened from
+  // beats a fresh default - a second view is nearly always a variation on the
+  // first - and the View menu, which has no window in hand, copies window 0.
+  newPreviewWindowOptions(from = this.defaultPreviewTarget()) {
+    return from ? { settings: { ...from.settings } } : {};
+  }
+
+  // Which preview this is, 1-based, as shown to the user.
+  previewNumber(target) {
+    return this.previewTargets.indexOf(target) + 1;
+  }
+
+  // What a preview is called. Numbered only when there is more than one, since
+  // "Preview 1" on its own is just noise.
+  previewName(target) {
+    const t = (key) => languageManager.getUIText(key);
+    if (this.previewTargets.length < 2) return t("Preview");
+    return `${t("Preview")} ${this.previewNumber(target)}`;
+  }
+
+  // The title of a popped-out preview's browser window. Named after the shader
+  // so a taskbar full of them can be told apart.
+  previewWindowTitle(target) {
+    const name = this.mainGraph.shaderSettings.name?.trim();
+    const numbered =
+      this.previewTargets.length > 1
+        ? `Preview #${this.previewNumber(target)}`
+        : "Preview";
+    return name ? `${name} - ${numbered}` : numbered;
+  }
+
+  // Headers, close-button meanings and popped-out titles all depend on how many
+  // windows there are and where each sits, so they are refreshed together
+  // whenever that changes.
+  renumberPreviewWindows() {
+    for (const target of this.previewTargets) {
+      if (!target.root) continue;
+
+      const heading = target.root.querySelector(
+        '[data-preview-el="preview-header"] span',
+      );
+      if (heading) heading.textContent = this.previewName(target);
+
+      // Closing a popped-out preview only puts its placeholder away; closing a
+      // docked extra really does close it. Say which.
+      const closeBtn = target.el("closePreviewBtn");
+      if (closeBtn) {
+        const minimises =
+          target.isPoppedOut || this.previewTargets.indexOf(target) === 0;
+        closeBtn.title = minimises
+          ? languageManager.getUIText("Minimise Preview")
+          : languageManager.getUIText("Close Preview");
+      }
+
+      this.applyPoppedOutTitle(target);
+    }
+  }
+
+  // Set the popped-out window's document title. Same origin, so this is just a
+  // property write - but Construct sets the title itself while it boots, so
+  // this is re-run once the runtime reports ready.
+  applyPoppedOutTitle(target) {
+    if (!target?.isPoppedOut || target.popup.closed) return;
+    try {
+      target.popup.document.title = this.previewWindowTitle(target);
+    } catch {
+      // A cross-origin or not-yet-navigated window has no title to set. Not
+      // worth reporting: the next projectReady will try again.
+    }
+  }
+
+  // Tear one down. Window 0 stays: it is what "the preview" resolves to, and
+  // the API and CLI would have nothing to talk to without it.
+  removePreviewWindow(target) {
+    const index = this.previewTargets.indexOf(target);
+    if (index <= 0) return false;
+
+    if (target.isPoppedOut) this.dockPreview(target);
+    target.root?.remove();
+    this.previewTargets.splice(index, 1);
+    this.renumberPreviewWindows();
+    this.updateOpenPreviewButton();
+    return true;
+  }
+
+  // What the close button does.
+  //
+  // A popped-out preview is minimised rather than closed: the panel is only a
+  // placeholder while the real window is elsewhere, and destroying it would
+  // take that window with it - which is not what closing an empty placeholder
+  // should mean. Window 0 always minimises, since the rest of the app needs it
+  // to exist. Everything else is genuinely removed.
+  closePreviewWindow(target) {
+    if (!target) return;
+    if (target.isPoppedOut || this.previewTargets.indexOf(target) === 0) {
+      this.minimisePreviewWindow(target);
+      return;
+    }
+    this.removePreviewWindow(target);
+  }
+
+  minimisePreviewWindow(target) {
+    if (!target?.root) return;
+    target.root.style.display = "none";
+    this.updateOpenPreviewButton();
+  }
+
+  showPreviewWindow(target) {
+    if (!target?.root) return;
+    target.root.style.display = "flex";
+    this.raisePreviewWindow(target);
+    this.updateOpenPreviewButton();
+  }
+
+  minimisedPreviews() {
+    return this.previewTargets.filter(
+      (target) => !this.isPreviewVisible(target),
+    );
+  }
+
+  // The eye is only offered when there is something behind it, and says how
+  // many when it is more than one.
+  updateOpenPreviewButton() {
+    const button = document.getElementById("openPreviewBtn");
+    if (!button) return;
+
+    const hidden = this.minimisedPreviews();
+    button.style.display = hidden.length ? "flex" : "none";
+    button.title =
+      hidden.length > 1 ? `Show ${hidden.length} Previews` : "Show Preview";
+
+    let badge = button.querySelector(".preview-restore-count");
+    if (hidden.length > 1) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "preview-restore-count";
+        button.appendChild(badge);
+      }
+      badge.textContent = hidden.length;
+    } else {
+      badge?.remove();
+    }
+  }
+
+  // Bind one panel's controls to its own window. Every lookup goes through
+  // target.el(), never document, which is what keeps two panels apart.
+  wirePreviewWindow(target) {
+    const el = (name) => target.el(name);
+    const settings = () => target.settings;
+    const send = (command, value) =>
+      this.sendPreviewCommand(command, value, target);
+
+    const root = target.root;
+    const previewHeader = el("preview-header");
+
+    // Drag, per window.
     let isDragging = false;
     let dragOffsetX = 0;
     let dragOffsetY = 0;
 
-    const reloadPreviewBtn = document.getElementById("reloadPreviewBtn");
-
     previewHeader.addEventListener("mousedown", (e) => {
-      if (e.target === closePreviewBtn || e.target === reloadPreviewBtn) return;
+      // `closest` because the click usually lands on the <svg> inside a header
+      // button, not the button itself.
+      if (e.target.closest?.("button")) return;
       isDragging = true;
-      const rect = previewWindow.getBoundingClientRect();
+      const rect = root.getBoundingClientRect();
       dragOffsetX = e.clientX - rect.left;
       dragOffsetY = e.clientY - rect.top;
+      this.raisePreviewWindow(target);
       e.preventDefault();
     });
 
     document.addEventListener("mousemove", (e) => {
-      if (isDragging) {
-        previewWindow.style.left = `${e.clientX - dragOffsetX}px`;
-        previewWindow.style.top = `${e.clientY - dragOffsetY}px`;
-        previewWindow.style.bottom = "auto";
-      }
+      if (!isDragging) return;
+      root.style.left = `${e.clientX - dragOffsetX}px`;
+      root.style.top = `${e.clientY - dragOffsetY}px`;
+      root.style.bottom = "auto";
+      root.style.right = "auto";
     });
 
     document.addEventListener("mouseup", () => {
       isDragging = false;
     });
 
+    // Clicking anywhere in a window brings it to the front.
+    root.addEventListener("mousedown", () => this.raisePreviewWindow(target));
+
     // Toggle settings button
-    const togglePreviewSettingsBtn = document.getElementById(
-      "togglePreviewSettingsBtn",
-    );
-    const previewControls = document.getElementById("preview-controls");
+    const togglePreviewSettingsBtn = el("togglePreviewSettingsBtn");
+    const previewControls = el("preview-controls");
 
     togglePreviewSettingsBtn.addEventListener("click", () => {
-      if (previewControls.classList.contains("preview-controls-visible")) {
-        previewControls.classList.remove("preview-controls-visible");
-        previewControls.classList.add("preview-controls-hidden");
-        togglePreviewSettingsBtn.classList.remove("active");
-      } else {
-        previewControls.classList.remove("preview-controls-hidden");
-        previewControls.classList.add("preview-controls-visible");
-        togglePreviewSettingsBtn.classList.add("active");
-      }
+      const showing = previewControls.classList.contains(
+        "preview-controls-visible",
+      );
+      previewControls.classList.toggle("preview-controls-visible", !showing);
+      previewControls.classList.toggle("preview-controls-hidden", showing);
+      togglePreviewSettingsBtn.classList.toggle("active", !showing);
     });
 
     // Reload button
-    reloadPreviewBtn.addEventListener("click", () => {
-      this.updatePreview();
+    el("reloadPreviewBtn").addEventListener("click", () => {
+      this.updatePreview(target);
     });
 
-    // Close button
-    closePreviewBtn.addEventListener("click", () => {
-      previewWindow.style.display = "none";
-      openPreviewBtn.style.display = "flex";
+    // Another window, with its own copy of this one's settings - a second view
+    // is nearly always a variation on the first, not a fresh default.
+    el("newPreviewBtn")?.addEventListener("click", () => {
+      this.addPreviewWindow(this.newPreviewWindowOptions(target));
     });
 
-    // Open preview button
-    openPreviewBtn.addEventListener("click", () => {
-      previewWindow.style.display = "flex";
-      openPreviewBtn.style.display = "none";
+    // Pop out / pull back in
+    el("popOutPreviewBtn")?.addEventListener("click", () => {
+      if (target.isPoppedOut) {
+        this.dockPreview(target);
+      } else {
+        this.popOutPreview(target);
+      }
+    });
+    el("dockPreviewBtn")?.addEventListener("click", () => {
+      this.dockPreview(target);
+    });
 
-      // Reset position to bottom right
-      previewWindow.style.left = "";
-      previewWindow.style.top = "";
-      previewWindow.style.bottom = "20px";
-      previewWindow.style.right = "20px";
+    el("closePreviewBtn").addEventListener("click", () => {
+      this.closePreviewWindow(target);
     });
 
     // Preview controls
-    const effectTargetSelect = document.getElementById("effectTargetSelect");
-    const objectSelect = document.getElementById("objectSelect");
-    const cameraModeSelect = document.getElementById("cameraModeSelect");
-    const autoRotateCheckbox = document.getElementById("autoRotateCheckbox");
-    const autoRotateGroup = document.getElementById("autoRotateGroup");
+    const effectTargetSelect = el("effectTargetSelect");
+    const objectSelect = el("objectSelect");
+    const cameraModeSelect = el("cameraModeSelect");
+    const autoRotateCheckbox = el("autoRotateCheckbox");
+    const autoRotateGroup = el("autoRotateGroup");
 
     effectTargetSelect.addEventListener("change", (e) => {
-      const target = e.target.value;
-      this.previewSettings.effectTarget = target;
-      this.sendPreviewCommand("setEffectTarget", target);
+      const value = e.target.value;
+      settings().effectTarget = value;
+      send("setEffectTarget", value);
 
       // Auto-sync object selection
-      if (target === "sprite") {
+      if (value === "sprite") {
         objectSelect.value = "sprite";
-        this.previewSettings.object = "sprite";
-        this.sendPreviewCommand("setObject", "sprite");
-      } else if (target === "shape3D") {
+        settings().object = "sprite";
+        send("setObject", "sprite");
+      } else if (value === "shape3D") {
         // Set to box if currently on sprite, otherwise keep current 3D shape
         if (objectSelect.value === "sprite") {
           objectSelect.value = "box";
-          this.previewSettings.object = "box";
+          settings().object = "box";
         }
-        this.sendPreviewCommand("setObject", objectSelect.value);
+        send("setObject", objectSelect.value);
       }
     });
 
     objectSelect.addEventListener("change", (e) => {
       const object = e.target.value;
-      this.previewSettings.object = object;
-      this.sendPreviewCommand("setObject", object);
+      settings().object = object;
+      send("setObject", object);
 
       // Auto-sync effect target selection
       if (
@@ -4453,62 +6378,63 @@ class BlueprintSystem {
         effectTargetSelect.value !== "layer"
       ) {
         effectTargetSelect.value = "sprite";
-        this.previewSettings.effectTarget = "sprite";
-        this.sendPreviewCommand("setEffectTarget", "sprite");
+        settings().effectTarget = "sprite";
+        send("setEffectTarget", "sprite");
       } else if (object !== "sprite" && effectTargetSelect.value === "sprite") {
         effectTargetSelect.value = "shape3D";
-        this.previewSettings.effectTarget = "shape3D";
-        this.sendPreviewCommand("setEffectTarget", "shape3D");
+        settings().effectTarget = "shape3D";
+        send("setEffectTarget", "shape3D");
       }
     });
 
     cameraModeSelect.addEventListener("change", (e) => {
       const mode = e.target.value;
-      this.previewSettings.cameraMode = mode;
-      this.sendPreviewCommand("setCameraMode", mode);
+      settings().cameraMode = mode;
+      send("setCameraMode", mode);
 
       // Show/hide auto rotate option based on camera mode
-      if (mode === "2d") {
-        autoRotateGroup.style.display = "none";
-      } else {
-        autoRotateGroup.style.display = "flex";
-      }
+      autoRotateGroup.style.display = mode === "2d" ? "none" : "flex";
     });
 
     autoRotateCheckbox.addEventListener("change", (e) => {
-      this.previewSettings.autoRotate = e.target.checked;
-      this.sendPreviewCommand("setAutoRotate", e.target.checked);
+      settings().autoRotate = e.target.checked;
+      send("setAutoRotate", e.target.checked);
     });
 
     // Sampling mode select (requires reload)
-    const samplingModeSelect = document.getElementById("samplingModeSelect");
-    samplingModeSelect.addEventListener("change", (e) => {
-      this.previewSettings.samplingMode = e.target.value;
-      this.updatePreview(); // Reload preview with new sampling mode
+    el("samplingModeSelect").addEventListener("change", (e) => {
+      settings().samplingMode = e.target.value;
+      this.updatePreview(target);
+    });
+
+    // Anisotropic filtering (live - the runtime re-parameterises the textures
+    // it already holds, so no reload)
+    el("anisotropicFilteringSelect").addEventListener("change", (e) => {
+      settings().anisotropicFiltering = e.target.value;
+      send("setAnisotropicFiltering", e.target.value);
     });
 
     // Shader language select (requires reload)
-    const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect",
-    );
-    shaderLanguageSelect.addEventListener("change", (e) => {
-      this.previewSettings.shaderLanguage = e.target.value;
-      this.updatePreview(); // Reload preview with new shader language
+    el("shaderLanguageSelect").addEventListener("change", (e) => {
+      settings().shaderLanguage = e.target.value;
+      this.updatePreview(target);
+    });
+    this.clampPreviewShaderLanguage(target);
+
+    // Force rotated spritesheet frame (requires reload)
+    el("forceRotatedTextureCheckbox")?.addEventListener("change", (e) => {
+      settings().forceRotatedTexture = e.target.checked;
+      this.updatePreview(target);
     });
 
     // Reset preview settings button
-    const resetPreviewSettingsBtn = document.getElementById(
-      "resetPreviewSettingsBtn",
-    );
-    resetPreviewSettingsBtn.addEventListener("click", () => {
-      this.resetPreviewSettings();
+    el("resetPreviewSettingsBtn").addEventListener("click", () => {
+      this.resetPreviewSettings(target);
     });
 
-    // Preview Tabs
-    const previewTabs = document.querySelectorAll(".preview-tab");
-    const previewTabContents = document.querySelectorAll(
-      ".preview-tab-content",
-    );
+    // Preview Tabs, scoped to this panel
+    const previewTabs = root.querySelectorAll(".preview-tab");
+    const previewTabContents = root.querySelectorAll(".preview-tab-content");
 
     previewTabs.forEach((tab) => {
       tab.addEventListener("click", () => {
@@ -4518,92 +6444,94 @@ class BlueprintSystem {
         previewTabContents.forEach((c) => c.classList.remove("active"));
 
         tab.classList.add("active");
-        document
+        root
           .querySelector(`.preview-tab-content[data-tab="${tabName}"]`)
-          .classList.add("active");
+          ?.classList.add("active");
       });
     });
 
-    // Show/Hide 3D Background Cube
-    const showBackgroundCubeCheckbox = document.getElementById(
-      "showBackgroundCubeCheckbox",
+    // Which backdrop sits behind the object
+    el("backgroundModeSelect").addEventListener("change", (e) => {
+      settings().backgroundMode = e.target.value;
+      send("setBackgroundMode", e.target.value);
+    });
+
+    // Object colour
+    el("objectColorInput").addEventListener("input", (e) => {
+      settings().objectColor = e.target.value;
+      send("setObjectColor", e.target.value);
+    });
+
+    // Object rotation, one slider per axis. See preview-settings.js for why the
+    // Z key stays the unsuffixed `objectAngle`.
+    this.setupAxisSliders(
+      target,
+      ["objectAngleX", "objectAngleY", "objectAngle"],
+      "setObjectAngle",
+      effectiveObjectAngle,
     );
-    showBackgroundCubeCheckbox.addEventListener("change", (e) => {
-      this.previewSettings.showBackgroundCube = e.target.checked;
-      this.sendPreviewCommand("setShowBackgroundCube", e.target.checked);
-    });
 
-    // Sprite Scale Slider
-    const spriteScaleSlider = document.getElementById("spriteScaleSlider");
-    const spriteScaleValue = document.getElementById("spriteScaleValue");
-    spriteScaleSlider.addEventListener("input", (e) => {
-      const scale = parseFloat(e.target.value);
-      this.previewSettings.spriteScale = scale;
-      spriteScaleValue.textContent = scale.toFixed(2);
-      this.sendPreviewCommand("setSpriteScale", scale);
-    });
+    // Object offset, as a percentage of the room size.
+    this.setupAxisSliders(
+      target,
+      ["objectOffsetX", "objectOffsetY", "objectOffsetZ"],
+      "setObjectOffset",
+      effectiveObjectOffset,
+    );
 
-    // Shape Scale Slider
-    const shapeScaleSlider = document.getElementById("shapeScaleSlider");
-    const shapeScaleValue = document.getElementById("shapeScaleValue");
-    shapeScaleSlider.addEventListener("input", (e) => {
-      const scale = parseFloat(e.target.value);
-      this.previewSettings.shapeScale = scale;
-      shapeScaleValue.textContent = scale.toFixed(2);
-      this.sendPreviewCommand("setShapeScale", scale);
-    });
+    this.setupRenderResolutionControls(target);
+
+    // One scale for whichever object is showing: a uniform slider plus a link
+    // toggle that splits it into per-axis rows. See preview-settings.js for why
+    // the base key stays a plain number.
+    this.setupScaleControls(target);
 
     // Room Scale Slider
-    const roomScaleSlider = document.getElementById("roomScaleSlider");
-    const roomScaleValue = document.getElementById("roomScaleValue");
+    const roomScaleSlider = el("roomScaleSlider");
+    const roomScaleValue = el("roomScaleValue");
     roomScaleSlider.addEventListener("input", (e) => {
       const scale = parseFloat(e.target.value);
-      this.previewSettings.roomScale = scale;
+      settings().roomScale = scale;
       roomScaleValue.textContent = scale.toFixed(2);
-      this.sendPreviewCommand("setRoomScale", scale);
+      send("setRoomScale", scale);
     });
 
     // Background Opacity Slider
-    const bgOpacitySlider = document.getElementById("bgOpacitySlider");
-    const bgOpacityValue = document.getElementById("bgOpacityValue");
+    const bgOpacitySlider = el("bgOpacitySlider");
+    const bgOpacityValue = el("bgOpacityValue");
     bgOpacitySlider.addEventListener("input", (e) => {
       const opacity = parseFloat(e.target.value);
-      this.previewSettings.bgOpacity = opacity;
+      settings().bgOpacity = opacity;
       bgOpacityValue.textContent = opacity.toFixed(2);
-      this.sendPreviewCommand("setBgOpacity", opacity);
+      send("setBgOpacity", opacity);
     });
 
     // 3D Background Opacity Slider
-    const bg3dOpacitySlider = document.getElementById("bg3dOpacitySlider");
-    const bg3dOpacityValue = document.getElementById("bg3dOpacityValue");
+    const bg3dOpacitySlider = el("bg3dOpacitySlider");
+    const bg3dOpacityValue = el("bg3dOpacityValue");
     bg3dOpacitySlider.addEventListener("input", (e) => {
       const opacity = parseFloat(e.target.value);
-      this.previewSettings.bg3dOpacity = opacity;
+      settings().bg3dOpacity = opacity;
       bg3dOpacityValue.textContent = opacity.toFixed(2);
-      this.sendPreviewCommand("setBg3dOpacity", opacity);
+      send("setBg3dOpacity", opacity);
     });
 
     // Setup editable slider values
-    this.setupEditableSliderValues();
+    this.setupEditableSliderValues(target);
 
     // Screenshot preview button
-    const screenshotPreviewBtn = document.getElementById(
-      "screenshotPreviewBtn",
-    );
-    screenshotPreviewBtn.addEventListener("click", () => {
-      this.screenshotPreview();
+    el("screenshotPreviewBtn").addEventListener("click", () => {
+      this.screenshotPreview(target);
     });
 
     // Texture controls
-    this.setupTextureControls();
+    this.setupTextureControls(target);
 
     // Startup script textarea
-    const startupScriptTextarea = document.getElementById(
-      "previewStartupScript",
-    );
+    const startupScriptTextarea = el("previewStartupScript");
     if (startupScriptTextarea) {
       startupScriptTextarea.addEventListener("input", (e) => {
-        this.previewSettings.startupScript = e.target.value;
+        settings().startupScript = e.target.value;
       });
       // Handle Tab key for indentation
       startupScriptTextarea.addEventListener("keydown", (e) => {
@@ -4616,196 +6544,322 @@ class BlueprintSystem {
             "  " +
             e.target.value.substring(end);
           e.target.selectionStart = e.target.selectionEnd = start + 2;
-          this.previewSettings.startupScript = e.target.value;
+          settings().startupScript = e.target.value;
         }
       });
     }
 
-    // Minimap controls
-    this.setupMinimapControls();
-
-    // Listen for messages from preview iframe
-    window.addEventListener("message", (event) => {
-      if (event.data && event.data.type === "requestShaderData") {
-        // Preview is requesting shader data, send it
-        this.sendShaderDataToPreview();
-      } else if (event.data && event.data.type === "projectReady") {
-        this.previewReady = true;
-        this.resetPreviewErrors(); // Reset error count on new load
-        this.clearPreviewConsole(); // Clear console on new load
-        this.sendUniformValuesToPreview();
-
-        // Send saved preview settings
-        this.sendPreviewCommand(
-          "setEffectTarget",
-          this.previewSettings.effectTarget,
-        );
-        this.sendPreviewCommand("setObject", this.previewSettings.object);
-        this.sendPreviewCommand(
-          "setCameraMode",
-          this.previewSettings.cameraMode,
-        );
-        this.sendPreviewCommand(
-          "setAutoRotate",
-          this.previewSettings.autoRotate,
-        );
-        this.sendPreviewCommand(
-          "setShowBackgroundCube",
-          this.previewSettings.showBackgroundCube,
-        );
-        this.sendPreviewCommand("setBgOpacity", this.previewSettings.bgOpacity);
-        this.sendPreviewCommand(
-          "setBg3dOpacity",
-          this.previewSettings.bg3dOpacity,
-        );
-        this.sendPreviewCommand("setZoomLevel", this.previewSettings.zoomLevel);
-
-        // Load textures if they exist
-        if (this.previewSettings.spriteTextureUrl) {
-          this.loadPreviewTexture(
-            "sprite",
-            this.previewSettings.spriteTextureUrl,
-          );
-        }
-        if (this.previewSettings.shapeTextureUrl) {
-          this.loadPreviewTexture(
-            "shape",
-            this.previewSettings.shapeTextureUrl,
-          );
-        }
-        if (this.previewSettings.bgTextureUrl) {
-          this.loadPreviewTexture("bg", this.previewSettings.bgTextureUrl);
-        }
-
-        // Apply scale values after textures are loaded
-        this.sendPreviewCommand(
-          "setSpriteScale",
-          this.previewSettings.spriteScale,
-        );
-        this.sendPreviewCommand(
-          "setShapeScale",
-          this.previewSettings.shapeScale,
-        );
-        this.sendPreviewCommand("setRoomScale", this.previewSettings.roomScale);
-
-        // Execute startup script if present
-        if (this.previewSettings.startupScript) {
-          this.sendStartupScript(this.previewSettings.startupScript);
-        }
-      } else if (event.data && event.data.type === "shaderError") {
-        const severity = event.data.severity;
-        const message = event.data.message;
-
-        // Handle error with limiting (max 10 notifications, max 100 console entries)
-        this.handlePreviewError(message, severity);
-      } else if (event.data && event.data.type === "updatePreviewSpriteUrl") {
-        console.log("Received updatePreviewSpriteUrl message", event.data);
-        this.handleTextureUpdate("sprite", event.data.url);
-      } else if (event.data && event.data.type === "updatePreviewShapeUrl") {
-        console.log("Received updatePreviewShapeUrl message", event.data);
-        this.handleTextureUpdate("shape", event.data.url);
-      } else if (event.data && event.data.type === "updatePreviewBgUrl") {
-        console.log("Received updatePreviewBgUrl message", event.data);
-        this.handleTextureUpdate("bg", event.data.url);
-      } else if (event.data && event.data.type === "zoomLevelChanged") {
-        this.previewSettings.zoomLevel = event.data.zoomLevel;
-      } else if (event.data && event.data.type === "spriteSizeChanged") {
-        // Update sprite base size when texture changes
-        // This allows the scale to work proportionally with the new texture
-        console.log("Sprite size changed:", event.data);
-      } else if (event.data && event.data.type === "consoleLog") {
-        // Add regular console logs to the preview console
-        this.addConsoleEntry(event.data.message, event.data.level);
-      }
-    });
-
-    // Initial preview update
-    setTimeout(() => {
-      this.updatePreview();
-    }, 100);
+    this.setupPreviewConsole(target);
   }
 
-  setupTextureControls() {
-    const spriteTextureInput = document.getElementById("spriteTextureInput");
-    const spriteTextureBtn = document.getElementById("spriteTextureBtn");
-    const clearSpriteTextureBtn = document.getElementById(
-      "clearSpriteTextureBtn",
-    );
-    const spriteTexturePreview = document.getElementById(
-      "spriteTexturePreview",
-    );
+  // Newest-clicked window on top. Plain incrementing z-index: the panels are
+  // few and short-lived enough that renumbering them is not worth it.
+  raisePreviewWindow(target) {
+    if (!target?.root) return;
+    this._previewZ = (this._previewZ ?? 1000) + 1;
+    target.root.style.zIndex = this._previewZ;
+  }
 
-    const shapeTextureInput = document.getElementById("shapeTextureInput");
-    const shapeTextureBtn = document.getElementById("shapeTextureBtn");
-    const clearShapeTextureBtn = document.getElementById(
-      "clearShapeTextureBtn",
-    );
-    const shapeTexturePreview = document.getElementById("shapeTexturePreview");
+  // Every message from every preview lands here. The window it came from is
+  // resolved first, so two previews cannot write into each other's console or
+  // steal each other's replies.
+  onPreviewMessage(event) {
+    const data = event.data;
+    if (!data || !data.type) return;
 
-    const bgTextureInput = document.getElementById("bgTextureInput");
-    const bgTextureBtn = document.getElementById("bgTextureBtn");
-    const clearBgTextureBtn = document.getElementById("clearBgTextureBtn");
-    const bgTexturePreview = document.getElementById("bgTexturePreview");
+    const target = this.targetForSource(event.source);
+    // requestShaderData arrives before the target is confirmed ready, but the
+    // source still identifies it. Anything we cannot place is ignored rather
+    // than misattributed to window 0.
+    if (!target) return;
 
-    // Sprite texture button
-    spriteTextureBtn.addEventListener("click", () => {
-      spriteTextureInput.click();
-    });
+    switch (data.type) {
+      case "requestShaderData":
+        this.sendShaderDataToPreview(target);
+        break;
 
-    spriteTextureInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        this.loadTextureFromFile(file, "sprite");
+      case "projectReady":
+        target.ready = true;
+        this.resetPreviewErrors(target);
+        this.clearPreviewConsole(target);
+        this.warnIfPreviewIsStale(data.commands, target);
+        this.sendUniformValuesToPreview(target);
+        // Construct titles the window while it boots, so ours goes on after.
+        this.applyPoppedOutTitle(target);
+        // Send saved preview settings. Order comes from PREVIEW_SETTINGS -
+        // textures before scales, because loading a sprite texture re-derives
+        // the sprite's base size in the preview.
+        this.applyPreviewSettingsTo(target);
+        break;
+
+      case "shaderError":
+        this.handlePreviewError(data.message, data.severity, target);
+        break;
+
+      case "updatePreviewSpriteUrl":
+        this.handleTextureUpdate("sprite", data.url, target);
+        break;
+
+      case "updatePreviewShapeUrl":
+        this.handleTextureUpdate("shape", data.url, target);
+        break;
+
+      case "updatePreviewBgUrl":
+        this.handleTextureUpdate("bg", data.url, target);
+        break;
+
+      case "renderSizeChanged":
+        this.showRenderSize(data, target);
+        break;
+
+      case "zoomLevelChanged":
+        target.settings.zoomLevel = data.zoomLevel;
+        break;
+
+      case "consoleLog":
+        this.addConsoleEntry(data.message, data.level, target);
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  setupTextureControls(target) {
+    // One wiring per texture descriptor. The names follow from the type, so
+    // adding a texture is a descriptor and some markup, not another copy of
+    // these three listeners.
+    for (const [type, d] of PREVIEW_TEXTURES_BY_TYPE) {
+      const input = target.el(`${type}TextureInput`);
+      const button = target.el(`${type}TextureBtn`);
+      const clearButton = target.el(d.dom.clearBtnEl);
+      if (!input || !button || !clearButton) continue;
+
+      button.addEventListener("click", () => input.click());
+
+      input.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (file) this.loadTextureFromFile(file, type, target);
+        // Let the same file be picked twice in a row.
+        e.target.value = "";
+      });
+
+      clearButton.addEventListener("click", () =>
+        this.clearTexture(type, target),
+      );
+    }
+  }
+
+  // Wire the rendering resolution: the preset dropdown, and the two number
+  // boxes that only exist for the Custom preset.
+  setupRenderResolutionControls(target) {
+    const send = () =>
+      this.sendPreviewCommand(
+        "setRenderResolution",
+        effectiveRenderResolution(target.settings),
+        target,
+      );
+
+    const select = target.el("renderResolutionSelect");
+    select.addEventListener("change", (e) => {
+      target.settings.renderResolution = e.target.value;
+      // Picking a resolution turns the fullscreen quality down, since otherwise
+      // it would render at the panel's size and the choice would do nothing.
+      // Through the descriptor so the UI and the scripting API cannot disagree
+      // about when that happens.
+      for (const key of linkRenderResolution(target.settings, e.target.value)) {
+        this.sendPreviewCommand(
+          PREVIEW_SETTINGS_BY_KEY.get(key).command,
+          target.settings[key],
+          target,
+        );
       }
+      // Reveals or hides the two Custom boxes, through the descriptor's own
+      // onUi hook - the same route the scale's link toggle takes.
+      this.updatePreviewSettingsUI(target);
+      send();
     });
 
-    clearSpriteTextureBtn.addEventListener("click", () => {
-      this.clearTexture("sprite");
+    const qualitySelect = target.el("fullscreenQualitySelect");
+    qualitySelect.addEventListener("change", (e) => {
+      target.settings.fullscreenQuality = e.target.value;
+      this.sendPreviewCommand("setFullscreenQuality", e.target.value, target);
     });
 
-    // Shape texture button
-    shapeTextureBtn.addEventListener("click", () => {
-      shapeTextureInput.click();
-    });
+    for (const key of ["canvasWidth", "canvasHeight"]) {
+      const input = target.el(`${key}Input`);
+      const d = PREVIEW_SETTINGS_BY_KEY.get(key);
+      // Typed, so it has to survive an empty box and a value outside the range
+      // without posting a nonsense viewport at the runtime.
+      input.addEventListener("change", () => {
+        const size = Math.round(Number(input.value));
+        if (!Number.isFinite(size)) {
+          input.value = target.settings[key];
+          return;
+        }
+        const clamped = Math.min(Math.max(size, d.min), d.max);
+        input.value = clamped;
+        target.settings[key] = clamped;
+        send();
+      });
+    }
+  }
 
-    shapeTextureInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        this.loadTextureFromFile(file, "shape");
+  // Pixels across the 240x240 design view, as the preview measured them - the
+  // same units the presets are in, so the two can be compared. Worth showing
+  // because it is not always the number that was asked for: a request larger
+  // than the panel is quietly refused, and at High quality the resolution is
+  // ignored altogether. Kept so updateUIText can redraw it on a language change.
+  showRenderSize(size, target = this.defaultPreviewTarget()) {
+    if (!target) return;
+    const readout = target.el("renderSizeReadout");
+    if (!readout) return;
+
+    if (size === undefined) size = target.lastRenderSize;
+    target.lastRenderSize = size;
+    if (!size) {
+      readout.textContent = "";
+      return;
+    }
+
+    const t = (key) => languageManager.getUIText(key);
+    const asked = target.settings.renderResolution;
+    // Flag the two ways the number can fail to be the one on the dropdown.
+    const note =
+      size.quality === "high" && !size.isNative
+        ? ` (${t("full quality")})`
+        : asked !== "native" &&
+            asked !== "custom" &&
+            size.pixels !== Number(asked)
+          ? ` (${t("capped by the panel")})`
+          : "";
+    readout.textContent = `${t("Rendering the view at")} ${size.pixels} px${note}`;
+  }
+
+  // Rotation and offset are the same shape: three whole-number sliders whose
+  // keys resolve into a single command, so one send per drag rather than three.
+  setupAxisSliders(target, keys, command, resolve) {
+    const send = () =>
+      this.sendPreviewCommand(command, resolve(target.settings), target);
+
+    for (const key of keys) {
+      const slider = target.el(`${key}Slider`);
+      const valueEl = target.el(`${key}Value`);
+      slider.addEventListener("input", (e) => {
+        const value = parseFloat(e.target.value);
+        target.settings[key] = value;
+        valueEl.textContent = value.toFixed(0);
+        send();
+      });
+    }
+  }
+
+  setupScaleControls(target) {
+    const send = () =>
+      this.sendPreviewCommand(
+        "setObjectScale",
+        effectiveObjectScale(target.settings),
+        target,
+      );
+
+    // The base slider doubles as X, so it has no axis suffix.
+    for (const suffix of ["", "Y", "Z"]) {
+      const key = `objectScale${suffix}`;
+      const slider = target.el(`${key}Slider`);
+      const valueEl = target.el(`${key}Value`);
+      slider.addEventListener("input", (e) => {
+        const scale = parseFloat(e.target.value);
+        target.settings[key] = scale;
+        valueEl.textContent = scale.toFixed(2);
+        send();
+      });
+    }
+
+    const linkedCheckbox = target.el("objectScaleLinkedCheckbox");
+    linkedCheckbox.addEventListener("change", (e) => {
+      const linked = e.target.checked;
+      // Seed the per-axis values from the uniform one before revealing them,
+      // so unlocking never makes the object jump.
+      if (!linked) {
+        for (const suffix of ["Y", "Z"]) {
+          target.settings[`objectScale${suffix}`] = target.settings.objectScale;
+        }
       }
-    });
-
-    clearShapeTextureBtn.addEventListener("click", () => {
-      this.clearTexture("shape");
-    });
-
-    // Background texture button
-    bgTextureBtn.addEventListener("click", () => {
-      bgTextureInput.click();
-    });
-
-    bgTextureInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        this.loadTextureFromFile(file, "bg");
-      }
-    });
-
-    clearBgTextureBtn.addEventListener("click", () => {
-      this.clearTexture("bg");
+      target.settings.objectScaleLinked = linked;
+      this.updatePreviewSettingsUI(target);
+      send();
     });
   }
 
-  setupEditableSliderValues() {
-    const editableValues = document.querySelectorAll(".editable-slider-value");
+  // One hover tooltip shared by every [data-tooltip] in the app. Delegated, so
+  // markup added later needs no extra wiring, and parented to <body> so a
+  // scrolling panel cannot clip it.
+  setupTooltips() {
+    const tooltip = document.getElementById("ui-tooltip");
+    if (!tooltip) return;
+
+    let anchor = null;
+
+    const hide = () => {
+      anchor = null;
+      tooltip.classList.remove("visible");
+    };
+
+    const show = (el) => {
+      const text = el.dataset.tooltip;
+      if (!text) return;
+
+      anchor = el;
+      tooltip.textContent = text;
+      tooltip.classList.add("visible");
+
+      // Measure once the text has landed, then keep the box on screen: centred
+      // over the anchor, above it unless that would clip, otherwise below.
+      const target = el.getBoundingClientRect();
+      const box = tooltip.getBoundingClientRect();
+      const margin = 8;
+
+      const left = Math.max(
+        margin,
+        Math.min(
+          window.innerWidth - box.width - margin,
+          target.left + target.width / 2 - box.width / 2,
+        ),
+      );
+      const above = target.top - box.height - 6;
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${above < margin ? target.bottom + 6 : above}px`;
+    };
+
+    document.addEventListener("mouseover", (e) => {
+      const el = e.target.closest?.("[data-tooltip]");
+      if (el && el !== anchor) show(el);
+    });
+
+    document.addEventListener("mouseout", (e) => {
+      // Moving between an anchor's own children is not leaving it.
+      if (anchor && !anchor.contains(e.relatedTarget)) hide();
+    });
+
+    // The tooltip is position:fixed, so anything scrolling underneath would
+    // otherwise strand it next to nothing.
+    document.addEventListener("scroll", hide, true);
+    window.addEventListener("blur", hide);
+  }
+
+  setupEditableSliderValues(target) {
+    const editableValues = target.root.querySelectorAll(
+      ".editable-slider-value",
+    );
 
     editableValues.forEach((valueSpan) => {
       valueSpan.addEventListener("click", (e) => {
         e.stopPropagation();
 
-        // Get the associated slider
-        const sliderId = valueSpan.dataset.slider;
-        const slider = document.getElementById(sliderId);
+        // The associated slider, in this panel - data-slider names it the same
+        // way data-preview-el does, so it resolves within this window only.
+        const slider = target.el(valueSpan.dataset.slider);
         if (!slider) return;
 
         // Create input element
@@ -4834,9 +6888,13 @@ class BlueprintSystem {
             Math.min(parseFloat(slider.max), value),
           );
 
-          // Update slider and span
+          // Update slider and span. Whole-number sliders (rotation) carry
+          // data-precision="0" so the readout does not come back as "45.00".
+          const precision = Number(valueSpan.dataset.precision ?? 2);
           slider.value = value;
-          valueSpan.textContent = value.toFixed(2);
+          valueSpan.textContent = value.toFixed(
+            Number.isFinite(precision) ? precision : 2,
+          );
           valueSpan.style.display = "";
 
           // Trigger slider input event
@@ -4860,40 +6918,33 @@ class BlueprintSystem {
     });
   }
 
-  loadTextureFromFile(file, type) {
+  loadTextureFromFile(file, type, target = this.defaultPreviewTarget()) {
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target.result;
-      this.setTextureUrl(type, dataUrl);
-      this.loadPreviewTexture(type, dataUrl);
+      this.setTextureUrl(type, dataUrl, target);
+      this.loadPreviewTexture(type, dataUrl, target);
     };
     reader.readAsDataURL(file);
   }
 
-  setTextureUrl(type, url) {
-    if (type === "sprite") {
-      this.previewSettings.spriteTextureUrl = url;
-      this.updateTexturePreview(
-        "spriteTexturePreview",
-        "clearSpriteTextureBtn",
-        url,
-      );
-    } else if (type === "shape") {
-      this.previewSettings.shapeTextureUrl = url;
-      this.updateTexturePreview(
-        "shapeTexturePreview",
-        "clearShapeTextureBtn",
-        url,
-      );
-    } else if (type === "bg") {
-      this.previewSettings.bgTextureUrl = url;
-      this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", url);
-    }
+  setTextureUrl(type, url, target = this.defaultPreviewTarget()) {
+    const d = PREVIEW_TEXTURES_BY_TYPE.get(type);
+    if (!d || !target) return;
+
+    target.settings[d.key] = url;
+    this.updateTexturePreview(d.dom.previewEl, d.dom.clearBtnEl, url, target);
   }
 
-  updateTexturePreview(previewId, clearBtnId, url) {
-    const preview = document.getElementById(previewId);
-    const clearBtn = document.getElementById(clearBtnId);
+  updateTexturePreview(
+    previewName,
+    clearBtnName,
+    url,
+    target = this.defaultPreviewTarget(),
+  ) {
+    const preview = target?.el(previewName);
+    const clearBtn = target?.el(clearBtnName);
+    if (!preview || !clearBtn) return;
 
     if (url) {
       preview.innerHTML = `<img src="${url}" alt="Texture" />`;
@@ -4904,57 +6955,27 @@ class BlueprintSystem {
     }
   }
 
-  loadPreviewTexture(type, url) {
-    if (!this.previewIframe || !this.previewReady) return;
+  loadPreviewTexture(type, url, target = this.defaultPreviewTarget()) {
+    if (!target?.ready) return;
 
-    let functionName;
-    if (type === "sprite") {
-      functionName = "loadSpriteUrl";
-    } else if (type === "shape") {
-      functionName = "loadShapeUrl";
-    } else if (type === "bg") {
-      functionName = "loadBgUrl";
-    }
+    const d = PREVIEW_TEXTURES_BY_TYPE.get(type);
+    if (!d) return;
 
-    this.previewIframe.contentWindow.postMessage(
-      {
-        type: "callFunction",
-        function: functionName,
-        url: url,
-      },
-      "*",
-    );
+    target.post({ type: "callFunction", function: d.previewFunction, url });
   }
 
-  clearTexture(type) {
-    if (type === "sprite") {
-      this.previewSettings.spriteTextureUrl = null;
-      this.updateTexturePreview(
-        "spriteTexturePreview",
-        "clearSpriteTextureBtn",
-        null,
-      );
-    } else if (type === "shape") {
-      this.previewSettings.shapeTextureUrl = null;
-      this.updateTexturePreview(
-        "shapeTexturePreview",
-        "clearShapeTextureBtn",
-        null,
-      );
-    } else if (type === "bg") {
-      this.previewSettings.bgTextureUrl = null;
-      this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", null);
-    }
+  clearTexture(type, target = this.defaultPreviewTarget()) {
+    this.setTextureUrl(type, null, target);
 
-    // Clearing requires a reload
-    this.updatePreview();
+    // Clearing requires a reload: there is no "unload" command, the preview only
+    // knows how to replace a texture with another one.
+    this.updatePreview(target);
   }
 
-  handleTextureUpdate(type, url) {
-    // Called when preview drops an image
-    // The URL from the preview is already a data URL (base64)
-    console.log(`Received texture update for ${type}:`, url?.substring(0, 50));
-    this.setTextureUrl(type, url);
+  handleTextureUpdate(type, url, target = this.defaultPreviewTarget()) {
+    // Called when a preview has an image dropped on it. The URL is already a
+    // data URL, and it belongs to the window it was dropped on.
+    this.setTextureUrl(type, url, target);
   }
 
   setupMinimapControls() {
@@ -5191,40 +7212,163 @@ class BlueprintSystem {
     }
   }
 
-  updatePreview() {
-    if (!this.previewIframe) return;
+  // Reload one preview. For a change that only affects that window - one of its
+  // own reload-only settings, or popping it out.
+  updatePreview(target = this.defaultPreviewTarget()) {
+    if (!target?.win) return;
 
     // Preview always reflects the MAIN graph, regardless of which graph
     // the user is currently editing.
-    return this._withGraph(this.mainGraph, () => this._updatePreviewImpl());
+    return this._withGraph(this.mainGraph, () => {
+      if (!this._rebuildShaderData([target])) return;
+      this._reloadPreviewTarget(target);
+    });
   }
 
-  _updatePreviewImpl() {
-    // Reset error count for new shader compilation
-    this.resetPreviewErrors();
+  // Reload every open preview. This is what a change to the *shader* wants -
+  // the graph, the pinned node, a custom node - because every window shows the
+  // same shader and would otherwise be left displaying the old one.
+  //
+  // The code is generated once for the whole set, not once per window: each
+  // window differs only in its preview settings, which ride in its own URL.
+  updateAllPreviews() {
+    const targets = this.previewTargets.filter((target) => target.win);
+    if (!targets.length) return;
 
-    // Generate shader code and cache it
+    return this._withGraph(this.mainGraph, () => {
+      if (!this._rebuildShaderData(targets)) return;
+      for (const target of targets) this._reloadPreviewTarget(target);
+    });
+  }
+
+  // Regenerate and cache the shader every preview will ask for. Returns false
+  // when there is nothing to show, having reported why to each window waiting
+  // on it.
+  _rebuildShaderData(targets) {
     const shaders = this.generateAllShaders();
     if (!shaders) {
-      // Display error if shader generation failed
-      this.handlePreviewError(
-        "Failed to generate shader. Make sure you have an Output node and all required connections are made.",
-        "error",
-      );
-      return;
+      for (const target of targets) {
+        this.handlePreviewError(this.codegenFailureMessage(), "error", target);
+      }
+      return false;
     }
 
-    // Cache the shader data for when preview requests it
     this.cachedShaderData = this.buildShaderData(shaders);
+    return true;
+  }
 
-    // Build query params for settings that require reload
+  // Point one preview at a fresh boot of its own URL.
+  _reloadPreviewTarget(target) {
+    this.resetPreviewErrors(target);
+    target.ready = false;
+    target.navigate(this.previewUrl(target.settings));
+  }
+
+  // Move a preview into a browser window of its own.
+  //
+  // Its settings panel stays here in the editor and keeps driving it by
+  // message, so nothing about the panel has to move or be duplicated. The
+  // docked iframe is blanked rather than left running: two live Construct
+  // runtimes means two WebGL contexts and two copies of the runtime, for a
+  // preview nobody can see.
+  popOutPreview(target = this.defaultPreviewTarget()) {
+    if (!target || target.isPoppedOut) return null;
+
+    const popup = window.open(
+      this.previewUrl(target.settings),
+      `csg-preview-${target.id}`,
+      "width=640,height=640",
+    );
+    if (!popup) {
+      this.handlePreviewError(
+        "The browser blocked the preview window. Allow pop-ups for this site and try again.",
+        "warning",
+        target,
+      );
+      return null;
+    }
+
+    target.popup = popup;
+    target.ready = false;
+    if (target.iframe) target.iframe.src = "about:blank";
+
+    this.updatePopOutUI(target);
+    // The close button now minimises rather than closes, and the window wants
+    // a title; both follow from having popped out.
+    this.renumberPreviewWindows();
+    this.watchPoppedOutPreview(target);
+    return popup;
+  }
+
+  // Bring it back into its docked panel. Safe to call when the window is
+  // already gone, which is what the closed-window watcher relies on.
+  dockPreview(target = this.defaultPreviewTarget()) {
+    if (!target?.isPoppedOut) return;
+
+    const popup = target.popup;
+    target.popup = null;
+    target.ready = false;
+    if (popup && !popup.closed) popup.close();
+
+    // Coming back from a pop-out that was minimised should also bring the panel
+    // out again - otherwise the preview is docked into something invisible.
+    this.showPreviewWindow(target);
+    this.updatePopOutUI(target);
+    this.renumberPreviewWindows();
+    this.updatePreview(target);
+  }
+
+  // A closed window fires nothing an opener can rely on, so poll for it. One
+  // watcher per popped-out preview, keyed by target id.
+  watchPoppedOutPreview(target) {
+    this._popOutWatchers ??= new Map();
+    const existing = this._popOutWatchers.get(target.id);
+    if (existing) clearInterval(existing);
+
+    const handle = setInterval(() => {
+      const stop = () => {
+        clearInterval(this._popOutWatchers.get(target.id));
+        this._popOutWatchers.delete(target.id);
+      };
+      if (!target.isPoppedOut) return stop();
+      if (target.popup.closed) {
+        stop();
+        this.dockPreview(target);
+      }
+    }, 500);
+    this._popOutWatchers.set(target.id, handle);
+  }
+
+  // The docked panel is empty while its preview is out, so say so and turn the
+  // pop-out button into the way back.
+  updatePopOutUI(target = this.defaultPreviewTarget()) {
+    if (!target?.root) return;
+    const poppedOut = target.isPoppedOut;
+    const button = target.el("popOutPreviewBtn");
+
+    if (button) {
+      button.classList.toggle("active", poppedOut);
+      button.title = poppedOut
+        ? "Bring Preview Back"
+        : "Open Preview in a Window";
+    }
+    target.root.classList.toggle("preview-popped-out", poppedOut);
+  }
+
+  // The URL a preview boots from. Carries the settings marked `reload: true`,
+  // which the runtime reads before it boots and so cannot receive as a command.
+  previewUrl(settings = this.previewSettings) {
     const params = new URLSearchParams();
-    params.set("samplingMode", this.previewSettings.samplingMode);
-    params.set("shaderLanguage", this.previewSettings.shaderLanguage);
-
-    // Reload iframe with query parameters
-    this.previewReady = false;
-    this.previewIframe.src = `preview/index.html?${params.toString()}`;
+    for (const d of PREVIEW_SETTINGS) {
+      if (d.reload !== true || !d.queryParam) continue;
+      const value = settings[d.key];
+      if (d.kind === "bool") {
+        if (value) params.set(d.queryParam, "1");
+      } else {
+        params.set(d.queryParam, value);
+      }
+    }
+    return `preview/index.html?${params.toString()}`;
   }
 
   buildShaderData(shaders) {
@@ -5252,10 +7396,22 @@ class BlueprintSystem {
       },
     );
 
+    // A disabled language has no shader to send. The preview only ever reads
+    // the one matching previewSettings.shaderLanguage, which
+    // clampPreviewShaderLanguage keeps on an enabled target, so the missing
+    // keys are never the ones it looks at.
+    const source = {
+      webgl1: "glsl",
+      webgl2: "glslWebGL2",
+      webgpu: "wgsl",
+    };
+    const code = {};
+    for (const [target, key] of Object.entries(source)) {
+      if (shaders[target] !== undefined) code[key] = shaders[target];
+    }
+
     return {
-      glsl: shaders.webgl1,
-      glslWebGL2: shaders.webgl2,
-      wgsl: shaders.webgpu,
+      ...code,
       blendsBackground: this.shaderSettings.blendsBackground,
       usesDepth: this.shaderSettings.usesDepth,
       extendBoxHorizontal: this.shaderSettings.extendBoxH,
@@ -5269,47 +7425,131 @@ class BlueprintSystem {
     };
   }
 
-  sendShaderDataToPreview() {
-    if (!this.previewIframe || !this.cachedShaderData) return;
+  sendShaderDataToPreview(target = this.defaultPreviewTarget()) {
+    if (!target || !this.cachedShaderData) return;
 
-    this.previewIframe.contentWindow.postMessage(
-      {
-        type: "shaderData",
-        shaderData: this.cachedShaderData,
-      },
-      "*",
+    target.post({ type: "shaderData", shaderData: this.cachedShaderData });
+  }
+
+  sendPreviewCommand(command, value, target = this.defaultPreviewTarget()) {
+    target?.send(command, value);
+  }
+
+  // The preview iframe reports which commands it understands when it boots.
+  // If it cannot answer for something the settings table wants to send, the two
+  // are out of step - almost always a browser still holding cached preview code
+  // - and the setting would otherwise just silently do nothing.
+  warnIfPreviewIsStale(
+    supportedCommands,
+    target = this.defaultPreviewTarget(),
+  ) {
+    const wanted = new Set(
+      PREVIEW_SETTINGS.map((d) => d.command).filter(Boolean),
+    );
+
+    // A preview old enough not to send the list at all is stale by definition.
+    const missing = Array.isArray(supportedCommands)
+      ? [...wanted].filter((command) => !supportedCommands.includes(command))
+      : [...wanted];
+
+    if (!missing.length) return;
+
+    this.handlePreviewError(
+      `The preview is running older code and ignores: ${missing.join(", ")}. ` +
+        `Reload the page to pick up the current preview.`,
+      "warning",
+      target,
     );
   }
 
-  sendPreviewCommand(command, value) {
-    if (!this.previewIframe) return;
-
-    this.previewIframe.contentWindow.postMessage(
-      {
-        type: "previewCommand",
-        command: command,
-        value: value,
-      },
-      "*",
-    );
+  // Push one setting to one preview. The only place that knows how a descriptor
+  // turns into a message.
+  applyPreviewSetting(
+    d,
+    value,
+    target,
+    settings = target?.settings ?? this.previewSettings,
+  ) {
+    if (!target || !settings) return;
+    if (d.apply) {
+      d.apply(this, target, value, settings, d);
+      return;
+    }
+    if (d.command) target.send(d.command, value);
   }
 
-  sendStartupScript(script) {
-    if (!this.previewIframe || !script) return;
+  // Push a whole settings object to one preview, in PREVIEW_SETTINGS order.
+  // Called when a preview finishes booting and after a reset.
+  applyPreviewSettingsTo(
+    target,
+    settings = target?.settings ?? this.previewSettings,
+  ) {
+    if (!target || !settings) return;
 
-    this.previewIframe.contentWindow.postMessage(
-      {
-        type: "runStartupScript",
-        script: script,
-      },
-      "*",
-    );
+    const sentGroups = new Set();
+    for (const d of PREVIEW_SETTINGS) {
+      // Reload-only settings reach the runtime through the iframe URL instead.
+      if (d.reload === true) continue;
+      if (d.applyGroup) {
+        if (sentGroups.has(d.applyGroup)) continue;
+        sentGroups.add(d.applyGroup);
+      }
+      this.applyPreviewSetting(d, settings[d.key], target, settings);
+    }
   }
 
-  sendUniformValuesToPreview() {
-    if (!this.previewReady || !this.previewIframe) return;
+  // Keep the preview's shader language on something the project still
+  // generates, and grey out the options it does not.
+  //
+  // The <option>s stay in the markup rather than being removed: the descriptor
+  // in preview-settings.js declares the full enum, and tests/30 checks that
+  // declaration against the actual options. Disabling is what makes the two
+  // agree while still refusing the choice.
+  clampPreviewShaderLanguage(target = this.defaultPreviewTarget()) {
+    if (!target) return false;
+    const enabled = this.enabledTargets();
+    const select = target.el("shaderLanguageSelect");
+
+    if (select) {
+      for (const option of select.options) {
+        option.disabled = !enabled.includes(option.value);
+      }
+    }
+
+    if (enabled.includes(target.settings.shaderLanguage)) {
+      if (select) select.value = target.settings.shaderLanguage;
+      return false;
+    }
+
+    // Fall back in the descriptor's own order (WebGPU first), not the
+    // generation order, so the preview lands on the best available renderer.
+    const fallback =
+      ["webgpu", "webgl2", "webgl1"].find((t) => enabled.includes(t)) ??
+      enabled[0];
+    target.settings.shaderLanguage = fallback;
+    if (select) select.value = fallback;
+    return true;
+  }
+
+  // Every open preview, when the enabled languages change.
+  clampAllPreviewShaderLanguages() {
+    let changed = false;
+    for (const target of this.previewTargets) {
+      if (this.clampPreviewShaderLanguage(target)) changed = true;
+    }
+    return changed;
+  }
+
+  sendStartupScript(script, target = this.defaultPreviewTarget()) {
+    if (!target || !script) return;
+
+    target.post({ type: "runStartupScript", script: script });
+  }
+
+  sendUniformValuesToPreview(target = this.defaultPreviewTarget()) {
+    if (!target?.ready) return;
     // Preview reflects the main graph's uniforms.
-    const uniforms = this.mainGraph ? this.mainGraph.uniforms : this.uniforms;
+    const uniforms = this.uniforms;
 
     uniforms.forEach((uniform, index) => {
       // Convert color values to array format [r, g, b]
@@ -5322,14 +7562,7 @@ class BlueprintSystem {
         value = [value.r, value.g, value.b];
       }
 
-      this.previewIframe.contentWindow.postMessage(
-        {
-          type: "updateParam",
-          index: index,
-          value: value,
-        },
-        "*",
-      );
+      target.post({ type: "updateParam", index: index, value: value });
     });
   }
 
@@ -5341,13 +7574,95 @@ class BlueprintSystem {
     );
   }
 
+  // Which shader languages this project generates. Reads the MAIN graph's
+  // settings, not the active graph's, for the same reason generateAllShaders
+  // does: one project ships one addon, and a function subgraph has no say in
+  // which languages it ships in.
+  enabledTargets() {
+    return enabledTargetsFor(this.mainGraph.shaderSettings);
+  }
+
+  _validateCallDAG() {
+    const errors = [];
+    const cycle = detectCycleInDAG(this);
+    if (cycle) {
+      const names = cycle
+        .map((id) => this.graphs.get(id)?.name || id)
+        .join(" → ");
+      errors.push({
+        message: `Cycle detected in call graph: ${names}`,
+        graphId: cycle[0],
+      });
+    }
+
+    for (const graph of this.graphs.values()) {
+      if (graph.kind !== "function" && graph.kind !== "loopBody") continue;
+      const handler = getHandler(graph.kind);
+      if (!handler) continue;
+
+      const inputNodes = graph.nodes.filter(
+        (n) => n.nodeType.name === "Function Input",
+      );
+      const outputNodes = graph.nodes.filter(
+        (n) => n.nodeType.name === "Function Output",
+      );
+
+      if (inputNodes.length === 0) {
+        errors.push({
+          message: `"${graph.name}" is missing a Function Input node`,
+          graphId: graph.id,
+        });
+      } else if (inputNodes.length > 1) {
+        errors.push({
+          message: `"${graph.name}" has duplicate Function Input nodes`,
+          graphId: graph.id,
+        });
+      }
+      if (outputNodes.length === 0) {
+        errors.push({
+          message: `"${graph.name}" is missing a Function Output node`,
+          graphId: graph.id,
+        });
+      } else if (outputNodes.length > 1) {
+        errors.push({
+          message: `"${graph.name}" has duplicate Function Output nodes`,
+          graphId: graph.id,
+        });
+      }
+
+      const contractErrors = handler.validateContract(
+        graph.data?.contract || { inputs: [], outputs: [] },
+      );
+      for (const msg of contractErrors) {
+        errors.push({ message: `"${graph.name}": ${msg}`, graphId: graph.id });
+      }
+    }
+    return errors;
+  }
+
   _generateAllShadersImpl() {
+    // Why the last attempt failed, for whoever asks next. _validateCallDAG
+    // already knows exactly what is wrong and which graph it is in; this used
+    // to be console.warn'd and dropped, so every caller fell back to guessing
+    // "no Output node" no matter the real cause.
+    this.lastCodegenErrors = [];
     try {
+      const validationErrors = this._validateCallDAG();
+      if (validationErrors.length > 0) {
+        this.lastCodegenErrors = validationErrors;
+        return null;
+      }
+
       // Build dependency graph
       const graph = this.buildDependencyGraph();
 
       if (!graph) {
-        console.warn("No output node found. Cannot generate shader.");
+        this.lastCodegenErrors = [
+          {
+            message: "No Output node found in the main graph.",
+            graphId: this.mainGraphId,
+          },
+        ];
         return null;
       }
 
@@ -5356,52 +7671,90 @@ class BlueprintSystem {
         graph.connectedNodes,
       );
 
-      // Generate shaders for all targets (each needs its own variable names for proper value formatting)
-      const webgl1PortToVarName = this.generateVariableNames(levels, "webgl1");
-      const webgl1Boilerplate = this.getBoilerplate("webgl1");
-      const webgl1Uniforms = this.generateUniformDeclarations("webgl1");
-      const webgl1Code = this.generateShader(
-        "webgl1",
-        levels,
-        webgl1PortToVarName,
-      );
-      const webgl1 = webgl1Boilerplate + webgl1Uniforms + webgl1Code;
+      const result = {};
+      // Only the languages this project ships. A disabled target is absent from
+      // the result rather than empty, so every consumer that reads by key -
+      // the bundle, the code viewer, the preview - drops it without asking.
+      for (const target of this.enabledTargets()) {
+        const portToVarName = this.generateVariableNames(levels, target);
 
-      const webgl2PortToVarName = this.generateVariableNames(levels, "webgl2");
-      const webgl2Boilerplate = this.getBoilerplate("webgl2");
-      const webgl2Uniforms = this.generateUniformDeclarations("webgl2");
-      const webgl2Code = this.generateShader(
-        "webgl2",
-        levels,
-        webgl2PortToVarName,
-      );
-      const webgl2 = webgl2Boilerplate + webgl2Uniforms + webgl2Code;
+        // Compile all reachable function declarations for this target.
+        // Also caches signatures on FunctionCall nodes for use in generateShader.
+        const { declStr, extraDeps } = this._generateFunctionDeclarations(
+          target,
+          levels,
+          portToVarName,
+        );
 
-      const webgpuPortToVarName = this.generateVariableNames(levels, "webgpu");
-      const webgpuBoilerplate = this.getBoilerplate("webgpu");
-      const webgpuUniforms = this.generateUniformDeclarations("webgpu");
-      const webgpuCode = this.generateShader(
-        "webgpu",
-        levels,
-        webgpuPortToVarName,
-      );
-      const webgpu = webgpuBoilerplate + webgpuUniforms + webgpuCode;
+        const boilerplate = this.getBoilerplate(target);
+        const uniforms = this.generateUniformDeclarations(target);
+        const constants = this.generateConstantDeclarations(target);
+        // Pass extraDeps so function body helpers appear in the dep block.
+        const shaderCode = this.generateShader(
+          target,
+          levels,
+          portToVarName,
+          extraDeps,
+        );
 
-      return { webgl1, webgl2, webgpu };
+        // Order: boilerplate → uniforms → constants → function body helper deps (inside shaderCode dep block) → function declarations → main()
+        // generateShader emits the dep block then main(). We insert declStr between them.
+        // Constants sit after uniforms because a const initialiser must be a
+        // constant expression, so it can never reference a uniform - but a
+        // helper function in the dep block may well reference a constant.
+        const depBlockEnd =
+          shaderCode.indexOf("\nvoid main") !== -1
+            ? shaderCode.indexOf("\nvoid main")
+            : shaderCode.indexOf("\n@fragment");
+        let fullShader;
+        if (depBlockEnd !== -1) {
+          fullShader =
+            boilerplate +
+            uniforms +
+            constants +
+            shaderCode.slice(0, depBlockEnd) +
+            declStr +
+            shaderCode.slice(depBlockEnd);
+        } else {
+          fullShader =
+            boilerplate + uniforms + constants + declStr + shaderCode;
+        }
+        result[target] = fullShader;
+      }
+
+      return result;
     } catch (error) {
+      this.lastCodegenErrors = [
+        { message: `Code generation failed: ${error.message}` },
+      ];
       console.error("Error generating shaders:", error);
       return null;
     }
   }
 
+  // Why the last generateAllShaders() returned null, phrased for a human.
+  // _validateCallDAG already names the offending graph in each message, so
+  // these just get joined. Falls back to the old generic wording when we have
+  // nothing better — a caller may ask before codegen has ever run.
+  codegenFailureMessage() {
+    const errors = this.lastCodegenErrors || [];
+    if (errors.length === 0) {
+      return "Failed to generate shader. Make sure you have an Output node and all required connections are made.";
+    }
+    return errors.map((e) => e.message).join("\n");
+  }
+
   onShaderChanged() {
     // Called whenever the shader structure changes (not just uniform values)
-    this.updatePreview();
+    this.updateAllPreviews();
   }
 
   onUniformValueChanged() {
-    // Called whenever a uniform value changes
-    this.sendUniformValuesToPreview();
+    // Called whenever a uniform value changes. Uniforms are host-level, so
+    // every window is showing the stale value, not just the first.
+    for (const target of this.previewTargets) {
+      this.sendUniformValuesToPreview(target);
+    }
   }
 
   /**
@@ -5410,32 +7763,44 @@ class BlueprintSystem {
    * - Errors 11-100: add to console only
    * - Errors 100+: ignore
    */
-  handlePreviewError(message, severity) {
+  // Rate-limited per window: one preview spewing the same error must not use up
+  // another's budget, and the entry belongs in the console of the window that
+  // produced it.
+  handlePreviewError(message, severity, target = this.defaultPreviewTarget()) {
+    if (!target) return;
+
     // Use message as key to avoid duplicates
     const errorKey = `${severity}:${message}`;
 
     // Don't handle duplicate errors
-    if (this.previewErrorKeys.has(errorKey)) {
+    if (target.errorKeys.has(errorKey)) {
       return;
     }
-    this.previewErrorKeys.add(errorKey);
+    target.errorKeys.add(errorKey);
 
     // Check if we've hit the max errors limit
-    if (this.previewErrorCount >= 100) {
+    if (target.errorCount >= 100) {
       return; // Ignore errors after 100
     }
 
-    this.previewErrorCount++;
+    target.errorCount++;
 
     // Add to console (for errors 1-100)
-    this.addConsoleEntry(message, severity === "error" ? "error" : "warning");
+    this.addConsoleEntry(
+      message,
+      severity === "error" ? "error" : "warning",
+      target,
+    );
 
     // Show notification only for first 10 errors
-    if (this.previewNotificationCount < 10 && severity === "error") {
-      this.previewNotificationCount++;
+    if (target.notificationCount < 10 && severity === "error") {
+      target.notificationCount++;
       this.showNotification({
         type: "error",
-        title: "Preview Error",
+        title:
+          this.previewTargets.length > 1
+            ? `Preview ${this.previewTargets.indexOf(target) + 1} Error`
+            : "Preview Error",
         message:
           message.length > 100 ? message.substring(0, 100) + "..." : message,
         duration: 2000,
@@ -5443,10 +7808,11 @@ class BlueprintSystem {
     }
   }
 
-  resetPreviewErrors() {
-    this.previewErrorCount = 0;
-    this.previewNotificationCount = 0;
-    this.previewErrorKeys.clear();
+  resetPreviewErrors(target = this.defaultPreviewTarget()) {
+    if (!target) return;
+    target.errorCount = 0;
+    target.notificationCount = 0;
+    target.errorKeys.clear();
   }
 
   // ==================== NOTIFICATION SYSTEM ====================
@@ -5530,94 +7896,83 @@ class BlueprintSystem {
 
   // ==================== PREVIEW CONSOLE ====================
 
-  setupPreviewConsole() {
-    this.previewConsole = document.getElementById("preview-console");
-    this.previewConsoleContent = document.getElementById(
-      "preview-console-content",
-    );
-    this.previewConsoleBadge = document.getElementById("preview-console-badge");
-    this.consoleEntries = [];
-    this.consoleErrorCount = 0;
-    this.consoleWarningCount = 0;
-
-    const toggleBtn = document.getElementById("toggleConsoleBtn");
-    const clearBtn = document.getElementById("clearConsoleBtn");
-    const consoleHeader = document.getElementById("preview-console-header");
+  // Each preview panel has its own console, so wiring is per window and every
+  // method below takes the window it belongs to.
+  setupPreviewConsole(target) {
+    const consoleHeader = target.el("preview-console-header");
+    if (!consoleHeader) return;
 
     // Toggle console on header click
     consoleHeader.addEventListener("click", (e) => {
       // Don't toggle if clicking a button
       if (e.target.closest("button")) return;
-      this.togglePreviewConsole();
+      this.togglePreviewConsole(target);
     });
 
-    toggleBtn.addEventListener("click", (e) => {
+    target.el("toggleConsoleBtn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.togglePreviewConsole();
+      this.togglePreviewConsole(target);
     });
 
-    clearBtn.addEventListener("click", (e) => {
+    target.el("clearConsoleBtn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.clearPreviewConsole();
+      this.clearPreviewConsole(target);
     });
 
     // Show empty state initially
-    this.updateConsoleEmptyState();
+    this.updateConsoleEmptyState(target);
   }
 
-  togglePreviewConsole() {
-    const isExpanded = this.previewConsole.classList.contains(
-      "preview-console-expanded",
-    );
-    this.previewConsole.classList.toggle(
-      "preview-console-collapsed",
-      isExpanded,
-    );
-    this.previewConsole.classList.toggle(
-      "preview-console-expanded",
-      !isExpanded,
-    );
+  togglePreviewConsole(target = this.defaultPreviewTarget()) {
+    const panel = target?.el("preview-console");
+    if (!panel) return;
+    const isExpanded = panel.classList.contains("preview-console-expanded");
+    panel.classList.toggle("preview-console-collapsed", isExpanded);
+    panel.classList.toggle("preview-console-expanded", !isExpanded);
   }
 
-  clearPreviewConsole() {
-    this.consoleEntries = [];
-    this.consoleErrorCount = 0;
-    this.consoleWarningCount = 0;
-    this.previewConsoleContent.innerHTML = "";
-    this.updateConsoleBadge();
-    this.updateConsoleEmptyState();
+  clearPreviewConsole(target = this.defaultPreviewTarget()) {
+    if (!target) return;
+    target.consoleEntries = [];
+    target.consoleErrorCount = 0;
+    target.consoleWarningCount = 0;
+    const content = target.el("preview-console-content");
+    if (content) content.innerHTML = "";
+    this.updateConsoleBadge(target);
+    this.updateConsoleEmptyState(target);
 
     // Auto-collapse console on clear/refresh
-    this.collapsePreviewConsole();
+    this.collapsePreviewConsole(target);
   }
 
-  collapsePreviewConsole() {
-    if (this.previewConsole) {
-      this.previewConsole.classList.add("preview-console-collapsed");
-      this.previewConsole.classList.remove("preview-console-expanded");
-    }
+  collapsePreviewConsole(target = this.defaultPreviewTarget()) {
+    const panel = target?.el("preview-console");
+    if (!panel) return;
+    panel.classList.add("preview-console-collapsed");
+    panel.classList.remove("preview-console-expanded");
   }
 
-  updateConsoleEmptyState() {
-    if (this.consoleEntries.length === 0) {
-      this.previewConsoleContent.innerHTML =
+  updateConsoleEmptyState(target = this.defaultPreviewTarget()) {
+    const content = target?.el("preview-console-content");
+    if (!content) return;
+    if (!target.consoleEntries?.length) {
+      content.innerHTML =
         '<div class="console-empty">No console messages</div>';
     }
   }
 
-  updateConsoleBadge() {
-    const total = this.consoleErrorCount + this.consoleWarningCount;
+  updateConsoleBadge(target = this.defaultPreviewTarget()) {
+    const badge = target?.el("preview-console-badge");
+    if (!badge) return;
+    const total =
+      (target.consoleErrorCount ?? 0) + (target.consoleWarningCount ?? 0);
     if (total === 0) {
-      this.previewConsoleBadge.classList.add("hidden");
+      badge.classList.add("hidden");
     } else {
-      this.previewConsoleBadge.classList.remove("hidden");
-      this.previewConsoleBadge.textContent = total > 99 ? "99+" : total;
+      badge.classList.remove("hidden");
+      badge.textContent = total > 99 ? "99+" : total;
       // Use different color if only warnings
-      if (this.consoleErrorCount === 0) {
-        this.previewConsoleBadge.classList.add("warning-only");
-      } else {
-        this.previewConsoleBadge.classList.remove("warning-only");
-      }
+      badge.classList.toggle("warning-only", target.consoleErrorCount === 0);
     }
   }
 
@@ -5626,10 +7981,16 @@ class BlueprintSystem {
    * @param {string} message - The log message
    * @param {'log' | 'info' | 'warning' | 'error'} level - Log level
    */
-  addConsoleEntry(message, level = "log") {
+  addConsoleEntry(
+    message,
+    level = "log",
+    target = this.defaultPreviewTarget(),
+  ) {
+    const content = target?.el("preview-console-content");
+    if (!content) return null;
+
     // Remove empty state if present
-    const emptyState =
-      this.previewConsoleContent.querySelector(".console-empty");
+    const emptyState = content.querySelector(".console-empty");
     if (emptyState) {
       emptyState.remove();
     }
@@ -5660,28 +8021,29 @@ class BlueprintSystem {
       <div class="console-entry-time">${timeStr}</div>
     `;
 
-    this.previewConsoleContent.appendChild(entry);
-    this.consoleEntries.push({ message, level, time: now });
+    content.appendChild(entry);
+    target.consoleEntries.push({ message, level, time: now });
 
     // Update counts
     if (level === "error") {
-      this.consoleErrorCount++;
+      target.consoleErrorCount = (target.consoleErrorCount ?? 0) + 1;
     } else if (level === "warning") {
-      this.consoleWarningCount++;
+      target.consoleWarningCount = (target.consoleWarningCount ?? 0) + 1;
     }
 
-    this.updateConsoleBadge();
+    this.updateConsoleBadge(target);
 
     // Auto-scroll to bottom
-    this.previewConsoleContent.scrollTop =
-      this.previewConsoleContent.scrollHeight;
+    content.scrollTop = content.scrollHeight;
 
     // Auto-expand on error
     if (
       level === "error" &&
-      this.previewConsole.classList.contains("preview-console-collapsed")
+      target
+        .el("preview-console")
+        ?.classList.contains("preview-console-collapsed")
     ) {
-      this.togglePreviewConsole();
+      this.togglePreviewConsole(target);
     }
 
     return entry;
@@ -5880,26 +8242,45 @@ class BlueprintSystem {
     console.log("Custom node saved:", customNode);
 
     // Reload preview after saving custom node
-    this.updatePreview();
+    this.updateAllPreviews();
   }
 
   updateCustomNodeInstances(customNode) {
-    // Find all nodes in the graph that use this custom node
+    // Custom nodes are a host-level library, so instances of one can live in
+    // any graph — walk them all, not just the open one.
     const customNodeKey = `custom_${customNode.id}`;
-    const affectedNodes = this.nodes.filter((node) => {
-      const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
-      return nodeTypeKey === customNodeKey;
-    });
+    const affected = [];
+    const affectedGraphIds = new Set();
+    for (const { node, graph } of this.allNodes()) {
+      if (this.getNodeTypeKey(node.nodeType) === customNodeKey) {
+        affected.push(node);
+        affectedGraphIds.add(graph.id);
+      }
+    }
+    if (affected.length === 0) return;
 
-    affectedNodes.forEach((node) => {
+    // Rebuilding ports can drop wires in graphs the user isn't looking at, so
+    // undo has to cover all of them, not just the active one.
+    this.runMultiGraphTransaction(
+      [...affectedGraphIds],
+      () => this._updateCustomNodeInstancesImpl(customNode, affected),
+      `Edit custom node "${customNode.name}"`,
+    );
+
+    this.render();
+    this.updateDependencyList();
+    this.onShaderChanged();
+  }
+
+  _updateCustomNodeInstancesImpl(customNode, affected) {
+    affected.forEach((node) => {
       // Store old port counts
       const oldInputCount = node.inputPorts.length;
       const oldOutputCount = node.outputPorts.length;
 
-      // Update the node type
+      // Update the node type. The name, colour and shape are re-derived from
+      // it once the ports are rebuilt, at the end of this block.
       node.nodeType = this.createNodeTypeFromCustomNode(customNode);
-      node.title = customNode.name;
-      node.headerColor = customNode.color;
 
       // Recreate ports
       const oldInputPorts = [...node.inputPorts];
@@ -5991,12 +8372,351 @@ class BlueprintSystem {
         port.updateEditability();
       });
 
-      // Recalculate node height
-      node.recalculateHeight();
+      // Re-derive name, colour and shape from the new node type. Height alone
+      // is not enough: gaining or losing the last input flips the node between
+      // pill and box, and recalculateHeight() refuses to touch a pill.
+      node.refreshShape({ title: customNode.name });
     });
+  }
 
-    this.render();
-    this.updateDependencyList();
+  // ---------- Phase 4: graph tab bar ----------
+
+  // Open a tab for a graph and switch to it. Creates the tab entry if missing.
+  openGraphTab(graphId) {
+    if (!this.graphs.has(graphId)) return;
+    this.openTabs.add(graphId);
+    this.setActiveGraph(graphId);
+  }
+
+  // Close a tab (does NOT delete the graph). Main tab can't be closed.
+  closeGraphTab(graphId) {
+    if (graphId === this.mainGraphId) return;
+    this.openTabs.delete(graphId);
+    if (this.activeGraphId === graphId) {
+      this.setActiveGraph(this.mainGraphId);
+    } else {
+      this.renderGraphTabBar && this.renderGraphTabBar();
+    }
+  }
+
+  renderGraphTabBar() {
+    if (!this.graphTabsEl) return;
+    this.graphTabsEl.innerHTML = "";
+
+    // Render in insertion order: main first, then others that are open.
+    const ordered = [];
+    if (this.graphs.has(this.mainGraphId)) ordered.push(this.mainGraphId);
+    for (const id of this.openTabs) {
+      if (id !== this.mainGraphId && this.graphs.has(id)) ordered.push(id);
+    }
+
+    // Hide the whole bar when only main is open — a single orphan tab is noise.
+    const bar = document.getElementById("graph-tab-bar");
+    if (bar) bar.style.display = ordered.length <= 1 ? "none" : "";
+    if (ordered.length <= 1) return;
+
+    for (const id of ordered) {
+      const g = this.graphs.get(id);
+      const tab = document.createElement("div");
+      tab.className =
+        "graph-tab" + (id === this.activeGraphId ? " active" : "");
+      tab.dataset.graphId = id;
+
+      // Color stripe for non-main tabs
+      if (g.kind !== "main") {
+        const stripe = document.createElement("div");
+        stripe.className = "graph-tab-color-stripe";
+        const handler = getHandler(g.kind);
+        stripe.style.background = g.color || handler?.defaultColor || "#4a9eff";
+        tab.appendChild(stripe);
+
+        const badge = document.createElement("span");
+        badge.className = "graph-tab-badge";
+        badge.textContent = g.kind === "function" ? "fn" : "loop";
+        tab.appendChild(badge);
+      }
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "graph-tab-name";
+      nameEl.textContent = g.name || "Untitled";
+      nameEl.title = g.name || "Untitled";
+      tab.appendChild(nameEl);
+
+      // Click to switch
+      tab.addEventListener("mousedown", (e) => {
+        if (e.button === 1) {
+          // middle-click closes
+          e.preventDefault();
+          this.closeGraphTab(id);
+          return;
+        }
+        if (e.target === closeBtn) return;
+        if (e.target === nameEl && e.detail >= 2) return;
+        this.setActiveGraph(id);
+      });
+
+      // Double-click the name to rename (non-main only)
+      if (g.kind !== "main") {
+        nameEl.addEventListener("dblclick", (e) => {
+          e.stopPropagation();
+          this._startTabRename(g, nameEl);
+        });
+      }
+
+      // Close button (non-main)
+      let closeBtn = null;
+      if (g.kind !== "main") {
+        closeBtn = document.createElement("button");
+        closeBtn.className = "graph-tab-close";
+        closeBtn.textContent = "×";
+        closeBtn.title = "Close tab";
+        closeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.closeGraphTab(id);
+        });
+        tab.appendChild(closeBtn);
+      }
+
+      this.graphTabsEl.appendChild(tab);
+    }
+  }
+
+  _startTabRename(graph, nameEl) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "graph-tab-name-input";
+    input.value = graph.name || "";
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+      const newName = input.value.trim() || graph.name || "Untitled";
+      if (newName !== graph.name) this.history.syncBaseline(graph.id);
+      graph.name = newName;
+      this.renderGraphTabBar();
+      this.renderFunctionsList && this.renderFunctionsList();
+      // Caller node types display the graph's name; refresh instances.
+      if (graph.kind === "function" || graph.kind === "loopBody") {
+        this.syncContractCallers(graph);
+      }
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        input.blur();
+      } else if (e.key === "Escape") {
+        input.value = graph.name;
+        input.blur();
+      }
+    });
+  }
+
+  // Show/hide sidebar sections based on the active graph's kind.
+  _applyKindSidebarVisibility() {
+    const kind = this.activeGraph?.kind || "main";
+    const isSub = kind === "function" || kind === "loopBody";
+    if (this.shaderInfoSection)
+      this.shaderInfoSection.style.display = isSub ? "none" : "";
+    if (this.shaderSettingsSection)
+      this.shaderSettingsSection.style.display = isSub ? "none" : "";
+    if (this.functionInfoSection)
+      this.functionInfoSection.style.display = isSub ? "" : "none";
+    if (this.functionInputsSection)
+      this.functionInputsSection.style.display = isSub ? "" : "none";
+    if (this.functionOutputsSection)
+      this.functionOutputsSection.style.display = isSub ? "" : "none";
+  }
+
+  // ---------- Phase 4: Functions sidebar section ----------
+
+  renderFunctionsList() {
+    if (!this.functionsListEl) return;
+    this.functionsListEl.innerHTML = "";
+
+    for (const g of this.getCallableGraphs()) {
+      const handler = getHandler(g.kind);
+      const item = document.createElement("div");
+      item.className = "uniform-item";
+      const tint = g.color || handler?.defaultColor || "#4a9eff";
+      item.style.borderLeft = `4px solid ${tint}`;
+
+      const header = document.createElement("div");
+      header.className = "uniform-item-header";
+      header.style.paddingLeft = "24px";
+
+      // Drag handle to drop a caller node onto the canvas
+      const dragHandle = document.createElement("div");
+      dragHandle.className = "custom-node-drag-handle";
+      dragHandle.style.position = "absolute";
+      dragHandle.style.left = "0";
+      dragHandle.style.top = "0";
+      dragHandle.style.bottom = "0";
+      dragHandle.style.width = "20px";
+      dragHandle.style.background = tint;
+      dragHandle.style.cursor = "grab";
+      dragHandle.style.display = "flex";
+      dragHandle.style.alignItems = "center";
+      dragHandle.style.justifyContent = "center";
+      dragHandle.style.color = "rgba(255,255,255,0.6)";
+      dragHandle.style.fontSize = "14px";
+      dragHandle.style.userSelect = "none";
+      dragHandle.textContent = "⋮⋮";
+      dragHandle.title = "Drag to canvas to create caller node";
+
+      let draggingFromHandle = false;
+      dragHandle.addEventListener("mousedown", () => {
+        draggingFromHandle = true;
+        item.draggable = true;
+        dragHandle.style.cursor = "grabbing";
+      });
+      item.addEventListener("dragstart", (e) => {
+        if (draggingFromHandle) {
+          e.dataTransfer.setData("callerGraphId", g.id);
+          e.dataTransfer.effectAllowed = "copy";
+        } else {
+          e.preventDefault();
+        }
+      });
+      item.addEventListener("dragend", () => {
+        item.draggable = false;
+        draggingFromHandle = false;
+        dragHandle.style.cursor = "grab";
+        this.renderFunctionsList();
+      });
+
+      const badge = document.createElement("span");
+      badge.className =
+        "function-entry-badge " + (g.kind === "function" ? "fn" : "loop");
+      badge.textContent = g.kind === "function" ? "fn" : "loop";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = g.name || "Untitled";
+      nameSpan.style.fontWeight = "bold";
+      nameSpan.style.color = "#ddd";
+      nameSpan.style.flex = "1";
+
+      // The caller node's shape, which for a loop body is not the same as the
+      // stored contract: an accumulator shows up on both sides.
+      const callerType = getHandler(g.kind)?.createCallerNodeType(g, this);
+      const infoSpan = document.createElement("span");
+      infoSpan.textContent = `${callerType?.inputs.length ?? 0}→${
+        callerType?.outputs.length ?? 0
+      }`;
+      infoSpan.style.fontSize = "11px";
+      infoSpan.style.color = "#888";
+      infoSpan.style.marginLeft = "8px";
+
+      const controls = document.createElement("div");
+      controls.className = "uniform-item-controls";
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "uniform-delete-btn";
+      editBtn.textContent = "✎";
+      editBtn.title = "Open graph";
+      editBtn.style.background = "#4a90e2";
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.openGraphTab(g.id);
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "uniform-delete-btn";
+      delBtn.textContent = "×";
+      delBtn.title = "Delete graph";
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this._deleteCallableGraph(g);
+      });
+
+      controls.appendChild(editBtn);
+      controls.appendChild(delBtn);
+
+      item.appendChild(dragHandle);
+      header.appendChild(badge);
+      header.appendChild(nameSpan);
+      header.appendChild(infoSpan);
+      header.appendChild(controls);
+      item.appendChild(header);
+
+      this.functionsListEl.appendChild(item);
+    }
+  }
+
+  _deleteCallableGraph(graph) {
+    // Count callers across all graphs.
+    let callers = 0;
+    for (const g of this.graphs.values()) {
+      for (const n of g.nodes) {
+        if (n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id)
+          callers++;
+      }
+    }
+    const msg =
+      callers > 0
+        ? `Delete "${graph.name}"? ${callers} caller node(s) will be removed.`
+        : `Delete "${graph.name}"?`;
+    if (!confirm(msg)) return;
+
+    // Remove caller nodes and their wires from every graph. Recorded as one
+    // entry, before deleteGraph runs: the graph itself cannot be restored by
+    // undo (the snapshot model is per-graph and has no notion of the graph
+    // set), but the callers and wires it took down with it can.
+    const isCaller = (n) =>
+      n.nodeType.isFunctionCall && n.nodeType.targetGraphId === graph.id;
+    const affectedGraphIds = [...this.graphs.values()]
+      .filter((g) => g.nodes.some(isCaller))
+      .map((g) => g.id);
+
+    const removeCallers = () => {
+      for (const g of this.graphs.values()) {
+        for (const n of g.nodes.filter(isCaller)) {
+          for (const port of [...n.inputPorts, ...n.outputPorts]) {
+            for (const w of [...port.connections]) this.disconnectWire(w);
+          }
+        }
+        g.nodes = g.nodes.filter((n) => !isCaller(n));
+      }
+    };
+
+    if (affectedGraphIds.length > 0) {
+      this.runMultiGraphTransaction(
+        affectedGraphIds,
+        removeCallers,
+        `Delete "${graph.name}"`,
+      );
+    } else {
+      removeCallers();
+    }
+
+    this.openTabs.delete(graph.id);
+    this.deleteGraph(graph.id);
+    this.renderGraphTabBar();
+    this.renderFunctionsList();
+    this.render && this.render();
+    this.onShaderChanged && this.onShaderChanged();
+  }
+
+  // ---------- Phase 4: Function Info / Inputs / Outputs contract editor ----------
+
+  renderContractEditor() {
+    if (!this.functionInfoForm) return;
+    const g = this.activeGraph;
+    if (!g || g.kind === "main") {
+      this.functionInfoForm.innerHTML = "";
+      if (this.functionInputsList) this.functionInputsList.innerHTML = "";
+      if (this.functionOutputsList) this.functionOutputsList.innerHTML = "";
+      return;
+    }
+    const handler = getHandler(g.kind);
+    if (!handler) return;
+
+    // Delegate to the kind handler to populate panels.
+    handler.renderContractEditor(g, this, {
+      infoForm: this.functionInfoForm,
+      inputsList: this.functionInputsList,
+      outputsList: this.functionOutputsList,
+    });
   }
 
   renderCustomNodesList() {
@@ -6105,31 +8825,36 @@ class BlueprintSystem {
   }
 
   deleteCustomNode(id) {
-    // Check if any nodes in the graph use this custom node
+    // Instances can be in any graph, not just the open one.
     const customNodeKey = `custom_${id}`;
-    const hasInstances = this.nodes.some((node) => {
-      const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
-      return nodeTypeKey === customNodeKey;
-    });
+    const isInstance = (node) =>
+      this.getNodeTypeKey(node.nodeType) === customNodeKey;
 
-    if (hasInstances) {
-      // Remove all instances
-      this.nodes = this.nodes.filter((node) => {
-        const nodeTypeKey = this.getNodeTypeKey(node.nodeType);
-        if (nodeTypeKey === customNodeKey) {
-          // Disconnect all wires
-          node.getAllPorts().forEach((port) => {
-            [...port.connections].forEach((wire) => this.disconnectWire(wire));
-          });
-          return false;
-        }
-        return true;
-      });
-      this.render();
-      this.updateDependencyList();
+    const affectedGraphIds = [];
+    for (const graph of this.graphs.values()) {
+      if (graph.nodes.some(isInstance)) affectedGraphIds.push(graph.id);
     }
 
-    this.customNodes = this.customNodes.filter((n) => n.id !== id);
+    // The library entry itself is host-level and lives in every graph's
+    // snapshot, so it has to be removed *inside* the transaction. Dropping it
+    // afterwards left the removal out of history entirely, and a library entry
+    // with no live instances recorded nothing at all.
+    const apply = () => {
+      this._removeNodesAllGraphs(isInstance);
+      this.customNodes = this.customNodes.filter((n) => n.id !== id);
+    };
+
+    // Cover every graph we removed instances from; fall back to the active
+    // graph so the library edit alone is still recorded.
+    this.runMultiGraphTransaction(
+      affectedGraphIds.length > 0 ? affectedGraphIds : [this.activeGraphId],
+      apply,
+      "Delete custom node",
+    );
+
+    this.render();
+    this.updateDependencyList();
+    this.onShaderChanged();
     this.renderCustomNodesList();
   }
 
@@ -6171,6 +8896,9 @@ class BlueprintSystem {
             if (uniform) newOrder.push(uniform);
           });
           this.uniforms = newOrder;
+          // Order is the addon parameter order, so this is a real edit.
+          this.onShaderChanged();
+          this.history.pushState("Reorder uniforms");
         }
       });
 
@@ -6229,7 +8957,7 @@ class BlueprintSystem {
           );
           uniform.variableName = newVariableName;
 
-          this.updateUniformNodeNames(oldVariableName, newVariableName);
+          this.updateUniformNodeNames(uniform.id, oldVariableName);
           this.onShaderChanged();
           this.history.pushState("Rename uniform");
           this.renderUniformList(); // Re-render to show new variable name
@@ -6340,6 +9068,7 @@ class BlueprintSystem {
       descInput.placeholder = "Add description...";
       descInput.addEventListener("change", (e) => {
         uniform.description = e.target.value.trim();
+        this.history.pushState("Edit uniform description");
       });
       descInput.addEventListener("click", (e) => e.stopPropagation());
       descInput.addEventListener("mousedown", (e) => e.stopPropagation());
@@ -6418,6 +9147,7 @@ class BlueprintSystem {
           } else {
             percentSliderContainer.style.display = "none";
           }
+          this.history.pushState("Toggle uniform percent");
         });
 
         percentCheckbox.appendChild(checkbox);
@@ -6616,10 +9346,10 @@ class BlueprintSystem {
     node.uniformDisplayName = uniform.name; // Store display name
     node.uniformVariableName = uniform.variableName; // Store variable name
     node.uniformId = uniform.id;
-    node.isVariable = true; // Make it look like a variable node
 
-    // Update node title to show display name
-    node.title = uniform.name;
+    // Show the display name, and size the pill to it. (These node types have no
+    // inputs and one output, so isVariable comes out true on its own.)
+    node.refreshShape({ title: uniform.name });
 
     this.nodes.push(node);
     this.render();
@@ -6627,27 +9357,60 @@ class BlueprintSystem {
     return node;
   }
 
-  updateUniformNodeNames(oldVariableName, newVariableName) {
-    // Update all nodes that reference this uniform
-    // Find the uniform to get both names
-    const uniform = this.uniforms.find(
-      (u) => u.variableName === newVariableName,
-    );
+  // Push a uniform's current name onto every node that references it.
+  //
+  // Matched by uniformId, not by the old variable name: name-matching meant a
+  // node that got missed once could never be found again. `legacyVariableName`
+  // is the fallback for nodes saved before uniformId was persisted.
+  //
+  // Not cosmetic — UniformFloatNode/UniformColorNode emit node.uniformName
+  // directly into the shader, so a node left stale in a subgraph generates a
+  // reference to an identifier that no longer exists.
+  updateUniformNodeNames(uniformId, legacyVariableName = null) {
+    const uniform = this.uniforms.find((u) => u.id === uniformId);
     if (!uniform) return;
 
-    this.nodes.forEach((node) => {
-      if (node.uniformName === oldVariableName) {
-        node.uniformName = newVariableName;
+    const matches = (node) =>
+      node.uniformId !== undefined
+        ? node.uniformId === uniformId
+        : legacyVariableName != null && node.uniformName === legacyVariableName;
+
+    const affected = [];
+    const affectedGraphIds = new Set();
+    for (const { node, graph } of this.allNodes()) {
+      if (!matches(node)) continue;
+      affected.push(node);
+      affectedGraphIds.add(graph.id);
+    }
+    if (affected.length === 0) return;
+
+    const apply = () => {
+      affected.forEach((node) => {
+        node.uniformId = uniform.id;
+        node.uniformName = uniform.variableName;
         node.uniformDisplayName = uniform.name;
-        node.uniformVariableName = newVariableName;
-        node.title = uniform.name;
+        node.uniformVariableName = uniform.variableName;
         node.nodeType = {
           ...node.nodeType,
           name: uniform.name,
           paramId: uniform.paramId,
         };
-      }
-    });
+        node.refreshShape({ title: uniform.name });
+      });
+    };
+
+    // A rename touches several graphs, so it needs one unified undo entry.
+    // runTransaction is a no-op while undo/redo is being applied, so do the
+    // mutation directly in that case.
+    if (this.history?.isApplyingUndoRedo) {
+      apply();
+    } else {
+      this.runMultiGraphTransaction(
+        [...affectedGraphIds],
+        apply,
+        "Rename uniform",
+      );
+    }
     this.render();
   }
 
@@ -7215,22 +9978,12 @@ class BlueprintSystem {
     }
 
     this.editingPort = port;
-    const bounds = port.getValueBoxBounds(this.ctx);
-    const rect = this.canvas.getBoundingClientRect();
-
-    // Transform world coordinates to screen coordinates
-    const screenX = bounds.x * this.camera.zoom + this.camera.x;
-    const screenY = bounds.y * this.camera.zoom + this.camera.y;
-    const screenWidth = bounds.width * this.camera.zoom;
-    const screenHeight = bounds.height * this.camera.zoom;
+    this._overlayCamera = { ...this.camera };
+    this.positionPortEditor();
 
     // Handle different editor types based on resolved type
     if (resolvedType === "vec2") {
-      this.vec2Editor.style.left = `${rect.left + window.scrollX + screenX}px`;
-      this.vec2Editor.style.top = `${rect.top + window.scrollY + screenY}px`;
       this.vec2Editor.style.display = "flex";
-      this.vec2Editor.style.transform = `scale(${this.camera.zoom})`;
-      this.vec2Editor.style.transformOrigin = "top left";
 
       const vec2X = document.getElementById("vec2X");
       const vec2Y = document.getElementById("vec2Y");
@@ -7239,11 +9992,7 @@ class BlueprintSystem {
 
       setTimeout(() => vec2X.focus(), 0);
     } else if (resolvedType === "vec3") {
-      this.vec3Editor.style.left = `${rect.left + window.scrollX + screenX}px`;
-      this.vec3Editor.style.top = `${rect.top + window.scrollY + screenY}px`;
       this.vec3Editor.style.display = "flex";
-      this.vec3Editor.style.transform = `scale(${this.camera.zoom})`;
-      this.vec3Editor.style.transformOrigin = "top left";
 
       const vec3Color = document.getElementById("vec3Color");
       const vec3R = document.getElementById("vec3R");
@@ -7262,11 +10011,7 @@ class BlueprintSystem {
 
       setTimeout(() => vec3R.focus(), 0);
     } else if (resolvedType === "vec4") {
-      this.vec4Editor.style.left = `${rect.left + window.scrollX + screenX}px`;
-      this.vec4Editor.style.top = `${rect.top + window.scrollY + screenY}px`;
       this.vec4Editor.style.display = "flex";
-      this.vec4Editor.style.transform = `scale(${this.camera.zoom})`;
-      this.vec4Editor.style.transformOrigin = "top left";
 
       const vec4Color = document.getElementById("vec4Color");
       const vec4R = document.getElementById("vec4R");
@@ -7289,19 +10034,10 @@ class BlueprintSystem {
     } else {
       // Default text input for float, int
       this.inputField.value = port.value.toString();
-      this.inputField.style.left = `${rect.left + window.scrollX + screenX}px`;
-      this.inputField.style.top = `${rect.top + window.scrollY + screenY}px`;
-      this.inputField.style.width = `${screenWidth}px`;
-      this.inputField.style.height = `${screenHeight}px`;
       this.inputField.style.display = "block";
       this.inputField.style.visibility = "visible";
       this.inputField.style.opacity = "1";
       this.inputField.style.pointerEvents = "auto";
-      // Don't apply transform scale here - dimensions are already scaled
-      // Instead, scale the font size directly
-      this.inputField.style.fontSize = `${11 * this.camera.zoom}px`;
-      this.inputField.style.transform = "none";
-      this.inputField.style.transformOrigin = "top left";
 
       setTimeout(() => {
         this.inputField.focus();
@@ -7388,29 +10124,136 @@ class BlueprintSystem {
     this.editingPort = null;
   }
 
+  // The port editors, the custom input field and the operation/variable
+  // dropdowns are real DOM elements laid over the canvas. Their screen position
+  // comes from the world position of the node they belong to, so the camera
+  // moving under them has to be answered by re-running that transform — see
+  // repositionOverlaysForCamera below.
+  hasCanvasOverlays() {
+    return !!(
+      this.editingPort ||
+      this.editingCustomInput ||
+      document.querySelector(".operation-menu")
+    );
+  }
+
+  // World box -> viewport coordinates. Every overlay is position:fixed, so this
+  // is the space all of them are placed in.
+  _overlayScreenRect(bounds) {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      left: rect.left + bounds.x * this.camera.zoom + this.camera.x,
+      top: rect.top + bounds.y * this.camera.zoom + this.camera.y,
+      width: bounds.width * this.camera.zoom,
+      height: bounds.height * this.camera.zoom,
+    };
+  }
+
+  positionPortEditor() {
+    const port = this.editingPort;
+    if (!port) return;
+
+    const bounds = port.getValueBoxBounds(this.ctx);
+    if (!bounds) return;
+    const { left, top, width, height } = this._overlayScreenRect(bounds);
+
+    const resolvedType = port.getResolvedType();
+    const vecEditor =
+      resolvedType === "vec2"
+        ? this.vec2Editor
+        : resolvedType === "vec3"
+          ? this.vec3Editor
+          : resolvedType === "vec4"
+            ? this.vec4Editor
+            : null;
+
+    if (vecEditor) {
+      vecEditor.style.left = `${left}px`;
+      vecEditor.style.top = `${top}px`;
+      vecEditor.style.transform = `scale(${this.camera.zoom})`;
+      vecEditor.style.transformOrigin = "top left";
+      return;
+    }
+
+    // float/int share the plain text input. It is sized in screen pixels rather
+    // than scaled, so the font size has to follow the zoom by hand.
+    this.inputField.style.left = `${left}px`;
+    this.inputField.style.top = `${top}px`;
+    this.inputField.style.width = `${width}px`;
+    this.inputField.style.height = `${height}px`;
+    this.inputField.style.fontSize = `${11 * this.camera.zoom}px`;
+    this.inputField.style.transform = "none";
+    this.inputField.style.transformOrigin = "top left";
+  }
+
+  positionCustomInputField() {
+    const node = this.editingCustomInput;
+    if (!node) return;
+
+    const { left, top, width, height } = this._overlayScreenRect(
+      node.getCustomInputBounds(),
+    );
+    this.customInputField.style.left = `${left}px`;
+    this.customInputField.style.top = `${top}px`;
+    this.customInputField.style.width = `${width}px`;
+    this.customInputField.style.height = `${height}px`;
+    this.customInputField.style.fontSize = `${11 * this.camera.zoom}px`;
+  }
+
+  // The dropdowns build their own padding, font size and border radii from the
+  // zoom they opened at, so rather than rebuild all of that, re-anchor them and
+  // let a transform carry any zoom change since.
+  positionNodeMenus() {
+    for (const menu of document.querySelectorAll(".operation-menu")) {
+      const anchor = menu.__overlayAnchor;
+      if (!anchor) continue;
+
+      const { left, top, height } = this._overlayScreenRect(anchor.bounds);
+      // The menu hangs off the bottom edge of the dropdown it belongs to.
+      // transformOrigin is the top left corner, so the scale below leaves that
+      // corner alone and the position needs no compensation.
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top + height}px`;
+      // Sized at the zoom it was built at — the transform does the rest, and
+      // scaling the width here too would apply the zoom twice.
+      menu.style.width = `${anchor.bounds.width * anchor.zoom}px`;
+
+      const scale = this.camera.zoom / anchor.zoom;
+      menu.style.transform = scale === 1 ? "none" : `scale(${scale})`;
+      menu.style.transformOrigin = "top left";
+    }
+  }
+
+  // Every camera mutation is followed by render(), so hooking in there covers
+  // the wheel, the pan drag, auto-pan and the zoom/fit helpers at once. The
+  // overlays only follow the camera — closing them instead would commit an edit
+  // on every scroll tick, and each commit recompiles the shader.
+  repositionOverlaysForCamera() {
+    if (!this.hasCanvasOverlays()) return;
+
+    const snapshot = this._overlayCamera;
+    const { x, y, zoom } = this.camera;
+    if (
+      snapshot &&
+      x === snapshot.x &&
+      y === snapshot.y &&
+      zoom === snapshot.zoom
+    ) {
+      return;
+    }
+
+    this._overlayCamera = { x, y, zoom };
+    this.positionPortEditor();
+    this.positionCustomInputField();
+    this.positionNodeMenus();
+  }
+
   startEditingCustomInput(node) {
     this.editingCustomInput = node;
-    const bounds = node.getCustomInputBounds();
+    this._overlayCamera = { ...this.camera };
     const config = node.nodeType.customInputConfig;
 
-    // Position the input field
-    const rect = this.canvas.getBoundingClientRect();
-
-    // Transform world coordinates to screen coordinates
-    const screenX = bounds.x * this.camera.zoom + this.camera.x;
-    const screenY = bounds.y * this.camera.zoom + this.camera.y;
-    const screenWidth = bounds.width * this.camera.zoom;
-    const screenHeight = bounds.height * this.camera.zoom;
-
-    this.customInputField.style.left = `${
-      rect.left + window.scrollX + screenX
-    }px`;
-    this.customInputField.style.top = `${
-      rect.top + window.scrollY + screenY
-    }px`;
-    this.customInputField.style.width = `${screenWidth}px`;
-    this.customInputField.style.height = `${screenHeight}px`;
-    this.customInputField.style.fontSize = `${11 * this.camera.zoom}px`;
+    this.positionCustomInputField();
     this.customInputField.style.display = "block";
 
     // Set current value
@@ -7530,20 +10373,14 @@ class BlueprintSystem {
   }
 
   showOperationMenu(node, dropdownBounds) {
+    this._overlayCamera = { ...this.camera };
+
     // Create a temporary menu for operation selection
     const menu = document.createElement("div");
     menu.className = "operation-menu";
     menu.style.position = "fixed";
-
-    // Convert world coordinates to screen coordinates
-    const rect = this.canvas.getBoundingClientRect();
-    const screenX =
-      dropdownBounds.x * this.camera.zoom + this.camera.x + rect.left;
-    const screenY =
-      (dropdownBounds.y + dropdownBounds.height) * this.camera.zoom +
-      this.camera.y +
-      rect.top;
-    const menuWidth = dropdownBounds.width * this.camera.zoom;
+    // Where this menu hangs, so positionNodeMenus can re-anchor it.
+    menu.__overlayAnchor = { bounds: dropdownBounds, zoom: this.camera.zoom };
 
     // Scale font and padding with zoom
     const scaledFontSize = 14 * this.camera.zoom;
@@ -7553,9 +10390,6 @@ class BlueprintSystem {
     const scaledMenuPadding = 2 * this.camera.zoom;
     const scaledMenuBorderRadius = 4 * this.camera.zoom;
 
-    menu.style.left = `${screenX}px`;
-    menu.style.top = `${screenY}px`;
-    menu.style.width = `${menuWidth}px`;
     menu.style.background = "#2a2a2a";
     menu.style.border = "2px solid #4a4a4a";
     menu.style.borderRadius = `${scaledMenuBorderRadius}px`;
@@ -7620,9 +10454,12 @@ class BlueprintSystem {
     }, 0);
 
     document.body.appendChild(menu);
+    this.positionNodeMenus();
   }
 
   showVariableMenu(node, dropdownBounds) {
+    this._overlayCamera = { ...this.camera };
+
     // Get all available variables from Set Variable nodes
     const availableVariables = this.nodes
       .filter((n) => n.nodeType.name === "Set Variable" && n.customInput)
@@ -7632,16 +10469,8 @@ class BlueprintSystem {
     const menu = document.createElement("div");
     menu.className = "operation-menu";
     menu.style.position = "fixed";
-
-    // Convert world coordinates to screen coordinates
-    const rect = this.canvas.getBoundingClientRect();
-    const screenX =
-      dropdownBounds.x * this.camera.zoom + this.camera.x + rect.left;
-    const screenY =
-      (dropdownBounds.y + dropdownBounds.height) * this.camera.zoom +
-      this.camera.y +
-      rect.top;
-    const menuWidth = dropdownBounds.width * this.camera.zoom;
+    // Where this menu hangs, so positionNodeMenus can re-anchor it.
+    menu.__overlayAnchor = { bounds: dropdownBounds, zoom: this.camera.zoom };
 
     // Scale font and padding with zoom
     const scaledFontSize = 14 * this.camera.zoom;
@@ -7653,9 +10482,6 @@ class BlueprintSystem {
     const scaledMenuBorderRadius = 4 * this.camera.zoom;
     const scaledMaxHeight = 200 * this.camera.zoom;
 
-    menu.style.left = `${screenX}px`;
-    menu.style.top = `${screenY}px`;
-    menu.style.width = `${menuWidth}px`;
     menu.style.background = "#2a2a2a";
     menu.style.border = "2px solid #4a4a4a";
     menu.style.borderRadius = `${scaledMenuBorderRadius}px`;
@@ -7700,6 +10526,7 @@ class BlueprintSystem {
       document.body.removeChild(menu);
       this.render();
       this.onShaderChanged();
+      this.history.pushState("Change variable");
     });
 
     menu.appendChild(noneOption);
@@ -7750,6 +10577,7 @@ class BlueprintSystem {
           document.body.removeChild(menu);
           this.render();
           this.onShaderChanged();
+          this.history.pushState("Change variable");
         });
 
         menu.appendChild(option);
@@ -7771,6 +10599,7 @@ class BlueprintSystem {
     }, 0);
 
     document.body.appendChild(menu);
+    this.positionNodeMenus();
   }
 
   getFilteredNodeTypes() {
@@ -7780,18 +10609,48 @@ class BlueprintSystem {
     const uniformNodeTypes = this.getUniformNodeTypes();
     nodeTypes = [...nodeTypes, ...Object.entries(uniformNodeTypes)];
 
+    // Add constant nodes
+    const constantNodeTypes = this.getConstantNodeTypes();
+    nodeTypes = [...nodeTypes, ...Object.entries(constantNodeTypes)];
+
     // Add custom nodes
     const customNodeTypes = this.getCustomNodeTypes();
     nodeTypes = [...nodeTypes, ...Object.entries(customNodeTypes)];
 
-    // Filter out output node if one already exists
+    // Add callable function/loop-body graph types (FunctionCall / ForLoop nodes),
+    // excluding any that would create a cycle from the active graph.
+    const callableTypes = this.getCallableFunctionNodeTypes();
+    for (const [key, nodeType] of Object.entries(callableTypes)) {
+      if (!wouldCreateCycle(this, this.activeGraphId, nodeType.targetGraphId)) {
+        nodeTypes.push([key, nodeType]);
+      }
+    }
+
+    const activeKind = this.activeGraph?.kind || "main";
+    const inSubgraph = activeKind === "function" || activeKind === "loopBody";
+
+    // Shader Output: only valid in main. Hide in subgraphs entirely; in main,
+    // hide if one is already placed.
     const hasOutputNode = this.nodes.some(
       (node) => node.nodeType === NODE_TYPES.output,
     );
-    if (hasOutputNode) {
+    if (inSubgraph || hasOutputNode) {
       nodeTypes = nodeTypes.filter(
         ([key, nodeType]) => nodeType !== NODE_TYPES.output,
       );
+    }
+
+    // Nodes that require a function/loopBody context are hidden in main.
+    if (!inSubgraph) {
+      nodeTypes = nodeTypes.filter(
+        ([key, nodeType]) => !nodeType.requiresFunctionContext,
+      );
+    } else {
+      // In a subgraph, hide uniqueWithinGraph types that are already placed.
+      nodeTypes = nodeTypes.filter(([key, nodeType]) => {
+        if (!nodeType.uniqueWithinGraph) return true;
+        return !this.nodes.some((n) => n.nodeType === nodeType);
+      });
     }
 
     // If we're filtering by port type
@@ -7824,6 +10683,20 @@ class BlueprintSystem {
       customNodeTypes[key] = this.createNodeTypeFromCustomNode(customNode);
     });
     return customNodeTypes;
+  }
+
+  getCallableFunctionNodeTypes() {
+    const types = {};
+    for (const g of this.getCallableGraphs()) {
+      const handler = getHandler(g.kind);
+      if (!handler) continue;
+      const nodeType = handler.createCallerNodeType(g, this);
+      if (nodeType) {
+        const key = `${handler.callerSearchPrefix}_${g.id}`;
+        types[key] = nodeType;
+      }
+    }
+    return types;
   }
 
   createNodeTypeFromCustomNode(customNode) {
@@ -8289,6 +11162,505 @@ class BlueprintSystem {
     this.render();
   }
 
+  // Create a comment sized to enclose the given nodes, via the same
+  // commentRectForContent() rule a later refit uses - so arranging a graph does
+  // not resize the comments it was just given.
+  //
+  // Keeping it fitted afterwards is captureCommentMembership() /
+  // refitCommentsToMembership(), which anything that moves nodes calls.
+  createCommentAroundNodes(nodes, options = {}) {
+    const list = (nodes || []).filter(Boolean);
+    if (list.length === 0) {
+      throw new Error("createCommentAroundNodes requires at least one node");
+    }
+
+    const description =
+      options.description !== undefined ? String(options.description) : "";
+
+    const rect = this.commentRectForContent(
+      this._commentContentBounds(list, []),
+      { padding: options.padding, description },
+    );
+
+    const comment = new Comment(
+      rect.x,
+      rect.y,
+      rect.width,
+      rect.height,
+      this.commentIdCounter++,
+    );
+    if (options.title !== undefined) comment.title = String(options.title);
+    if (description) comment.description = description;
+    if (options.color) comment.color = String(options.color);
+
+    this.comments.push(comment);
+    this.history.pushState("Add Comment");
+    this.render();
+
+    return comment;
+  }
+
+  // Returns a text-width function for the description font, or null when the
+  // canvas has no real metrics to offer. The headless canvas stub answers every
+  // measureText with the same number, which would wrap every paragraph to a
+  // single line and undersize the box, so probe it with two strings that must
+  // differ before trusting it.
+  measureCommentTextWidth() {
+    const ctx = this.ctx;
+    if (!ctx || typeof ctx.measureText !== "function") return null;
+
+    const previousFont = ctx.font;
+    ctx.font = COMMENT_DESCRIPTION_FONT;
+    const narrow = ctx.measureText("i")?.width;
+    const wide = ctx.measureText("MMMMMMMMMMMMMMMMMMMM")?.width;
+    if (Number.isFinite(narrow) && Number.isFinite(wide) && wide > narrow) {
+      return { measure: (text) => ctx.measureText(text).width, previousFont };
+    }
+
+    ctx.font = previousFont;
+    return null;
+  }
+
+  // The lines a description wraps to inside a box of the given width. This is the
+  // greedy fill drawComment() performs, factored out so that measuring a
+  // description and drawing it cannot disagree about how tall it is.
+  wrapCommentDescription(description, boxWidth) {
+    if (!description) return [];
+
+    const maxWidth = boxWidth - COMMENT_TEXT_MARGIN;
+    const metrics = this.measureCommentTextWidth();
+    // Falling back to an average glyph width keeps headless callers (the CLI,
+    // the tests) producing sensible heights. They can differ from the browser's
+    // real metrics by a line, which moves the box's top edge but never makes it
+    // wrong.
+    const measure =
+      metrics?.measure ??
+      ((text) => text.length * COMMENT_DESCRIPTION_CHAR_WIDTH);
+
+    try {
+      const lines = [];
+      for (const paragraph of String(description).split("\n")) {
+        const words = paragraph.split(" ");
+        let line = "";
+        for (let i = 0; i < words.length; i++) {
+          const testLine = line + words[i] + " ";
+          if (measure(testLine) > maxWidth && i > 0) {
+            lines.push(line);
+            line = words[i] + " ";
+          } else {
+            line = testLine;
+          }
+        }
+        // Every paragraph contributes a final line, empty ones included.
+        lines.push(line);
+      }
+      return lines;
+    } finally {
+      if (metrics) this.ctx.font = metrics.previousFont;
+    }
+  }
+
+  // Vertical room a comment has to leave above its nodes: the title bar, plus the
+  // whole description when there is one. The description is painted over the
+  // comment body and nodes are drawn on top of it, so anything that does not fit
+  // in this band ends up underneath a node and unreadable.
+  commentHeaderHeight(description, boxWidth) {
+    const lines = this.wrapCommentDescription(description, boxWidth);
+    if (lines.length === 0) return COMMENT_TITLE_HEIGHT;
+    return (
+      COMMENT_DESCRIPTION_TOP +
+      (lines.length - 1) * COMMENT_DESCRIPTION_LINE_HEIGHT +
+      COMMENT_DESCRIPTION_DESCENT
+    );
+  }
+
+  // The one rule for how big a comment is: snug around its contents on three
+  // sides, and enough room on top for the title bar and description. Used both
+  // when a comment is created and when a layout pass refits it, so the two
+  // cannot drift.
+  commentRectForContent(content, options = {}) {
+    const padding = Number.isFinite(options.padding)
+      ? options.padding
+      : COMMENT_FIT_PADDING;
+    const width = content.maxX - content.minX + padding * 2;
+    const top = this.commentHeaderHeight(options.description, width) + padding;
+    return {
+      x: content.minX - padding,
+      y: content.minY - top,
+      width,
+      height: content.maxY - content.minY + top + padding,
+    };
+  }
+
+  // Fraction of the smaller of two comments that the two of them share. Used by
+  // the `overlappingComments` lint rule, which reports anything above 0.25, and
+  // available to refitCommentsToMembership() for callers that only want
+  // substantial overlaps separated - it resolves any intersection by default.
+  commentOverlapFraction(a, b) {
+    const ox = Math.max(
+      0,
+      Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x),
+    );
+    const oy = Math.max(
+      0,
+      Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y),
+    );
+    return (
+      (ox * oy) / Math.max(1, Math.min(a.width * a.height, b.width * b.height))
+    );
+  }
+
+  // Record what each comment currently encloses, so that whatever moves the
+  // nodes next (auto-arrange, tidyVariables) can put the boxes back around them
+  // with refitCommentsToMembership(). Membership is geometric everywhere in this
+  // app - a comment owns whatever sits inside it right now - so this is a
+  // snapshot of a derived fact, not a grouping the user has to maintain.
+  //
+  // Nothing is written onto the Comment objects: the title-bar drag keeps its own
+  // containedNodes/containedComments there and an interleaved drag must not be
+  // clobbered. Pushes no history either; the caller owns the entry.
+  //
+  // Note this runs after normalizeFanoutsForLayout() in the auto-arrange path, so
+  // Set/Get Variable nodes that rewrite just created are already placed and can be
+  // captured as members. That is intended - a Get node parked next to its consumer
+  // belongs in the same comment - but it does mean a fan-out rewrite can enlarge a
+  // comment.
+  captureCommentMembership() {
+    const comments = this.comments;
+    if (comments.length === 0) return null;
+
+    // containsComment() is mutual for two identical rects, so "is inside" alone
+    // does not give a tree. Ordering by (area, id) is strict and total, and only
+    // admitting a parent that is greater in that order makes the relation acyclic
+    // by construction - no visited set needed.
+    const outranks = (a, b) =>
+      a.width * a.height !== b.width * b.height
+        ? a.width * a.height > b.width * b.height
+        : a.id > b.id;
+
+    const parentOf = new Map();
+    for (const c of comments) {
+      let best = null;
+      for (const p of comments) {
+        if (p === c || !p.containsComment(c) || !outranks(p, c)) continue;
+        // Tightest enclosing box wins, so nesting depth reflects what you see.
+        if (best === null || outranks(best, p)) best = p;
+      }
+      parentOf.set(c, best);
+    }
+
+    const depthOf = new Map();
+    const depthFor = (c) => {
+      if (depthOf.has(c)) return depthOf.get(c);
+      const parent = parentOf.get(c);
+      const depth = parent ? depthFor(parent) + 1 : 0;
+      depthOf.set(c, depth);
+      return depth;
+    };
+
+    const allReroutes = [];
+    for (const wire of this.wires) {
+      for (const rn of wire.rerouteNodes) allReroutes.push(rn);
+    }
+
+    const entries = comments.map((comment) => {
+      const nodes = this.nodes.filter((n) => comment.containsNode(n));
+      const children = comments.filter((c) => parentOf.get(c) === comment);
+      const reroutes = allReroutes.filter((rn) =>
+        comment.containsRerouteNode(rn),
+      );
+
+      const nodeWas = new Map();
+      for (const n of nodes) {
+        nodeWas.set(n, { x: n.x, y: n.y, width: n.width, height: n.height });
+      }
+      const childWas = new Map();
+      for (const c of children) {
+        childWas.set(c, { x: c.x, y: c.y, width: c.width, height: c.height });
+      }
+
+      return {
+        comment,
+        parent: parentOf.get(comment),
+        depth: depthFor(comment),
+        nodes,
+        children,
+        reroutes,
+        // A comment enclosing nothing has no anchor to follow, so it is left
+        // exactly where the author put it rather than being dragged around.
+        frozen: nodes.length === 0 && children.length === 0,
+        nodeWas,
+        childWas,
+      };
+    });
+
+    return { entries, byComment: new Map(entries.map((e) => [e.comment, e])) };
+  }
+
+  // Bounding box of the node rects and nested comment rects a comment is fitted
+  // to. Reroute nodes are deliberately excluded: auto-arrange never moves them,
+  // so sizing a comment to a stale reroute point would only inflate it.
+  _commentContentBounds(nodes, children) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of nodes) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.width);
+      maxY = Math.max(maxY, n.y + n.height);
+    }
+    for (const c of children) {
+      minX = Math.min(minX, c.x);
+      minY = Math.min(minY, c.y);
+      maxX = Math.max(maxX, c.x + c.width);
+      maxY = Math.max(maxY, c.y + c.height);
+    }
+    return minX === Infinity ? null : { minX, minY, maxX, maxY };
+  }
+
+  // Put every comment back around the nodes it held when the snapshot was taken,
+  // snug at the standard padding with room on top for its description, then push
+  // apart any that overlap until none do. Pushes no history: the caller records
+  // one entry covering both the node moves and this.
+  refitCommentsToMembership(snapshot, options = {}) {
+    const result = { refit: 0, separated: 0, passes: 0, converged: true };
+    if (!snapshot || snapshot.entries.length === 0) return result;
+
+    const {
+      separate = true,
+      // Any intersection at all is an overlap. Raise this to only act on
+      // substantial ones (`csg lint` reports above 0.25).
+      overlapThreshold = 0,
+      gap = COMMENT_SEPARATION_GAP,
+      padding = COMMENT_FIT_PADDING,
+      maxPasses = 24,
+    } = options;
+
+    const liveNodes = new Set(this.nodes);
+    const liveComments = new Set(this.comments);
+    // Deepest first, so a parent reads its children's already-refit rects and
+    // expands over them. Fitting a parent to node rects alone would clip the
+    // inner comment's border and title bar.
+    const entries = snapshot.entries
+      .filter((e) => liveComments.has(e.comment))
+      .sort((a, b) => b.depth - a.depth || a.comment.id - b.comment.id);
+
+    const membersOf = (e) => e.nodes.filter((n) => liveNodes.has(n));
+    const childrenOf = (e) => e.children.filter((c) => liveComments.has(c));
+
+    const refitOnce = () => {
+      let refit = 0;
+      for (const e of entries) {
+        if (e.frozen) continue;
+        const nodes = membersOf(e);
+        const children = childrenOf(e);
+        if (nodes.length === 0 && children.length === 0) continue;
+        if (!this._commentContentChanged(e, nodes, children)) continue;
+
+        // Snug on all four sides at the standard padding, with whatever extra
+        // room on top the description needs. Any slack the author had dragged
+        // into the box is dropped: a refit that preserved it would carry a
+        // hand-stretched comment across the canvas for no reason, and the
+        // padding is the same rule a freshly fitted comment gets.
+        const rect = this.commentRectForContent(
+          this._commentContentBounds(nodes, children),
+          { padding, description: e.comment.description },
+        );
+
+        const c = e.comment;
+        c.x = rect.x;
+        c.y = rect.y;
+        c.width = rect.width;
+        c.height = rect.height;
+        refit++;
+      }
+      return refit;
+    };
+
+    result.refit = refitOnce();
+
+    if (!separate) return result;
+
+    // Only a pass that finds nothing left to move proves there are no overlaps.
+    result.converged = false;
+
+    const entryOf = new Map(entries.map((e) => [e.comment, e]));
+    const nodeSets = new Map(entries.map((e) => [e, new Set(e.nodes)]));
+    const descendants = new Map(entries.map((e) => [e, []]));
+    for (const e of entries) {
+      let ancestor = e.parent;
+      while (ancestor) {
+        const ancestorEntry = entryOf.get(ancestor);
+        if (!ancestorEntry) break;
+        descendants.get(ancestorEntry).push(e.comment);
+        ancestor = ancestorEntry.parent;
+      }
+    }
+
+    // Rigid translation. A comment's captured members already include every
+    // descendant's members (a box inside another box encloses a subset of its
+    // nodes), so each object is moved exactly once.
+    const moveGroup = (e, dx, dy) => {
+      e.comment.x += dx;
+      e.comment.y += dy;
+      for (const child of descendants.get(e)) {
+        if (!liveComments.has(child)) continue;
+        child.x += dx;
+        child.y += dy;
+      }
+      for (const n of membersOf(e)) {
+        n.x += dx;
+        n.y += dy;
+      }
+      for (const rn of e.reroutes) {
+        rn.x += dx;
+        rn.y += dy;
+      }
+    };
+
+    // Siblings only. Pairing across nesting levels would tear every nested
+    // comment out of its parent: under the overlap metric a box fully inside
+    // another scores 1.0, the worst possible overlap.
+    const groups = new Map();
+    for (const e of entries) {
+      const key = e.parent && liveComments.has(e.parent) ? e.parent : null;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(e);
+    }
+    const orderedGroups = [...groups.values()].filter((g) => g.length > 1);
+
+    for (let pass = 0; pass < maxPasses; pass++) {
+      result.passes = pass + 1;
+      let moved = 0;
+
+      for (const group of orderedGroups) {
+        for (let i = 0; i < group.length; i++) {
+          for (let j = i + 1; j < group.length; j++) {
+            const a = group[i];
+            const b = group[j];
+            // An empty comment has no nodes to carry, so it stays where the
+            // author put it - but it is still solid, and pushes whatever lands
+            // on it out of the way.
+            if (a.frozen && b.frozen) continue;
+            // Two comments that share a node cannot both keep enclosing it and
+            // be pulled apart, so leave them - `csg lint` reports the pair as
+            // multiCommentedNode.
+            const setA = nodeSets.get(a);
+            if (b.nodes.some((n) => setA.has(n))) continue;
+
+            const ca = a.comment;
+            const cb = b.comment;
+            const ox =
+              Math.min(ca.x + ca.width, cb.x + cb.width) - Math.max(ca.x, cb.x);
+            const oy =
+              Math.min(ca.y + ca.height, cb.y + cb.height) -
+              Math.max(ca.y, cb.y);
+            // Touching edges are fine; only a real intersection is an overlap.
+            if (ox <= 0 || oy <= 0) continue;
+            if (
+              overlapThreshold > 0 &&
+              this.commentOverlapFraction(ca, cb) <= overlapThreshold
+            ) {
+              continue;
+            }
+
+            // Separate along the cheaper axis, fully plus a gap, so the pair
+            // comes apart in one move rather than being nudged to just-touching
+            // and revisited every pass.
+            const horizontal = ox <= oy;
+            const push = (horizontal ? ox : oy) + gap;
+            const centreA = horizontal
+              ? ca.x + ca.width / 2
+              : ca.y + ca.height / 2;
+            const centreB = horizontal
+              ? cb.x + cb.width / 2
+              : cb.y + cb.height / 2;
+            // Deterministic tie-break, so two exactly concentric comments still
+            // come apart the same way every run.
+            const dir =
+              Math.sign(centreA - centreB) || (ca.id < cb.id ? -1 : 1);
+
+            // Split the move evenly, unless one side is pinned - then the other
+            // gives way completely.
+            const shareA = a.frozen ? 0 : b.frozen ? 1 : 0.5;
+            const stepA = dir * push * shareA;
+            const stepB = -dir * push * (1 - shareA);
+
+            if (stepA)
+              moveGroup(a, horizontal ? stepA : 0, horizontal ? 0 : stepA);
+            if (stepB)
+              moveGroup(b, horizontal ? stepB : 0, horizontal ? 0 : stepB);
+            moved++;
+          }
+        }
+      }
+
+      if (moved === 0) {
+        result.converged = true;
+        break;
+      }
+      result.separated += moved;
+      // Parents re-expand over the children a sibling move displaced. Every move
+      // is rigid, so a moved comment's refit reproduces its own rect exactly and
+      // the loop cannot fight itself.
+      refitOnce();
+    }
+
+    // Separating one pair can push a comment onto a third, so this relaxes over
+    // several passes. Crowded graphs can run out before every overlap is gone -
+    // say so rather than reporting a clean layout, `csg lint` will list what is
+    // left as overlappingComments.
+    if (!result.converged) {
+      console.log(
+        `Comment separation stopped after ${result.passes} passes with overlaps remaining`,
+      );
+    }
+
+    return result;
+  }
+
+  // True if anything the comment is fitted to has moved, resized, or gone away.
+  // calculateCommentDiff deep-equals raw floats, so a comment whose members all
+  // sat still has to be left untouched rather than reassigned an arithmetically
+  // equal value - otherwise every arrange writes float noise into its undo entry.
+  _commentContentChanged(entry, nodes, children) {
+    if (nodes.length !== entry.nodes.length) return true;
+    if (children.length !== entry.children.length) return true;
+    for (const n of nodes) {
+      const was = entry.nodeWas.get(n);
+      if (
+        !was ||
+        was.x !== n.x ||
+        was.y !== n.y ||
+        was.width !== n.width ||
+        was.height !== n.height
+      ) {
+        return true;
+      }
+    }
+    for (const c of children) {
+      const was = entry.childWas.get(c);
+      if (
+        !was ||
+        was.x !== c.x ||
+        was.y !== c.y ||
+        was.width !== c.width ||
+        was.height !== c.height
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // "Comment Selection" action: fit a comment around whatever is selected.
+  commentSelection() {
+    if (this.selectedNodes.size === 0) return null;
+    return this.createCommentAroundNodes([...this.selectedNodes]);
+  }
+
   selectNodeType(key, nodeType) {
     const rect = this.canvas.getBoundingClientRect();
     // Convert screen coordinates to world coordinates
@@ -8306,7 +11678,29 @@ class BlueprintSystem {
       if (uniform) {
         newNode = this.createUniformNode(uniform, worldX, worldY);
       }
+    } else if (key.startsWith("constant_")) {
+      const constant = this.constants.find((c) => c.id === nodeType.constantId);
+      if (constant) {
+        newNode = this.createConstantNode(constant, worldX, worldY);
+      }
     } else {
+      if (nodeType.isFunctionCall && nodeType.targetGraphId) {
+        if (
+          wouldCreateCycle(this, this.activeGraphId, nodeType.targetGraphId)
+        ) {
+          const cyclePath = getCyclePath(
+            this,
+            this.activeGraphId,
+            nodeType.targetGraphId,
+          );
+          this.showNotification({
+            type: "error",
+            title: "Cycle detected",
+            message: `Adding this would create a cycle: ${cyclePath}`,
+          });
+          return;
+        }
+      }
       newNode = this.addNode(worldX, worldY, nodeType);
     }
 
@@ -8411,8 +11805,8 @@ class BlueprintSystem {
     const selectedItem = this.searchResults.querySelector(".search-selected");
     if (selectedItem && selectedItem.dataset.nodeTypeKey) {
       const key = selectedItem.dataset.nodeTypeKey;
-      const nodeType = NODE_TYPES[key];
-      this.selectNodeType(key, nodeType);
+      const nodeType = this.getNodeTypeFromKey(key);
+      if (nodeType) this.selectNodeType(key, nodeType);
       return;
     }
 
@@ -8423,8 +11817,8 @@ class BlueprintSystem {
     const firstItem = items[0];
     if (firstItem.dataset.nodeTypeKey) {
       const key = firstItem.dataset.nodeTypeKey;
-      const nodeType = NODE_TYPES[key];
-      this.selectNodeType(key, nodeType);
+      const nodeType = this.getNodeTypeFromKey(key);
+      if (nodeType) this.selectNodeType(key, nodeType);
     } else if (firstItem.classList.contains("create-custom-node-btn")) {
       // Handle Create Custom Node button
       this.pendingCustomNodePosition = { ...this.searchMenuPosition };
@@ -8447,6 +11841,12 @@ class BlueprintSystem {
     // Attach mousemove and mouseup to document so they work even over UI elements
     document.addEventListener("mousemove", (e) => this.onMouseMove(e));
     document.addEventListener("mouseup", (e) => this.onMouseUp(e));
+
+    // Clear pressed keys when window loses focus (prevents stuck keys)
+    window.addEventListener("blur", () => this.pressedKeys.clear());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.pressedKeys.clear();
+    });
 
     // Drag and drop for uniforms
     this.canvas.addEventListener("dragover", (e) => {
@@ -8472,6 +11872,17 @@ class BlueprintSystem {
         return;
       }
 
+      // Check for constant drop
+      const constantId = parseInt(e.dataTransfer.getData("constantId"));
+      if (constantId) {
+        const constant = this.constants.find((c) => c.id === constantId);
+        if (constant) {
+          this.createConstantNode(constant, x, y);
+          this.history.pushState("Create constant node");
+        }
+        return;
+      }
+
       // Check for custom node drop
       const customNodeId = parseInt(e.dataTransfer.getData("customNodeId"));
       if (customNodeId) {
@@ -8481,6 +11892,33 @@ class BlueprintSystem {
           this.addNode(x, y, nodeType);
           this.history.pushState("Create custom node");
         }
+        return;
+      }
+
+      // Phase 4: caller-node drop (function / loop body)
+      const callerGraphId = e.dataTransfer.getData("callerGraphId");
+      if (callerGraphId) {
+        const targetGraph = this.graphs.get(callerGraphId);
+        if (!targetGraph) return;
+        if (wouldCreateCycle(this, this.activeGraphId, callerGraphId)) {
+          const cyclePath = getCyclePath(
+            this,
+            this.activeGraphId,
+            callerGraphId,
+          );
+          this.showNotification({
+            type: "error",
+            title: "Cycle detected",
+            message: `Adding this would create a cycle: ${cyclePath}`,
+          });
+          return;
+        }
+        const handler = getHandler(targetGraph.kind);
+        if (!handler) return;
+        const nodeType = handler.createCallerNodeType(targetGraph, this);
+        if (!nodeType) return;
+        this.addNode(x, y, nodeType);
+        this.history.pushState("Create caller node");
         return;
       }
     });
@@ -8739,11 +12177,17 @@ class BlueprintSystem {
           this.isPreviewVisible() ? "Hide Preview" : "Show Preview",
       },
       {
+        label: "New Preview Window",
+        menu: "View",
+        action: "newPreviewWindow",
+        handler: () => this.addPreviewWindow(this.newPreviewWindowOptions()),
+      },
+      {
         label: "Reload Preview",
         menu: "View",
         action: "reloadPreview",
         shortcut: "R",
-        handler: () => this.updatePreview(),
+        handler: () => this.updateAllPreviews(),
       },
       {
         label: "Reset Preview Position",
@@ -8790,12 +12234,33 @@ class BlueprintSystem {
           ),
       },
       {
+        label: "Comment Selection",
+        menu: "Project",
+        action: "commentSelection",
+        shortcut: "Shift+C",
+        handler: () => this.commentSelection(),
+        isEnabled: () => this.selectedNodes.size > 0,
+      },
+      {
         label: "Turn Into Variable",
         menu: "Project",
         action: "rewriteFanout",
         shortcut: "V",
         handler: () => this.runRewriteSelectedFanout(),
         isEnabled: () => !!this.getSelectedFanoutCandidate(),
+      },
+      {
+        label: "Turn Into Function",
+        menu: "Project",
+        action: "turnIntoFunction",
+        shortcut: "G",
+        handler: () => this.runTurnSelectionIntoFunction(),
+        isEnabled: () => {
+          if (this.selectedNodes.size === 0) return false;
+          return Array.from(this.selectedNodes).some(
+            (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable,
+          );
+        },
       },
       // Help menu
       {
@@ -8806,23 +12271,10 @@ class BlueprintSystem {
         handler: () => this.showManualModal(),
       },
       {
-        label: "MCP",
+        label: "What's New",
         menu: "Help",
-        action: "mcpMenuTitle",
-        getLabel: () => this.getMcpMenuTitle(),
-      },
-      {
-        label: "Connect MCP",
-        menu: "Help",
-        action: "toggleMcp",
-        handler: () => this.toggleMcpConnection(),
-        getLabel: () => this.getMcpStatusLabel(),
-      },
-      {
-        label: "MCP Status",
-        menu: "Help",
-        action: "mcpStatus",
-        handler: () => this.showMcpStatus(),
+        action: "whatsNew",
+        handler: () => this.showChangelogModal(),
       },
       {
         label: "Report Issue",
@@ -9227,8 +12679,6 @@ class BlueprintSystem {
         }
       }
     });
-
-    this.updateMcpMenuAppearance();
   }
 
   selectAllNodes() {
@@ -9239,37 +12689,39 @@ class BlueprintSystem {
     this.render();
   }
 
-  isPreviewVisible() {
-    const previewWindow = document.getElementById("preview-window");
-    return previewWindow && previewWindow.style.display !== "none";
+  // The menu commands act on window 0 unless given another - it is the one that
+  // always exists, and the one "the preview" means everywhere else.
+  isPreviewVisible(target = this.defaultPreviewTarget()) {
+    return !!target?.root && target.root.style.display !== "none";
   }
 
-  togglePreviewWindow() {
-    const previewWindow = document.getElementById("preview-window");
-    const openPreviewBtn = document.getElementById("openPreviewBtn");
-
-    if (this.isPreviewVisible()) {
-      previewWindow.style.display = "none";
-      openPreviewBtn.style.display = "flex";
+  togglePreviewWindow(target = this.defaultPreviewTarget()) {
+    if (!target?.root) return;
+    if (this.isPreviewVisible(target)) {
+      this.minimisePreviewWindow(target);
     } else {
-      previewWindow.style.display = "flex";
-      openPreviewBtn.style.display = "none";
+      this.showPreviewWindow(target);
     }
   }
 
+  // Put every window back where it started, cascaded as if freshly opened.
+  // The escape hatch for a panel dragged off-screen.
   resetPreviewPosition() {
-    const previewWindow = document.getElementById("preview-window");
-    const openPreviewBtn = document.getElementById("openPreviewBtn");
+    this.previewTargets.forEach((target, index) => {
+      if (!target.root) return;
+      const offset = index * 36;
+      const style = target.root.style;
+      style.display = "flex";
+      style.bottom = `${20 + offset}px`;
+      style.right = `${20 + offset}px`;
+      style.left = "";
+      style.top = "";
+      style.width = "400px";
+      style.height = "300px";
+      this.raisePreviewWindow(target);
+    });
 
-    // Reset to default position and show
-    previewWindow.style.display = "flex";
-    previewWindow.style.bottom = "20px";
-    previewWindow.style.right = "20px";
-    previewWindow.style.left = "";
-    previewWindow.style.top = "";
-    previewWindow.style.width = "400px";
-    previewWindow.style.height = "300px";
-    openPreviewBtn.style.display = "none";
+    this.updateOpenPreviewButton();
   }
 
   toggleSidebar() {
@@ -9297,7 +12749,7 @@ class BlueprintSystem {
     if (this.previewNode) {
       this.previewNode = null;
       this.previewNeedsUpdate = true;
-      this.updatePreview();
+      this.updateAllPreviews();
     }
   }
 
@@ -9312,7 +12764,7 @@ class BlueprintSystem {
     if (this.previewNode && this.selectedNodes.size > 1) {
       this.previewNode = null;
       this.previewNeedsUpdate = true;
-      this.updatePreview();
+      this.updateAllPreviews();
     }
   }
 
@@ -9324,7 +12776,7 @@ class BlueprintSystem {
     if (this.previewNode === node) {
       this.previewNode = null;
       this.previewNeedsUpdate = true;
-      this.updatePreview();
+      this.updateAllPreviews();
     }
   }
 
@@ -9360,10 +12812,14 @@ class BlueprintSystem {
     const deletingPreviewNode =
       this.previewNode && this.selectedNodes.has(this.previewNode);
 
-    // Delete selected nodes and their wires (except output node)
+    // Delete selected nodes and their wires (except undeleteable ones)
     this.selectedNodes.forEach((node) => {
       // Don't delete the output node
       if (node.nodeType === NODE_TYPES.output) {
+        return;
+      }
+      // Respect NodeType.undeleteable (function/loop-body boundary nodes).
+      if (node.nodeType.undeleteable) {
         return;
       }
 
@@ -9390,7 +12846,7 @@ class BlueprintSystem {
     if (deletingPreviewNode) {
       this.previewNode = null;
       this.previewNeedsUpdate = true;
-      this.updatePreview();
+      this.updateAllPreviews();
     }
 
     this.clearSelection();
@@ -9407,7 +12863,7 @@ class BlueprintSystem {
       if (this.previewNode) {
         this.previewNode = null;
         this.previewNeedsUpdate = true;
-        this.updatePreview();
+        this.updateAllPreviews();
         this.render();
       }
       return;
@@ -9442,7 +12898,7 @@ class BlueprintSystem {
     }
 
     this.previewNeedsUpdate = true;
-    this.updatePreview();
+    this.updateAllPreviews();
     this.render();
   }
 
@@ -9461,7 +12917,311 @@ class BlueprintSystem {
       console.log(`Auto-arranging all ${this.nodes.length} nodes`);
     }
 
-    this.autoLayoutEngine.autoArrange(selectedOnly);
+    this.autoLayoutEngine.autoArrange(selectedOnly, {
+      recordHistory: options.recordHistory !== false,
+      fitComments: options.fitComments !== false,
+    });
+  }
+
+  // Insert reroute points so no wire is drawn across a node it does not
+  // connect to, and every wire arrives at its input port heading right.
+  // Auto-arrange places nodes; it does not route the wires between them, so a
+  // straight line from a port often runs straight over whatever sits between.
+  routeWiresAroundNodes(options = {}) {
+    const margin = Number.isFinite(options.margin) ? options.margin : 24;
+    const clearance = Number.isFinite(options.clearance)
+      ? options.clearance
+      : 18;
+
+    const rects = this.nodes.map((node) => ({
+      node,
+      x: node.x - clearance,
+      y: node.y - clearance,
+      w: node.width + clearance * 2,
+      h: node.height + clearance * 2,
+    }));
+
+    const hitsRect = (seg, r) => {
+      const inside = (px, py) =>
+        px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+      if (inside(seg.x1, seg.y1) || inside(seg.x2, seg.y2)) return true;
+      const sign = (ax, ay, bx, by, cx, cy) =>
+        Math.sign((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
+      const cross = (p, q) =>
+        sign(p.x1, p.y1, p.x2, p.y2, q.x1, q.y1) !==
+          sign(p.x1, p.y1, p.x2, p.y2, q.x2, q.y2) &&
+        sign(q.x1, q.y1, q.x2, q.y2, p.x1, p.y1) !==
+          sign(q.x1, q.y1, q.x2, q.y2, p.x2, p.y2);
+      return [
+        { x1: r.x, y1: r.y, x2: r.x + r.w, y2: r.y },
+        { x1: r.x + r.w, y1: r.y, x2: r.x + r.w, y2: r.y + r.h },
+        { x1: r.x + r.w, y1: r.y + r.h, x2: r.x, y2: r.y + r.h },
+        { x1: r.x, y1: r.y + r.h, x2: r.x, y2: r.y },
+      ].some((edge) => cross(seg, edge));
+    };
+
+    const countHits = (points, skip) => {
+      let hits = 0;
+      for (let i = 0; i + 1 < points.length; i++) {
+        const seg = {
+          x1: points[i].x,
+          y1: points[i].y,
+          x2: points[i + 1].x,
+          y2: points[i + 1].y,
+        };
+        for (const r of rects) {
+          if (skip.has(r.node.id)) continue;
+          if (hitsRect(seg, r)) hits++;
+        }
+      }
+      return hits;
+    };
+
+    // Drop points that add nothing: duplicates and straight-through corners.
+    const simplify = (points) => {
+      const out = [];
+      for (const p of points) {
+        const prev = out[out.length - 1];
+        if (prev && Math.abs(prev.x - p.x) < 1 && Math.abs(prev.y - p.y) < 1) {
+          continue;
+        }
+        out.push(p);
+      }
+      return out;
+    };
+
+    // Crossing another wire is much less objectionable than being drawn over a
+    // node, but among detours that clear every node it is the tiebreak.
+    const otherSegments = () => {
+      const out = [];
+      for (const w of this.wires) {
+        const pts = w.getPoints();
+        for (let i = 0; i + 1 < pts.length; i++) {
+          out.push({
+            wire: w,
+            x1: pts[i].x,
+            y1: pts[i].y,
+            x2: pts[i + 1].x,
+            y2: pts[i + 1].y,
+          });
+        }
+      }
+      return out;
+    };
+    const segCross = (p, q) => {
+      const sign = (ax, ay, bx, by, cx, cy) =>
+        Math.sign((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
+      return (
+        sign(p.x1, p.y1, p.x2, p.y2, q.x1, q.y1) !==
+          sign(p.x1, p.y1, p.x2, p.y2, q.x2, q.y2) &&
+        sign(q.x1, q.y1, q.x2, q.y2, p.x1, p.y1) !==
+          sign(q.x1, q.y1, q.x2, q.y2, p.x2, p.y2)
+      );
+    };
+    const countCrossings = (points, self) => {
+      const others = otherSegments().filter((s) => s.wire !== self);
+      let n = 0;
+      for (let i = 0; i + 1 < points.length; i++) {
+        const seg = {
+          x1: points[i].x,
+          y1: points[i].y,
+          x2: points[i + 1].x,
+          y2: points[i + 1].y,
+        };
+        for (const o of others) if (segCross(seg, o)) n++;
+      }
+      return n;
+    };
+
+    let routed = 0;
+    for (const wire of this.wires) {
+      const skip = new Set([wire.startPort.node.id, wire.endPort.node.id]);
+      wire.rerouteNodes = [];
+
+      const start = wire.getStartPos();
+      const end = wire.getEndPos();
+      const straight = [start, end];
+      if (countHits(straight, skip) === 0 && end.x >= start.x) continue;
+
+      const exitX = start.x + margin;
+      const entryX = end.x - margin;
+
+      // Lanes worth trying: the two port heights, the midpoint, and just clear
+      // of every node that sits in the horizontal band the wire has to cross.
+      const lo = Math.min(exitX, entryX);
+      const hi = Math.max(exitX, entryX);
+      const band = rects.filter(
+        (r) => !skip.has(r.node.id) && r.x + r.w > lo && r.x < hi,
+      );
+      const lanes = [start.y, end.y, (start.y + end.y) / 2];
+      if (band.length > 0) {
+        lanes.push(Math.min(...band.map((r) => r.y)) - margin);
+        lanes.push(Math.max(...band.map((r) => r.y + r.h)) + margin);
+        const sorted = [...band].sort((a, b) => a.y - b.y);
+        for (let i = 0; i + 1 < sorted.length; i++) {
+          const gapTop = sorted[i].y + sorted[i].h;
+          const gapBottom = sorted[i + 1].y;
+          if (gapBottom - gapTop > margin * 2) {
+            lanes.push((gapTop + gapBottom) / 2);
+          }
+        }
+      }
+
+      // Also scan the band at a fixed step, so a wire boxed in by neighbours
+      // still has somewhere to go.
+      if (band.length > 0) {
+        const top = Math.min(...band.map((r) => r.y)) - margin * 2;
+        const bottom = Math.max(...band.map((r) => r.y + r.h)) + margin * 2;
+        const step = Math.max(40, (bottom - top) / 24);
+        for (let y = top; y <= bottom; y += step) lanes.push(y);
+      }
+
+      let best = null;
+      for (const lane of lanes) {
+        const points = simplify([
+          start,
+          { x: exitX, y: start.y },
+          { x: exitX, y: lane },
+          { x: entryX, y: lane },
+          { x: entryX, y: end.y },
+          end,
+        ]);
+        const hits = countHits(points, skip);
+        const score = hits * 1000 + countCrossings(points, wire);
+        if (best === null || score < best.score) best = { hits, score, points };
+        if (score === 0) break;
+      }
+
+      if (!best) continue;
+      const inner = best.points.slice(1, -1);
+      // A detour that helps nothing is just more clutter than the straight line.
+      const straightHits = countHits(straight, skip);
+      const straightScore =
+        straightHits * 1000 + countCrossings(straight, wire);
+      if (best.score >= straightScore && end.x >= start.x) continue;
+      for (const p of inner) wire.addRerouteNode(p.x, p.y);
+      routed++;
+    }
+
+    if (routed > 0 && options.recordHistory !== false) {
+      this.history.pushState(`Route ${routed} wire${routed === 1 ? "" : "s"}`);
+    }
+    this.render();
+    return { ok: true, routed, wires: this.wires.length };
+  }
+
+  // Park each Set Variable beside the node it stores, instead of wherever the
+  // dependency levels put it. A Set Variable has no outgoing wires, so moving
+  // one cannot disturb anything downstream, and it turns the one wire it does
+  // have into a short stub.
+  // Park a node immediately to the right of whatever feeds its first input,
+  // aligned to that output port and slid down past anything already there.
+  // Returns true if it moved.
+  //
+  // This is the one definition of "a stored value sits beside the node that
+  // produced it". tidyVariables applies it to every Set Variable; auto-arrange
+  // applies it to sinks the layout could not place in a tree (see the satellite
+  // rule in AutoLayoutEngine). It is also the convention rewriteFanoutAsVariable
+  // uses when it first creates the node.
+  parkNodeBesideItsSource(node, obstacles, gap = 60) {
+    const wire = node.inputPorts[0]?.connections?.[0];
+    if (!wire) return false;
+    const source = wire.startPort.node;
+
+    const x = source.x + source.width + gap;
+    let y = wire.startPort.getPosition().y - node.height / 2;
+
+    const collides = (py) =>
+      obstacles.some(
+        (o) =>
+          o !== node &&
+          x < o.x + o.width + 20 &&
+          x + node.width + 20 > o.x &&
+          py < o.y + o.height + 20 &&
+          py + node.height + 20 > o.y,
+      );
+    let guard = 0;
+    while (collides(y) && guard++ < 40) y += 50;
+
+    if (node.x === x && node.y === y) return false;
+    node.x = x;
+    node.y = y;
+    return true;
+  }
+
+  snapVariableNodesToSources(options = {}) {
+    const gap = Number.isFinite(options.gap) ? options.gap : 60;
+    // Placed Set Variables count as obstacles too: a node with two stored
+    // outputs would otherwise stack both of them in the same spot.
+    const obstacles = this.nodes.filter(
+      (node) => this.getNodeTypeKey(node.nodeType) !== "setVariable",
+    );
+
+    // Parking a Set Variable elsewhere moves it out from under whatever comment
+    // held it, so the boxes get refitted here for the same reason auto-arrange
+    // does it.
+    const commentSnapshot =
+      options.fitComments !== false ? this.captureCommentMembership() : null;
+
+    let moved = 0;
+    for (const node of this.nodes) {
+      if (this.getNodeTypeKey(node.nodeType) !== "setVariable") continue;
+      if (this.parkNodeBesideItsSource(node, obstacles, gap)) moved++;
+      obstacles.push(node);
+    }
+
+    // Refit before the push, so the comment geometry rides in the same entry.
+    // Kept separate from the recordHistory guard: a caller that suppresses the
+    // push still wants the comments to follow, and pushes its own entry.
+    if (moved > 0 && commentSnapshot) {
+      this.refitCommentsToMembership(commentSnapshot);
+    }
+
+    if (moved > 0 && options.recordHistory !== false) {
+      this.history.pushState(
+        `Snap ${moved} variable node${moved === 1 ? "" : "s"}`,
+      );
+    }
+    this.render();
+    return { ok: true, moved };
+  }
+
+  snapVariableNodesAllGraphs(options = {}) {
+    let moved = 0;
+    for (const graph of this.graphs.values()) {
+      this._withGraph(graph, () => {
+        moved += this.snapVariableNodesToSources(options).moved;
+      });
+    }
+    return { ok: true, moved };
+  }
+
+  routeWiresAllGraphs(options = {}) {
+    let routed = 0;
+    for (const graph of this.graphs.values()) {
+      this._withGraph(graph, () => {
+        routed += this.routeWiresAroundNodes(options).routed;
+      });
+    }
+    return { ok: true, routed };
+  }
+
+  // Arrange every graph, not just the active one. Selection is cleared per
+  // graph first: autoArrange() silently switches to selection-only mode when
+  // anything is selected, which would otherwise arrange a subset.
+  autoArrangeAllGraphs(options = {}) {
+    const arranged = [];
+    for (const graph of this.graphs.values()) {
+      this._withGraph(graph, () => {
+        graph.selectedNodes.forEach((node) => (node.isSelected = false));
+        graph.selectedNodes.clear();
+        if (graph.nodes.length === 0) return;
+        this.autoArrange(options);
+        arranged.push({ id: graph.id, name: graph.name, kind: graph.kind });
+      });
+    }
+    this.render();
+    return arranged;
   }
 
   debugAutoArrange() {
@@ -9652,6 +13412,10 @@ class BlueprintSystem {
         uniformName: node.uniformName,
         uniformDisplayName: node.uniformDisplayName,
         uniformVariableName: node.uniformVariableName,
+        constantId: node.constantId,
+        constantName: node.constantName,
+        constantDisplayName: node.constantDisplayName,
+        constantType: node.constantType,
         inputPorts: node.inputPorts.map((port) => ({
           name: port.name,
           portType: port.portType,
@@ -9687,6 +13451,12 @@ class BlueprintSystem {
       }
     });
 
+    // Store the camera's world-space center at copy time
+    const vw = this.logicalWidth || this.canvas.width;
+    const vh = this.logicalHeight || this.canvas.height;
+    copiedData.cameraCenterX = (vw / 2 - this.camera.x) / this.camera.zoom;
+    copiedData.cameraCenterY = (vh / 2 - this.camera.y) / this.camera.zoom;
+
     // Store in clipboard
     this.clipboard = copiedData;
     console.log(`Copied ${copiedData.nodes.length} nodes`);
@@ -9698,7 +13468,13 @@ class BlueprintSystem {
       return;
     }
 
-    this.pasteNodes(this.clipboard, 50, 50); // Offset by 50px
+    const vw = this.logicalWidth || this.canvas.width;
+    const vh = this.logicalHeight || this.canvas.height;
+    const nowX = (vw / 2 - this.camera.x) / this.camera.zoom;
+    const nowY = (vh / 2 - this.camera.y) / this.camera.zoom;
+    const dx = nowX - this.clipboard.cameraCenterX;
+    const dy = nowY - this.clipboard.cameraCenterY;
+    this.pasteNodes(this.clipboard, dx + 50, dy + 50);
   }
 
   duplicateSelected() {
@@ -9795,6 +13571,10 @@ class BlueprintSystem {
       newNode.uniformName = nodeData.uniformName;
       newNode.uniformDisplayName = nodeData.uniformDisplayName;
       newNode.uniformVariableName = nodeData.uniformVariableName;
+      newNode.constantId = nodeData.constantId;
+      newNode.constantName = nodeData.constantName;
+      newNode.constantDisplayName = nodeData.constantDisplayName;
+      newNode.constantType = nodeData.constantType;
 
       // Restore port values
       newNode.inputPorts.forEach((port, i) => {
@@ -9891,7 +13671,37 @@ class BlueprintSystem {
     console.log(`Pasted ${newNodes.length} nodes`);
   }
 
+  // Is a modal dialog currently up? Dialogs use one of two mechanisms: the
+  // `.modal` ones and the JS-built gradient editor toggle inline display, while
+  // the custom-node and uniform dialogs toggle a `visible` class.
+  //
+  // Deliberately reads inline style rather than getComputedStyle: that is how
+  // every one of these is actually shown and hidden, and it keeps the check
+  // working headlessly, where the stylesheet isn't loaded and every div would
+  // otherwise compute to display:block.
+  isAnyDialogOpen() {
+    if (
+      document.querySelector(
+        ".custom-node-modal.visible, .uniform-modal.visible",
+      )
+    ) {
+      return true;
+    }
+    for (const el of document.querySelectorAll(
+      ".modal, #gradientEditorModal",
+    )) {
+      if (el.style.display && el.style.display !== "none") return true;
+    }
+    return false;
+  }
+
   onKeyDown(e) {
+    // A dialog is modal: nothing typed into it should reach the graph behind
+    // it. The activeElement check below only catches dialogs that happen to
+    // have a field focused — the gradient editor has none, so Delete and
+    // Ctrl+Z were going straight through to the graph.
+    if (this.isAnyDialogOpen()) return;
+
     // Track pressed keys for shortcuts (1-4 for node creation)
     this.pressedKeys.add(e.key);
 
@@ -10045,10 +13855,23 @@ class BlueprintSystem {
       e.preventDefault();
       this.resetPreviewPosition();
     }
+    // Shift + C: Comment the selection. The bare-C binding above requires
+    // !shiftKey, so Center View lets this through.
+    else if (
+      e.shiftKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      (e.key === "C" || e.key === "c")
+    ) {
+      if (this.selectedNodes.size > 0) {
+        e.preventDefault();
+        this.commentSelection();
+      }
+    }
     // R: Reload Preview
     else if (!e.ctrlKey && !e.metaKey && (e.key === "r" || e.key === "R")) {
       e.preventDefault();
-      this.updatePreview();
+      this.updateAllPreviews();
     }
     // V: Rewrite selected fan-out
     else if (
@@ -10060,6 +13883,21 @@ class BlueprintSystem {
       if (this.getSelectedFanoutCandidate()) {
         e.preventDefault();
         this.runRewriteSelectedFanout();
+      }
+    }
+    // G: Turn selection into function
+    else if (
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      (e.key === "g" || e.key === "G")
+    ) {
+      const hasExtractable = Array.from(this.selectedNodes).some(
+        (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable,
+      );
+      if (this.selectedNodes.size > 0 && hasExtractable) {
+        e.preventDefault();
+        this.runTurnSelectionIntoFunction();
       }
     }
     // L: Toggle Preview Node
@@ -10461,11 +14299,12 @@ class BlueprintSystem {
     return declarations;
   }
 
-  generateShader(target, levels, portToVarName) {
+  generateShader(target, levels, portToVarName, extraDeps = new Map()) {
     let shader = "";
 
-    // Collect unique dependencies for this target with their node sources
-    const dependencyMap = new Map(); // Map from dependency string to Set of node names
+    // Collect unique dependencies for this target with their node sources.
+    // extraDeps carries helper functions needed by compiled function bodies.
+    const dependencyMap = new Map(extraDeps); // start with function-body deps
     for (const level of levels) {
       for (const node of level) {
         // Check if getDependency exists (some dynamically created nodes might not have it)
@@ -10560,6 +14399,24 @@ class BlueprintSystem {
             outputTypes,
           );
           shader += code + "\n";
+        } else if (node.nodeType.isFunctionCall) {
+          // Emit the call site for a FunctionCall node.
+          const handler = getHandler(node.nodeType.callerKind || "function");
+          if (handler) {
+            const sig =
+              node._computedSignature ||
+              handler.computeCallSiteSignature(node, this);
+            node._computedSignature = sig;
+
+            shader += `\n    // ${node.nodeType.name}\n`;
+            shader +=
+              handler.emitCallSite(node, sig, {
+                target,
+                portToVarName,
+                fnName: sig.fnName,
+                host: this,
+              }) + "\n";
+          }
         }
       }
     }
@@ -10637,29 +14494,29 @@ class BlueprintSystem {
   }
 
   showViewCodeModal() {
-    const graph = this.buildDependencyGraph();
-
-    if (!graph) {
-      alert("No output node found. Cannot generate shader.");
-      return;
-    }
-
-    const levels = this.topologicalSort(
-      graph.dependencies,
-      graph.connectedNodes,
-    );
-
-    // Generate shaders for all targets
-    const targets = ["webgl1", "webgl2", "webgpu"];
+    const targets = this.enabledTargets();
     const shaders = {};
 
-    for (const target of targets) {
-      const portToVarName = this.generateVariableNames(levels, target);
-      const boilerplate = this.getBoilerplate(target);
-      const uniformDeclarations = this.generateUniformDeclarations(target);
-      const shaderCode = this.generateShader(target, levels, portToVarName);
-      const fullShader = boilerplate + uniformDeclarations + shaderCode;
-      shaders[target] = fullShader;
+    const activeKind = this.activeGraph?.kind || "main";
+    if (activeKind !== "main") {
+      for (const target of targets) {
+        shaders[target] = this._generateCallableGraphPreview(
+          this.activeGraph,
+          target,
+        );
+      }
+    } else {
+      const all = this.generateAllShaders();
+      if (!all) {
+        this.showNotification({
+          type: "error",
+          title: "Cannot generate shader",
+          message: this.codegenFailureMessage(),
+          duration: 6000,
+        });
+        return;
+      }
+      for (const target of targets) shaders[target] = all[target];
     }
 
     // Initialize CodeMirror editors for each panel if not already done
@@ -10681,13 +14538,57 @@ class BlueprintSystem {
       }
     }
 
+    this.updateShaderLanguageTabs();
+
     // Show the modal
     document.getElementById("viewCodeModal").style.display = "flex";
   }
 
+  // Hide the language tabs of disabled targets wherever they appear - the code
+  // viewer and the custom node editor - and move the selection off a tab that
+  // just disappeared. Both tab strips are static markup, so this hides rather
+  // than rebuilds, and re-running it is how they come back.
+  updateShaderLanguageTabs() {
+    const enabled = this.enabledTargets();
+
+    // View Code modal: tabs are .code-tab[data-target], panels are #code-<t>.
+    const codeTabs = document.querySelectorAll(".code-tabs .code-tab");
+    let activeCodeTabIsGone = false;
+    for (const tab of codeTabs) {
+      const target = tab.dataset.target;
+      if (!target) continue;
+      const on = enabled.includes(target);
+      tab.style.display = on ? "" : "none";
+      if (!on && tab.classList.contains("active")) {
+        tab.classList.remove("active");
+        document.getElementById(`code-${target}`)?.classList.remove("active");
+        activeCodeTabIsGone = true;
+      }
+    }
+    if (activeCodeTabIsGone && enabled.length) {
+      const fallback = document.querySelector(
+        `.code-tabs .code-tab[data-target="${enabled[0]}"]`,
+      );
+      fallback?.classList.add("active");
+      document.getElementById(`code-${enabled[0]}`)?.classList.add("active");
+    }
+
+    // Custom node editor: tabs are .shader-tab[data-shader].
+    for (const tab of document.querySelectorAll(".shader-tab[data-shader]")) {
+      const target = tab.dataset.shader;
+      if (!target) continue;
+      tab.style.display = enabled.includes(target) ? "" : "none";
+    }
+    if (this.currentShaderLang && !enabled.includes(this.currentShaderLang)) {
+      this.switchCustomNodeShaderLang?.(enabled[0]);
+    }
+  }
+
   initializeViewCodeEditors() {
     const checkCodeMirror = () => {
-      const targets = ["webgl1", "webgl2", "webgpu"];
+      // Every panel gets an editor, including disabled languages' - the tab is
+      // hidden, not removed, so enabling one again must not need a reload.
+      const targets = SHADER_TARGETS;
 
       for (const target of targets) {
         const container = document.getElementById(`code-${target}`);
@@ -10888,6 +14789,336 @@ class BlueprintSystem {
     }
   }
 
+  turnSelectionIntoFunction(name = "Untitled") {
+    const extractable = Array.from(this.selectedNodes).filter(
+      (n) => n.nodeType !== NODE_TYPES.output && !n.nodeType.undeleteable,
+    );
+    if (extractable.length === 0) return null;
+
+    const selectedSet = new Set(extractable);
+    const sourceGraph = this.activeGraph;
+    const sourceGraphId = this.activeGraphId;
+
+    // ── 1. Analyse boundary wires ────────────────────────────────────────
+    const incomingWires = [];
+    const outgoingWires = [];
+    const internalWires = [];
+
+    for (const wire of sourceGraph.wires) {
+      const startInside = selectedSet.has(wire.startPort.node);
+      const endInside = selectedSet.has(wire.endPort.node);
+      if (startInside && endInside) {
+        internalWires.push(wire);
+      } else if (startInside && !endInside) {
+        outgoingWires.push({
+          wire,
+          internalPort: wire.startPort,
+          externalPort: wire.endPort,
+        });
+      } else if (!startInside && endInside) {
+        incomingWires.push({
+          wire,
+          externalPort: wire.startPort,
+          internalPort: wire.endPort,
+        });
+      }
+    }
+
+    // ── 2. Build function contract ───────────────────────────────────────
+    const srcPortToContractInput = new Map();
+    const contractInputs = [];
+    const intPortToContractOutput = new Map();
+    const contractOutputs = [];
+    const mkId = (suffix) =>
+      `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${suffix}`;
+    const usedNames = new Set();
+
+    const uniqueName = (base) => {
+      let n = base;
+      let i = 2;
+      while (usedNames.has(n)) {
+        n = `${base}_${i++}`;
+      }
+      usedNames.add(n);
+      return n;
+    };
+
+    for (const entry of incomingWires) {
+      const srcPort = entry.externalPort;
+      if (srcPortToContractInput.has(srcPort)) continue;
+      const resolved = srcPort.getResolvedType();
+      const concreteType = this._resolveConcreteTypeForContract(resolved);
+      const portDef = {
+        id: mkId("in"),
+        name: uniqueName(
+          entry.internalPort.name || `in_${contractInputs.length}`,
+        ),
+        type: concreteType,
+      };
+      contractInputs.push(portDef);
+      srcPortToContractInput.set(srcPort, portDef);
+    }
+
+    for (const entry of outgoingWires) {
+      const intPort = entry.internalPort;
+      if (intPortToContractOutput.has(intPort)) continue;
+      const resolved = intPort.getResolvedType();
+      const concreteType = this._resolveConcreteTypeForContract(resolved);
+      const portDef = {
+        id: mkId("out"),
+        name: uniqueName(intPort.name || `out_${contractOutputs.length}`),
+        type: concreteType,
+      };
+      contractOutputs.push(portDef);
+      intPortToContractOutput.set(intPort, portDef);
+    }
+
+    // ── 3. Create the function graph ─────────────────────────────────────
+    const functionGraph = this.createGraph({
+      kind: "function",
+      name,
+      data: {
+        contract: { inputs: contractInputs, outputs: contractOutputs },
+        notes: "",
+      },
+    });
+    const handler = getHandler("function");
+    handler.bootstrapGraph(functionGraph, this);
+
+    const fnInputNode = functionGraph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionInput,
+    );
+    const fnOutputNode = functionGraph.nodes.find(
+      (n) => n.nodeType === NODE_TYPES.functionOutput,
+    );
+
+    // ── 4. Copy nodes into the function body ─────────────────────────────
+    const oldToNewNode = new Map();
+    this._withGraph(functionGraph, () => {
+      for (const node of extractable) {
+        const newNode = new Node(
+          node.x,
+          node.y,
+          this.nodeIdCounter++,
+          node.nodeType,
+        );
+        newNode._blueprintSystem = this;
+        newNode._graph = functionGraph;
+        newNode.operation = node.operation;
+        newNode.customInput = node.customInput;
+        newNode.data = this.cloneNodeData(node.data);
+        newNode.selectedVariable = node.selectedVariable;
+        newNode.uniformId = node.uniformId;
+        newNode.uniformName = node.uniformName;
+        newNode.uniformDisplayName = node.uniformDisplayName;
+        newNode.uniformVariableName = node.uniformVariableName;
+        newNode.constantId = node.constantId;
+        newNode.constantName = node.constantName;
+        newNode.constantDisplayName = node.constantDisplayName;
+        newNode.constantType = node.constantType;
+        for (
+          let i = 0;
+          i < newNode.inputPorts.length && i < node.inputPorts.length;
+          i++
+        ) {
+          if (node.inputPorts[i].value !== undefined) {
+            newNode.inputPorts[i].value = this.cloneValue(
+              node.inputPorts[i].value,
+            );
+          }
+        }
+        functionGraph.nodes.push(newNode);
+        oldToNewNode.set(node, newNode);
+      }
+    });
+
+    // ── 5. Recreate internal wires in the function body ──────────────────
+    for (const wire of internalWires) {
+      const newSrcNode = oldToNewNode.get(wire.startPort.node);
+      const newDstNode = oldToNewNode.get(wire.endPort.node);
+      if (!newSrcNode || !newDstNode) continue;
+      const newSrcPort = newSrcNode.outputPorts[wire.startPort.index];
+      const newDstPort = newDstNode.inputPorts[wire.endPort.index];
+      if (!newSrcPort || !newDstPort) continue;
+      const newWire = new Wire(newSrcPort, newDstPort);
+      newSrcPort.connections.push(newWire);
+      newDstPort.connections.push(newWire);
+      functionGraph.wires.push(newWire);
+    }
+
+    // ── 6. Wire function inputs to body nodes ────────────────────────────
+    for (const entry of incomingWires) {
+      const contractDef = srcPortToContractInput.get(entry.externalPort);
+      const contractIdx = contractInputs.indexOf(contractDef);
+      const fnInPort = fnInputNode.outputPorts[contractIdx];
+      const newDstNode = oldToNewNode.get(entry.internalPort.node);
+      if (!newDstNode || !fnInPort) continue;
+      const newDstPort = newDstNode.inputPorts[entry.internalPort.index];
+      if (!newDstPort) continue;
+      const newWire = new Wire(fnInPort, newDstPort);
+      fnInPort.connections.push(newWire);
+      newDstPort.connections.push(newWire);
+      functionGraph.wires.push(newWire);
+    }
+
+    // ── 7. Wire body nodes to function outputs ───────────────────────────
+    for (const entry of outgoingWires) {
+      const contractDef = intPortToContractOutput.get(entry.internalPort);
+      const contractIdx = contractOutputs.indexOf(contractDef);
+      const fnOutPort = fnOutputNode.inputPorts[contractIdx];
+      const newSrcNode = oldToNewNode.get(entry.internalPort.node);
+      if (!newSrcNode || !fnOutPort) continue;
+      const newSrcPort = newSrcNode.outputPorts[entry.internalPort.index];
+      if (!newSrcPort) continue;
+      if (!fnOutPort.connections.some((w) => w.startPort === newSrcPort)) {
+        const newWire = new Wire(newSrcPort, fnOutPort);
+        newSrcPort.connections.push(newWire);
+        fnOutPort.connections.push(newWire);
+        functionGraph.wires.push(newWire);
+      }
+    }
+
+    for (const wire of functionGraph.wires) {
+      this.resolveGenericsForConnection(wire.startPort, wire.endPort);
+    }
+
+    this.history.initGraphState(
+      functionGraph.id,
+      this._exportGraphState(functionGraph),
+    );
+    this.openTabs && this.openTabs.add(functionGraph.id);
+
+    // ── 8. Build the caller node type ────────────────────────────────────
+    functionGraph.contractVersion = (functionGraph.contractVersion || 0) + 1;
+    handler.enforceBoundaryRules(functionGraph, this);
+    const callerType = handler.createCallerNodeType(functionGraph, this);
+
+    // ── 9. Mutate source graph in a transaction ──────────────────────────
+    let callerNode;
+    this.runMultiGraphTransaction(
+      [sourceGraphId],
+      () => {
+        // Disconnect and remove selected nodes from source graph.
+        for (const node of extractable) {
+          for (const port of node.getAllPorts()) {
+            for (const wire of [...port.connections]) {
+              this.disconnectWire(wire);
+            }
+          }
+        }
+        sourceGraph.nodes = sourceGraph.nodes.filter(
+          (n) => !selectedSet.has(n),
+        );
+
+        // Place caller node.
+        let avgX = 0,
+          avgY = 0;
+        for (const n of extractable) {
+          avgX += n.x;
+          avgY += n.y;
+        }
+        avgX /= extractable.length;
+        avgY /= extractable.length;
+
+        this._withGraph(sourceGraph, () => {
+          callerNode = this.addNode(avgX, avgY, callerType);
+        });
+
+        // Rewire external inputs to caller.
+        for (let i = 0; i < contractInputs.length; i++) {
+          const contractDef = contractInputs[i];
+          const entry = incomingWires.find(
+            (e) => srcPortToContractInput.get(e.externalPort) === contractDef,
+          );
+          if (!entry) continue;
+          const srcPort = entry.externalPort;
+          const callerInPort = callerNode.inputPorts[i];
+          if (!callerInPort) continue;
+          const newWire = new Wire(srcPort, callerInPort);
+          srcPort.connections.push(newWire);
+          callerInPort.connections.push(newWire);
+          sourceGraph.wires.push(newWire);
+          this.resolveGenericsForConnection(srcPort, callerInPort);
+        }
+
+        // Rewire caller outputs to external destinations.
+        for (let i = 0; i < contractOutputs.length; i++) {
+          const contractDef = contractOutputs[i];
+          const matchingEntries = outgoingWires.filter(
+            (e) => intPortToContractOutput.get(e.internalPort) === contractDef,
+          );
+          const callerOutPort = callerNode.outputPorts[i];
+          if (!callerOutPort) continue;
+          for (const entry of matchingEntries) {
+            const dstPort = entry.externalPort;
+            const newWire = new Wire(callerOutPort, dstPort);
+            callerOutPort.connections.push(newWire);
+            dstPort.connections.push(newWire);
+            sourceGraph.wires.push(newWire);
+            this.resolveGenericsForConnection(callerOutPort, dstPort);
+          }
+        }
+
+        this.clearSelection();
+      },
+      `Turn selection into function "${name}"`,
+    );
+
+    this.renderFunctionsList();
+    this.renderGraphTabBar();
+    this.onShaderChanged();
+    this.render();
+
+    return { functionGraph, callerNode };
+  }
+
+  _nextFunctionName() {
+    let max = 0;
+    for (const g of this.graphs.values()) {
+      if (g.kind !== "function") continue;
+      const m = g.name.match(/^Function(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `Function${max + 1}`;
+  }
+
+  runTurnSelectionIntoFunction() {
+    const name = prompt("Function name:", this._nextFunctionName());
+    if (!name) return;
+    try {
+      const result = this.turnSelectionIntoFunction(name);
+      if (!result) {
+        this.showNotification({
+          type: "warning",
+          title: "Turn Into Function",
+          message: "No extractable nodes in selection.",
+          duration: 2200,
+        });
+        return;
+      }
+      this.showNotification({
+        type: "success",
+        title: "Turn Into Function",
+        message: `Created function "${name}" with ${result.functionGraph.data.contract.inputs.length} input(s) and ${result.functionGraph.data.contract.outputs.length} output(s).`,
+        duration: 2500,
+      });
+    } catch (error) {
+      this.showNotification({
+        type: "error",
+        title: "Turn Into Function Failed",
+        message: error.message,
+        duration: 2400,
+      });
+    }
+  }
+
+  _resolveConcreteTypeForContract(portType) {
+    if (isGenericType(portType)) {
+      return "float";
+    }
+    return portType;
+  }
+
   runRewriteSelectedFanout() {
     const candidate = this.getSelectedFanoutCandidate();
     if (!candidate) {
@@ -10958,6 +15189,161 @@ class BlueprintSystem {
     });
   }
 
+  // ==================== Version badge and What's New ====================
+
+  setupVersionBadge() {
+    const badge = document.getElementById("appVersion");
+    if (!badge) return;
+    badge.textContent = versionLabel();
+    badge.addEventListener("click", () => this.showChangelogModal());
+  }
+
+  /**
+   * Where "which release has this user already been shown" is remembered.
+   *
+   * The suffix is not optional. The stable build and the experimental build are
+   * served from the same origin (/construct-shader-graph/ and
+   * /construct-shader-graph/experimental/), so they share one localStorage -
+   * without it, acknowledging What's New on one channel silently suppresses it
+   * on the other.
+   */
+  lastSeenVersionKey() {
+    return `shader-graph-last-seen-version${
+      isExperimentalBuild() ? ":experimental" : ""
+    }`;
+  }
+
+  getLastSeenVersion() {
+    try {
+      return localStorage.getItem(this.lastSeenVersionKey());
+    } catch {
+      // Private mode, disabled storage - the changelog is not worth failing over.
+      return null;
+    }
+  }
+
+  markChangelogSeen() {
+    try {
+      localStorage.setItem(this.lastSeenVersionKey(), APP_VERSION);
+    } catch {
+      // As above.
+    }
+  }
+
+  /**
+   * Whether this browser has used the editor before.
+   *
+   * Recent files is the trace we go on: `addRecentFile` writes it whenever a
+   * project is opened or saved, and it long predates the seen-version key. It
+   * is deliberately not namespaced per channel - "has used the editor at all"
+   * is exactly the question, on either channel.
+   *
+   * This distinction earns its keep exactly once, on the release that
+   * introduces the seen-version key. On that day *every* existing user has no
+   * stamp, so without this they would all be mistaken for first-time visitors
+   * and the release they were waiting for would be announced to nobody.
+   */
+  hasUsedAppBefore() {
+    try {
+      const stored = localStorage.getItem("recentFiles");
+      if (!stored) return false;
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) && parsed.length > 0;
+    } catch {
+      // Unparseable or unavailable - treat as a fresh browser and stay quiet.
+      return false;
+    }
+  }
+
+  setupChangelogModal() {
+    const modal = document.getElementById("changelogModal");
+    if (!modal) return;
+    const close = () => {
+      modal.style.display = "none";
+      // Stamped on dismiss rather than on show, so a reload part-way through
+      // reading brings it back instead of losing it.
+      this.markChangelogSeen();
+    };
+
+    document
+      .getElementById("changelogModalClose")
+      ?.addEventListener("click", close);
+    document
+      .getElementById("changelogModalOk")
+      ?.addEventListener("click", close);
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) close();
+    });
+  }
+
+  /**
+   * @param {{entries?: object[]|null}} [options] Which entries to show. Null -
+   *   the Help menu and the toolbar badge - shows the whole changelog; the
+   *   auto-show path passes just the ones the user has not read, so the caller
+   *   owns that decision and this only renders.
+   */
+  showChangelogModal({ entries = null } = {}) {
+    const modal = document.getElementById("changelogModal");
+    const body = document.getElementById("changelogModalBody");
+    if (!modal || !body) return;
+
+    const isCatchUp = entries !== null;
+    const shown = isCatchUp ? entries : CHANGELOG_ENTRIES;
+
+    const markdown = shown
+      .map((entry) => `## ${entry.heading}\n\n${entry.body}`)
+      .join("\n\n");
+
+    // Safe because the markdown is bundled into the build from CHANGELOG.md -
+    // it is repo-owned, as trusted as this file. Never point this at markdown
+    // that came from a user or a loaded project.
+    body.innerHTML = renderMarkdown(markdown);
+    body.scrollTop = 0;
+
+    const versionEl = document.getElementById("changelogModalVersion");
+    if (versionEl) versionEl.textContent = versionLabel();
+
+    const title = document.getElementById("changelogModalTitle");
+    if (title) {
+      title.textContent = isCatchUp
+        ? `What's New in ${APP_VERSION}`
+        : "What's New";
+    }
+
+    modal.style.display = "flex";
+  }
+
+  /** Auto-show once per release. Called from startup; see the block at the end of this file. */
+  maybeShowWhatsNew() {
+    const seen = this.getLastSeenVersion();
+    if (seen === APP_VERSION) return;
+
+    if (!seen) {
+      // Two very different people land here with no stamp: someone opening the
+      // editor for the first time, and someone who has been using it since
+      // before this key existed.
+      if (!this.hasUsedAppBefore()) {
+        // Genuinely new - a changelog for software they have never run is a
+        // poor first impression.
+        this.markChangelogSeen();
+        return;
+      }
+      // Prior use, but no stamp, so we cannot know which version they came
+      // from. Show the newest entry only - the same answer entriesSince gives
+      // for any version it cannot place.
+      this.showChangelogModal({ entries: CHANGELOG_ENTRIES.slice(0, 1) });
+      return;
+    }
+
+    const entries = entriesSince(CHANGELOG_ENTRIES, seen);
+    if (!entries.length) {
+      this.markChangelogSeen();
+      return;
+    }
+
+    this.showChangelogModal({ entries });
+  }
+
   showManualModal() {
     const modal = document.getElementById("manualModal");
     const categoriesContainer = document.getElementById("manualCategories");
@@ -10999,7 +15385,11 @@ class BlueprintSystem {
     const sortedCategories = Object.keys(categories).sort();
 
     // Build the sidebar HTML
-    let sidebarHtml = "";
+    let sidebarHtml = `
+      <div class="manual-node-item manual-types-item" data-special="types" style="border-left-color: #c084fc; margin: 4px 8px 8px 8px; padding: 8px 10px;">
+        <span class="manual-node-name">Types Reference</span>
+      </div>
+    `;
     for (const category of sortedCategories) {
       const nodes = categories[category].sort((a, b) =>
         a.nodeType.name.localeCompare(b.nodeType.name),
@@ -11090,9 +15480,13 @@ class BlueprintSystem {
             .forEach((i) => i.classList.remove("active"));
           // Add active class to clicked item
           item.classList.add("active");
-          // Show node documentation
-          const nodeKey = item.dataset.nodeKey;
-          this.showNodeManualEntry(nodeKey);
+          // Show node or special documentation
+          if (item.dataset.special === "types") {
+            this.showTypesManualEntry();
+          } else {
+            const nodeKey = item.dataset.nodeKey;
+            this.showNodeManualEntry(nodeKey);
+          }
         });
       });
 
@@ -11320,66 +15714,132 @@ class BlueprintSystem {
     contentContainer.innerHTML = html;
   }
 
-  async exportGLSL() {
-    const graph = this.buildDependencyGraph();
+  showTypesManualEntry() {
+    const contentContainer = document.getElementById("manualContent");
+    const skipKeys = new Set(["T", "U"]);
+    const typeRows = Object.entries(PORT_TYPES)
+      .filter(([key, t]) => !t.isGeneric && !skipKeys.has(key))
+      .map(
+        ([key, t]) => `
+        <tr>
+          <td><span class="manual-type-badge" style="background: ${t.color}40; color: ${t.color}; border-color: ${t.color}">${key}</span></td>
+          <td>${t.name}</td>
+          <td>${t.editable ? "Yes" : "No"}</td>
+          <td>${t.defaultValue !== undefined ? (Array.isArray(t.defaultValue) ? `(${t.defaultValue.join(", ")})` : String(t.defaultValue)) : "—"}</td>
+        </tr>
+      `,
+      )
+      .join("");
 
-    if (!graph) {
-      alert("No output node found. Cannot generate shader.");
-      return;
-    }
+    const genericRows = Object.entries(PORT_TYPES)
+      .filter(([key, t]) => t.isGeneric && !skipKeys.has(key))
+      .map(
+        ([key, t]) => `
+        <tr>
+          <td><span class="manual-type-badge">${t.name}</span></td>
+          <td>${t.allowedTypes?.map((at) => `<code>${at}</code>`).join(", ") || "—"}</td>
+        </tr>
+      `,
+      )
+      .join("");
 
-    const levels = this.topologicalSort(
-      graph.dependencies,
-      graph.connectedNodes,
-    );
+    contentContainer.innerHTML = `
+      <div class="manual-entry">
+        <div class="manual-entry-header" style="border-left-color: #c084fc">
+          <h2>Types Reference</h2>
+        </div>
+        <div class="manual-section">
+          <h3>Concrete Types</h3>
+          <p>These are the fundamental data types used by shader node ports.</p>
+          <table class="manual-ports-table">
+            <thead><tr><th>Type</th><th>Name</th><th>Editable</th><th>Default</th></tr></thead>
+            <tbody>${typeRows}</tbody>
+          </table>
+        </div>
+        <div class="manual-section">
+          <h3>Generic Types</h3>
+          <p>Generic types resolve to a concrete type at codegen time based on what is connected. When unconnected, they default to the first allowed type.</p>
+          <table class="manual-ports-table">
+            <thead><tr><th>Name</th><th>Allowed Types</th></tr></thead>
+            <tbody>${genericRows}</tbody>
+          </table>
+        </div>
+        <div class="manual-section">
+          <h3>Type Compatibility</h3>
+          <p>Ports can be connected when their types are compatible: exact match, generic-to-concrete (if the concrete type is in the generic's allowed list), or when one generic is a subset of another.</p>
+        </div>
+      </div>
+    `;
+  }
 
-    // Create ZIP file
-    const zip = new JSZip();
+  // Build the .c3addon contents without delivering them anywhere. Returns
+  // null when the graph has no output node. Splitting this out from
+  // exportGLSL() is what lets non-browser callers (the CLI) produce the exact
+  // same bundle the download button produces.
+  buildAddonBundle() {
+    const shaders = this.generateAllShaders();
+    if (!shaders) return null;
 
-    // Generate shaders for all targets
-    const targets = ["webgl1", "webgl2", "webgpu"];
-    const shaders = {};
-
-    for (const target of targets) {
-      // Generate variable names for this specific target
-      const portToVarName = this.generateVariableNames(levels, target);
-      const boilerplate = this.getBoilerplate(target);
-      const uniformDeclarations = this.generateUniformDeclarations(target);
-      const shaderCode = this.generateShader(target, levels, portToVarName);
-      const fullShader = boilerplate + uniformDeclarations + shaderCode;
-      shaders[target] = fullShader;
-
-      // Log to console
-      console.log(`Generated ${target.toUpperCase()} Shader:`);
-      console.log(fullShader);
-      console.log("---");
-    }
-
-    // Add shader files to ZIP
-    zip.file("effect.fx", shaders.webgl1);
-    zip.file("effect.webgl2.fx", shaders.webgl2);
-    zip.file("effect.wgsl", shaders.webgpu);
-
-    // Generate addon.json
-    const addonJson = this.generateAddonJson();
-    zip.file("addon.json", JSON.stringify(addonJson, null, "\t"));
-
-    // Generate lang/en-US.json
-    const langJson = this.generateLangJson();
-    zip.file("lang/en-US.json", JSON.stringify(langJson, null, "\t"));
-
-    // Generate and download ZIP
-    const blob = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-
-    // Use sanitized name for the download filename with version
     const addonId = this.sanitizeAddonId(
       this.shaderSettings.name || "MyEffect",
     );
     const version = this.shaderSettings.version || "0.0.0.0";
-    a.download = `${addonId}-${version}.c3addon`;
+
+    const files = {};
+    // Disabled languages are absent from `shaders`, so the bundle simply does
+    // not carry their file. addon.json's file-list and supported-renderers are
+    // derived from the same set, which is what keeps the two consistent.
+    for (const target of this.enabledTargets()) {
+      files[TARGET_FILENAMES[target]] = shaders[target];
+    }
+    files["addon.json"] = JSON.stringify(this.generateAddonJson(), null, "\t");
+    files["lang/en-US.json"] = JSON.stringify(
+      this.generateLangJson(),
+      null,
+      "\t",
+    );
+
+    return {
+      filename: `${addonId}-${version}.c3addon`,
+      addonId,
+      version,
+      files,
+    };
+  }
+
+  // Zip a bundle from buildAddonBundle(). `type` is passed straight to JSZip,
+  // so callers pick "blob" in a browser and "nodebuffer"/"uint8array" outside.
+  async zipAddonBundle(bundle, type = "blob") {
+    const zip = new JSZip();
+    for (const [path, content] of Object.entries(bundle.files)) {
+      zip.file(path, content);
+    }
+    return zip.generateAsync({ type });
+  }
+
+  async exportGLSL() {
+    const bundle = this.buildAddonBundle();
+    if (!bundle) {
+      this.showNotification({
+        type: "error",
+        title: "Cannot generate shader",
+        message: this.codegenFailureMessage(),
+        duration: 6000,
+      });
+      return;
+    }
+
+    for (const target of this.enabledTargets()) {
+      console.log(`Generated ${TARGET_LABELS[target]} Shader:`);
+      console.log(bundle.files[TARGET_FILENAMES[target]]);
+      console.log("---");
+    }
+
+    const blob = await this.zipAddonBundle(bundle, "blob");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = bundle.filename;
 
     document.body.appendChild(a);
     a.click();
@@ -11395,15 +15855,13 @@ class BlueprintSystem {
       .replace(/^_+|_+$/g, "");
   }
 
-  bumpVersionAndExport(bumpType) {
-    // Parse current version (X.X.X.X format)
-    const currentVersion = this.shaderSettings.version || "0.0.0.0";
-    const parts = currentVersion.split(".").map((n) => parseInt(n, 10) || 0);
-
-    // Ensure we have exactly 4 parts
+  // Bump one component of an X.X.X.X version string, resetting the lower ones.
+  bumpVersionString(version, bumpType) {
+    const parts = String(version || "0.0.0.0")
+      .split(".")
+      .map((n) => parseInt(n, 10) || 0);
     while (parts.length < 4) parts.push(0);
 
-    // Bump the appropriate part and reset lower parts
     switch (bumpType) {
       case "major":
         parts[0]++;
@@ -11425,8 +15883,14 @@ class BlueprintSystem {
         break;
     }
 
-    // Update the version in settings
-    const newVersion = parts.join(".");
+    return parts.join(".");
+  }
+
+  bumpVersionAndExport(bumpType) {
+    const newVersion = this.bumpVersionString(
+      this.shaderSettings.version,
+      bumpType,
+    );
     this.shaderSettings.version = newVersion;
 
     // Update the version input field if it exists
@@ -11441,6 +15905,7 @@ class BlueprintSystem {
 
   generateAddonJson() {
     const settings = this.shaderSettings;
+    const enabledTargets = this.enabledTargets();
 
     // Generate addon ID from author and name
     const author = settings.author || "MyCompany";
@@ -11463,11 +15928,11 @@ class BlueprintSystem {
       "file-list": [
         "lang/en-US.json",
         "addon.json",
-        "effect.fx",
-        "effect.webgl2.fx",
-        "effect.wgsl",
+        ...enabledTargets.map((target) => TARGET_FILENAMES[target]),
       ],
-      "supported-renderers": ["webgl", "webgl2", "webgpu"],
+      "supported-renderers": enabledTargets.map(
+        (target) => TARGET_RENDERERS[target],
+      ),
       category: settings.category || "color",
       "blends-background": settings.blendsBackground || false,
       "cross-sampling": settings.crossSampling || false,
@@ -11554,122 +16019,77 @@ class BlueprintSystem {
     return langData;
   }
 
-  resetPreviewSettings() {
-    // Reset preview settings to defaults
-    this.previewSettings = {
-      effectTarget: "sprite",
-      object: "sprite",
-      cameraMode: "2d",
-      autoRotate: true,
-      samplingMode: "trilinear",
-      shaderLanguage: "webgpu",
-      spriteTextureUrl: null,
-      shapeTextureUrl: null,
-      bgTextureUrl: null,
-      showBackgroundCube: true,
-      spriteScale: 1,
-      shapeScale: 1,
-      roomScale: 1,
-      bgOpacity: 0.15,
-      bg3dOpacity: 0.15,
-      zoomLevel: 1,
-      startupScript: "",
-    };
+  // Put the file's preview windows back.
+  //
+  // A file written before multiple windows existed has only `previewSettings`,
+  // which is window 0's; `previewWindows` is the full list and is preferred
+  // when present. Either way the session ends up with exactly the windows the
+  // file describes, never a mix of those and whatever was open before.
+  restorePreviewWindows(data) {
+    const settingsFrom = (raw) => ({
+      // Merge over the defaults, not over the current session's settings -
+      // otherwise a setting from the previously open file leaks into a file
+      // that never had it.
+      ...makeDefaultPreviewSettings(),
+      ...migratePreviewSettings(raw ?? {}),
+    });
 
-    // Update UI elements
-    const effectTargetSelect = document.getElementById("effectTargetSelect");
-    const objectSelect = document.getElementById("objectSelect");
-    const cameraModeSelect = document.getElementById("cameraModeSelect");
-    const autoRotateCheckbox = document.getElementById("autoRotateCheckbox");
-    const autoRotateGroup = document.getElementById("autoRotateGroup");
-    const samplingModeSelect = document.getElementById("samplingModeSelect");
-    const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect",
-    );
-    const showBackgroundCubeCheckbox = document.getElementById(
-      "showBackgroundCubeCheckbox",
-    );
-    const spriteScaleSlider = document.getElementById("spriteScaleSlider");
-    const spriteScaleValue = document.getElementById("spriteScaleValue");
-    const shapeScaleSlider = document.getElementById("shapeScaleSlider");
-    const shapeScaleValue = document.getElementById("shapeScaleValue");
-    const roomScaleSlider = document.getElementById("roomScaleSlider");
-    const roomScaleValue = document.getElementById("roomScaleValue");
-    const bgOpacitySlider = document.getElementById("bgOpacitySlider");
-    const bgOpacityValue = document.getElementById("bgOpacityValue");
-    const bg3dOpacitySlider = document.getElementById("bg3dOpacitySlider");
-    const bg3dOpacityValue = document.getElementById("bg3dOpacityValue");
+    const saved =
+      Array.isArray(data.previewWindows) && data.previewWindows.length
+        ? data.previewWindows
+        : [{ settings: data.previewSettings }];
 
-    if (effectTargetSelect) effectTargetSelect.value = "sprite";
-    if (objectSelect) objectSelect.value = "sprite";
-    if (cameraModeSelect) cameraModeSelect.value = "2d";
-    if (autoRotateCheckbox) autoRotateCheckbox.checked = true;
-    if (autoRotateGroup) autoRotateGroup.style.display = "none";
-    if (samplingModeSelect) samplingModeSelect.value = "trilinear";
-    if (shaderLanguageSelect) shaderLanguageSelect.value = "webgpu";
-    if (showBackgroundCubeCheckbox) showBackgroundCubeCheckbox.checked = true;
-    if (spriteScaleSlider) spriteScaleSlider.value = 1;
-    if (spriteScaleValue) spriteScaleValue.textContent = "1.00";
-    if (shapeScaleSlider) shapeScaleSlider.value = 1;
-    if (shapeScaleValue) shapeScaleValue.textContent = "1.00";
-    if (roomScaleSlider) roomScaleSlider.value = 1;
-    if (roomScaleValue) roomScaleValue.textContent = "1.00";
-    if (bgOpacitySlider) bgOpacitySlider.value = 0.15;
-    if (bgOpacityValue) bgOpacityValue.textContent = "0.15";
-    if (bg3dOpacitySlider) bg3dOpacitySlider.value = 0.15;
-    if (bg3dOpacityValue) bg3dOpacityValue.textContent = "0.15";
+    // Drop any extra windows this session had open, keeping window 0 - it owns
+    // the docked panel the rest of the app addresses.
+    while (this.previewTargets.length > 1) {
+      this.removePreviewWindow(
+        this.previewTargets[this.previewTargets.length - 1],
+      );
+    }
 
-    // Reset startup script
-    const startupScriptTextarea = document.getElementById(
-      "previewStartupScript",
-    );
-    if (startupScriptTextarea) startupScriptTextarea.value = "";
+    const first = this.defaultPreviewTarget();
+    if (first) {
+      first.settings = settingsFrom(saved[0]?.settings);
+      if (saved[0]?.geometry) first.geometry = saved[0].geometry;
+      this.updatePreviewSettingsUI(first);
+    }
 
-    // Reset texture preview UI
-    this.updateTexturePreview(
-      "spriteTexturePreview",
-      "clearSpriteTextureBtn",
-      null,
-    );
-    this.updateTexturePreview(
-      "shapeTexturePreview",
-      "clearShapeTextureBtn",
-      null,
-    );
-    this.updateTexturePreview("bgTexturePreview", "clearBgTextureBtn", null);
-
-    // Send commands to preview iframe if ready
-    if (this.previewReady) {
-      this.sendPreviewCommand("setEffectTarget", "sprite");
-      this.sendPreviewCommand("setObject", "sprite");
-      this.sendPreviewCommand("setCameraMode", "2d");
-      this.sendPreviewCommand("setAutoRotate", true);
-      this.sendPreviewCommand("setShowBackgroundCube", true);
-      this.sendPreviewCommand("setSpriteScale", 1);
-      this.sendPreviewCommand("setShapeScale", 1);
-      this.sendPreviewCommand("setRoomScale", 1);
-      this.sendPreviewCommand("setBgOpacity", 0.15);
-      this.sendPreviewCommand("setBg3dOpacity", 0.15);
-      this.sendPreviewCommand("setZoomLevel", 1);
-      // Reload preview to clear textures
-      this.updatePreview();
+    // `reload: false` for the same reason setupPreview uses it: this runs
+    // before the file's nodes are loaded, so a shader generated now would be
+    // the *previous* project's. The post-load onShaderChanged loads them all.
+    for (const entry of saved.slice(1)) {
+      this.addPreviewWindow({
+        settings: settingsFrom(entry?.settings),
+        geometry: entry?.geometry,
+        reload: false,
+      });
     }
   }
 
-  screenshotPreview() {
-    if (!this.previewIframe || !this.previewReady) {
+  resetPreviewSettings(target = this.defaultPreviewTarget()) {
+    if (!target) return;
+    // Reset one preview's settings to defaults, then let the table push them to
+    // both its panel and its running runtime. Other windows are untouched.
+    target.settings = makeDefaultPreviewSettings();
+    this.updatePreviewSettingsUI(target);
+
+    if (target.ready) {
+      this.applyPreviewSettingsTo(target);
+      // Reload preview to clear textures
+      this.updatePreview(target);
+    }
+  }
+
+  screenshotPreview(target = this.defaultPreviewTarget()) {
+    if (!target?.win || !target.ready) {
       alert("Preview is not ready yet");
       return;
     }
 
-    // Request screenshot from the preview iframe
-    this.previewIframe.contentWindow.postMessage(
-      { type: "requestScreenshot" },
-      "*",
-    );
-
-    // Listen for the screenshot response
+    // Listen for the screenshot response. Matched on the window that answers,
+    // so a reply from some other preview cannot be mistaken for this one.
     const screenshotHandler = (event) => {
+      if (!target.owns(event.source)) return;
       if (event.data && event.data.type === "screenshotData") {
         // Remove the listener
         window.removeEventListener("message", screenshotHandler);
@@ -11685,6 +16105,7 @@ class BlueprintSystem {
     };
 
     window.addEventListener("message", screenshotHandler);
+    target.post({ type: "requestScreenshot" });
   }
 
   /**
@@ -11692,7 +16113,8 @@ class BlueprintSystem {
    * Returns a promise that resolves with the data URL or null if preview not ready
    */
   async getPreviewScreenshot() {
-    if (!this.previewIframe || !this.previewReady) {
+    const target = this.defaultPreviewTarget();
+    if (!target?.win || !target.ready) {
       return null;
     }
 
@@ -11709,6 +16131,7 @@ class BlueprintSystem {
       };
 
       const screenshotHandler = (event) => {
+        if (!target.owns(event.source)) return;
         if (event.data && event.data.type === "screenshotData") {
           cleanup();
           resolved = true;
@@ -11728,11 +16151,7 @@ class BlueprintSystem {
 
       window.addEventListener("message", screenshotHandler);
 
-      // Request screenshot from the preview iframe
-      this.previewIframe.contentWindow.postMessage(
-        { type: "requestScreenshot" },
-        "*",
-      );
+      target.post({ type: "requestScreenshot" });
     });
   }
 
@@ -11766,6 +16185,14 @@ class BlueprintSystem {
   }
 
   createNewFile() {
+    // A fresh project has lost nothing, so any report from a prior load is
+    // stale and must not keep blocking writes.
+    this.lastLoadReport = {
+      unknownNodeTypes: [],
+      droppedWires: 0,
+      newerFormatVersion: null,
+    };
+
     // Drop any non-main graphs from the previous project, then reset main
     // back to active.
     for (const id of Array.from(this.graphs.keys())) {
@@ -11782,23 +16209,14 @@ class BlueprintSystem {
     this.selectedNodes.clear();
     this.selectedRerouteNodes.clear();
 
-    // Reset shader settings to defaults
-    this.shaderSettings = {
-      name: "",
-      version: "0.0.0.0",
-      author: "",
-      website: "",
-      documentation: "",
-      description: "",
-      category: "color",
-      blendsBackground: false,
-      crossSampling: false,
-      preservesOpaqueness: true,
-      animated: false,
-      isDeprecated: false,
-      extendBoxH: 0,
-      extendBoxV: 0,
-    };
+    // Comments too - they were being left behind, so a new project opened with
+    // the previous one's boxes still floating over it.
+    this.comments = [];
+    this.commentIdCounter = 1;
+
+    // Reset shader settings to defaults. Shares makeDefaultShaderSettings with
+    // Graph.js so a new project cannot end up missing newer settings keys.
+    this.shaderSettings = makeDefaultShaderSettings();
     this.updateShaderSettingsUI();
 
     // Clear uniforms
@@ -11806,6 +16224,11 @@ class BlueprintSystem {
     this.deprecatedUniforms = [];
     this.uniformIdCounter = 1;
     this.renderUniformList();
+
+    // Clear constants
+    this.constants = [];
+    this.constantIdCounter = 1;
+    this.renderConstantList();
 
     // Clear custom nodes
     this.customNodes = [];
@@ -11832,10 +16255,17 @@ class BlueprintSystem {
 
     // Clear and reinitialize history after adding default nodes
     this.history.clear();
-    this.history.currentState = this.exportState();
+    this.history.initGraphState(
+      this.mainGraphId,
+      this._exportGraphState(this.mainGraph),
+    );
 
     this.render();
-    this.announceMcpProjectUpdate("create-new-file");
+
+    // The graph now exists, so the previews have something to compile. This is
+    // also the first load at start-up: setupPreview() deliberately builds
+    // window 0 without one, because at that point there are no nodes yet.
+    this.updateAllPreviews();
   }
 
   // Serialize all per-graph fields as they appear in a saved file. Used by
@@ -11843,11 +16273,11 @@ class BlueprintSystem {
   // _additionalGraphs entries (non-main graphs). Wraps in _withGraph so any
   // helper that incidentally reads via the delegating getters resolves to
   // the right graph.
+  // NOTE: Uniforms are host-level; they're added in _buildSaveData, not here.
   _serializeGraphPayload(graph) {
     return this._withGraph(graph, () => ({
       shaderSettings: graph.shaderSettings,
-      uniforms: graph.uniforms,
-      deprecatedUniforms: graph.deprecatedUniforms,
+      // Uniforms are host-level (not per-graph); saved at top level by _buildSaveData
       camera: { x: graph.camera.x, y: graph.camera.y, zoom: graph.camera.zoom },
       nodes: graph.nodes.map((node) => ({
         id: node.id,
@@ -11863,7 +16293,11 @@ class BlueprintSystem {
         uniformDisplayName: node.uniformDisplayName,
         uniformVariableName: node.uniformVariableName,
         uniformId: node.uniformId,
-        isVariable: node.isVariable,
+        constantId: node.constantId,
+        // NOTE: isVariable is deliberately not saved. It is derived from the
+        // node type, and persisting it meant a stale pill/box shape survived a
+        // save/load — the constructor computed the right one and the loader
+        // then overwrote it with the wrong one.
         inputPorts: node.inputPorts.map((port) => ({
           name: port.name,
           portType: port.portType,
@@ -11892,7 +16326,6 @@ class BlueprintSystem {
         color: comment.color,
       })),
       nodeIdCounter: graph.nodeIdCounter,
-      uniformIdCounter: graph.uniformIdCounter,
       commentIdCounter: graph.commentIdCounter,
     }));
   }
@@ -11903,12 +16336,28 @@ class BlueprintSystem {
   _buildSaveData({ previewScreenshot = null } = {}) {
     const main = this._serializeGraphPayload(this.mainGraph);
     const data = {
+      // File-type sentinel, read for truthiness only. Deliberately NOT the app
+      // version - coupling it would change every save file on every release.
+      // The real format version is `formatVersion`; see save-format.js.
       version: "1.0.0",
+      formatVersion: SAVE_FORMAT_VERSION,
       ...main,
       // Host-level fields (shared across graphs)
+      uniforms: this.uniforms,
+      deprecatedUniforms: this.deprecatedUniforms,
+      uniformIdCounter: this.uniformIdCounter,
+      constants: this.constants,
+      constantIdCounter: this.constantIdCounter,
       customNodes: this.customNodes,
       customNodeIdCounter: this.customNodeIdCounter,
+      // Window 0's settings stay at the top level under the name they have
+      // always had, so a file written now still opens in a build that knows
+      // nothing about extra windows. `previewWindows` carries all of them.
       previewSettings: this.previewSettings,
+      previewWindows: this.previewTargets.map((target) => ({
+        settings: target.settings,
+        geometry: target.geometry,
+      })),
     };
     if (previewScreenshot) data.previewScreenshot = previewScreenshot;
 
@@ -11918,6 +16367,10 @@ class BlueprintSystem {
       extras.push({
         id: graph.id,
         name: graph.name,
+        kind: graph.kind,
+        color: graph.color,
+        data: graph.data,
+        contractVersion: graph.contractVersion,
         ...this._serializeGraphPayload(graph),
       });
     }
@@ -11942,8 +16395,8 @@ class BlueprintSystem {
     // Try to use File System Access API if available
     if ("showSaveFilePicker" in window) {
       try {
-        const filename = this.shaderSettings.name
-          ? `${this.sanitizeAddonId(this.shaderSettings.name)}.c3sg`
+        const filename = this.projectName
+          ? `${this.sanitizeAddonId(this.projectName)}.c3sg`
           : "blueprint.c3sg";
 
         // If we have an existing file handle, try to reuse it
@@ -12008,8 +16461,8 @@ class BlueprintSystem {
     const a = document.createElement("a");
     a.href = url;
 
-    const filename = this.shaderSettings.name
-      ? `${this.sanitizeAddonId(this.shaderSettings.name)}.c3sg`
+    const filename = this.projectName
+      ? `${this.sanitizeAddonId(this.projectName)}.c3sg`
       : "blueprint.c3sg";
     a.download = filename;
 
@@ -12030,7 +16483,111 @@ class BlueprintSystem {
   // Apply a serialized per-graph payload to the given Graph. Pure graph
   // mutation: no UI side-effects, no notifications, no history reset. The
   // caller is responsible for any post-load UI refresh.
+  // NOTE: Uniforms are host-level (not per-graph) and are loaded separately.
+  // Bring a loopBody contract written before accumulators moved into
+  // `contract.outputs` up to date. Runs before enforceBoundaryRules rebuilds
+  // the boundary ports and before wires are restored by index, both below.
+  //
+  // Old shape: `inputs` held accumulators and arguments interleaved, each with
+  // a `role`, and `outputs` held a second copy of each accumulator paired by
+  // id. New shape: `outputs` holds the accumulators, `inputs` the arguments.
+  _migrateLoopBodyContract(graph, data) {
+    if (graph.kind !== "loopBody") return;
+    const contract = graph.data?.contract;
+    if (!contract || !Array.isArray(contract.inputs)) return;
+    // A contract with no roles anywhere is already in the new shape.
+    if (!contract.inputs.some((p) => p.role)) return;
+
+    const oldInputs = contract.inputs;
+    const storedOutputs = Array.isArray(contract.outputs)
+      ? contract.outputs
+      : [];
+    // The accumulator's INPUT record wins on name and type: that is what
+    // codegen used for the parameter types and what the caller's "Initial"
+    // port showed, so it is the side the user was actually looking at. An
+    // accumulator input that never got its paired output (reachable via the
+    // old "+ Add Input") simply becomes an accumulator now.
+    const accs = [];
+    const args = [];
+    for (const p of oldInputs) {
+      const { role, ...rest } = p;
+      if (role === "acc") accs.push(rest);
+      else args.push(rest);
+    }
+    // An output with no matching input (reachable via the old "+ Add Output")
+    // was previously a hard validation error with no way to delete it. It is
+    // valid data now, so keep it.
+    for (const out of storedOutputs) {
+      if (!oldInputs.some((p) => p.id === out.id)) accs.push({ ...out });
+    }
+
+    contract.outputs = accs;
+    contract.inputs = args;
+
+    // Both boundary nodes can have their ports permuted by the move, and wires
+    // are restored positionally further down, so both need their endpoints
+    // remapped from the old index to the new one.
+    const nodeByKey = (key) =>
+      (data.nodes || []).find((n) => n.nodeTypeKey === key);
+    const INJECTED = 2; // Index + Count, always first, never move
+
+    // FunctionInput exposes [Index, Count, ...accs, ...args]. Accumulators and
+    // arguments used to be interleaved in whatever order the user dragged them
+    // into; now they are grouped. Its contract ports are OUTPUT ports.
+    const inputNode = nodeByKey("functionInput");
+    if (inputNode) {
+      const newIndexById = new Map();
+      accs.forEach((p, i) => newIndexById.set(p.id, INJECTED + i));
+      args.forEach((p, i) =>
+        newIndexById.set(p.id, INJECTED + accs.length + i),
+      );
+
+      const remap = new Map();
+      oldInputs.forEach((p, i) => {
+        const next = newIndexById.get(p.id);
+        if (next !== undefined) remap.set(INJECTED + i, next);
+      });
+
+      for (const wire of data.wires || []) {
+        if (wire.startNodeId !== inputNode.id) continue;
+        if (wire.startPortIndex < INJECTED) continue;
+        const next = remap.get(wire.startPortIndex);
+        if (next !== undefined) wire.startPortIndex = next;
+      }
+    }
+
+    // FunctionOutput's ports follow contract.outputs, which we just rebuilt in
+    // accumulator-INPUT order. The old editor let the Outputs list be dragged
+    // around independently of the inputs, so a file where the two disagreed
+    // would otherwise silently rewire this node. Its contract ports are INPUT
+    // ports.
+    const outputNode = nodeByKey("functionOutput");
+    if (outputNode) {
+      const newOutIndexById = new Map(accs.map((p, i) => [p.id, i]));
+      const outRemap = new Map();
+      storedOutputs.forEach((o, i) => {
+        const next = newOutIndexById.get(o.id);
+        if (next !== undefined) outRemap.set(i, next);
+      });
+
+      for (const wire of data.wires || []) {
+        if (wire.endNodeId !== outputNode.id) continue;
+        const next = outRemap.get(wire.endPortIndex);
+        if (next !== undefined) wire.endPortIndex = next;
+      }
+    }
+  }
+
   _loadGraphPayload(graph, data) {
+    this._migrateLoopBodyContract(graph, data);
+
+    // A node type that no longer resolves is dropped, and so is every wire
+    // touching it. Report that back to the caller instead of only warning to
+    // the console: the file loads "successfully" with a hole in it, and saving
+    // afterwards makes the loss permanent.
+    const unknownNodeTypes = new Set();
+    let droppedWires = 0;
+
     // Clear current state
     graph.nodes = [];
     graph.wires = [];
@@ -12046,17 +16603,8 @@ class BlueprintSystem {
       };
     }
 
-    // Restore uniforms
-    const normalizedUniformCollections = this.normalizeUniformCollections(
-      data.uniforms || [],
-      data.deprecatedUniforms || [],
-    );
-    graph.uniforms = normalizedUniformCollections.uniforms;
-    graph.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
-    graph.uniformIdCounter = Math.max(
-      data.uniformIdCounter || 1,
-      normalizedUniformCollections.uniformIdCounter,
-    );
+    // Uniforms are now host-level, not per-graph.
+    // They are loaded in loadFromJSON before this method is called.
 
     // Restore camera
     if (data.camera) {
@@ -12073,7 +16621,8 @@ class BlueprintSystem {
           nodeData.nodeTypeKey.startsWith("uniform_") &&
           nodeData.uniformId !== undefined
         ) {
-          const uniform = graph.uniforms.find(
+          // Uniforms are host-level; look them up from this (host)
+          const uniform = this.uniforms.find(
             (u) => u.id === nodeData.uniformId,
           );
           if (uniform) {
@@ -12090,10 +16639,33 @@ class BlueprintSystem {
             console.warn(`Uniform with ID ${nodeData.uniformId} not found`);
             continue;
           }
+        } else if (
+          nodeData.nodeTypeKey &&
+          nodeData.nodeTypeKey.startsWith("constant_") &&
+          nodeData.constantId !== undefined
+        ) {
+          // Constants are host-level; look them up from this (host)
+          const constant = this.constants.find(
+            (c) => c.id === nodeData.constantId,
+          );
+          if (constant) {
+            nodeType = {
+              ...ConstantNode,
+              name: constant.name,
+              isConstant: true,
+              constantId: constant.id,
+              constantName: constant.variableName,
+              constantType: constant.type,
+            };
+          } else {
+            console.warn(`Constant with ID ${nodeData.constantId} not found`);
+            continue;
+          }
         } else {
           nodeType = this.getNodeTypeFromKey(nodeData.nodeTypeKey);
           if (!nodeType) {
             console.warn(`Unknown node type: ${nodeData.nodeTypeKey}`);
+            unknownNodeTypes.add(nodeData.nodeTypeKey);
             continue;
           }
         }
@@ -12114,7 +16686,8 @@ class BlueprintSystem {
 
         if (nodeData.uniformId !== undefined) {
           node.uniformId = nodeData.uniformId;
-          const uniform = graph.uniforms.find(
+          // Uniforms are host-level; look them up from this (host)
+          const uniform = this.uniforms.find(
             (u) => u.id === nodeData.uniformId,
           );
           if (uniform) {
@@ -12128,8 +16701,36 @@ class BlueprintSystem {
             };
           }
         }
-        if (nodeData.isVariable !== undefined)
-          node.isVariable = nodeData.isVariable;
+        if (nodeData.constantId !== undefined) {
+          node.constantId = nodeData.constantId;
+          const constant = this.constants.find(
+            (c) => c.id === nodeData.constantId,
+          );
+          if (constant) {
+            node.constantName = constant.variableName;
+            node.constantDisplayName = constant.name;
+            node.constantType = constant.type;
+            node.nodeType = { ...node.nodeType, name: constant.name };
+          }
+        }
+        // Nodes whose type comes from a live source — the custom-node library,
+        // a callable graph, a uniform, a constant — take their name from that
+        // source, not from the file. The type was rebuilt correctly above;
+        // trusting the saved title here is what made a renamed function look
+        // un-renamed again after a reload.
+        if (
+          node.nodeType.isCustom ||
+          node.nodeType.isFunctionCall ||
+          node.nodeType.isUniform ||
+          node.nodeType.isConstant ||
+          node.uniformId !== undefined ||
+          node.constantId !== undefined
+        ) {
+          node.title = node.nodeType.name;
+        }
+        // isVariable/width/height are derived, never restored. Re-derive them
+        // now that the final node type and title are in place.
+        node.refreshShape();
 
         nodeData.inputPorts.forEach((portData, index) => {
           if (node.inputPorts[index] && portData.value !== undefined) {
@@ -12142,6 +16743,17 @@ class BlueprintSystem {
       }
     }
 
+    // Rebuild boundary-node ports from the contract. FunctionInput/Output
+    // store no ports in their NodeType (they're contract-driven), so without
+    // this step their ports would be empty after load and wires referencing
+    // them would be dropped as "missing ports".
+    if (graph.kind === "function" || graph.kind === "loopBody") {
+      const handler = getHandler(graph.kind);
+      if (handler && typeof handler.enforceBoundaryRules === "function") {
+        handler.enforceBoundaryRules(graph, this);
+      }
+    }
+
     // Restore wires
     if (data.wires) {
       for (const wireData of data.wires) {
@@ -12149,6 +16761,7 @@ class BlueprintSystem {
         const endNode = nodeMap.get(wireData.endNodeId);
         if (!startNode || !endNode) {
           console.warn("Wire references missing nodes");
+          droppedWires++;
           continue;
         }
         const startPort = startNode.outputPorts[wireData.startPortIndex];
@@ -12191,9 +16804,22 @@ class BlueprintSystem {
     // Restore counters
     if (data.nodeIdCounter) graph.nodeIdCounter = data.nodeIdCounter;
     if (data.commentIdCounter) graph.commentIdCounter = data.commentIdCounter;
+
+    return { unknownNodeTypes: [...unknownNodeTypes], droppedWires };
   }
 
   async loadFromJSON(file) {
+    // Callers set this.fileHandle before loading, because the recent-files
+    // entry below needs it. If the load fails we hand it back, so Save doesn't
+    // end up pointing at a file we never successfully opened.
+    const previousFileHandle = this.fileHandle;
+    // Cleared up front so a report from the previous project can never be
+    // mistaken for this one's.
+    this.lastLoadReport = {
+      unknownNodeTypes: [],
+      droppedWires: 0,
+      newerFormatVersion: null,
+    };
     try {
       const text = await file.text();
       const data = JSON.parse(text);
@@ -12201,6 +16827,18 @@ class BlueprintSystem {
       if (!data.version) {
         throw new Error("Invalid blueprint file: missing version");
       }
+
+      // `version` above is only a file-type sentinel. `formatVersion` is the
+      // real one - see save-format.js for why the two are separate and why the
+      // migration table is empty.
+      const fileFormat = saveFormatOf(data);
+      // A file from a newer build is the one case shape-sniffing cannot cover:
+      // it loads fine, then silently loses every field this build has no name
+      // for the next time it is saved. Warn and carry on rather than refuse -
+      // the tolerant loader usually copes, and refusing would strand the file.
+      const newerFormatVersion =
+        fileFormat > SAVE_FORMAT_VERSION ? fileFormat : null;
+      applySaveMigrations(data, fileFormat);
 
       // Reset to single main graph; drop any other graphs from a prior project.
       for (const id of Array.from(this.graphs.keys())) {
@@ -12216,28 +16854,99 @@ class BlueprintSystem {
           data.customNodeIdCounter || this.customNodes.length + 1;
         this.renderCustomNodesList();
       }
-      if (data.previewSettings) {
-        this.previewSettings = {
-          ...this.previewSettings,
-          ...data.previewSettings,
-        };
-        this.updatePreviewSettingsUI();
+      if (data.previewSettings || data.previewWindows) {
+        this.restorePreviewWindows(data);
+      }
+
+      // Restore host-level uniforms (migration support for old per-graph format)
+      // Priority: top-level uniforms > mainGraph payload uniforms > empty
+      if (data.uniforms !== undefined) {
+        // New format: uniforms at top level
+        const normalizedUniformCollections = this.normalizeUniformCollections(
+          data.uniforms || [],
+          data.deprecatedUniforms || [],
+        );
+        this.uniforms = normalizedUniformCollections.uniforms;
+        this.deprecatedUniforms =
+          normalizedUniformCollections.deprecatedUniforms;
+        this.uniformIdCounter = Math.max(
+          data.uniformIdCounter || 1,
+          normalizedUniformCollections.uniformIdCounter,
+        );
+      } else if (
+        data.uniforms === undefined &&
+        (data.nodes || data.shaderSettings)
+      ) {
+        // Old format: uniforms might be in mainGraph payload (top-level data IS mainGraph)
+        // This is the migration path from old files
+        const normalizedUniformCollections = this.normalizeUniformCollections(
+          data.uniforms || [],
+          data.deprecatedUniforms || [],
+        );
+        this.uniforms = normalizedUniformCollections.uniforms;
+        this.deprecatedUniforms =
+          normalizedUniformCollections.deprecatedUniforms;
+        this.uniformIdCounter = Math.max(
+          data.uniformIdCounter || 1,
+          normalizedUniformCollections.uniformIdCounter,
+        );
+      } else {
+        // No uniforms found, reset to empty
+        this.uniforms = [];
+        this.deprecatedUniforms = [];
+        this.uniformIdCounter = 1;
+      }
+      this.deprecatedUniformsExpanded = false;
+
+      // Constants are host-level too, and must land before any graph's nodes so
+      // that constant_<id> keys resolve while those nodes are being rebuilt.
+      const normalizedConstants = this.normalizeConstants(data.constants || []);
+      this.constants = normalizedConstants.constants;
+      this.constantIdCounter = Math.max(
+        data.constantIdCounter || 1,
+        normalizedConstants.constantIdCounter,
+      );
+
+      // Register additional graph shells BEFORE loading the main graph's nodes,
+      // so that function_call_<id> keys resolve during main-graph node loading.
+      const additionalGraphEntries = [];
+      if (Array.isArray(data._additionalGraphs)) {
+        for (const extra of data._additionalGraphs) {
+          const g = this.createGraph({
+            id: extra.id,
+            name: extra.name,
+            kind: extra.kind || "function",
+            color: extra.color || null,
+            data: extra.data || {
+              contract: { inputs: [], outputs: [] },
+              notes: "",
+            },
+            contractVersion: extra.contractVersion || 0,
+          });
+          // Must happen here, not in _loadGraphPayload: caller node types are
+          // derived from the contract while the MAIN graph's nodes load, which
+          // is the next step. A caller built from an unmigrated contract gets
+          // the wrong ports, and its wires in the parent graph are restored by
+          // index. (Idempotent, so the later call is harmless.)
+          this._migrateLoopBodyContract(g, extra);
+          additionalGraphEntries.push({ g, extra });
+        }
       }
 
       // Load top-level into the main graph.
-      this._loadGraphPayload(this.mainGraph, data);
+      const dropReports = [this._loadGraphPayload(this.mainGraph, data)];
 
-      // Load any additional graphs.
-      if (Array.isArray(data._additionalGraphs)) {
-        for (const extra of data._additionalGraphs) {
-          const g = this.createGraph({ id: extra.id, name: extra.name });
-          this._loadGraphPayload(g, extra);
-        }
+      // Now load node payloads for additional graphs.
+      for (const { g, extra } of additionalGraphEntries) {
+        dropReports.push(this._loadGraphPayload(g, extra));
       }
 
       // Post-load UI refresh (active graph is mainGraph at this point).
       this.updateShaderSettingsUI();
       this.renderUniformList();
+      this.renderConstantList();
+      this.renderFunctionsList && this.renderFunctionsList();
+      this.renderGraphTabBar && this.renderGraphTabBar();
       this.mainGraph.nodes.forEach((node) => {
         node.inputPorts.forEach((port) => port.updateEditability());
         node.recalculateHeight();
@@ -12255,22 +16964,67 @@ class BlueprintSystem {
         duration: 2500,
       });
 
+      // Anything the loader had to throw away gets its own, louder notice.
+      // Silence here reads as "loaded fine" while the graph is missing nodes.
+      const unknownNodeTypes = [
+        ...new Set(dropReports.flatMap((r) => r.unknownNodeTypes)),
+      ];
+      const droppedWires = dropReports.reduce(
+        (sum, r) => sum + r.droppedWires,
+        0,
+      );
+      // Recorded on the instance so headless callers can see it too. The
+      // notification below is a DOM affordance; the CLI has no DOM, and a
+      // silent drop there is worse than in the app because the next `--write`
+      // makes it permanent with nobody watching.
+      this.lastLoadReport = {
+        unknownNodeTypes,
+        droppedWires,
+        newerFormatVersion,
+      };
+      if (newerFormatVersion) {
+        this.showNotification({
+          type: "error",
+          title: "This file comes from a newer version",
+          message:
+            `It uses save format ${newerFormatVersion}; this build understands ` +
+            `${SAVE_FORMAT_VERSION}. It has been opened anyway, but anything ` +
+            `this version does not recognise will be lost if you save it.`,
+          duration: 10000,
+        });
+      }
+      if (unknownNodeTypes.length > 0) {
+        const wireNote =
+          droppedWires > 0
+            ? droppedWires === 1
+              ? " 1 connection was dropped with it."
+              : ` ${droppedWires} connections were dropped with them.`
+            : "";
+        this.showNotification({
+          type: "error",
+          title: "Some nodes could not be loaded",
+          message:
+            `Unknown node type${unknownNodeTypes.length === 1 ? "" : "s"}: ` +
+            `${unknownNodeTypes.join(", ")}.${wireNote} Saving will discard them.`,
+          duration: 10000,
+        });
+      }
+
       // Refresh preview with loaded shader (delay to ensure render is complete)
       setTimeout(() => {
         this.onShaderChanged();
       }, 100);
 
-      // Clear and reinitialize history (per-graph).
+      // Clear and reinitialize history for all graphs.
+      this.history.clear();
       for (const g of this.graphs.values()) {
-        g.history.clear();
-        g.history.currentState = this._exportGraphState(g);
+        this.history.initGraphState(g.id, this._exportGraphState(g));
       }
-      this.announceMcpProjectUpdate("load-project");
-
       if (this.fileHandle && data.previewScreenshot) {
         await this.addRecentFile(this.fileHandle, data.previewScreenshot);
       }
     } catch (error) {
+      this.fileHandle = previousFileHandle;
       console.error("Failed to load blueprint:", error);
       this.showNotification({
         type: "error",
@@ -12290,6 +17044,16 @@ class BlueprintSystem {
     // Check if it's a uniform node
     if (nodeType.isUniform && nodeType.uniformId) {
       return `uniform_${nodeType.uniformId}`;
+    }
+
+    // Check if it's a constant node
+    if (nodeType.isConstant && nodeType.constantId) {
+      return `constant_${nodeType.constantId}`;
+    }
+
+    // Check if it's a function-call caller node
+    if (nodeType.isFunctionCall && nodeType.targetGraphId) {
+      return `function_call_${nodeType.targetGraphId}`;
     }
 
     // Find the key for this node type in NODE_TYPES
@@ -12317,10 +17081,26 @@ class BlueprintSystem {
       }
     }
 
+    // Check if it's a function-call caller node
+    if (key.startsWith("function_call_")) {
+      const graphId = key.slice("function_call_".length);
+      const g = this.graphs.get(graphId);
+      if (g) {
+        const handler = getHandler(g.kind);
+        if (handler) return handler.createCallerNodeType(g, this);
+      }
+    }
+
     // Check uniform nodes
     const uniformNodeTypes = this.getUniformNodeTypes();
     if (uniformNodeTypes[key]) {
       return uniformNodeTypes[key];
+    }
+
+    // Check constant nodes
+    const constantNodeTypes = this.getConstantNodeTypes();
+    if (constantNodeTypes[key]) {
+      return constantNodeTypes[key];
     }
 
     // Check built-in nodes
@@ -12339,6 +17119,7 @@ class BlueprintSystem {
   }
 
   sanitizeGraphLocalId(value, fallback = "node") {
+    // (see module-level _sanitizeId for the shader identifier version)
     const normalized = String(value || "")
       .trim()
       .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
@@ -12405,6 +17186,29 @@ class BlueprintSystem {
     return uniform;
   }
 
+  resolveConstantRefFromIr(constantRef) {
+    if (Number.isInteger(Number(constantRef))) {
+      const constant = this.constants.find(
+        (entry) => entry.id === Number(constantRef),
+      );
+      if (!constant) throw new Error(`Constant '${constantRef}' not found`);
+      return constant;
+    }
+
+    const ref = String(constantRef || "").trim();
+    if (!ref) {
+      throw new Error(
+        "Constant reference must be a non-empty string or integer id",
+      );
+    }
+
+    const constant = this.constants.find(
+      (entry) => entry.name === ref || entry.variableName === ref,
+    );
+    if (!constant) throw new Error(`Constant '${ref}' not found`);
+    return constant;
+  }
+
   getIrNodeTypeInfo(irNode) {
     const typeKey = irNode.typeKey ?? irNode.type;
     if (!typeKey || typeof typeKey !== "string") {
@@ -12424,18 +17228,36 @@ class BlueprintSystem {
       if (!nodeType) {
         throw new Error(`Uniform node type for '${uniform.name}' not found`);
       }
-      return { typeKey, uniform, nodeType };
+      return { typeKey, uniform, constant: null, nodeType };
+    }
+
+    if (typeKey === "constant") {
+      const constantRef = irNode.constant ?? irNode.constantId;
+      if (constantRef === undefined || constantRef === null) {
+        throw new Error(`IR node '${irNode.id}' requires a constant reference`);
+      }
+      const constant = this.resolveConstantRefFromIr(constantRef);
+      const nodeType = this.getConstantNodeTypes()[`constant_${constant.id}`];
+      if (!nodeType) {
+        throw new Error(`Constant node type for '${constant.name}' not found`);
+      }
+      return { typeKey, uniform: null, constant, nodeType };
     }
 
     if (typeKey === "output") {
-      return { typeKey, uniform: null, nodeType: NODE_TYPES.output };
+      return {
+        typeKey,
+        uniform: null,
+        constant: null,
+        nodeType: NODE_TYPES.output,
+      };
     }
 
     const nodeType = this.getNodeTypeFromKey(typeKey);
     if (!nodeType) {
       throw new Error(`Unknown node type '${typeKey}'`);
     }
-    return { typeKey, uniform: null, nodeType };
+    return { typeKey, uniform: null, constant: null, nodeType };
   }
 
   applyIrNodePatch(node, irNode) {
@@ -12643,14 +17465,22 @@ class BlueprintSystem {
 
     const nodes = nodesToExport.map((node) => {
       const typeKey = this.getNodeTypeKey(node.nodeType);
+      let irType = typeKey;
+      if (node.nodeType.isUniform) irType = "uniform";
+      else if (node.nodeType.isConstant) irType = "constant";
+
       const irNode = {
         id: localIdByNodeId.get(node.id),
-        type: node.nodeType.isUniform ? "uniform" : typeKey,
+        type: irType,
       };
 
       if (node.nodeType.isUniform) {
         irNode.uniform =
           node.uniformDisplayName || node.uniformName || node.uniformId;
+      }
+      if (node.nodeType.isConstant) {
+        irNode.constant =
+          node.constantDisplayName || node.constantName || node.constantId;
       }
       if (node.operation !== undefined) irNode.operation = node.operation;
       if (node.customInput !== undefined) irNode.customInput = node.customInput;
@@ -12732,6 +17562,8 @@ class BlueprintSystem {
         node = this.getOutputNode();
       } else if (info.typeKey === "uniform") {
         node = this.createUniformNode(info.uniform, cursorX, cursorY);
+      } else if (info.typeKey === "constant") {
+        node = this.createConstantNode(info.constant, cursorX, cursorY);
       } else {
         node = this.addNode(cursorX, cursorY, info.nodeType);
       }
@@ -12795,7 +17627,8 @@ class BlueprintSystem {
           this.selectedNodes.add(node);
         }
       });
-      this.autoArrange({ normalizeFanout: true });
+      // The import's own push below covers the layout too.
+      this.autoArrange({ normalizeFanout: true, recordHistory: false });
     }
 
     this.updateDependencyList();
@@ -12838,6 +17671,16 @@ class BlueprintSystem {
         throw new Error(`Uniform ${node.uniformId} not found for duplication`);
       }
       clone = this.createUniformNode(uniform, x, y);
+    } else if (node.nodeType.isConstant && node.constantId !== undefined) {
+      const constant = this.constants.find(
+        (entry) => entry.id === node.constantId,
+      );
+      if (!constant) {
+        throw new Error(
+          `Constant ${node.constantId} not found for duplication`,
+        );
+      }
+      clone = this.createConstantNode(constant, x, y);
     } else {
       clone = this.addNode(x, y, node.nodeType);
     }
@@ -12918,7 +17761,7 @@ class BlueprintSystem {
           entry.isSelected = true;
           this.selectedNodes.add(entry);
         });
-      this.autoArrange({ normalizeFanout: false });
+      this.autoArrange({ normalizeFanout: false, recordHistory: false });
     }
 
     this.updateDependencyList();
@@ -12945,6 +17788,7 @@ class BlueprintSystem {
       variableName,
       autoLayout = true,
       recordHistory = true,
+      allowSingle = false,
     } = options;
     const node = this.nodes.find((entry) => entry.id === Number(nodeId));
     if (!node) {
@@ -12957,13 +17801,23 @@ class BlueprintSystem {
     if (!outputPort) {
       throw new Error(`Output port not found on node ${node.id}`);
     }
-    if (outputPort.connections.length <= 1) {
+    // A single consumer is still worth routing when the wire would otherwise
+    // run the width of the graph: the Get node lands next to whoever reads it.
+    if (outputPort.connections.length < 1) {
+      throw new Error(
+        `Node ${node.id} output '${outputPort.name}' is not connected to anything`,
+      );
+    }
+    if (outputPort.connections.length <= 1 && !allowSingle) {
       throw new Error(
         `Node ${node.id} output '${outputPort.name}' does not fan out`,
       );
     }
 
-    if (this.isSimpleFanoutDuplicationCandidate(node, outputPort)) {
+    if (
+      !allowSingle &&
+      this.isSimpleFanoutDuplicationCandidate(node, outputPort)
+    ) {
       return this.duplicateFanoutNode({
         nodeId,
         outputIndex,
@@ -13032,7 +17886,7 @@ class BlueprintSystem {
         entry.isSelected = true;
         this.selectedNodes.add(entry);
       });
-      this.autoArrange({ normalizeFanout: false });
+      this.autoArrange({ normalizeFanout: false, recordHistory: false });
     }
 
     this.updateDependencyList();
@@ -13113,7 +17967,7 @@ class BlueprintSystem {
           this.selectedNodes.add(node);
         }
       });
-      this.autoArrange({ normalizeFanout: false });
+      this.autoArrange({ normalizeFanout: false, recordHistory: false });
     }
 
     this.updateDependencyList();
@@ -13193,9 +18047,13 @@ class BlueprintSystem {
     return this._exportGraphState(this.activeGraph);
   }
 
-  // Snapshot a specific graph (used by per-graph HistoryManager).
+  // Snapshot a specific graph (used by HistoryManager).
+  // NOTE: Uniforms are host-level (shared), but we snapshot them here so that
+  // undo/redo restores them along with the graph state.
   _exportGraphState(graph) {
     return {
+      // A history snapshot never leaves the session, so this is inert. Left as
+      // a literal for the same reason the save file's is: not the app version.
       version: "1.0.0",
       nodes: graph.nodes.map((node) => ({
         id: node.id,
@@ -13210,6 +18068,11 @@ class BlueprintSystem {
         uniformName: node.uniformName,
         uniformDisplayName: node.uniformDisplayName,
         uniformVariableName: node.uniformVariableName,
+        // Only the id is stored. The display fields (name, variable name,
+        // type) are re-derived from `this.constants` on restore, so undoing
+        // past a rename cannot resurrect the old name. Same reasoning as the
+        // save file, which stores the id alone too.
+        constantId: node.constantId,
         inputPorts: node.inputPorts.map((port) => ({
           name: port.name,
           portType: port.portType,
@@ -13237,15 +18100,22 @@ class BlueprintSystem {
         description: comment.description,
         color: comment.color,
       })),
-      uniforms: JSON.parse(JSON.stringify(graph.uniforms)),
-      deprecatedUniforms: JSON.parse(JSON.stringify(graph.deprecatedUniforms)),
+      // Uniforms and constants are host-level (shared across graphs)
+      uniforms: JSON.parse(JSON.stringify(this.uniforms)),
+      deprecatedUniforms: JSON.parse(JSON.stringify(this.deprecatedUniforms)),
+      constants: JSON.parse(JSON.stringify(this.constants)),
       // customNodes is host-level (shared) but we still snapshot it here so
       // that single-graph undo/redo restores the legacy library state.
       customNodes: JSON.parse(JSON.stringify(this.customNodes)),
       shaderSettings: { ...graph.shaderSettings },
+      kind: graph.kind,
+      color: graph.color,
+      data: JSON.parse(JSON.stringify(graph.data || {})),
+      contractVersion: graph.contractVersion || 0,
       counters: {
         nodeIdCounter: graph.nodeIdCounter,
-        uniformIdCounter: graph.uniformIdCounter,
+        uniformIdCounter: this.uniformIdCounter, // host-level
+        constantIdCounter: this.constantIdCounter, // host-level
         customNodeIdCounter: this.customNodeIdCounter,
         commentIdCounter: graph.commentIdCounter,
       },
@@ -13271,7 +18141,14 @@ class BlueprintSystem {
   // Restore a snapshot into a specific graph (used by per-graph
   // HistoryManager). UI side-effects only fire when targeting the active
   // graph; the shader-changed pulse fires when targeting the main graph.
+  // NOTE: Uniforms are host-level (shared), but restored here for undo/redo.
   _loadGraphState(graph, stateData) {
+    // The pin is an object reference into `graph.nodes`, and every node below
+    // is rebuilt from scratch. Remember which node id was pinned so it can be
+    // re-attached to the new instance; leaving the old object in place made
+    // codegen walk the pre-undo graph while the canvas showed the new one.
+    const pinnedNodeId = graph.previewNode ? graph.previewNode.id : null;
+
     // Clear current state
     graph.nodes = [];
     graph.wires = [];
@@ -13281,25 +18158,45 @@ class BlueprintSystem {
 
     // Restore counters
     graph.nodeIdCounter = stateData.counters.nodeIdCounter;
-    graph.uniformIdCounter = stateData.counters.uniformIdCounter;
+    this.uniformIdCounter = stateData.counters.uniformIdCounter; // host-level
     this.customNodeIdCounter = stateData.counters.customNodeIdCounter;
     graph.commentIdCounter = stateData.counters.commentIdCounter || 1;
 
-    // Restore uniforms and custom nodes
+    // Restore constants (host-level). Must precede node rebuilding below, since
+    // getNodeTypeFromKey resolves constant_<id> against this.constants.
+    if (stateData.constants !== undefined) {
+      const normalizedConstants = this.normalizeConstants(
+        JSON.parse(JSON.stringify(stateData.constants)),
+      );
+      this.constants = normalizedConstants.constants;
+      this.constantIdCounter = Math.max(
+        stateData.counters?.constantIdCounter || 1,
+        normalizedConstants.constantIdCounter,
+      );
+    }
+
+    // Restore uniforms (host-level) and custom nodes
     const normalizedUniformCollections = this.normalizeUniformCollections(
       JSON.parse(JSON.stringify(stateData.uniforms || [])),
       JSON.parse(JSON.stringify(stateData.deprecatedUniforms || [])),
     );
-    graph.uniforms = normalizedUniformCollections.uniforms;
-    graph.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
-    graph.uniformIdCounter = Math.max(
-      graph.uniformIdCounter,
+    this.uniforms = normalizedUniformCollections.uniforms;
+    this.deprecatedUniforms = normalizedUniformCollections.deprecatedUniforms;
+    this.uniformIdCounter = Math.max(
+      this.uniformIdCounter,
       normalizedUniformCollections.uniformIdCounter,
     );
     if (stateData.customNodes !== undefined) {
       this.customNodes = JSON.parse(JSON.stringify(stateData.customNodes));
     }
     graph.shaderSettings = { ...stateData.shaderSettings };
+
+    // Restore kind-specific fields (contract, color, etc.) for non-main graphs
+    if (stateData.color !== undefined) graph.color = stateData.color;
+    if (stateData.data !== undefined)
+      graph.data = JSON.parse(JSON.stringify(stateData.data));
+    if (stateData.contractVersion !== undefined)
+      graph.contractVersion = stateData.contractVersion;
 
     // Restore nodes
     const nodeMap = new Map();
@@ -13323,6 +18220,47 @@ class BlueprintSystem {
       node.uniformName = nodeData.uniformName;
       node.uniformDisplayName = nodeData.uniformDisplayName;
       node.uniformVariableName = nodeData.uniformVariableName;
+      // Constants: the display fields come from the live host record, not the
+      // snapshot, exactly as loadFromJSON does it. getCustomType() reads
+      // constantType off the *node instance*, so this has to happen before
+      // the port pass at the end of this method.
+      node.constantId = nodeData.constantId;
+      if (nodeData.constantId !== undefined) {
+        const constant = this.constants.find(
+          (c) => c.id === nodeData.constantId,
+        );
+        if (constant) {
+          node.constantName = constant.variableName;
+          node.constantDisplayName = constant.name;
+          node.constantType = constant.type;
+          node.nodeType = { ...node.nodeType, name: constant.name };
+        }
+      }
+      if (nodeData.uniformId !== undefined) {
+        const uniform = this.uniforms.find((u) => u.id === nodeData.uniformId);
+        if (uniform) {
+          node.uniformName = uniform.variableName;
+          node.uniformDisplayName = uniform.name;
+          node.uniformVariableName = uniform.variableName;
+          node.nodeType = {
+            ...node.nodeType,
+            name: uniform.name,
+            paramId: uniform.paramId,
+          };
+        }
+      }
+      // Nodes whose type comes from a live source take their title from that
+      // source, never from the snapshot. Mirrors loadFromJSON.
+      if (
+        node.nodeType.isCustom ||
+        node.nodeType.isFunctionCall ||
+        node.nodeType.isUniform ||
+        node.nodeType.isConstant ||
+        node.uniformId !== undefined ||
+        node.constantId !== undefined
+      ) {
+        node.title = node.nodeType.name;
+      }
 
       // Restore port values
       node.inputPorts.forEach((port, i) => {
@@ -13337,6 +18275,13 @@ class BlueprintSystem {
       nodeMap.set(nodeData.id, node);
       graph.nodes.push(node);
     });
+
+    // Rebuild boundary-node ports from the restored contract so that wire
+    // restoration below can find the correct port indices.
+    if (graph.kind === "function" || graph.kind === "loopBody") {
+      const handler = getHandler(graph.kind);
+      if (handler) handler.enforceBoundaryRules(graph, this);
+    }
 
     // Restore wires
     stateData.wires.forEach((wireData) => {
@@ -13388,15 +18333,35 @@ class BlueprintSystem {
       node.inputPorts.forEach((port) => {
         port.updateEditability();
       });
-      // Recalculate node height in case port editability changed
-      node.recalculateHeight();
+      // Full shape refresh rather than recalculateHeight(): the node type may
+      // have been swapped above (uniform/constant/custom), which moves a node
+      // between the pill and box shapes.
+      node.refreshShape();
     });
+
+    // For function/loopBody graphs, re-enforce boundary rules so that
+    // boundary node ports match the restored contract.
+    if (graph.kind !== "main") {
+      const handler = getHandler(graph.kind);
+      if (handler) handler.enforceBoundaryRules(graph, this);
+    }
+
+    // Re-attach the preview pin to the rebuilt instance, or drop it if the
+    // node is not in this state. generateShader() starts its walk from the
+    // pin, so a stale reference here generates the shader from the graph as
+    // it was before the restore.
+    graph.previewNode =
+      pinnedNodeId === null ? null : nodeMap.get(pinnedNodeId) || null;
 
     // UI side-effects: only when this graph is currently visible.
     if (graph === this.activeGraph) {
       this.renderUniformList();
+      this.renderConstantList();
       this.renderCustomNodesList();
       this.updateShaderSettingsUI();
+      this.renderContractEditor();
+      this.renderFunctionsList();
+      this.renderGraphTabBar();
       this.render();
       this.updateDependencyList();
     }
@@ -13405,6 +18370,223 @@ class BlueprintSystem {
     if (graph === this.mainGraph) {
       this.onShaderChanged();
     }
+  }
+
+  // Text for one preview panel. Runs per window: every control lives inside
+  // its own cloned root, so a document-wide pass would only ever find the
+  // first panel - or, once ids are generated per clone, none of them.
+  updatePreviewPanelText(target, t) {
+    if (!target?.root) return;
+
+    // Preview buttons
+    const updatePreviewButton = (name, titleKey) => {
+      const btn = target.el(name);
+      if (btn) btn.title = t(titleKey);
+    };
+
+    updatePreviewButton("togglePreviewSettingsBtn", "Toggle Settings");
+    updatePreviewButton("reloadPreviewBtn", "Reload Preview");
+    updatePreviewButton("screenshotPreviewBtn", "Screenshot Preview");
+    updatePreviewButton("newPreviewBtn", "New Preview Window");
+
+    // The header and the close button say different things depending on how
+    // many windows there are and whether this one is popped out, so they are
+    // written by renumberPreviewWindows rather than from a fixed key here.
+
+    // Preview controls labels
+    const updateLabel = (selector, textKey) => {
+      const labels = target.root.querySelectorAll(selector);
+      labels.forEach((label) => {
+        const text = label.childNodes[0];
+        if (text) {
+          text.textContent = t(textKey);
+        }
+      });
+    };
+
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group label[data-preview-for='effectTargetSelect'], .preview-control-group:has([data-preview-el='effectTargetSelect']) > label",
+      "Effect Target:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='objectSelect']) > label",
+      "Object:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='objectColorInput']) > label",
+      "Color:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='objectAngleSlider']) .preview-scale-header > label",
+      "Rotation:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='objectOffsetXSlider']) .preview-scale-header > label",
+      "Offset:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='cameraModeSelect']) > label",
+      "Camera:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='autoRotateCheckbox']) label",
+      "Auto Rotate",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='backgroundModeSelect']) > label",
+      "Background:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='renderResolutionSelect']) > label",
+      "Resolution:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='canvasWidthInput']) > label",
+      "Custom:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='fullscreenQualitySelect']) > label",
+      "Fullscreen Quality:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='samplingModeSelect']) > label",
+      "Sampling:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='anisotropicFilteringSelect']) > label",
+      "Anisotropic:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='shaderLanguageSelect']) > label",
+      "Shader Language:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='spriteTextureInput']) > label",
+      "Sprite Texture:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='shapeTextureInput']) > label",
+      "Shape Texture:",
+    );
+    updateLabel(
+      "[data-preview-el='preview-controls'] .preview-control-group:has([data-preview-el='modelTextureInput']) > label",
+      "Model Texture:",
+    );
+
+    // Preview select options
+    const effectTargetSelect = target.el("effectTargetSelect");
+    if (effectTargetSelect) {
+      effectTargetSelect.options[0].text = t("Sprite");
+      effectTargetSelect.options[1].text = t("3D Shape");
+      effectTargetSelect.options[2].text = t("Layout");
+      effectTargetSelect.options[3].text = t("Layer");
+    }
+
+    const objectSelect = target.el("objectSelect");
+    if (objectSelect) {
+      objectSelect.options[0].text = t("Sprite");
+      objectSelect.options[1].text = t("Box");
+      objectSelect.options[2].text = t("Prism");
+      objectSelect.options[3].text = t("Wedge");
+      objectSelect.options[4].text = t("Pyramid");
+      objectSelect.options[5].text = t("Corner Out");
+      objectSelect.options[6].text = t("Corner In");
+    }
+
+    const cameraModeSelect = target.el("cameraModeSelect");
+    if (cameraModeSelect) {
+      cameraModeSelect.options[0].text = t("2D");
+      cameraModeSelect.options[1].text = t("Perspective");
+      cameraModeSelect.options[2].text = t("Orthographic");
+    }
+
+    const backgroundModeSelect = target.el("backgroundModeSelect");
+    if (backgroundModeSelect) {
+      backgroundModeSelect.options[0].text = t("Auto");
+      backgroundModeSelect.options[1].text = t("None");
+      backgroundModeSelect.options[2].text = t("2D Background");
+      backgroundModeSelect.options[3].text = t("3D Room");
+    }
+
+    const renderResolutionSelect = target.el("renderResolutionSelect");
+    if (renderResolutionSelect) {
+      // Only the first and last are words; the pixel counts need no translating.
+      renderResolutionSelect.options[0].text = t("Native");
+      renderResolutionSelect.options[
+        renderResolutionSelect.options.length - 1
+      ].text = t("Custom");
+    }
+
+    const fullscreenQualitySelect = target.el("fullscreenQualitySelect");
+    if (fullscreenQualitySelect) {
+      fullscreenQualitySelect.options[0].text = t("High");
+      fullscreenQualitySelect.options[1].text = t("Low");
+    }
+
+    // Rebuilt rather than translated in place - it is a sentence, not a label.
+    this.showRenderSize(undefined, target);
+
+    const samplingModeSelect = target.el("samplingModeSelect");
+    if (samplingModeSelect) {
+      samplingModeSelect.options[0].text = t("Trilinear");
+      samplingModeSelect.options[1].text = t("Bilinear");
+      samplingModeSelect.options[2].text = t("Nearest");
+    }
+
+    const anisotropicFilteringSelect = target.el("anisotropicFilteringSelect");
+    if (anisotropicFilteringSelect) {
+      // Only the first two options are words; 2x..16x need no translating.
+      anisotropicFilteringSelect.options[0].text = t("Auto");
+      anisotropicFilteringSelect.options[1].text = t("Off");
+    }
+
+    const shaderLanguageSelect = target.el("shaderLanguageSelect");
+    if (shaderLanguageSelect) {
+      shaderLanguageSelect.options[0].text = t("WebGPU");
+      shaderLanguageSelect.options[1].text = t("WebGL 2");
+      shaderLanguageSelect.options[2].text = t("WebGL 1");
+    }
+
+    // Preview buttons with titles
+    const spriteTextureBtn = target.el("spriteTextureBtn");
+    if (spriteTextureBtn) spriteTextureBtn.title = t("Load sprite texture");
+
+    const clearSpriteTextureBtn = target.el("clearSpriteTextureBtn");
+    if (clearSpriteTextureBtn)
+      clearSpriteTextureBtn.title = t("Clear sprite texture");
+
+    const shapeTextureBtn = target.el("shapeTextureBtn");
+    if (shapeTextureBtn) shapeTextureBtn.title = t("Load shape texture");
+
+    const clearShapeTextureBtn = target.el("clearShapeTextureBtn");
+    if (clearShapeTextureBtn)
+      clearShapeTextureBtn.title = t("Clear shape texture");
+
+    const modelTextureBtn = target.el("modelTextureBtn");
+    if (modelTextureBtn)
+      modelTextureBtn.title = t("Replace the 3D model's grid texture");
+
+    const clearModelTextureBtn = target.el("clearModelTextureBtn");
+    if (clearModelTextureBtn)
+      clearModelTextureBtn.title = t("Back to the grid texture");
+
+    const resetPreviewSettingsBtn = target.el("resetPreviewSettingsBtn");
+    if (resetPreviewSettingsBtn)
+      resetPreviewSettingsBtn.textContent = t("Reset Preview Settings");
+
+    // Texture preview "No image" text
+    const updateTexturePreview = (name) => {
+      const preview = target.el(name);
+      if (preview) {
+        const span = preview.querySelector("span");
+        if (span) span.textContent = t("No image");
+      }
+    };
+
+    updateTexturePreview("spriteTexturePreview");
+    updateTexturePreview("shapeTexturePreview");
+    updateTexturePreview("modelTexturePreview");
+    updateTexturePreview("bgTexturePreview");
   }
 
   updateShaderSettingsUI() {
@@ -13422,6 +18604,9 @@ class BlueprintSystem {
       settingPreservesOpaqueness: "preservesOpaqueness",
       settingAnimated: "animated",
       settingIsDeprecated: "isDeprecated",
+      settingUsesDepth: "usesDepth",
+      settingMustPredraw: "mustPredraw",
+      settingSupports3DDirectRendering: "supports3DDirectRendering",
       settingExtendBoxH: "extendBoxH",
       settingExtendBoxV: "extendBoxV",
     };
@@ -13437,122 +18622,60 @@ class BlueprintSystem {
       }
     }
 
-    this.announceMcpProjectUpdate("shader-info-updated");
+    // The language checkboxes carry a disabled state the flat map above cannot
+    // express, so they refresh themselves.
+    this.updateTargetCheckboxes();
+    this.updateShaderLanguageTabs();
   }
 
-  updatePreviewSettingsUI() {
-    // Update preview control UI elements
-    const effectTargetSelect = document.getElementById("effectTargetSelect");
-    const objectSelect = document.getElementById("objectSelect");
-    const cameraModeSelect = document.getElementById("cameraModeSelect");
-    const autoRotateCheckbox = document.getElementById("autoRotateCheckbox");
-    const autoRotateGroup = document.getElementById("autoRotateGroup");
-    const samplingModeSelect = document.getElementById("samplingModeSelect");
-    const showBackgroundCubeCheckbox = document.getElementById(
-      "showBackgroundCubeCheckbox",
-    );
-    const spriteScaleSlider = document.getElementById("spriteScaleSlider");
-    const spriteScaleValue = document.getElementById("spriteScaleValue");
-    const shapeScaleSlider = document.getElementById("shapeScaleSlider");
-    const shapeScaleValue = document.getElementById("shapeScaleValue");
-    const roomScaleSlider = document.getElementById("roomScaleSlider");
-    const roomScaleValue = document.getElementById("roomScaleValue");
-    const bgOpacitySlider = document.getElementById("bgOpacitySlider");
-    const bgOpacityValue = document.getElementById("bgOpacityValue");
-    const bg3dOpacitySlider = document.getElementById("bg3dOpacitySlider");
-    const bg3dOpacityValue = document.getElementById("bg3dOpacityValue");
+  updatePreviewSettingsUI(target = this.defaultPreviewTarget()) {
+    // State -> DOM for one preview's controls. Driven by PREVIEW_SETTINGS, so a
+    // new setting needs no code here at all. Every lookup is scoped to that
+    // window's own root, which is what keeps two panels from writing over each
+    // other.
+    if (!target?.root) return;
 
-    if (effectTargetSelect) {
-      effectTargetSelect.value = this.previewSettings.effectTarget;
+    for (const d of PREVIEW_SETTINGS) {
+      const value = target.settings[d.key] ?? d.default;
+      this._writeSettingToDom(d, value, target);
+      d.onUi?.(this, value, target.settings, target.root);
     }
-    if (objectSelect) {
-      objectSelect.value = this.previewSettings.object;
-    }
-    if (cameraModeSelect) {
-      cameraModeSelect.value = this.previewSettings.cameraMode;
+  }
 
-      // Show/hide auto rotate based on camera mode
-      if (autoRotateGroup) {
-        autoRotateGroup.style.display =
-          this.previewSettings.cameraMode === "2d" ? "none" : "flex";
-      }
+  updateAllPreviewSettingsUI() {
+    for (const target of this.previewTargets) {
+      this.updatePreviewSettingsUI(target);
     }
-    if (autoRotateCheckbox) {
-      autoRotateCheckbox.checked = this.previewSettings.autoRotate;
-    }
-    if (samplingModeSelect) {
-      samplingModeSelect.value = this.previewSettings.samplingMode;
-    }
-    const shaderLanguageSelect = document.getElementById(
-      "shaderLanguageSelect",
-    );
-    if (shaderLanguageSelect) {
-      shaderLanguageSelect.value =
-        this.previewSettings.shaderLanguage || "webgpu";
-    }
-    if (showBackgroundCubeCheckbox) {
-      showBackgroundCubeCheckbox.checked =
-        this.previewSettings.showBackgroundCube !== false;
-    }
-    if (spriteScaleSlider) {
-      const spriteScale = this.previewSettings.spriteScale || 1;
-      spriteScaleSlider.value = spriteScale;
-      if (spriteScaleValue) {
-        spriteScaleValue.textContent = spriteScale.toFixed(2);
-      }
-    }
-    if (shapeScaleSlider) {
-      const shapeScale = this.previewSettings.shapeScale || 1;
-      shapeScaleSlider.value = shapeScale;
-      if (shapeScaleValue) {
-        shapeScaleValue.textContent = shapeScale.toFixed(2);
-      }
-    }
-    if (roomScaleSlider) {
-      const roomScale = this.previewSettings.roomScale || 1;
-      roomScaleSlider.value = roomScale;
-      if (roomScaleValue) {
-        roomScaleValue.textContent = roomScale.toFixed(2);
-      }
-    }
-    if (bgOpacitySlider) {
-      const bgOpacity = this.previewSettings.bgOpacity ?? 0.15;
-      bgOpacitySlider.value = bgOpacity;
-      if (bgOpacityValue) {
-        bgOpacityValue.textContent = bgOpacity.toFixed(2);
-      }
-    }
-    if (bg3dOpacitySlider) {
-      const bg3dOpacity = this.previewSettings.bg3dOpacity ?? 0.15;
-      bg3dOpacitySlider.value = bg3dOpacity;
-      if (bg3dOpacityValue) {
-        bg3dOpacityValue.textContent = bg3dOpacity.toFixed(2);
-      }
-    }
+  }
 
-    // Update texture previews
-    this.updateTexturePreview(
-      "spriteTexturePreview",
-      "clearSpriteTextureBtn",
-      this.previewSettings.spriteTextureUrl,
-    );
-    this.updateTexturePreview(
-      "shapeTexturePreview",
-      "clearShapeTextureBtn",
-      this.previewSettings.shapeTextureUrl,
-    );
-    this.updateTexturePreview(
-      "bgTexturePreview",
-      "clearBgTextureBtn",
-      this.previewSettings.bgTextureUrl,
-    );
+  _writeSettingToDom(d, value, target) {
+    if (!d.dom || !target) return;
 
-    // Update startup script textarea
-    const startupScriptTextarea = document.getElementById(
-      "previewStartupScript",
-    );
-    if (startupScriptTextarea) {
-      startupScriptTextarea.value = this.previewSettings.startupScript || "";
+    const el = d.dom.el ? target.el(d.dom.el) : null;
+
+    switch (d.kind) {
+      case "bool":
+        if (el) el.checked = !!value;
+        break;
+      case "number": {
+        if (el) el.value = value;
+        const valueEl = d.dom.valueEl && target.el(d.dom.valueEl);
+        if (valueEl) {
+          valueEl.textContent = Number(value).toFixed(d.precision ?? 2);
+        }
+        break;
+      }
+      case "texture":
+        this.updateTexturePreview(
+          d.dom.previewEl,
+          d.dom.clearBtnEl,
+          value,
+          target,
+        );
+        break;
+      default:
+        // enum, string, color
+        if (el) el.value = value ?? "";
     }
   }
 
@@ -13589,8 +18712,18 @@ class BlueprintSystem {
     const node = new Node(x, y, this.nodeIdCounter++, nodeType);
     // Store reference to blueprint system for nodes that need it (like Get Variable)
     node._blueprintSystem = this;
-    node._graph = this.activeGraph;
+    // Use the same graph `this.nodes.push` will target — `_graphOverride`
+    // (set by `_withGraph`) redirects pushes to a non-active graph, and the
+    // node's `_graph` must agree with where it's actually stored.
+    node._graph = this._graphOverride || this.activeGraph;
     this.nodes.push(node);
+    // If this is a function caller, seed its resolvedGenerics from the
+    // body so newly-placed callers display collapsed types immediately
+    // (otherwise the UI would only catch up after the next wire op).
+    if (nodeType.isFunctionCall && nodeType.targetGraphId) {
+      const target = this.graphs.get(nodeType.targetGraphId);
+      if (target) this._syncCallersBodyGenerics(target);
+    }
     this.render();
     return node;
   }
@@ -13815,128 +18948,78 @@ class BlueprintSystem {
       // Recalculate node height
       wire.endPort.node.recalculateHeight();
     }
-    // Remove from wires array
-    const wireIndex = this.wires.indexOf(wire);
-    if (wireIndex > -1) this.wires.splice(wireIndex, 1);
+    // Remove from the OWNING graph's wires array. `this.wires` delegates to
+    // the active graph, but a wire can live on any graph (e.g., contract
+    // syncs walk all graphs). Find the wire's home via its endpoint node's
+    // `_graph` pointer; fall back to scanning all graphs if that's missing.
+    const ownerGraph =
+      wire.startPort?.node?._graph ||
+      wire.endPort?.node?._graph ||
+      (() => {
+        for (const g of this.graphs.values()) {
+          if (g.wires.includes(wire)) return g;
+        }
+        return null;
+      })();
+    if (ownerGraph) {
+      const idx = ownerGraph.wires.indexOf(wire);
+      if (idx > -1) ownerGraph.wires.splice(idx, 1);
+    }
+    // Body-side generic resolution may have shifted; push to callers.
+    this._syncAllCallerBodyGenerics();
     this.onShaderChanged();
   }
 
   reevaluateGenericType(node, genericType, visited = new Set()) {
-    // Prevent infinite loops
     const nodeKey = `${node.id}_${genericType}`;
     if (visited.has(nodeKey)) return;
     visited.add(nodeKey);
 
-    // Get all ports with this generic type
     const genericPorts = node
       .getAllPorts()
       .filter((port) => port.portType === genericType);
 
-    // Find all connected concrete types
-    const connectedConcreteTypes = new Set();
+    const oldResolution = node.resolvedGenerics[genericType];
+
+    // Phase 1: Collect connected generic nodes and direct concrete sources.
+    // Direct = concrete port types, NOT resolutions inherited from other generics.
     const connectedGenericNodes = [];
+    const directConcreteTypes = new Set();
 
     genericPorts.forEach((port) => {
       port.connections.forEach((wire) => {
         const connectedPort =
           wire.startPort === port ? wire.endPort : wire.startPort;
-        if (connectedPort) {
-          // Check if the connected port is generic
-          if (isGenericType(connectedPort.portType)) {
-            // Track connected generic nodes for re-evaluation
-            connectedGenericNodes.push({
-              node: connectedPort.node,
-              genericType: connectedPort.portType,
-            });
+        if (!connectedPort) return;
 
-            // Also check if it has a concrete resolution we can use
-            const resolvedType = connectedPort.node.resolveGenericType(
-              connectedPort.portType,
+        if (isGenericType(connectedPort.portType)) {
+          connectedGenericNodes.push({
+            node: connectedPort.node,
+            genericType: connectedPort.portType,
+          });
+        } else {
+          let connectedType = connectedPort.portType;
+          if (connectedPort.node.nodeType.getCustomType) {
+            const customType = connectedPort.node.nodeType.getCustomType(
+              connectedPort.node,
+              connectedPort,
             );
-            if (resolvedType) {
-              const resolvedTypeDef = PORT_TYPES[resolvedType];
-              if (
-                !resolvedTypeDef?.isComposite &&
-                !isGenericType(resolvedType)
-              ) {
-                connectedConcreteTypes.add(resolvedType);
-              }
-            }
-          } else {
-            // Non-generic port - resolve its actual type first
-            let connectedType = connectedPort.portType;
-
-            // Try to resolve custom types through getCustomType
-            if (connectedPort.node.nodeType.getCustomType) {
-              const customType = connectedPort.node.nodeType.getCustomType(
-                connectedPort.node,
-                connectedPort,
-              );
-              if (customType) {
-                connectedType = customType;
-              }
-            }
-
-            // Now check if the resolved type is a concrete type
-            const connectedTypeDef = PORT_TYPES[connectedType];
-
-            // Only consider concrete types (not composite, not generic, and defined in PORT_TYPES)
-            if (
-              connectedTypeDef &&
-              !connectedTypeDef.isComposite &&
-              !connectedTypeDef.isGeneric
-            ) {
-              connectedConcreteTypes.add(connectedType);
-            }
+            if (customType) connectedType = customType;
+          }
+          const def = PORT_TYPES[connectedType];
+          if (def && !def.isGeneric) {
+            directConcreteTypes.add(connectedType);
           }
         }
       });
     });
 
-    const oldResolution = node.resolvedGenerics[genericType];
-    let resolutionChanged = false;
+    // Phase 2: Clear this node's resolution and cascade-clear connected generics
+    // so that stale inherited resolutions don't influence the re-scan.
+    if (oldResolution) {
+      delete node.resolvedGenerics[genericType];
+      genericPorts.forEach((port) => port.updateEditability());
 
-    // If no concrete types found, clear the resolution
-    if (connectedConcreteTypes.size === 0) {
-      if (oldResolution) {
-        delete node.resolvedGenerics[genericType];
-        resolutionChanged = true;
-
-        // Update editability for all ports with this generic type
-        genericPorts.forEach((port) => {
-          port.updateEditability();
-        });
-      }
-    }
-    // If exactly one concrete type, use it
-    else if (connectedConcreteTypes.size === 1) {
-      const concreteType = Array.from(connectedConcreteTypes)[0];
-
-      if (oldResolution !== concreteType) {
-        node.resolvedGenerics[genericType] = concreteType;
-        resolutionChanged = true;
-
-        // Propagate new resolution
-        this.propagateGenericResolution(node, genericType, concreteType);
-
-        // Update editability for all ports with this generic type
-        genericPorts.forEach((port) => {
-          port.updateEditability();
-        });
-      }
-    }
-    // If multiple concrete types, this is an error state (shouldn't happen)
-    // Keep the first one found
-    else {
-      const concreteType = Array.from(connectedConcreteTypes)[0];
-      if (oldResolution !== concreteType) {
-        node.resolvedGenerics[genericType] = concreteType;
-        resolutionChanged = true;
-      }
-    }
-
-    // Always re-evaluate connected generic nodes if our resolution changed
-    if (resolutionChanged) {
       connectedGenericNodes.forEach(
         ({ node: connectedNode, genericType: connectedGenericType }) => {
           this.reevaluateGenericType(
@@ -13947,6 +19030,52 @@ class BlueprintSystem {
         },
       );
     }
+
+    // Phase 3: Re-scan connected generics for concrete resolutions that
+    // survived the cascade (from independent concrete sources).
+    const concreteTypes = new Set(directConcreteTypes);
+    connectedGenericNodes.forEach(({ node: cn, genericType: cgt }) => {
+      const resolved = cn.resolveGenericType(cgt);
+      if (resolved) {
+        const def = PORT_TYPES[resolved];
+        if (def && !isGenericType(resolved)) {
+          concreteTypes.add(resolved);
+        }
+      }
+    });
+
+    // Phase 4: Decide on new resolution.
+    if (concreteTypes.size === 0) {
+      let narrowestGeneric = null;
+      const myAllowed = getAllowedTypesForGeneric(genericType);
+
+      connectedGenericNodes.forEach(({ genericType: connectedGenericType }) => {
+        const connectedAllowed =
+          getAllowedTypesForGeneric(connectedGenericType);
+        if (
+          connectedAllowed.length < myAllowed.length &&
+          connectedAllowed.every((t) => myAllowed.includes(t))
+        ) {
+          if (
+            !narrowestGeneric ||
+            connectedAllowed.length <
+              getAllowedTypesForGeneric(narrowestGeneric).length
+          ) {
+            narrowestGeneric = connectedGenericType;
+          }
+        }
+      });
+
+      if (narrowestGeneric) {
+        node.resolvedGenerics[genericType] = narrowestGeneric;
+        genericPorts.forEach((port) => port.updateEditability());
+      }
+    } else {
+      const concreteType = Array.from(concreteTypes)[0];
+      node.resolvedGenerics[genericType] = concreteType;
+      this.propagateGenericResolution(node, genericType, concreteType);
+      genericPorts.forEach((port) => port.updateEditability());
+    }
   }
 
   resolveGenericsForConnection(outputPort, inputPort) {
@@ -13954,34 +19083,11 @@ class BlueprintSystem {
     const outputType = outputPort.getResolvedType();
     const inputType = inputPort.getResolvedType();
 
-    // Determine the concrete type to use for resolution
-    // If one side is composite and the other is concrete, use the concrete type
-    const outputTypeDef = PORT_TYPES[outputType];
-    const inputTypeDef = PORT_TYPES[inputType];
-
-    let concreteTypeForOutput = inputType;
-    let concreteTypeForInput = outputType;
-
-    // If input is composite but output is concrete, use output's concrete type
-    if (inputTypeDef?.isComposite && !outputTypeDef?.isComposite) {
-      concreteTypeForOutput = outputType;
-    }
-
-    // If output is composite but input is concrete, use input's concrete type
-    if (outputTypeDef?.isComposite && !inputTypeDef?.isComposite) {
-      concreteTypeForInput = inputType;
-    }
-
-    // If both are composite, we can't resolve (shouldn't happen with proper filtering)
-    if (outputTypeDef?.isComposite && inputTypeDef?.isComposite) {
-      return;
-    }
-
     // Update output node's generics with the concrete type
     if (isGenericType(outputPort.portType)) {
       const wasUpdated = outputPort.node.updateResolvedGenerics(
         outputPort.portType,
-        concreteTypeForOutput,
+        inputType,
       );
 
       // Propagate resolution to connected generic ports
@@ -13989,7 +19095,7 @@ class BlueprintSystem {
         this.propagateGenericResolution(
           outputPort.node,
           outputPort.portType,
-          concreteTypeForOutput,
+          inputType,
         );
       }
 
@@ -14009,7 +19115,7 @@ class BlueprintSystem {
     if (isGenericType(inputPort.portType)) {
       const wasUpdated = inputPort.node.updateResolvedGenerics(
         inputPort.portType,
-        concreteTypeForInput,
+        outputType,
       );
 
       // Propagate resolution to connected generic ports
@@ -14017,7 +19123,7 @@ class BlueprintSystem {
         this.propagateGenericResolution(
           inputPort.node,
           inputPort.portType,
-          concreteTypeForInput,
+          outputType,
         );
       }
 
@@ -14044,6 +19150,9 @@ class BlueprintSystem {
         port.updateEditability();
       });
     }
+
+    // Body-side generic resolution may have shifted; push to callers.
+    this._syncAllCallerBodyGenerics();
   }
 
   propagateGenericResolution(node, genericType, concreteType) {
@@ -14051,6 +19160,12 @@ class BlueprintSystem {
     const genericPorts = node
       .getAllPorts()
       .filter((port) => port.portType === genericType);
+
+    // Propagation may carry the resolved type across a node (e.g. an input
+    // genType resolves, so the output genType resolves too). If the new
+    // concrete type now conflicts with a wire on the other-side port, that
+    // wire must be dropped — regardless of which graph owns it.
+    const wiresToDrop = [];
 
     // For each generic port, propagate to connected nodes
     genericPorts.forEach((port) => {
@@ -14060,16 +19175,18 @@ class BlueprintSystem {
       port.connections.forEach((wire) => {
         const connectedPort =
           wire.startPort === port ? wire.endPort : wire.startPort;
+        if (!connectedPort) return;
 
-        if (connectedPort && isGenericType(connectedPort.portType)) {
+        if (isGenericType(connectedPort.portType)) {
           // Check if the connected node hasn't resolved this generic yet
           const connectedNode = connectedPort.node;
           const currentResolution = connectedNode.resolveGenericType(
             connectedPort.portType,
           );
 
-          if (!currentResolution) {
-            // Resolve the connected node's generic
+          if (!currentResolution || isGenericType(currentResolution)) {
+            // Resolve the connected node's generic (or override a
+            // generic-narrowed resolution with a concrete type)
             const wasUpdated = connectedNode.updateResolvedGenerics(
               connectedPort.portType,
               concreteType,
@@ -14083,10 +19200,33 @@ class BlueprintSystem {
                 concreteType,
               );
             }
+          } else if (currentResolution !== concreteType) {
+            // The other end already resolved to a different concrete type.
+            // The wire can no longer carry this signal.
+            wiresToDrop.push(wire);
+          }
+        } else {
+          // Connected port is concrete. If it can't accept the new resolved
+          // type, drop the wire.
+          const outputPort = port.type === "output" ? port : connectedPort;
+          const inputPort = port.type === "input" ? port : connectedPort;
+          if (
+            !areTypesCompatible(
+              outputPort.portType,
+              inputPort.portType,
+              outputPort.getResolvedType(),
+              inputPort.getResolvedType(),
+            )
+          ) {
+            wiresToDrop.push(wire);
           }
         }
       });
     });
+
+    for (const wire of wiresToDrop) {
+      this.disconnectWire(wire);
+    }
   }
 
   onMouseDown(e) {
@@ -14137,15 +19277,17 @@ class BlueprintSystem {
     const currentTime = Date.now();
     const isMultiSelect = e.shiftKey;
 
-    // Check for double-click on wire
+    // Double-click detection
     const timeSinceLastClick = currentTime - this.lastClickTime;
     const distanceFromLastClick = Math.sqrt(
       Math.pow(pos.x - this.lastClickPos.x, 2) +
         Math.pow(pos.y - this.lastClickPos.y, 2),
     );
+    const isDoubleClick =
+      timeSinceLastClick < 300 && distanceFromLastClick < 10;
 
-    // If this is the second click of a double-click (within 300ms and close to same position)
-    if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+    // Double-click on wire to add reroute node (takes priority over comment body)
+    if (isDoubleClick) {
       const wireHit = this.findWireAtPosition(pos.x, pos.y);
       if (wireHit) {
         const { wire, segmentIndex } = wireHit;
@@ -14162,6 +19304,12 @@ class BlueprintSystem {
             n.index = i;
           });
         }
+
+        // The drag that follows pushes its own entry on mouseup, but a
+        // double-click that never moves would otherwise record nothing. The
+        // two share the `reroutes` property key, so a click-and-drag still
+        // coalesces into a single entry.
+        this.history.pushState("Add reroute node");
 
         // Immediately start dragging the new reroute node
         // First select it (this also clears any previous selection)
@@ -14223,25 +19371,31 @@ class BlueprintSystem {
       return;
     }
 
-    // Check if clicking on edit button for custom nodes
-    if (
-      topNodeAtPointer?.nodeType.isCustom &&
-      topNodeAtPointer.editButtonBounds
-    ) {
-      const btn = topNodeAtPointer.editButtonBounds;
+    // Check if mousedown is on a node button — defer action to mouseup (so dragging doesn't trigger it)
+    {
+      const hitBounds = (b) =>
+        b &&
+        pos.x >= b.x &&
+        pos.x <= b.x + b.width &&
+        pos.y >= b.y &&
+        pos.y <= b.y + b.height;
       if (
-        pos.x >= btn.x &&
-        pos.x <= btn.x + btn.width &&
-        pos.y >= btn.y &&
-        pos.y <= btn.y + btn.height
+        topNodeAtPointer?.nodeType.isCustom &&
+        hitBounds(topNodeAtPointer.editButtonBounds)
       ) {
-        const customNode = this.customNodes.find(
-          (cn) => cn.id === topNodeAtPointer.nodeType.customNodeId,
-        );
-        if (customNode) {
-          this.showCustomNodeModal(customNode);
-        }
-        return;
+        this.pendingButtonClick = { type: "edit", node: topNodeAtPointer };
+      } else if (
+        topNodeAtPointer?.nodeType.isFunctionCall &&
+        hitBounds(topNodeAtPointer.openGraphButtonBounds)
+      ) {
+        this.pendingButtonClick = { type: "openGraph", node: topNodeAtPointer };
+      } else if (
+        topNodeAtPointer &&
+        !topNodeAtPointer.nodeType.isCustom &&
+        !topNodeAtPointer.nodeType.isFunctionCall &&
+        hitBounds(topNodeAtPointer.infoButtonBounds)
+      ) {
+        this.pendingButtonClick = { type: "info", node: topNodeAtPointer };
       }
     }
 
@@ -14378,10 +19532,9 @@ class BlueprintSystem {
         return;
       }
 
-      // Check edit button (pencil icon at top right)
+      // Check edit button (pencil icon at top right) — defer to mouseup
       if (comment.isPointInEditButton(pos.x, pos.y)) {
-        this.showCommentModal(comment);
-        return;
+        this.pendingButtonClick = { type: "commentEdit", comment };
       }
 
       // Check drag handle (small icon at top left) - drags ONLY the comment (without nodes)
@@ -14418,7 +19571,7 @@ class BlueprintSystem {
 
       if (inTitleBar) {
         // Check for double-click to edit
-        if (timeSinceLastClick < 300 && distanceFromLastClick < 10) {
+        if (isDoubleClick) {
           this.showCommentModal(comment);
           return;
         }
@@ -14462,8 +19615,21 @@ class BlueprintSystem {
         return;
       }
 
-      // For clicks inside the comment body (not title bar or handles),
-      // don't intercept - let them fall through to node/box selection logic below
+      // Double-click on comment body (below title bar, not on a node) opens edit
+      const inBody =
+        pos.x >= comment.x &&
+        pos.x <= comment.x + comment.width &&
+        pos.y > comment.y + COMMENT_TITLE_HEIGHT &&
+        pos.y <= comment.y + comment.height;
+
+      if (inBody && isDoubleClick) {
+        const nodeAtPos = this.findNodeAtPosition(pos.x, pos.y);
+        if (!nodeAtPos) {
+          this.showCommentModal(comment);
+          return;
+        }
+      }
+      // Otherwise single clicks fall through to node/box selection logic below
     }
 
     // Check if clicking on a node
@@ -14539,9 +19705,12 @@ class BlueprintSystem {
             rn.dragOffsetY = pos.y - rn.y;
           });
 
-          // Move to front
+          // Move to front. Draw order is not an edit, so it gets no undo
+          // entry - but the node array order *is* snapshotted, so accept it as
+          // the new baseline or it rides along on whatever is pushed next.
           this.nodes = this.nodes.filter((n) => n !== node);
           this.nodes.push(node);
+          this.history.syncBaseline();
         }
       }
 
@@ -14594,6 +19763,23 @@ class BlueprintSystem {
   onMouseMove(e) {
     // Store last mouse event for auto-panning
     this.lastMouseEvent = e;
+
+    // A drag recorded with no button held means we never saw the mouseup —
+    // it landed on a modal, devtools, another window, or a graph switch. Drop
+    // it instead of teleporting the selection to the cursor on the next move.
+    if (
+      e.buttons === 0 &&
+      (this.draggedNode ||
+        this.draggedRerouteNode ||
+        this.draggedComment ||
+        this.resizingComment ||
+        this.isBoxSelecting ||
+        this.isPanning)
+    ) {
+      this._cancelActiveInteraction();
+      this.render();
+      return;
+    }
 
     // Handle panning
     if (this.isPanning) {
@@ -14803,6 +19989,7 @@ class BlueprintSystem {
     }
 
     // Update cursor
+    this.hoveredNodeButton = null;
     const rerouteNode = this.findRerouteNodeAtPosition(pos.x, pos.y);
     if (rerouteNode) {
       this.canvas.style.cursor = "move";
@@ -14870,8 +20057,27 @@ class BlueprintSystem {
 
         if (!overCommentHandle) {
           const node = this.findNodeAtPosition(pos.x, pos.y);
-          if (node && node.isPointInHeader(pos.x, pos.y)) {
-            this.canvas.style.cursor = "move";
+          if (node) {
+            const hitBounds = (b) =>
+              b &&
+              pos.x >= b.x &&
+              pos.x <= b.x + b.width &&
+              pos.y >= b.y &&
+              pos.y <= b.y + b.height;
+            if (hitBounds(node.infoButtonBounds)) {
+              this.hoveredNodeButton = { node, type: "info" };
+            } else if (hitBounds(node.editButtonBounds)) {
+              this.hoveredNodeButton = { node, type: "edit" };
+            } else if (hitBounds(node.openGraphButtonBounds)) {
+              this.hoveredNodeButton = { node, type: "openGraph" };
+            }
+            if (this.hoveredNodeButton) {
+              this.canvas.style.cursor = "pointer";
+            } else if (node.isPointInHeader(pos.x, pos.y)) {
+              this.canvas.style.cursor = "move";
+            } else {
+              this.canvas.style.cursor = "default";
+            }
           } else {
             this.canvas.style.cursor = "default";
           }
@@ -14960,10 +20166,72 @@ class BlueprintSystem {
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = "default";
+      this.pendingButtonClick = null;
       return;
     }
 
     const pos = this.getMousePos(e);
+
+    // Handle deferred button clicks (node info/edit/openGraph, comment edit)
+    if (this.pendingButtonClick) {
+      const pending = this.pendingButtonClick;
+      this.pendingButtonClick = null;
+
+      // Only fire if the mouse hasn't moved far (i.e. not a drag)
+      const dx = pos.x - this.lastClickPos.x;
+      const dy = pos.y - this.lastClickPos.y;
+      if (dx * dx + dy * dy < 25) {
+        if (pending.type === "edit" || pending.type === "openGraph") {
+          // Both of these take the pointer off the canvas — a modal, or another
+          // graph entirely. The mousedown that armed them also started a drag
+          // (the buttons live inside the node header), and the cleanup further
+          // down this handler would run against the wrong graph once we've
+          // switched. Cancel here and stop, rather than falling through.
+          // Cancel, not commit: the pointer never moved, so there is no move to
+          // record.
+          this._cancelActiveInteraction();
+          if (pending.type === "edit") {
+            const customNode = this.customNodes.find(
+              (cn) => cn.id === pending.node.nodeType.customNodeId,
+            );
+            if (customNode) this.showCustomNodeModal(customNode);
+          } else {
+            this.openGraphTab(pending.node.nodeType.targetGraphId);
+          }
+          this.render();
+          return;
+        } else if (pending.type === "info") {
+          for (const [key, nodeType] of Object.entries(NODE_TYPES)) {
+            if (nodeType === pending.node.nodeType) {
+              this.showManualModal();
+              setTimeout(() => {
+                const categoriesContainer =
+                  document.getElementById("manualCategories");
+                categoriesContainer
+                  .querySelectorAll(".manual-node-item")
+                  .forEach((i) => i.classList.remove("active"));
+                const nodeItem = categoriesContainer.querySelector(
+                  `[data-node-key="${key}"]`,
+                );
+                if (nodeItem) {
+                  nodeItem.classList.add("active");
+                  const category = nodeItem.closest(".manual-category");
+                  if (category) category.classList.remove("collapsed");
+                  nodeItem.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                  });
+                }
+                this.showNodeManualEntry(key);
+              }, 0);
+              break;
+            }
+          }
+        } else if (pending.type === "commentEdit") {
+          this.showCommentModal(pending.comment);
+        }
+      }
+    }
 
     if (this.pendingCustomEditorClick) {
       const { node, bounds } = this.pendingCustomEditorClick;
@@ -15019,6 +20287,14 @@ class BlueprintSystem {
             this.onShaderChanged();
           }
 
+          // Dragging a wire off a port and dropping it on nothing deletes it,
+          // so it needs an undo point of its own. Only when the wire actually
+          // existed: otherwise this is a drag from a bare port that connected
+          // nothing, and the search menu path below pushes "Create node".
+          if (this.activeWire.wasPickedUp) {
+            this.history.pushState("Delete wire");
+          }
+
           // Only show search menu if wire wasn't picked up
           if (!this.activeWire.wasPickedUp) {
             const startPort = this.activeWire.startPort;
@@ -15066,6 +20342,12 @@ class BlueprintSystem {
           // Remove the wire if it was picked up
           if (this.wires.includes(this.activeWire)) {
             this.disconnectWire(this.activeWire);
+          }
+
+          // See the mirrored branch above: a picked-up wire dropped on empty
+          // canvas is a deletion and needs its own undo point.
+          if (this.activeWire.wasPickedUp) {
+            this.history.pushState("Delete wire");
           }
 
           // Only show search menu if wire wasn't picked up
@@ -15170,6 +20452,7 @@ class BlueprintSystem {
     if (rerouteNode) {
       // Delete the reroute node
       rerouteNode.wire.removeRerouteNode(rerouteNode);
+      this.history.pushState("Delete reroute node");
       this.render();
       return;
     }
@@ -15318,6 +20601,90 @@ class BlueprintSystem {
       ctx.fill();
       ctx.stroke();
     });
+  }
+
+  // Every Set/Get pair the current selection takes part in, as [setNode, getNode].
+  // Selecting the setter yields all of its readers; selecting a reader yields the
+  // one setter it reads from.
+  selectedVariableLinks() {
+    if (!this.selectedNodes || this.selectedNodes.size === 0) return [];
+
+    const links = [];
+    const seen = new Set();
+    const addLink = (setNode, getNode) => {
+      const key = `${setNode.id}->${getNode.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      links.push([setNode, getNode]);
+    };
+
+    this.selectedNodes.forEach((node) => {
+      const typeName = node.nodeType?.name;
+      if (typeName === "Set Variable" && node.customInput) {
+        this.nodes.forEach((other) => {
+          if (
+            other.nodeType?.name === "Get Variable" &&
+            other.selectedVariable === node.customInput
+          ) {
+            addLink(node, other);
+          }
+        });
+      } else if (typeName === "Get Variable" && node.selectedVariable) {
+        const setNode = this.nodes.find(
+          (other) =>
+            other.nodeType?.name === "Set Variable" &&
+            other.customInput === node.selectedVariable,
+        );
+        if (setNode) addLink(setNode, node);
+      }
+    });
+
+    return links;
+  }
+
+  drawVariableLinks() {
+    const links = this.selectedVariableLinks();
+    if (links.length === 0) return;
+
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = VARIABLE_LINK_COLOR;
+    ctx.fillStyle = VARIABLE_LINK_COLOR;
+    ctx.lineWidth = VARIABLE_LINK_WIDTH;
+    ctx.setLineDash(VARIABLE_LINK_DASH);
+
+    links.forEach(([setNode, getNode]) => {
+      // Value flows setter -> getter, so leave the setter's right edge and
+      // arrive at the getter's left edge, curving the way a wire would.
+      const startX = setNode.x + setNode.width;
+      const startY = setNode.y + setNode.height / 2;
+      const endX = getNode.x;
+      const endY = getNode.y + getNode.height / 2;
+      const offset = Math.min(Math.abs(endX - startX) * 0.5, 100);
+
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.bezierCurveTo(
+        startX + offset,
+        startY,
+        endX - offset,
+        endY,
+        endX,
+        endY,
+      );
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(startX, startY, VARIABLE_LINK_ENDPOINT_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(endX, endY, VARIABLE_LINK_ENDPOINT_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.setLineDash(VARIABLE_LINK_DASH);
+    });
+
+    ctx.restore();
   }
 
   validateTypedValue(value, type) {
@@ -15812,45 +21179,29 @@ class BlueprintSystem {
     // ctx.lineTo(iconCenterX + iconSize, iconCenterY - iconSize);
     // ctx.stroke();
 
-    // Title text (offset to make room for drag handle)
-    if (shouldDrawText) {
+    // Title text (offset to make room for drag handle) - always shown
+    {
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "left";
       ctx.fillText(comment.title, comment.x + 35, comment.y + 20);
 
-      // Description text
+      // Description text. The wrap is shared with commentHeaderHeight(), which is
+      // what reserves the room these lines are drawn into.
       if (comment.description) {
         ctx.fillStyle = "#cccccc";
-        ctx.font = "12px sans-serif";
+        ctx.font = COMMENT_DESCRIPTION_FONT;
         ctx.textAlign = "left";
 
-        // Word wrap the description
-        const maxWidth = comment.width - COMMENT_TEXT_MARGIN;
-        const lineHeight = 16;
-        const words = comment.description.split(" ");
-        let line = "";
-        let y = comment.y + 50;
-
-        for (let i = 0; i < words.length; i++) {
-          const testLine = line + words[i] + " ";
-          const metrics = ctx.measureText(testLine);
-
-          if (metrics.width > maxWidth && i > 0) {
-            ctx.fillText(line, comment.x + 10, y);
-            line = words[i] + " ";
-            y += lineHeight;
-
-            // Stop if we run out of space
-            if (y > comment.y + comment.height - COMMENT_TEXT_MARGIN) break;
-          } else {
-            line = testLine;
-          }
-        }
-
-        // Draw the last line
-        if (y <= comment.y + comment.height - COMMENT_TEXT_MARGIN) {
+        const bottom = comment.y + comment.height - COMMENT_TEXT_MARGIN;
+        let y = comment.y + COMMENT_DESCRIPTION_TOP;
+        for (const line of this.wrapCommentDescription(
+          comment.description,
+          comment.width,
+        )) {
+          if (y > bottom) break;
           ctx.fillText(line, comment.x + 10, y);
+          y += COMMENT_DESCRIPTION_LINE_HEIGHT;
         }
       }
     }
@@ -15986,6 +21337,112 @@ class BlueprintSystem {
         ctx.fill();
         ctx.stroke();
       });
+
+      // Pill node button (left side, circular) — skip for uniforms
+      if (!node.nodeType.isUniform) {
+        const btnSize = 20;
+        const btnX = node.x + 6;
+        const btnY = node.y + (node.height - btnSize) / 2;
+        const btnCX = btnX + btnSize / 2;
+        const btnCY = btnY + btnSize / 2;
+
+        const pillBtnType = node.nodeType.isCustom
+          ? "edit"
+          : node.nodeType.isFunctionCall && node.nodeType.targetGraphId
+            ? "openGraph"
+            : "info";
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === pillBtnType
+        ) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.arc(btnCX, btnCY, btnSize / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        if (node.nodeType.isCustom) {
+          // Pencil icon for custom nodes
+          ctx.fillStyle = "#fff";
+          ctx.save();
+          const iconSize = 12;
+          const iconOffset = (btnSize - iconSize) / 2;
+          ctx.translate(btnX + iconOffset, btnY + iconOffset);
+          const scale = iconSize / 24;
+          ctx.scale(scale, scale);
+          ctx.beginPath();
+          ctx.moveTo(20.71, 7.04);
+          ctx.bezierCurveTo(21.1, 6.65, 21.1, 6, 20.71, 5.63);
+          ctx.lineTo(18.37, 3.29);
+          ctx.bezierCurveTo(18, 2.9, 17.35, 2.9, 16.96, 3.29);
+          ctx.lineTo(15.12, 5.12);
+          ctx.lineTo(18.87, 8.87);
+          ctx.moveTo(3, 17.25);
+          ctx.lineTo(3, 21);
+          ctx.lineTo(6.75, 21);
+          ctx.lineTo(17.81, 9.93);
+          ctx.lineTo(14.06, 6.18);
+          ctx.lineTo(3, 17.25);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+
+          if (!node.editButtonBounds) node.editButtonBounds = {};
+          node.editButtonBounds.x = btnX;
+          node.editButtonBounds.y = btnY;
+          node.editButtonBounds.width = btnSize;
+          node.editButtonBounds.height = btnSize;
+        } else if (
+          node.nodeType.isFunctionCall &&
+          node.nodeType.targetGraphId
+        ) {
+          // Pencil icon for function/loop call nodes
+          ctx.fillStyle = "#fff";
+          ctx.save();
+          const iconSize = 12;
+          const iconOffset = (btnSize - iconSize) / 2;
+          ctx.translate(btnX + iconOffset, btnY + iconOffset);
+          const scale = iconSize / 24;
+          ctx.scale(scale, scale);
+          ctx.beginPath();
+          ctx.moveTo(20.71, 7.04);
+          ctx.bezierCurveTo(21.1, 6.65, 21.1, 6, 20.71, 5.63);
+          ctx.lineTo(18.37, 3.29);
+          ctx.bezierCurveTo(18, 2.9, 17.35, 2.9, 16.96, 3.29);
+          ctx.lineTo(15.12, 5.12);
+          ctx.lineTo(18.87, 8.87);
+          ctx.moveTo(3, 17.25);
+          ctx.lineTo(3, 21);
+          ctx.lineTo(6.75, 21);
+          ctx.lineTo(17.81, 9.93);
+          ctx.lineTo(14.06, 6.18);
+          ctx.lineTo(3, 17.25);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+
+          if (!node.openGraphButtonBounds) node.openGraphButtonBounds = {};
+          node.openGraphButtonBounds.x = btnX;
+          node.openGraphButtonBounds.y = btnY;
+          node.openGraphButtonBounds.width = btnSize;
+          node.openGraphButtonBounds.height = btnSize;
+        } else {
+          // Info icon for pill nodes
+          ctx.save();
+          ctx.fillStyle = "#fff";
+          ctx.font = "bold 14px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("?", btnCX, btnCY);
+          ctx.restore();
+
+          if (!node.infoButtonBounds) node.infoButtonBounds = {};
+          node.infoButtonBounds.x = btnX;
+          node.infoButtonBounds.y = btnY;
+          node.infoButtonBounds.width = btnSize;
+          node.infoButtonBounds.height = btnSize;
+        }
+      }
     } else {
       // Regular nodes
       // Node body
@@ -16033,11 +21490,16 @@ class BlueprintSystem {
         const buttonX = node.x + node.width - buttonSize - 5;
         const buttonY = node.y + 7;
 
-        // Button background
-        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-        ctx.beginPath();
-        ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
-        ctx.fill();
+        // Button background (only on hover)
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === "edit"
+        ) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+          ctx.fill();
+        }
 
         // Edit icon (pencil) - SVG path scaled to fit button
         ctx.fillStyle = "#fff";
@@ -16080,6 +21542,92 @@ class BlueprintSystem {
         node.editButtonBounds.y = buttonY;
         node.editButtonBounds.width = buttonSize;
         node.editButtonBounds.height = buttonSize;
+      }
+
+      // Open-graph button for function/loop body call nodes
+      if (node.nodeType.isFunctionCall && node.nodeType.targetGraphId) {
+        const buttonSize = 20;
+        const buttonX = node.x + node.width - buttonSize - 5;
+        const buttonY = node.y + 7;
+
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === "openGraph"
+        ) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+          ctx.fill();
+        }
+
+        // Pencil icon (same as custom nodes)
+        ctx.fillStyle = "#fff";
+        ctx.save();
+        const iconSize = 14;
+        const iconOffset = (buttonSize - iconSize) / 2;
+        ctx.translate(buttonX + iconOffset, buttonY + iconOffset);
+        const scale = iconSize / 24;
+        ctx.scale(scale, scale);
+        ctx.beginPath();
+        ctx.moveTo(20.71, 7.04);
+        ctx.bezierCurveTo(21.1, 6.65, 21.1, 6, 20.71, 5.63);
+        ctx.lineTo(18.37, 3.29);
+        ctx.bezierCurveTo(18, 2.9, 17.35, 2.9, 16.96, 3.29);
+        ctx.lineTo(15.12, 5.12);
+        ctx.lineTo(18.87, 8.87);
+        ctx.moveTo(3, 17.25);
+        ctx.lineTo(3, 21);
+        ctx.lineTo(6.75, 21);
+        ctx.lineTo(17.81, 9.93);
+        ctx.lineTo(14.06, 6.18);
+        ctx.lineTo(3, 17.25);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        if (!node.openGraphButtonBounds) {
+          node.openGraphButtonBounds = {};
+        }
+        node.openGraphButtonBounds.x = buttonX;
+        node.openGraphButtonBounds.y = buttonY;
+        node.openGraphButtonBounds.width = buttonSize;
+        node.openGraphButtonBounds.height = buttonSize;
+      }
+
+      // Info button for non-custom nodes (opens manual page)
+      if (!node.nodeType.isCustom && !node.nodeType.isFunctionCall) {
+        const buttonSize = 20;
+        const buttonX = node.x + node.width - buttonSize - 5;
+        const buttonY = node.y + 7;
+        const btnCenterX = buttonX + buttonSize / 2;
+        const btnCenterY = buttonY + buttonSize / 2;
+
+        if (
+          this.hoveredNodeButton?.node === node &&
+          this.hoveredNodeButton.type === "info"
+        ) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+          ctx.beginPath();
+          ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 4);
+          ctx.fill();
+        }
+
+        // Info icon: white "?"
+        ctx.save();
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 14px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("?", btnCenterX, btnCenterY);
+        ctx.restore();
+
+        if (!node.infoButtonBounds) {
+          node.infoButtonBounds = {};
+        }
+        node.infoButtonBounds.x = buttonX;
+        node.infoButtonBounds.y = buttonY;
+        node.infoButtonBounds.width = buttonSize;
+        node.infoButtonBounds.height = buttonSize;
       }
 
       // Operation dropdown (if node has operations)
@@ -16430,6 +21978,8 @@ class BlueprintSystem {
   render() {
     const ctx = this.ctx;
 
+    this.repositionOverlaysForCamera();
+
     // Update animation time for preview node outline
     if (this.previewNode) {
       this.previewAnimationTime = Date.now();
@@ -16474,6 +22024,10 @@ class BlueprintSystem {
     if (this.activeWire) {
       this.drawWire(this.activeWire);
     }
+
+    // Draw the name-only links between selected variable nodes and their
+    // counterparts, above the wires but still under the nodes.
+    this.drawVariableLinks();
 
     // Draw nodes (with debug opacity if in debug mode)
     this.nodes.forEach((node) => {
@@ -16872,15 +22426,11 @@ if (typeof globalThis !== "undefined") {
 
 blueprint.createNewFile();
 
-// Experimental build dialog
+// Experimental build dialog. Content is the repo-owned public/EXPERIMENTAL_INFO.md;
+// unlike the changelog it is fetched rather than bundled, so the notice can be
+// reworded without a rebuild.
 async function showExperimentalDialog() {
-  const isExperimental =
-    window.location.pathname.endsWith("/experimental/") ||
-    window.location.pathname.endsWith("/experimental");
-
-  if (!isExperimental) {
-    return;
-  }
+  if (!isExperimentalBuild()) return;
 
   try {
     const response = await fetch(
@@ -16893,81 +22443,44 @@ async function showExperimentalDialog() {
 
     const markdown = await response.text();
 
-    let html = markdown
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>");
-
-    html = html.split("\n").reduce(
-      (acc, line) => {
-        const trimmed = line.trim();
-        if (trimmed.startsWith("### ")) {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<h3>${trimmed.slice(4)}</h3>`;
-        } else if (trimmed.startsWith("## ")) {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<h2>${trimmed.slice(3)}</h2>`;
-        } else if (trimmed.startsWith("# ")) {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<h1>${trimmed.slice(2)}</h1>`;
-        } else if (trimmed.startsWith("- ")) {
-          if (!acc.inList) {
-            acc.result += "<ul>";
-            acc.inList = true;
-          }
-          acc.result += `<li>${trimmed.slice(2)}</li>`;
-        } else if (trimmed === "") {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-        } else {
-          if (acc.inList) {
-            acc.result += "</ul>";
-            acc.inList = false;
-          }
-          acc.result += `<p>${trimmed}</p>`;
-        }
-        return acc;
-      },
-      { result: "", inList: false },
-    );
-    if (html.inList) html.result += "</ul>";
-    html = html.result;
-
     const modal = document.getElementById("experimentalModal");
     const content = modal.querySelector(".experimental-info-content");
     const okButton = document.getElementById("experimentalModalOk");
 
-    content.innerHTML = html;
+    content.innerHTML = renderMarkdown(markdown);
     modal.style.display = "flex";
-
-    okButton.onclick = () => {
-      modal.style.display = "none";
-    };
 
     modal.onclick = (e) => {
       if (e.target === modal) {
         // Don't close - user must acknowledge
       }
     };
+
+    // Resolves on acknowledgement so the startup sequence below can wait for
+    // it, rather than stacking What's New on top of an unread warning.
+    await new Promise((resolve) => {
+      okButton.onclick = () => {
+        modal.style.display = "none";
+        resolve();
+      };
+    });
   } catch (error) {
     console.error("Error loading experimental info:", error);
   }
 }
 
-if (
-  window.location.pathname.endsWith("/experimental/") ||
-  window.location.pathname.endsWith("/experimental")
-) {
-  setTimeout(showExperimentalDialog, 500);
+// The headless boot (tests and the CLI) mounts index.html into jsdom and
+// imports this file, so anything that opens a dialog on a timer opens it there
+// too - and a modal left up makes isAnyDialogOpen() true for the rest of the
+// run, which silently disables every keyboard test. showExperimentalDialog got
+// away with it only because jsdom's URL is http://localhost/; What's New has no
+// such accident, since jsdom's localStorage starts empty every run.
+const isHeadlessHost = () => /jsdom/i.test(navigator.userAgent || "");
+
+if (!isHeadlessHost()) {
+  setTimeout(async () => {
+    // The experimental warning is a blocking acknowledgement, so it goes first.
+    await showExperimentalDialog();
+    blueprint.maybeShowWhatsNew();
+  }, 150);
 }

@@ -116,3 +116,31 @@ ToIntNode.operationOptions = [
   { value: "truncate", label: "Truncate" },
   { value: "round", label: "Round" },
 ];
+
+// Mirrors the execution above: int passes through, bool casts, float rounds by
+// the selected operation. Vectors are not folded - the execution takes .x, but
+// vector folding is out of scope (see MathNode.foldConstant).
+ToIntNode.foldConstant = (node, inputs) => {
+  const { value, type } = inputs[0];
+
+  if (type === "int") return Math.trunc(Number(value));
+  if (type === "bool") return value ? 1 : 0;
+  if (type !== "float") return null;
+
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+
+  switch (node.operation || "floor") {
+    case "ceil":
+      return Math.ceil(n);
+    case "truncate":
+      return Math.trunc(n);
+    case "round":
+      // GLSL round() breaks .5 ties to the nearest even value on some drivers,
+      // but the common case is exact, and a half-integer loop count is not a
+      // thing worth folding. Decline the tie rather than guess.
+      return Math.abs(n % 1) === 0.5 ? null : Math.round(n);
+    default:
+      return Math.floor(n);
+  }
+};

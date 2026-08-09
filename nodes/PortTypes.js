@@ -33,6 +33,7 @@ const genMatType = {
   allowedTypes: ["mat2", "mat3", "mat4"],
 };
 
+
 export const PORT_TYPES = {
   // Scalar types
   float: {
@@ -148,31 +149,6 @@ export const PORT_TYPES = {
   // Special types
   texture: { color: "#90e24a", name: "Texture", editable: false },
 
-  // Composite types (for compatibility checking)
-  vector: {
-    color: "#e2a44a",
-    name: "Vector",
-    editable: false,
-    isComposite: true,
-    includes: ["vec2", "vec3", "vec4"],
-  },
-  any: {
-    color: "#888888",
-    name: "Any",
-    editable: false,
-    isComposite: true,
-    includes: [
-      "float",
-      "int",
-      "bool",
-      "vec2",
-      "vec3",
-      "vec4",
-      "texture",
-      "vector",
-    ],
-  },
-
   // Generic types (templates)
   genType,
   genType2: { ...genType }, // copy for when I want 2 separately handled genTypes in a node (like mix)
@@ -204,13 +180,8 @@ export const PORT_TYPES = {
     isGeneric: true,
     allowedTypes: ["bool" /* "bvec2", "bvec3", "bvec4" */],
   },
-  T: {
-    color: "#c084fc",
-    name: "T",
-    editable: false,
-    isGeneric: true,
-    allowedTypes: ["float", "int", "bool", "vec2", "vec3", "vec4", "color"],
-  },
+  // Single-letter generic slots (T..Z) are added below the literal — see
+  // GENERIC_LETTERS.
   genType2Plus: {
     color: "#c084fc",
     name: "Vec2+",
@@ -232,6 +203,26 @@ export const PORT_TYPES = {
   genMatType,
   genMatType2: { ...genMatType },
 };
+
+// Single-letter generic slots for subgraph contracts. Independent by name:
+// each binds to one concrete type per call site, and two ports sharing a letter
+// are required to resolve to the same type.
+//
+// T..Z rather than just T/U because loop-body contracts authored before the
+// type dropdown existed were handed letters from an alphabet. A letter missing
+// from PORT_TYPES is not generic as far as isGenericType is concerned, so it
+// was being emitted verbatim as a GLSL type name.
+export const GENERIC_LETTERS = ["T", "U", "V", "W", "X", "Y", "Z"];
+
+for (const letter of GENERIC_LETTERS) {
+  PORT_TYPES[letter] = {
+    color: "#c084fc",
+    name: letter,
+    editable: false,
+    isGeneric: true,
+    allowedTypes: ["float", "int", "bool", "vec2", "vec3", "vec4", "color"],
+  };
+}
 
 // Node header colors - organized by what the node DOES
 export const NODE_COLORS = {
@@ -272,6 +263,7 @@ export const NODE_COLORS = {
   output: "#3a3a4a", // Dark neutral - terminal node
   variable: "#9b59b6", // Purple - storage/memory
   debug: "#777777", // Grey - debug visualization
+  functionBoundary: "#2a6a5a", // Teal-green - function/loop boundary nodes
 
   // === Port Types: Color ===
   colorInt: PORT_TYPES.int.color,
@@ -353,6 +345,15 @@ export function areTypesCompatible(
   // Exact match
   if (actualOutputType === actualInputType) return true;
 
+  // Both sides are unresolved generics — compatible only if one fully contains the other
+  if (isGenericType(inputType) && !resolvedInputType &&
+      isGenericType(outputType) && !resolvedOutputType) {
+    const inputAllowed = getAllowedTypesForGeneric(inputType);
+    const outputAllowed = getAllowedTypesForGeneric(outputType);
+    return outputAllowed.every((t) => inputAllowed.includes(t)) ||
+           inputAllowed.every((t) => outputAllowed.includes(t));
+  }
+
   // If input is generic (and not resolved), check if output is in allowed types
   if (isGenericType(inputType) && !resolvedInputType) {
     const allowedTypes = getAllowedTypesForGeneric(inputType);
@@ -365,6 +366,14 @@ export function areTypesCompatible(
     return allowedTypes.includes(actualInputType);
   }
 
+  // Both actual types are generic (resolved from custom) — one must fully contain the other
+  if (isGenericType(actualOutputType) && isGenericType(actualInputType)) {
+    const outputAllowed = getAllowedTypesForGeneric(actualOutputType);
+    const inputAllowed = getAllowedTypesForGeneric(actualInputType);
+    return outputAllowed.every((t) => inputAllowed.includes(t)) ||
+           inputAllowed.every((t) => outputAllowed.includes(t));
+  }
+
   // If actual types are generic (resolved from custom), check compatibility
   if (isGenericType(actualOutputType)) {
     const allowedTypes = getAllowedTypesForGeneric(actualOutputType);
@@ -374,31 +383,6 @@ export function areTypesCompatible(
   if (isGenericType(actualInputType)) {
     const allowedTypes = getAllowedTypesForGeneric(actualInputType);
     return allowedTypes.includes(actualOutputType);
-  }
-
-  // Check if input type is a composite that includes the output type
-  const inputTypeDef = PORT_TYPES[actualInputType];
-  if (
-    inputTypeDef?.isComposite &&
-    inputTypeDef.includes.includes(actualOutputType)
-  ) {
-    return true;
-  }
-
-  // Check if output type is a composite that includes the input type
-  const outputTypeDef = PORT_TYPES[actualOutputType];
-  if (
-    outputTypeDef?.isComposite &&
-    outputTypeDef.includes.includes(actualInputType)
-  ) {
-    return true;
-  }
-
-  // Check if both are composites with overlapping types
-  if (inputTypeDef?.isComposite && outputTypeDef?.isComposite) {
-    return inputTypeDef.includes.some((type) =>
-      outputTypeDef.includes.includes(type)
-    );
   }
 
   return false;

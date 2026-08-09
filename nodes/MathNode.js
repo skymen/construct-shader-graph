@@ -57,3 +57,33 @@ MathNode.operationOptions = [
   { value: "*", label: "×" },
   { value: "/", label: "÷" },
 ];
+
+// Scalars only. Folding vectors would mean reimplementing GLSL's mixed
+// scalar/vector operand rules component-wise, which is a lot of surface area for
+// no caller today - and declining just means the shader compiler folds it
+// instead, which it does perfectly well everywhere except constant-expression
+// positions.
+MathNode.foldConstant = (node, inputs, { outputType: type }) => {
+  if (type !== "int" && type !== "float") return null;
+
+  const a = Number(inputs[0].value);
+  const b = Number(inputs[1].value);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+
+  switch (node.operation || "+") {
+    case "+":
+      return type === "int" ? Math.trunc(a + b) : a + b;
+    case "-":
+      return type === "int" ? Math.trunc(a - b) : a - b;
+    case "*":
+      return type === "int" ? Math.trunc(a * b) : a * b;
+    case "/":
+      // Division by zero is undefined in GLSL, so leave it to the runtime
+      // rather than folding to Infinity or NaN.
+      if (b === 0) return null;
+      // GLSL integer division truncates toward zero; JS division does not.
+      return type === "int" ? Math.trunc(a / b) : a / b;
+    default:
+      return null;
+  }
+};

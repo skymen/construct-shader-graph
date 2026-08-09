@@ -3,9 +3,9 @@
 - [ ] **Switch/Case** - Multi-way branch based on int value
 - [ ] **Array Index** - Access array element by index
 
-## MCP / API Feedback
+## API Feedback
 
-- [ ] Optimize the MCP primarily for AI authoring workflows rather than low-level manual mutation ergonomics
+- [ ] Optimize the API primarily for AI authoring workflows rather than low-level manual mutation ergonomics
 - [ ] Add result references in `runCommands` so later commands can use nodes/wires created earlier in the same batch
 - [ ] Improve batch failure handling with transactional mode or rollback support
 - [ ] Return richer mutation errors with failing command index, node ids, port names, and resolved types

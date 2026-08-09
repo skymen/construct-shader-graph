@@ -1,7 +1,7 @@
 // Graph.js
 //
 // A Graph owns all per-graph editor state: nodes, wires, comments, selection,
-// camera, history, uniforms, shader settings, preview pin, and the transient
+// camera, shader settings, preview pin, and the transient
 // interaction state machine. The BlueprintSystem (host) owns one or more
 // Graphs and delegates per-graph reads/writes to the active graph through
 // property getters/setters defined on the host instance.
@@ -12,12 +12,16 @@
 //   activeGraph:  the graph the UI displays and the user interacts with.
 //
 // Things that are NOT per-graph (live on host): canvas/DOM, customNodes
-// library, clipboard, preview iframe + previewSettings, mcpBridge,
-// NODE_TYPES, pressedKeys, autoPanInterval.
-
-import { HistoryManager } from "./HistoryManager.js";
+// library, clipboard, preview iframe + previewSettings,
+// NODE_TYPES, pressedKeys, autoPanInterval, uniforms.
 
 let __graphIdCounter = 1;
+
+function reserveGraphId(id) {
+  const match = typeof id === "string" && id.match(/^g_(\d+)$/);
+  if (!match) return;
+  __graphIdCounter = Math.max(__graphIdCounter, Number(match[1]) + 1);
+}
 
 export function makeDefaultShaderSettings() {
   return {
@@ -38,6 +42,12 @@ export function makeDefaultShaderSettings() {
     supports3DDirectRendering: false,
     extendBoxH: 0,
     extendBoxV: 0,
+    // Which shader languages this effect generates and ships. See
+    // shader-targets.js for why these are three flat booleans rather than one
+    // nested object.
+    targetWebgl1: true,
+    targetWebgl2: true,
+    targetWebgpu: true,
   };
 }
 
@@ -45,7 +55,17 @@ export class Graph {
   constructor(host, opts = {}) {
     this.host = host;
     this.id = opts.id || `g_${__graphIdCounter++}`;
+    reserveGraphId(this.id);
     this.name = opts.name || "Untitled";
+
+    // Graph kind: 'main' | 'function' | 'loopBody'
+    this.kind = opts.kind || "main";
+    // Optional color tint for sidebar/tab display
+    this.color = opts.color || null;
+    // Per-kind freeform data bag (e.g., contract for function/loopBody kinds)
+    this.data = opts.data || {};
+    // Increments on any contract edit; used by callers to detect drift
+    this.contractVersion = opts.contractVersion || 0;
 
     // Editable graph data
     this.nodes = [];
@@ -56,8 +76,7 @@ export class Graph {
     this.nodeIdCounter = 1;
     this.commentIdCounter = 1;
     this.wireIdCounter = 1;
-    this.uniformIdCounter = 1;
-    // customNodeIdCounter is host-level (custom node library is shared)
+    // customNodeIdCounter and uniformIdCounter are host-level (shared)
 
     // Selection
     this.selectedNodes = new Set();
@@ -72,6 +91,10 @@ export class Graph {
     this.draggedNode = null;
     this.activeWire = null;
     this.hoveredPort = null;
+    // Both of these are delegated by the host but used to be declared only
+    // there, so they existed on the main graph alone.
+    this.hoveredNodeButton = null;
+    this.pendingButtonClick = null;
     this.draggedRerouteNode = null;
     this.draggedComment = null;
     this.resizingComment = null;
@@ -88,23 +111,17 @@ export class Graph {
     this.isPanning = false;
     this.panStart = { x: 0, y: 0 };
 
-    // File handle (per-graph; not yet used for non-main graphs)
-    this.fileHandle = null;
+    // NOTE: no fileHandle here. One project is one file, so the handle is
+    // host-level. It used to live here and be delegated, which meant saving
+    // while a subgraph was open found a null handle and re-opened the picker.
 
     // Shader settings (per-graph; each graph is its own shader)
     this.shaderSettings = makeDefaultShaderSettings();
-
-    // Uniforms (per-graph)
-    this.uniforms = [];
-    this.deprecatedUniforms = [];
-    this.deprecatedUniformsExpanded = false;
 
     // Preview pin (only mainGraph's previewNode drives codegen + preview)
     this.previewNode = null;
     this.previewAnimationTime = 0;
 
-    // Per-graph undo/redo history
-    this.history = new HistoryManager(this);
   }
 
   isActive() {
@@ -115,25 +132,13 @@ export class Graph {
     return !!this.host && this.host.mainGraphId === this.id;
   }
 
-  // ---- HistoryManager target interface ----
-  // HistoryManager calls graph.exportState() / graph.loadState(state) /
-  // graph.updateUndoRedoButtons(). Implementation is delegated to the host
-  // because the snapshot logic depends on host helpers (cloneValue,
-  // getNodeTypeKey, etc.) and the load logic must touch UI/preview when this
-  // graph is the active or main graph.
+  // Convenience delegates so callers can snapshot/restore via the graph object.
   exportState() {
     return this.host._exportGraphState(this);
   }
 
   loadState(stateData) {
     return this.host._loadGraphState(this, stateData);
-  }
-
-  updateUndoRedoButtons() {
-    // Only the active graph's undo/redo state is reflected in the toolbar.
-    if (this.isActive()) {
-      this.host.updateUndoRedoButtons();
-    }
   }
 
   // Select every node in this graph. Mirrors the host method but always

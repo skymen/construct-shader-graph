@@ -10,6 +10,7 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.Arr,
 		C3.Plugins.BinaryData,
 		C3.Plugins.Browser,
+		C3.Plugins.Model3D,
 		C3.Plugins.FileSystem.Cnds.OnDroppedFiles,
 		C3.Plugins.Arr.Acts.SplitString,
 		C3.Plugins.Browser.Acts.ConsoleLog,
@@ -43,6 +44,7 @@ self.C3_JsPropNameTable = [
 	{BinaryData: 0},
 	{shape3dTexture: 0},
 	{Browser: 0},
+	{model: 0},
 	{url: 0},
 	{fromDrop: 0}
 ];
@@ -58,5 +60,6 @@ self.InstanceType = {
 	ValidImageFileFormats: class extends self.IArrayInstance {},
 	BinaryData: class extends self.IBinaryDataInstance {},
 	shape3dTexture: class extends self.ISpriteInstance {},
-	Browser: class extends self.IInstance {}
+	Browser: class extends self.IInstance {},
+	model: class extends self.I3DModelInstance {}
 }

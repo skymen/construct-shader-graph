@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { bootstrap } from "./helpers/bootstrap.js";
+import { makeDefaultPreviewSettings } from "../preview-settings.js";
 
 let blueprint;
 
@@ -45,10 +46,13 @@ function buildSavePayload(bp) {
       uniformId: node.uniformId,
       isVariable: node.isVariable,
       inputPorts: node.inputPorts.map((p) => ({
-        name: p.name, portType: p.portType, value: p.value,
+        name: p.name,
+        portType: p.portType,
+        value: p.value,
       })),
       outputPorts: node.outputPorts.map((p) => ({
-        name: p.name, portType: p.portType,
+        name: p.name,
+        portType: p.portType,
       })),
     })),
     wires: bp.wires.map((wire) => ({
@@ -59,8 +63,14 @@ function buildSavePayload(bp) {
       rerouteNodes: wire.rerouteNodes.map((rn) => ({ x: rn.x, y: rn.y })),
     })),
     comments: bp.comments.map((c) => ({
-      id: c.id, x: c.x, y: c.y, width: c.width, height: c.height,
-      title: c.title, description: c.description, color: c.color,
+      id: c.id,
+      x: c.x,
+      y: c.y,
+      width: c.width,
+      height: c.height,
+      title: c.title,
+      description: c.description,
+      color: c.color,
     })),
     nodeIdCounter: bp.nodeIdCounter,
     uniformIdCounter: bp.uniformIdCounter,
@@ -123,5 +133,105 @@ describe(".c3sg save/load round-trip", () => {
     await blueprint.loadFromJSON(fakeFile(payload));
     expect(blueprint.nodes.length).toBe(payload.nodes.length);
     expect(blueprint.wires.length).toBe(payload.wires.length);
+  });
+});
+
+describe("preview settings survive a round-trip", () => {
+  it("restores every stored preview setting", async () => {
+    Object.assign(blueprint.previewSettings, {
+      cameraMode: "perspective",
+      object: "prism",
+      objectScale: 2.5,
+      bgOpacity: 0.4,
+      startupScript: "sprite.opacity = 0.5;",
+    });
+    const payload = buildSavePayload(blueprint);
+    const expected = { ...blueprint.previewSettings };
+
+    blueprint.createNewFile();
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    expect(blueprint.previewSettings).toEqual(expected);
+  });
+
+  it("restores the rotation axes, the offset, the resolution and the backdrop", async () => {
+    Object.assign(blueprint.previewSettings, {
+      objectAngle: 15,
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+      renderResolution: "custom",
+      canvasWidth: 480,
+      canvasHeight: 320,
+      backgroundMode: "2d",
+    });
+    const payload = buildSavePayload(blueprint);
+
+    blueprint.createNewFile();
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    expect(blueprint.previewSettings).toMatchObject({
+      objectAngle: 15,
+      objectAngleX: 55,
+      objectAngleY: 30,
+      objectOffsetX: 25,
+      objectOffsetY: -10,
+      objectOffsetZ: 40,
+      renderResolution: "custom",
+      canvasWidth: 480,
+      canvasHeight: 320,
+      backgroundMode: "2d",
+    });
+  });
+
+  it("turns a file's background checkbox into a background mode", async () => {
+    // showBackgroundCube was a bool. Off meant no backdrop at all - in 2D camera
+    // mode it governed nothing - so it lands on "none", not on "2d".
+    const payload = buildSavePayload(blueprint);
+    payload.previewSettings = { showBackgroundCube: false };
+
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    expect(blueprint.previewSettings).toEqual({
+      ...makeDefaultPreviewSettings(),
+      backgroundMode: "none",
+    });
+  });
+
+  it("gives a file that predates the new axes their defaults", async () => {
+    // A .c3sg written before 3D rotation and the resolution control names only
+    // objectAngle. Everything it does not name has to come back as the default
+    // that reproduces today's rendering, not as whatever was on screen.
+    const payload = buildSavePayload(blueprint);
+    payload.previewSettings = { objectAngle: 90 };
+
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    expect(blueprint.previewSettings).toEqual({
+      ...makeDefaultPreviewSettings(),
+      objectAngle: 90,
+    });
+    expect(blueprint.previewSettings.objectAngleX).toBe(0);
+    expect(blueprint.previewSettings.renderResolution).toBe("native");
+  });
+
+  it("fills a legacy payload's missing keys from the defaults, not from the previously open file", async () => {
+    // The merge used to be over the *current* settings, so a setting from the
+    // file you had open leaked into a file that never had one.
+    blueprint.previewSettings.cameraMode = "perspective";
+    blueprint.previewSettings.objectScale = 3;
+
+    const payload = buildSavePayload(blueprint);
+    payload.previewSettings = { spriteScale: 1.6 };
+
+    await blueprint.loadFromJSON(fakeFile(payload));
+
+    // spriteScale is the pre-merge name for objectScale.
+    expect(blueprint.previewSettings).toEqual({
+      ...makeDefaultPreviewSettings(),
+      objectScale: 1.6,
+    });
   });
 });

@@ -1,64 +1,64 @@
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 /* Global Scrollbar Styles */
 /* Webkit browsers (Chrome, Safari, Edge) */
 ::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
-    background: #1a1a1a;
-    border-radius: 6px;
+  background: #1a1a1a;
+  border-radius: 6px;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #4a4a4a;
-    border-radius: 6px;
-    border: 2px solid #1a1a1a;
+  background: #4a4a4a;
+  border-radius: 6px;
+  border: 2px solid #1a1a1a;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #5a5a5a;
+  background: #5a5a5a;
 }
 
 ::-webkit-scrollbar-thumb:active {
-    background: #6a6a6a;
+  background: #6a6a6a;
 }
 
 ::-webkit-scrollbar-corner {
-    background: #1a1a1a;
+  background: #1a1a1a;
 }
 
 /* Firefox */
 * {
-    scrollbar-width: thin;
-    scrollbar-color: #4a4a4a #1a1a1a;
+  scrollbar-width: thin;
+  scrollbar-color: #4a4a4a #1a1a1a;
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    overflow: hidden;
-    background: #1a1a1a;
-    color: #fff;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  overflow: hidden;
+  background: #1a1a1a;
+  color: #fff;
 }
 
 #app {
-    width: 100vw;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 #main-content {
-    flex: 1;
-    display: flex;
-    position: relative;
-    overflow: hidden;
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
 }
 
 /* Toolbar Styles */
@@ -94,9 +94,29 @@ body {
 .toolbar-branding h1 {
   font-size: 18px;
   font-weight: 600;
-  margin-right: 20px;
   color: #fff;
   letter-spacing: 0.3px;
+}
+
+/* Sits right under the wordmark so "which build am I on?" is answerable at a
+   glance (issue #88). Clicking it opens What's New. */
+.app-version {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 20px;
+  align-self: flex-end;
+  margin-bottom: 2px;
+  color: #888;
+  font-size: 11px;
+  font-family: inherit;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.app-version:hover {
+  color: #ccc;
 }
 
 .language-select {
@@ -241,7 +261,7 @@ body {
   font-size: 11px;
   color: #888;
   margin-left: 16px;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: "SF Mono", "Consolas", monospace;
 }
 
 .dropdown-item:disabled .dropdown-item-shortcut {
@@ -266,7 +286,7 @@ body {
 
 /* Discord button style */
 .dropdown-item-discord {
-  color: #7289DA;
+  color: #7289da;
 }
 
 .discord-icon {
@@ -303,15 +323,6 @@ body {
 .dropdown-item-donate:hover:not(:disabled) {
   background: rgba(217, 4, 41, 0.25);
   color: #fff;
-}
-
-.dropdown-item-mcp {
-  color: #7ee0c3;
-}
-
-.dropdown-item-mcp:hover:not(:disabled) {
-  background: rgba(68, 196, 161, 0.18);
-  color: #b7ffea;
 }
 
 .dropdown-submenu {
@@ -368,7 +379,8 @@ body {
   position: fixed;
   background-color: #d90429;
   box-shadow: 0px 0px 30px 2px rgba(239, 35, 60, 0.6);
-  animation: donate-heart-float var(--duration) ease-in-out forwards,
+  animation:
+    donate-heart-float var(--duration) ease-in-out forwards,
     donate-heart-fade var(--duration) ease-in-out forwards,
     donate-heart-bounce var(--duration) ease-out forwards,
     donate-heart-sway 1.3s ease-in-out infinite;
@@ -527,7 +539,7 @@ body {
 .help-search-result-shortcut {
   font-size: 11px;
   color: #666;
-  font-family: 'SF Mono', 'Consolas', monospace;
+  font-family: "SF Mono", "Consolas", monospace;
 }
 
 .help-menu-items {
@@ -704,294 +716,294 @@ body {
 }
 
 #clearBtn {
-    background: #e74c3c;
+  background: #e74c3c;
 }
 
 #clearBtn:hover {
-    background: #c0392b;
+  background: #c0392b;
 }
 
 #canvas-container {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
-    background: #1a1a1a;
-    transition: margin-right 0.3s ease;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #1a1a1a;
+  transition: margin-right 0.3s ease;
 }
 
 #sidebar {
-    width: 300px;
-    background: #2a2a2a;
-    border-left: 2px solid #4a4a4a;
-    display: none;
-    flex-direction: column;
-    overflow: hidden;
+  width: 300px;
+  background: #2a2a2a;
+  border-left: 2px solid #4a4a4a;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 #sidebar.open {
-    display: flex;
+  display: flex;
 }
 
 #sidebar-header {
-    background: #333333;
-    padding: 15px 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 2px solid #4a4a4a;
+  background: #333333;
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid #4a4a4a;
 }
 
 #sidebar-header h2 {
-    font-size: 16px;
-    margin: 0;
-    color: #fff;
+  font-size: 16px;
+  margin: 0;
+  color: #fff;
 }
 
 #closeSidebarBtn {
-    background: transparent !important;
-    color: #aaa !important;
-    border: none !important;
-    font-size: 24px;
-    padding: 0 !important;
-    width: 30px;
-    height: 30px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 3px;
-    transform: none !important;
-    box-shadow: none !important;
+  background: transparent !important;
+  color: #aaa !important;
+  border: none !important;
+  font-size: 24px;
+  padding: 0 !important;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 #closeSidebarBtn:hover {
-    background: #4a4a4a !important;
-    color: #fff !important;
-    transform: none !important;
-    box-shadow: none !important;
+  background: #4a4a4a !important;
+  color: #fff !important;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 #sidebar-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 15px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
 }
 
 #no-output-msg {
-    color: #888;
-    text-align: center;
-    padding: 20px;
-    font-style: italic;
+  color: #888;
+  text-align: center;
+  padding: 20px;
+  font-style: italic;
 }
 
 #dependency-list {
-    display: none;
+  display: none;
 }
 
 #dependency-list.visible {
-    display: block;
+  display: block;
 }
 
 .dependency-group {
-    margin-bottom: 20px;
+  margin-bottom: 20px;
 }
 
 .dependency-group-header {
-    font-size: 12px;
-    color: #888;
-    text-transform: uppercase;
-    margin-bottom: 8px;
-    font-weight: bold;
+  font-size: 12px;
+  color: #888;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  font-weight: bold;
 }
 
 .dependency-node {
-    background: #1a1a1a;
-    border-left: 3px solid;
-    padding: 10px 12px;
-    margin-bottom: 6px;
-    border-radius: 3px;
-    cursor: pointer;
-    transition: background 0.2s;
+  background: #1a1a1a;
+  border-left: 3px solid;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.2s;
 }
 
 .dependency-node:hover {
-    background: #252525;
+  background: #252525;
 }
 
 .dependency-node-title {
-    font-weight: bold;
-    font-size: 13px;
-    margin-bottom: 3px;
+  font-weight: bold;
+  font-size: 13px;
+  margin-bottom: 3px;
 }
 
 .dependency-node-type {
-    font-size: 11px;
-    color: #888;
+  font-size: 11px;
+  color: #888;
 }
 
 #canvas {
-    width: 100%;
-    height: 100%;
-    display: block;
-    cursor: default;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: default;
 }
 
 /* Minimap */
 #minimap-container {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 1000;
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
 }
 
 #minimap {
-    width: 200px;
-    height: 150px;
-    background: rgba(42, 42, 42, 0.9);
-    border: 2px solid #4a4a4a;
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-    cursor: pointer;
+  width: 200px;
+  height: 150px;
+  background: rgba(42, 42, 42, 0.9);
+  border: 2px solid #4a4a4a;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
 }
 
 #minimap-controls {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    background: rgba(42, 42, 42, 0.9);
-    border: 2px solid #4a4a4a;
-    border-radius: 8px;
-    padding: 6px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  background: rgba(42, 42, 42, 0.9);
+  border: 2px solid #4a4a4a;
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
 .minimap-control-btn {
-    background: rgba(74, 74, 74, 0.5);
-    border: 1px solid #5a5a5a;
-    color: #fff;
-    padding: 4px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    position: relative;
+  background: rgba(74, 74, 74, 0.5);
+  border: 1px solid #5a5a5a;
+  color: #fff;
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  position: relative;
 }
 
 .minimap-control-btn svg {
-    width: 16px;
-    height: 16px;
-    fill: currentColor;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
 }
 
 .minimap-control-btn:hover {
-    background: rgba(106, 106, 106, 0.7);
-    border-color: #7a7a7a;
+  background: rgba(106, 106, 106, 0.7);
+  border-color: #7a7a7a;
 }
 
 .minimap-control-btn:active {
-    background: rgba(90, 90, 90, 0.8);
-    transform: scale(0.95);
+  background: rgba(90, 90, 90, 0.8);
+  transform: scale(0.95);
 }
 
 /* Tooltip styles for minimap controls */
 .minimap-control-btn::before {
-    content: attr(title);
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(30, 30, 30, 0.95);
-    color: #fff;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    white-space: nowrap;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
-    z-index: 10000;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-    border: 1px solid #4a4a4a;
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 30, 0.95);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  border: 1px solid #4a4a4a;
 }
 
 .minimap-control-btn::after {
-    content: '';
-    position: absolute;
-    bottom: calc(100% + 2px);
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: rgba(30, 30, 30, 0.95);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
-    z-index: 10000;
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: rgba(30, 30, 30, 0.95);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 10000;
 }
 
 .minimap-control-btn:hover::before,
 .minimap-control-btn:hover::after {
-    opacity: 1;
+  opacity: 1;
 }
 
 .zoom-level-display {
-    background: rgba(74, 74, 74, 0.5);
-    border: 1px solid #5a5a5a;
-    color: #fff;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-family: 'Courier New', monospace;
-    min-width: 40px;
-    text-align: center;
-    user-select: none;
-    position: relative;
+  background: rgba(74, 74, 74, 0.5);
+  border: 1px solid #5a5a5a;
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: "Courier New", monospace;
+  min-width: 40px;
+  text-align: center;
+  user-select: none;
+  position: relative;
 }
 
 /* Tooltip for zoom level display */
 .zoom-level-display::before {
-    content: attr(title);
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(30, 30, 30, 0.95);
-    color: #fff;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    white-space: nowrap;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
-    z-index: 10000;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-    border: 1px solid #4a4a4a;
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 30, 0.95);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  border: 1px solid #4a4a4a;
 }
 
 .zoom-level-display::after {
-    content: '';
-    position: absolute;
-    bottom: calc(100% + 2px);
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: rgba(30, 30, 30, 0.95);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
-    z-index: 10000;
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: rgba(30, 30, 30, 0.95);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 10000;
 }
 
 .zoom-level-display:hover::before,
 .zoom-level-display:hover::after {
-    opacity: 1;
+  opacity: 1;
 }
 
 /* Node styles are drawn on canvas, but we'll use these colors in JS */
@@ -1055,7 +1067,7 @@ body {
   border-bottom: 2px solid #4a4a4a;
   padding: 8px 12px;
   font-size: 14px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   outline: none;
 }
 
@@ -1171,7 +1183,9 @@ body {
 .search-category-content {
   max-height: 1000px;
   overflow: hidden;
-  transition: max-height 0.3s ease, opacity 0.2s ease;
+  transition:
+    max-height 0.3s ease,
+    opacity 0.2s ease;
   opacity: 1;
 }
 
@@ -1223,7 +1237,9 @@ body {
   font-size: 12px;
   padding: 4px 8px !important;
   cursor: pointer;
-  transition: transform 0.2s, color 0.2s;
+  transition:
+    transform 0.2s,
+    color 0.2s;
   min-width: auto;
   box-shadow: none !important;
 }
@@ -1241,9 +1257,13 @@ body {
 
 .sidebar-section-content {
   padding: 12px;
-  max-height: 2000px;
   overflow: hidden;
-  transition: max-height 0.3s ease, padding 0.3s ease;
+  transition:
+    max-height 0.3s ease,
+    padding 0.3s ease;
+  gap: 10px;
+  display: flex;
+  flex-direction: column;
 }
 
 .collapsible-section.collapsed .sidebar-section-content {
@@ -1339,6 +1359,39 @@ body {
   user-select: none;
 }
 
+/* A titled run of related checkboxes inside the settings form. */
+.settings-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #3a3a3a;
+}
+
+.settings-subgroup-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* The last enabled language cannot be switched off - the checkbox stays
+   checked and says why on hover. */
+.checkbox-label input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.checkbox-label:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.checkbox-label:has(input:disabled) span {
+  color: #777;
+}
+
 .extend-box-inputs {
   display: flex;
   gap: 8px;
@@ -1380,7 +1433,6 @@ body {
   border-radius: 5px;
   cursor: pointer;
   font-size: 14px;
-  margin-bottom: 10px;
   transition: background 0.2s;
 }
 
@@ -1826,7 +1878,7 @@ body {
 
 .color-input-wrapper input[type="text"] {
   flex: 1;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   text-transform: uppercase;
 }
 
@@ -1846,21 +1898,25 @@ body {
   transition: background 0.2s;
 }
 
-#uniformModalCancel {
+/* Styled by role rather than by id. These used to be #uniformModalCancel /
+   #uniformModalAdd, but three modals share .uniform-modal-buttons and only one
+   of them was in the selector, so the other two rendered as default white
+   browser buttons in a dark UI. */
+.uniform-modal-buttons .modal-btn-secondary {
   background: #4a4a4a;
   color: #fff;
 }
 
-#uniformModalCancel:hover {
+.uniform-modal-buttons .modal-btn-secondary:hover {
   background: #5a5a5a;
 }
 
-#uniformModalAdd {
+.uniform-modal-buttons .modal-btn-primary {
   background: #4a90e2;
   color: #fff;
 }
 
-#uniformModalAdd:hover {
+.uniform-modal-buttons .modal-btn-primary:hover {
   background: #357abd;
 }
 
@@ -1931,7 +1987,7 @@ body {
   padding: 8px;
   border-radius: 5px;
   font-size: 13px;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
 }
 
 .custom-node-form input[type="color"] {
@@ -2004,7 +2060,7 @@ body {
 .custom-node-header-row .name-label {
   flex: 1;
   align-items: start;
-  width: 100%;  
+  width: 100%;
 }
 
 .custom-node-header-row .name-label > input[type="text"] {
@@ -2017,7 +2073,7 @@ body {
 .custom-node-header-row .color-label {
   flex: 0 0 auto;
   align-items: start;
-  width: 100%;  
+  width: 100%;
 }
 
 .custom-node-header-row .color-label > input[type="color"] {
@@ -2030,7 +2086,7 @@ body {
 
 .custom-node-header-row .checkbox-label {
   flex: 0 0 auto;
-  width: 100%;  
+  width: 100%;
   flex-direction: row !important;
   align-items: center;
   gap: 5px;
@@ -2228,7 +2284,7 @@ body {
 .custom-node-code-editor .cm-editor {
   height: 100%;
   font-size: 13px;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family: "Consolas", "Monaco", "Courier New", monospace;
 }
 
 .custom-node-code-editor .cm-scroller {
@@ -2395,7 +2451,27 @@ body {
   fill: currentColor;
 }
 
-#preview-window {
+/* How many previews are waiting behind the eye. Only rendered past one, since
+   the button already implies "there is something to restore". */
+.preview-restore-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #1a1a1a;
+  color: #fff;
+  border: 2px solid #4a90e2;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+[data-preview-el="preview-window"] {
   position: fixed;
   bottom: 20px;
   right: 20px;
@@ -2414,13 +2490,13 @@ body {
   min-height: 150px;
 }
 
-#preview-content {
+[data-preview-el="preview-content"] {
   flex: 1;
   position: relative;
   overflow: hidden;
 }
 
-#preview-header {
+[data-preview-el="preview-header"] {
   background: #1a1a1a;
   padding: 8px 12px;
   display: flex;
@@ -2431,7 +2507,7 @@ body {
   user-select: none;
 }
 
-#preview-header span {
+[data-preview-el="preview-header"] span {
   color: #fff;
   font-size: 13px;
   font-weight: bold;
@@ -2442,7 +2518,7 @@ body {
   gap: 4px;
 }
 
-#reloadPreviewBtn {
+[data-preview-el="reloadPreviewBtn"] {
   background: none;
   border: none;
   color: #fff;
@@ -2457,17 +2533,17 @@ body {
   transition: background 0.2s;
 }
 
-#reloadPreviewBtn:hover {
+[data-preview-el="reloadPreviewBtn"]:hover {
   background: #4a90e2;
 }
 
-#reloadPreviewBtn svg {
+[data-preview-el="reloadPreviewBtn"] svg {
   width: 20px;
   height: 20px;
   fill: currentColor;
 }
 
-#closePreviewBtn {
+[data-preview-el="closePreviewBtn"] {
   background: none;
   border: none;
   color: #fff;
@@ -2482,17 +2558,19 @@ body {
   transition: background 0.2s;
 }
 
-#closePreviewBtn:hover {
+[data-preview-el="closePreviewBtn"]:hover {
   background: #e24a4a;
 }
 
-#closePreviewBtn svg {
+[data-preview-el="closePreviewBtn"] svg {
   width: 20px;
   height: 20px;
   fill: currentColor;
 }
 
-#screenshotPreviewBtn {
+[data-preview-el="screenshotPreviewBtn"],
+[data-preview-el="newPreviewBtn"],
+[data-preview-el="popOutPreviewBtn"] {
   background: none;
   border: none;
   color: #fff;
@@ -2507,17 +2585,26 @@ body {
   transition: background 0.2s;
 }
 
-#screenshotPreviewBtn:hover {
+[data-preview-el="screenshotPreviewBtn"]:hover,
+[data-preview-el="newPreviewBtn"]:hover,
+[data-preview-el="popOutPreviewBtn"]:hover {
   background: #4a90e2;
 }
 
-#screenshotPreviewBtn svg {
+/* Lit while the preview is out, because then it is the way back. */
+[data-preview-el="popOutPreviewBtn"].active {
+  background: #4a90e2;
+}
+
+[data-preview-el="screenshotPreviewBtn"] svg,
+[data-preview-el="newPreviewBtn"] svg,
+[data-preview-el="popOutPreviewBtn"] svg {
   width: 20px;
   height: 20px;
   fill: currentColor;
 }
 
-#preview-controls {
+[data-preview-el="preview-controls"] {
   position: absolute;
   top: 0;
   left: 0;
@@ -2530,18 +2617,20 @@ body {
   z-index: 10;
   border-bottom: 1px solid rgba(74, 74, 74, 0.5);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
   transform-origin: top;
   height: calc(100% - 28px);
 }
 
-#preview-controls.preview-controls-hidden {
+[data-preview-el="preview-controls"].preview-controls-hidden {
   transform: translateY(-100%);
   opacity: 0;
   pointer-events: none;
 }
 
-#preview-controls.preview-controls-visible {
+[data-preview-el="preview-controls"].preview-controls-visible {
   transform: translateY(0);
   opacity: 1;
 }
@@ -2625,6 +2714,43 @@ body {
   line-height: 1.4;
 }
 
+/* Shared hover tooltip, driven by setupTooltips() from any [data-tooltip].
+   Fixed-position and parented to <body> so a scrolling panel cannot clip it. */
+#ui-tooltip {
+  position: fixed;
+  z-index: 10000;
+  top: 0;
+  left: 0;
+  max-width: 260px;
+  padding: 6px 9px;
+  background: #1c1c1c;
+  border: 1px solid #4a4a4a;
+  border-radius: 5px;
+  color: #ddd;
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+#ui-tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+[data-tooltip] {
+  cursor: help;
+}
+
+/* A hint that there is something to hover, without spending a line on it. */
+.preview-control-group label[data-tooltip] {
+  text-decoration: underline dotted rgba(255, 255, 255, 0.3);
+  text-underline-offset: 3px;
+}
+
 .script-tab-hint code {
   background: rgba(74, 158, 255, 0.15);
   color: #4a9eff;
@@ -2658,6 +2784,27 @@ body {
 
 .script-editor::placeholder {
   color: #555;
+}
+
+/* Groups of related controls inside one tab. The tab itself is a wrapping
+   flex row, so a section is a full-width row that wraps its own controls. */
+.preview-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.preview-section-title {
+  width: 100%;
+  color: #888;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid #333;
+  padding-bottom: 4px;
+  margin-bottom: -2px;
 }
 
 .preview-control-group {
@@ -2700,6 +2847,150 @@ body {
   cursor: pointer;
   width: 14px;
   height: 14px;
+}
+
+/* Canvas resolution: two number boxes with a multiplication sign between them.
+   A 16-4096 range slider would be unusable, so these are typed, not dragged. */
+.canvas-size-inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.canvas-size-inputs input[type="number"] {
+  background: #00000077;
+  border: 1px solid #4a4a4a;
+  color: #ffffff;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 58px;
+  outline: none;
+}
+
+.canvas-size-inputs input[type="number"]:hover {
+  border-color: #6a6a6a;
+}
+
+.canvas-size-inputs input[type="number"]:focus {
+  border-color: #4a9eff;
+}
+
+.canvas-size-separator {
+  color: #aaa;
+  font-size: 12px;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+}
+
+/* What the preview reports back, rather than what was asked for. Quiet: it is
+   there to be checked, not read every time. */
+.preview-readout {
+  color: #aaa;
+  font-size: 11px;
+  font-style: italic;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 1);
+}
+
+/* A scale control that splits into per-axis rows. The label and the link toggle
+   get their own row so every axis slider below them is exactly the same width,
+   linked or not. */
+.preview-scale-group {
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.preview-scale-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+}
+
+.scale-axis-row {
+  flex-basis: 100%;
+}
+
+.scale-axis-chip {
+  color: #888;
+  font-size: 10px;
+  font-weight: 600;
+  width: 10px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* The link toggle: a real checkbox for state and keyboard, wearing an SVG.
+   Whole chain when the axes move together, broken chain when they do not. */
+.scale-lock {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.scale-lock input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+
+.scale-lock-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
+  fill: none;
+  stroke: #8a8a8a;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  transition: stroke 0.15s ease;
+}
+
+.scale-lock:hover .scale-lock-icon {
+  stroke: #ccc;
+}
+
+/* Exactly one of the two icons is shown at a time. */
+.scale-lock-broken,
+.scale-lock input[type="checkbox"]:checked ~ .scale-lock-linked {
+  display: block;
+}
+
+.scale-lock-linked,
+.scale-lock input[type="checkbox"]:checked ~ .scale-lock-broken {
+  display: none;
+}
+
+.scale-lock input[type="checkbox"]:checked ~ .scale-lock-icon {
+  stroke: #4a9eff;
+}
+
+/* Keyboard focus only - the input is visually hidden, so a ring left over from
+   a mouse click would read as a stuck state. */
+.scale-lock:has(input:focus-visible) {
+  outline: 1px solid #4a9eff;
+}
+
+.preview-control-group input[type="color"] {
+  background: #00000077;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  width: 34px;
+  height: 24px;
+  padding: 2px;
+  cursor: pointer;
+  outline: none;
+}
+
+.preview-control-group input[type="color"]:hover {
+  border-color: #6a6a6a;
+}
+
+.preview-control-group input[type="color"]:focus {
+  border-color: #4a9eff;
 }
 
 /* Preview Slider Controls */
@@ -2751,7 +3042,7 @@ body {
   text-align: right;
   font-size: 11px;
   color: #4a90e2;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
 }
 
 .editable-slider-value {
@@ -2777,7 +3068,7 @@ body {
   border-radius: 3px;
   color: #4a90e2;
   font-size: 11px;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   text-align: right;
   padding: 2px 4px;
   outline: none;
@@ -2835,7 +3126,7 @@ body {
   background: none;
   border: 1px solid transparent;
   color: #fff;
-  padding: 4px ;
+  padding: 4px;
   border-radius: 4px;
   font-size: 14px;
   cursor: pointer;
@@ -2916,7 +3207,7 @@ body {
   color: #ff5a5a;
 }
 
-#togglePreviewSettingsBtn {
+[data-preview-el="togglePreviewSettingsBtn"] {
   background: none;
   border: none;
   color: #fff;
@@ -2931,26 +3222,26 @@ body {
   transition: all 0.2s;
 }
 
-#togglePreviewSettingsBtn:hover {
+[data-preview-el="togglePreviewSettingsBtn"]:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
-#togglePreviewSettingsBtn.active {
+[data-preview-el="togglePreviewSettingsBtn"].active {
   background: #4a90e2;
   color: #fff;
 }
 
-#togglePreviewSettingsBtn.active:hover {
+[data-preview-el="togglePreviewSettingsBtn"].active:hover {
   background: #5ba3ff;
 }
 
-#togglePreviewSettingsBtn svg {
+[data-preview-el="togglePreviewSettingsBtn"] svg {
   width: 20px;
   height: 20px;
   fill: currentColor;
 }
 
-#preview-iframe {
+[data-preview-el="preview-iframe"] {
   position: absolute;
   top: 0;
   left: 0;
@@ -2958,6 +3249,28 @@ body {
   width: 100%;
   height: 100%;
   background: #000;
+}
+
+/* While the preview is popped out the docked iframe is blanked, so the panel
+   says where it went instead of showing an empty black rectangle. */
+[data-preview-el="preview-popped-out-note"] {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+  background: #1a1a1a;
+  color: #aaa;
+  font-size: 13px;
+  z-index: 1;
+}
+
+.preview-popped-out [data-preview-el="preview-popped-out-note"] {
+  display: flex;
 }
 
 /* View Code Modal */
@@ -3080,7 +3393,7 @@ body {
 .code-panel .cm-editor {
   height: 100%;
   font-size: 13px;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family: "Consolas", "Monaco", "Courier New", monospace;
 }
 
 .code-panel .cm-scroller {
@@ -3254,14 +3567,14 @@ body {
 }
 
 .open-files-modal .modal-body::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-100%, -50%);
   width: 560px;
   height: 560px;
-  background-image: url('/favicon.svg');
+  background-image: url("/favicon.svg");
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
@@ -3493,7 +3806,9 @@ body {
   padding: 14px 16px;
   background: #2d2d2d;
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
   pointer-events: auto;
   animation: notificationSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   min-width: 280px;
@@ -3539,17 +3854,17 @@ body {
 
 .notification.success .notification-icon {
   background: rgba(76, 175, 80, 0.2);
-  color: #4CAF50;
+  color: #4caf50;
 }
 
 .notification.error .notification-icon {
   background: rgba(244, 67, 54, 0.2);
-  color: #F44336;
+  color: #f44336;
 }
 
 .notification.warning .notification-icon {
   background: rgba(255, 152, 0, 0.2);
-  color: #FF9800;
+  color: #ff9800;
 }
 
 .notification.info .notification-icon {
@@ -3615,19 +3930,31 @@ body {
   animation: notificationProgress linear forwards;
 }
 
-.notification.success .notification-progress { background: #4CAF50; }
-.notification.error .notification-progress { background: #F44336; }
-.notification.warning .notification-progress { background: #FF9800; }
-.notification.info .notification-progress { background: #4a90e2; }
+.notification.success .notification-progress {
+  background: #4caf50;
+}
+.notification.error .notification-progress {
+  background: #f44336;
+}
+.notification.warning .notification-progress {
+  background: #ff9800;
+}
+.notification.info .notification-progress {
+  background: #4a90e2;
+}
 
 @keyframes notificationProgress {
-  from { width: 100%; }
-  to { width: 0%; }
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
 }
 
 /* ==================== PREVIEW CONSOLE ==================== */
 
-#preview-console {
+[data-preview-el="preview-console"] {
   position: absolute;
   bottom: 0;
   left: 0;
@@ -3640,15 +3967,15 @@ body {
   transition: height 0.2s ease;
 }
 
-#preview-console.preview-console-collapsed {
+[data-preview-el="preview-console"].preview-console-collapsed {
   height: 28px;
 }
 
-#preview-console.preview-console-expanded {
+[data-preview-el="preview-console"].preview-console-expanded {
   height: 160px;
 }
 
-#preview-console-header {
+[data-preview-el="preview-console-header"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3660,7 +3987,7 @@ body {
   box-sizing: border-box;
 }
 
-#preview-console-header:hover {
+[data-preview-el="preview-console-header"]:hover {
   background: #2a2a2a;
 }
 
@@ -3720,25 +4047,29 @@ body {
   color: #fff;
 }
 
-#toggleConsoleBtn svg {
+[data-preview-el="toggleConsoleBtn"] svg {
   transition: transform 0.2s ease;
 }
 
-#preview-console.preview-console-expanded #toggleConsoleBtn svg {
+[data-preview-el="preview-console"].preview-console-expanded
+  [data-preview-el="toggleConsoleBtn"]
+  svg {
   transform: rotate(180deg);
 }
 
-#preview-console-content {
+[data-preview-el="preview-console-content"] {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', monospace;
+  font-family:
+    "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", "Consolas", monospace;
   font-size: 11px;
   line-height: 1.5;
 }
 
-#preview-console.preview-console-collapsed #preview-console-content {
+[data-preview-el="preview-console"].preview-console-collapsed
+  [data-preview-el="preview-console-content"] {
   display: none;
 }
 
@@ -3807,8 +4138,14 @@ body {
   font-style: italic;
 }
 
-/* ==================== Experimental Modal ==================== */
-#experimentalModal {
+/* ==================== Markdown modals ====================
+   Shared chrome for the two modals whose body is rendered markdown: the
+   experimental-build notice and What's New. Both carry .md-modal; the
+   per-modal classes below only set what actually differs. This block used to
+   exist twice, verbatim - if you find yourself copying it a third time, add a
+   class here instead. */
+#experimentalModal,
+#changelogModal {
   display: none;
   position: fixed;
   top: 0;
@@ -3821,7 +4158,7 @@ body {
   align-items: center;
 }
 
-.experimental-modal {
+.md-modal {
   background: #2a2a2a;
   border: 2px solid #4a4a4a;
   border-radius: 8px;
@@ -3834,7 +4171,38 @@ body {
   position: relative;
 }
 
-.experimental-modal .modal-header {
+/* What's New reads as prose, so it is narrower than the notice. */
+.changelog-modal {
+  max-width: 720px;
+}
+
+.md-modal .modal-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color 0.15s ease;
+}
+
+.md-modal .modal-close:hover {
+  color: #e0e0e0;
+}
+
+.md-modal .modal-body a {
+  color: #4a90e2;
+}
+
+/* Sits opposite the button, so the footer doubles as an About line. */
+.changelog-version {
+  color: #777;
+  font-size: 12px;
+  align-self: center;
+}
+
+.md-modal .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -3842,13 +4210,13 @@ body {
   border-bottom: 1px solid #4a4a4a;
 }
 
-.experimental-modal .modal-header h2 {
+.md-modal .modal-header h2 {
   margin: 0;
   color: #f0f0f0;
   font-size: 20px;
 }
 
-.experimental-modal .modal-body {
+.md-modal .modal-body {
   padding: 16px 24px;
   overflow-y: auto;
   color: #ccc;
@@ -3857,15 +4225,15 @@ body {
   position: relative;
 }
 
-.experimental-modal .modal-body::before {
-  content: '';
+.md-modal .modal-body::before {
+  content: "";
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   width: 400px;
   height: 400px;
-  background-image: url('/favicon.svg');
+  background-image: url("/favicon.svg");
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
@@ -3875,7 +4243,7 @@ body {
   filter: brightness(0) invert(1);
 }
 
-.experimental-modal .modal-body h2 {
+.md-modal .modal-body h2 {
   color: #e0e0e0;
   font-size: 16px;
   font-weight: 600;
@@ -3884,7 +4252,7 @@ body {
   z-index: 1;
 }
 
-.experimental-modal .modal-body h3 {
+.md-modal .modal-body h3 {
   color: #d0d0d0;
   font-size: 14px;
   font-weight: 600;
@@ -3893,35 +4261,67 @@ body {
   z-index: 1;
 }
 
-.experimental-modal .modal-body p {
+.md-modal .modal-body p {
   margin: 8px 0;
   position: relative;
   z-index: 1;
 }
 
-.experimental-modal .modal-body ul {
+.md-modal .modal-body ul {
   padding-left: 20px;
   margin: 6px 0;
   position: relative;
   z-index: 1;
 }
 
-.experimental-modal .modal-body li {
+.md-modal .modal-body li {
   margin: 4px 0;
 }
 
-.experimental-modal .modal-body strong {
+.md-modal .modal-body strong {
   color: #e0e0e0;
 }
 
-.experimental-modal .modal-footer {
+/* Inline code, matching .manual-custom-content code - the app's other
+   markdown surface. Sized in em rather than px so a token keeps its
+   proportions inside a heading as well as body text: a monospace face at 1em
+   next to this sans reads a size too big, which is what made `const` and
+   `Index` look like a font glitch rather than code. */
+.md-modal .modal-body code {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #7ec8e3;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
+  font-size: 0.875em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  /* A token that wraps mid-line would otherwise lose its padding and rounded
+     corners on one of the two fragments. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  position: relative;
+  z-index: 1;
+}
+
+/* Inside a bold lead-in the surrounding text is lighter, so the chip would
+   otherwise fight it for emphasis. */
+.md-modal .modal-body strong code {
+  font-weight: 500;
+}
+
+.md-modal .modal-footer {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
   padding: 15px 25px;
   border-top: 1px solid #4a4a4a;
 }
 
-.experimental-modal .modal-footer .primary-btn {
+.changelog-modal .modal-footer {
+  justify-content: space-between;
+}
+
+.md-modal .modal-footer .primary-btn {
   background: #4a90e2;
   color: #fff;
   border: none;
@@ -3932,7 +4332,7 @@ body {
   transition: background 0.2s;
 }
 
-.experimental-modal .modal-footer .primary-btn:hover {
+.md-modal .modal-footer .primary-btn:hover {
   background: #357abd;
 }
 
@@ -4197,7 +4597,9 @@ body {
   color: #fff;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .manual-search-input:focus {
@@ -4446,7 +4848,7 @@ body {
 
 .manual-ports-table code {
   color: #fff;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
   font-size: 13px;
 }
 
@@ -4454,7 +4856,7 @@ body {
   display: inline-block;
   background: linear-gradient(135deg, #333 0%, #2a2a2a 100%);
   color: #7ec8e3;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
   font-size: 11px;
   padding: 3px 8px;
   border-radius: 4px;
@@ -4506,7 +4908,7 @@ body {
 
 .manual-operation-value {
   color: #7ec8e3;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
   font-size: 11px;
   background: #333;
   padding: 2px 6px;
@@ -4578,7 +4980,7 @@ body {
 .manual-custom-content code {
   background: #333;
   color: #7ec8e3;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 3px;
@@ -4628,4 +5030,281 @@ body {
   color: #ff6b6b;
   text-align: center;
   padding: 40px;
+}
+
+/* ---------- Graph tab bar (Phase 4) ---------- */
+
+#canvas-container {
+  display: flex;
+  flex-direction: column;
+}
+
+#graph-tab-bar {
+  flex: 0 0 auto;
+  background: #222;
+  border-bottom: 1px solid #3a3a3a;
+  padding: 0 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  z-index: 2;
+}
+
+#graph-tabs {
+  display: flex;
+  gap: 2px;
+  height: 100%;
+  align-items: flex-end;
+  flex-wrap: nowrap;
+}
+
+.graph-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 8px;
+  background: #2c2c2c;
+  border: 1px solid #3a3a3a;
+  border-bottom: none;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  font-size: 12px;
+  color: #bbb;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  max-width: 220px;
+  margin-top: 4px;
+  position: relative;
+}
+
+.graph-tab:hover {
+  background: #333;
+  color: #ddd;
+}
+
+.graph-tab.active {
+  background: #1a1a1a;
+  color: #fff;
+  border-color: #555;
+  margin-top: 0;
+  padding-top: 10px;
+}
+
+.graph-tab-color-stripe {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: #4a9eff;
+}
+
+.graph-tab-badge {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #3a3a3a;
+  color: #888;
+  font-weight: 600;
+}
+
+.graph-tab.active .graph-tab-badge {
+  background: #4a9eff;
+  color: #fff;
+}
+
+.graph-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.graph-tab-name-input {
+  background: #111;
+  border: 1px solid #4a9eff;
+  color: #fff;
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  width: 140px;
+}
+
+.graph-tab-close {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.graph-tab-close:hover {
+  color: #fff;
+  background: #c0392b;
+}
+
+/* ---------- Functions sidebar section (Phase 4) ---------- */
+
+.functions-add-row {
+  display: flex;
+  gap: 6px;
+}
+
+.functions-add-row .add-uniform-btn {
+  flex: 1;
+}
+
+.function-entry-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #3a3a3a;
+  color: #ccc;
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.function-entry-badge.fn {
+  background: #4a9eff;
+  color: #fff;
+}
+
+.function-entry-badge.loop {
+  background: #e67e22;
+  color: #fff;
+}
+
+/* ---------- Contract editor (Phase 4) ---------- */
+
+.contract-port-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contract-port-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 8px 24px;
+  background: #333333;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  position: relative;
+}
+
+.contract-port-row.drag-over-top {
+  border-top: 2px solid #4a9eff;
+}
+
+.contract-port-row.drag-over-bottom {
+  border-bottom: 2px solid #4a9eff;
+}
+
+.contract-port-row.dragging {
+  opacity: 0.5;
+}
+
+.contract-port-drag-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  cursor: grab;
+  color: rgba(255, 255, 255, 0.6);
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-right: 1px solid #4a4a4a;
+}
+
+.contract-port-drag-handle:active {
+  cursor: grabbing;
+}
+
+.contract-port-name {
+  flex: 1 1 auto;
+  min-width: 60px;
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  height: 32px;
+}
+
+.contract-port-type {
+  flex: 0 0 90px;
+  min-width: 60px;
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  height: 32px;
+}
+
+.contract-port-role {
+  flex: 0 0 auto;
+  background: #2a2a2a;
+  border: 1px solid #4a4a4a;
+  color: #c084fc;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  min-width: 24px;
+  text-align: center;
+}
+
+.contract-port-role-select {
+  flex: 0 0 auto;
+  background: #1a1a1a;
+  border: 1px solid #4a4a4a;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  height: 32px;
+}
+
+.contract-port-resolved-hint {
+  font-size: 11px;
+  color: #888;
+  font-style: italic;
+}
+
+.contract-port-delete {
+  background: #c0392b;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.contract-port-delete:hover {
+  background: #e74c3c;
 }

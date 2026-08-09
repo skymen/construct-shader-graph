@@ -383,5 +383,19 @@
   "zoom": "zoom",
   "|": "|",
   "||": "||",
-  "~": "~"
+  "~": "~",
+  "aspect": "aspect",
+  "correct": "correct",
+  "shape": "shape",
+  "wave": "wave",
+  "wobble": "wobble",
+  "sway": "sway",
+  "pulse": "pulse",
+  "period": "period",
+  "animate": "animate",
+  "clip": "clip",
+  "bleed": "bleed",
+  "spritesheet": "spritesheet",
+  "atlas": "atlas",
+  "pixels": "pixels"
 }

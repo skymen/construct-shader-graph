@@ -1,0 +1,65 @@
+{
+	"name": "Piggy",
+	"plugin-id": "Sprite",
+	"sid": 646169893577132,
+	"isGlobal": false,
+	"editorNewInstanceIsReplica": true,
+	"instanceVariables": [],
+	"behaviorTypes": [],
+	"effectTypes": [
+		{
+			"effectId": "skymen_Placeholdereffect",
+			"name": "PlaceholderEffect"
+		}
+	],
+	"animations": {
+		"items": [
+			{
+				"frames": [
+					{
+						"width": 157,
+						"height": 255,
+						"originX": 0.5,
+						"originY": 0.5,
+						"originalSource": "",
+						"exportFormat": "lossless",
+						"exportQuality": 0.8,
+						"fileType": "image/png",
+						"imageSpriteId": 8076104,
+						"collisionPoly": {
+							"points": [
+								0.1464968152866242,
+								0.09019607843137255,
+								0.5,
+								0.00784313725490196,
+								0.8280254777070064,
+								0.10196078431372549,
+								0.8471337579617835,
+								0.5,
+								0.7515923566878981,
+								0.8470588235294118,
+								0.5,
+								0.8901960784313725,
+								0.2611464968152866,
+								0.8352941176470589,
+								0.11464968152866242,
+								0.5
+							]
+						},
+						"useCollisionPoly": true,
+						"duration": 1,
+						"tag": ""
+					}
+				],
+				"sid": 970431668380003,
+				"name": "Animation 1",
+				"isLooping": false,
+				"isPingPong": false,
+				"repeatCount": 1,
+				"repeatTo": 0,
+				"speed": 5
+			}
+		],
+		"subfolders": []
+	}
+}

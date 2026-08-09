@@ -1,5 +1,6 @@
 {
   "Abs": "Abs",
+  "Aspect Correct": "Aspect Correct",
   "Acos": "Acos",
   "Append Vec3": "Append Vec3",
   "Append Vec4": "Append Vec4",
@@ -102,6 +103,7 @@
   "Max": "Max",
   "Min": "Min",
   "Mix": "Mix",
+  "Oscillate": "Oscillate",
   "Mod": "Mod",
   "Multiply Vector": "Multiply Vector",
   "Normalize": "Normalize",
@@ -189,6 +191,7 @@
   "srcOriginCenter": "srcOriginCenter",
   "srcOriginEnd": "srcOriginEnd",
   "srcOriginSize": "srcOriginSize",
+  "srcOriginSizePx": "srcOriginSizePx",
   "srcOriginStart": "srcOriginStart",
   "srcOriginToNorm": "srcOriginToNorm",
   "srcSize": "srcSize",

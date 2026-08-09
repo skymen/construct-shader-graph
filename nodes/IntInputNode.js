@@ -1,5 +1,6 @@
 import { NodeType } from "./NodeType.js";
 import { NODE_COLORS } from "./PortTypes.js";
+import { parseNumericInput } from "../constant-fold.js";
 
 export const IntInputNode = new NodeType(
   "Int Input",
@@ -61,4 +62,11 @@ IntInputNode.customInputConfig = {
 
     return { valid: true };
   },
+};
+
+// Known at codegen time, which is what lets an Int Input drive an exact WebGL1
+// loop bound instead of a capped one.
+IntInputNode.foldConstant = (node) => {
+  const n = parseNumericInput(node.customInput, "0");
+  return n === null ? null : Math.trunc(n);
 };
