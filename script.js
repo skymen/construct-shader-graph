@@ -740,6 +740,29 @@ class Node {
     const oldValue = this.customInput;
     this.customInput = newValue;
 
+    // A Get Variable is bound to its Set Variable by name and nothing else, so
+    // renaming the setter has to carry the getters with it - otherwise they
+    // silently point at a variable that no longer exists and fall back to
+    // float. Scoped to the owning graph, same as the name itself.
+    if (
+      this.nodeType.name === "Set Variable" &&
+      oldValue &&
+      oldValue !== newValue
+    ) {
+      const owner = this._graph || this._blueprintSystem;
+      if (owner) {
+        owner.nodes.forEach((n) => {
+          if (
+            n.nodeType.name === "Get Variable" &&
+            n.selectedVariable === oldValue
+          ) {
+            n.selectedVariable = newValue;
+            n.outputPorts.forEach((port) => port.updateEditability());
+          }
+        });
+      }
+    }
+
     // Check if any ports have custom types
     const customPorts = this.getAllPorts().filter(
       (port) => port.portType === "custom",
@@ -981,6 +1004,13 @@ const WIRE_HIGHLIGHT_GLOW_WIDTH = 8; // Width of the glow effect
 const WIRE_HIGHLIGHT_WIDTH = 4; // Width of the highlighted wire
 const WIRE_NORMAL_WIDTH = 3; // Normal wire width
 const WIRE_HIGHLIGHT_SHADOW_BLUR = 15; // Shadow blur for glow effect
+
+// Set Variable / Get Variable pairs are joined by name rather than by a wire.
+// Selecting either end draws the link as a dotted curve in the variable colour.
+const VARIABLE_LINK_COLOR = "#9b59b6";
+const VARIABLE_LINK_WIDTH = 2;
+const VARIABLE_LINK_DASH = [9, 7];
+const VARIABLE_LINK_ENDPOINT_RADIUS = 4;
 
 class Comment {
   constructor(x, y, width, height, id) {
@@ -20347,6 +20377,90 @@ class BlueprintSystem {
     });
   }
 
+  // Every Set/Get pair the current selection takes part in, as [setNode, getNode].
+  // Selecting the setter yields all of its readers; selecting a reader yields the
+  // one setter it reads from.
+  selectedVariableLinks() {
+    if (!this.selectedNodes || this.selectedNodes.size === 0) return [];
+
+    const links = [];
+    const seen = new Set();
+    const addLink = (setNode, getNode) => {
+      const key = `${setNode.id}->${getNode.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      links.push([setNode, getNode]);
+    };
+
+    this.selectedNodes.forEach((node) => {
+      const typeName = node.nodeType?.name;
+      if (typeName === "Set Variable" && node.customInput) {
+        this.nodes.forEach((other) => {
+          if (
+            other.nodeType?.name === "Get Variable" &&
+            other.selectedVariable === node.customInput
+          ) {
+            addLink(node, other);
+          }
+        });
+      } else if (typeName === "Get Variable" && node.selectedVariable) {
+        const setNode = this.nodes.find(
+          (other) =>
+            other.nodeType?.name === "Set Variable" &&
+            other.customInput === node.selectedVariable,
+        );
+        if (setNode) addLink(setNode, node);
+      }
+    });
+
+    return links;
+  }
+
+  drawVariableLinks() {
+    const links = this.selectedVariableLinks();
+    if (links.length === 0) return;
+
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = VARIABLE_LINK_COLOR;
+    ctx.fillStyle = VARIABLE_LINK_COLOR;
+    ctx.lineWidth = VARIABLE_LINK_WIDTH;
+    ctx.setLineDash(VARIABLE_LINK_DASH);
+
+    links.forEach(([setNode, getNode]) => {
+      // Value flows setter -> getter, so leave the setter's right edge and
+      // arrive at the getter's left edge, curving the way a wire would.
+      const startX = setNode.x + setNode.width;
+      const startY = setNode.y + setNode.height / 2;
+      const endX = getNode.x;
+      const endY = getNode.y + getNode.height / 2;
+      const offset = Math.min(Math.abs(endX - startX) * 0.5, 100);
+
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.bezierCurveTo(
+        startX + offset,
+        startY,
+        endX - offset,
+        endY,
+        endX,
+        endY,
+      );
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(startX, startY, VARIABLE_LINK_ENDPOINT_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(endX, endY, VARIABLE_LINK_ENDPOINT_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.setLineDash(VARIABLE_LINK_DASH);
+    });
+
+    ctx.restore();
+  }
+
   validateTypedValue(value, type) {
     if (type === "float" || type === "int") {
       return typeof value === "number" ? value : 0;
@@ -21684,6 +21798,10 @@ class BlueprintSystem {
     if (this.activeWire) {
       this.drawWire(this.activeWire);
     }
+
+    // Draw the name-only links between selected variable nodes and their
+    // counterparts, above the wires but still under the nodes.
+    this.drawVariableLinks();
 
     // Draw nodes (with debug opacity if in debug mode)
     this.nodes.forEach((node) => {
