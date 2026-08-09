@@ -216,16 +216,72 @@ describe("What's New startup behaviour", () => {
     expect(localStorage.getItem(key)).toBe(pkg.version);
   });
 
-  it("stamps without showing anything on a first-ever visit", () => {
-    const key = blueprint.lastSeenVersionKey();
-    localStorage.removeItem(key);
+  // No stamp is ambiguous: a brand-new browser and a user who predates the key
+  // look identical. On the release that introduces the key that is *every*
+  // existing user, so getting this wrong announces 1.0 to nobody. Recent files
+  // is the tie-breaker.
+  describe("with no stored version", () => {
+    const setRecent = (value) => {
+      if (value === null) localStorage.removeItem("recentFiles");
+      else localStorage.setItem("recentFiles", value);
+    };
 
-    blueprint.maybeShowWhatsNew();
+    const cases = [
+      ["never used the app: stays quiet", null, false],
+      ["recent files cleared to empty: stays quiet", "[]", false],
+      ["unparseable recent files: stays quiet", "{not json", false],
+      [
+        "has opened a project before: shows the release",
+        JSON.stringify([{ id: "a", name: "x.c3sg", lastOpened: 1 }]),
+        true,
+      ],
+    ];
 
-    expect(document.getElementById("changelogModal").style.display).toBe(
-      "none",
-    );
-    expect(localStorage.getItem(key)).toBe(pkg.version);
+    for (const [name, recent, shouldShow] of cases) {
+      it(name, () => {
+        const key = blueprint.lastSeenVersionKey();
+        localStorage.removeItem(key);
+        setRecent(recent);
+        document.getElementById("changelogModal").style.display = "none";
+
+        blueprint.maybeShowWhatsNew();
+
+        const modal = document.getElementById("changelogModal");
+        if (shouldShow) {
+          expect(modal.style.display).toBe("flex");
+          // Not stamped until dismissed, same as every other show path.
+          expect(localStorage.getItem(key)).toBeNull();
+          document.getElementById("changelogModalOk").click();
+          expect(localStorage.getItem(key)).toBe(pkg.version);
+        } else {
+          expect(modal.style.display).toBe("none");
+          expect(localStorage.getItem(key)).toBe(pkg.version);
+        }
+
+        setRecent(null);
+      });
+    }
+
+    it("shows only the newest entry, not the whole history", () => {
+      // We cannot know which version a pre-key user came from, so the catch-up
+      // is capped at the current release rather than replaying everything.
+      const key = blueprint.lastSeenVersionKey();
+      localStorage.removeItem(key);
+      setRecent(JSON.stringify([{ id: "a", name: "x.c3sg", lastOpened: 1 }]));
+
+      blueprint.maybeShowWhatsNew();
+
+      const html = document.getElementById("changelogModalBody").innerHTML;
+      expect(html).toContain(CHANGELOG_ENTRIES[0].version);
+      expect(
+        document.getElementById("changelogModalTitle").textContent,
+      ).toContain(pkg.version);
+      // One entry rendered means exactly one release heading.
+      expect(html.match(/<h2>/g) ?? []).toHaveLength(1);
+
+      document.getElementById("changelogModalOk").click();
+      setRecent(null);
+    });
   });
 
   it("shows only what is new when upgrading from an older version", () => {

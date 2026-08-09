@@ -5292,7 +5292,10 @@ class BlueprintSystem {
     // Pass the whole contract so a new port picks a generic not already in use
     // anywhere in it, rather than only on its own side.
     contract[which].push(
-      handler.defaultPort([...(contract.inputs || []), ...(contract.outputs || [])]),
+      handler.defaultPort([
+        ...(contract.inputs || []),
+        ...(contract.outputs || []),
+      ]),
     );
     this.syncContractCallers(g);
     this.renderContractEditor();
@@ -7713,7 +7716,8 @@ class BlueprintSystem {
             declStr +
             shaderCode.slice(depBlockEnd);
         } else {
-          fullShader = boilerplate + uniforms + constants + declStr + shaderCode;
+          fullShader =
+            boilerplate + uniforms + constants + declStr + shaderCode;
         }
         result[target] = fullShader;
       }
@@ -11584,8 +11588,10 @@ class BlueprintSystem {
             const stepA = dir * push * shareA;
             const stepB = -dir * push * (1 - shareA);
 
-            if (stepA) moveGroup(a, horizontal ? stepA : 0, horizontal ? 0 : stepA);
-            if (stepB) moveGroup(b, horizontal ? stepB : 0, horizontal ? 0 : stepB);
+            if (stepA)
+              moveGroup(a, horizontal ? stepA : 0, horizontal ? 0 : stepA);
+            if (stepB)
+              moveGroup(b, horizontal ? stepB : 0, horizontal ? 0 : stepB);
             moved++;
           }
         }
@@ -13675,11 +13681,15 @@ class BlueprintSystem {
   // otherwise compute to display:block.
   isAnyDialogOpen() {
     if (
-      document.querySelector(".custom-node-modal.visible, .uniform-modal.visible")
+      document.querySelector(
+        ".custom-node-modal.visible, .uniform-modal.visible",
+      )
     ) {
       return true;
     }
-    for (const el of document.querySelectorAll(".modal, #gradientEditorModal")) {
+    for (const el of document.querySelectorAll(
+      ".modal, #gradientEditorModal",
+    )) {
       if (el.style.display && el.style.display !== "none") return true;
     }
     return false;
@@ -15220,6 +15230,31 @@ class BlueprintSystem {
     }
   }
 
+  /**
+   * Whether this browser has used the editor before.
+   *
+   * Recent files is the trace we go on: `addRecentFile` writes it whenever a
+   * project is opened or saved, and it long predates the seen-version key. It
+   * is deliberately not namespaced per channel - "has used the editor at all"
+   * is exactly the question, on either channel.
+   *
+   * This distinction earns its keep exactly once, on the release that
+   * introduces the seen-version key. On that day *every* existing user has no
+   * stamp, so without this they would all be mistaken for first-time visitors
+   * and the release they were waiting for would be announced to nobody.
+   */
+  hasUsedAppBefore() {
+    try {
+      const stored = localStorage.getItem("recentFiles");
+      if (!stored) return false;
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) && parsed.length > 0;
+    } catch {
+      // Unparseable or unavailable - treat as a fresh browser and stay quiet.
+      return false;
+    }
+  }
+
   setupChangelogModal() {
     const modal = document.getElementById("changelogModal");
     if (!modal) return;
@@ -15242,20 +15277,20 @@ class BlueprintSystem {
   }
 
   /**
-   * @param {{sinceVersion?: string|null}} [options] When given, show only the
-   *   entries released after that version. Omitted (the Help menu and the
-   *   toolbar badge) shows the whole changelog.
+   * @param {{entries?: object[]|null}} [options] Which entries to show. Null -
+   *   the Help menu and the toolbar badge - shows the whole changelog; the
+   *   auto-show path passes just the ones the user has not read, so the caller
+   *   owns that decision and this only renders.
    */
-  showChangelogModal({ sinceVersion = null } = {}) {
+  showChangelogModal({ entries = null } = {}) {
     const modal = document.getElementById("changelogModal");
     const body = document.getElementById("changelogModalBody");
     if (!modal || !body) return;
 
-    const entries = sinceVersion
-      ? entriesSince(CHANGELOG_ENTRIES, sinceVersion)
-      : CHANGELOG_ENTRIES;
+    const isCatchUp = entries !== null;
+    const shown = isCatchUp ? entries : CHANGELOG_ENTRIES;
 
-    const markdown = entries
+    const markdown = shown
       .map((entry) => `## ${entry.heading}\n\n${entry.body}`)
       .join("\n\n");
 
@@ -15270,7 +15305,7 @@ class BlueprintSystem {
 
     const title = document.getElementById("changelogModalTitle");
     if (title) {
-      title.textContent = sinceVersion
+      title.textContent = isCatchUp
         ? `What's New in ${APP_VERSION}`
         : "What's New";
     }
@@ -15283,10 +15318,20 @@ class BlueprintSystem {
     const seen = this.getLastSeenVersion();
     if (seen === APP_VERSION) return;
 
-    // First visit ever: stamp and show nothing. Someone who has never used the
-    // app has nothing to catch up on.
     if (!seen) {
-      this.markChangelogSeen();
+      // Two very different people land here with no stamp: someone opening the
+      // editor for the first time, and someone who has been using it since
+      // before this key existed.
+      if (!this.hasUsedAppBefore()) {
+        // Genuinely new - a changelog for software they have never run is a
+        // poor first impression.
+        this.markChangelogSeen();
+        return;
+      }
+      // Prior use, but no stamp, so we cannot know which version they came
+      // from. Show the newest entry only - the same answer entriesSince gives
+      // for any version it cannot place.
+      this.showChangelogModal({ entries: CHANGELOG_ENTRIES.slice(0, 1) });
       return;
     }
 
@@ -15296,7 +15341,7 @@ class BlueprintSystem {
       return;
     }
 
-    this.showChangelogModal({ sinceVersion: seen });
+    this.showChangelogModal({ entries });
   }
 
   showManualModal() {
@@ -16493,7 +16538,9 @@ class BlueprintSystem {
     if (inputNode) {
       const newIndexById = new Map();
       accs.forEach((p, i) => newIndexById.set(p.id, INJECTED + i));
-      args.forEach((p, i) => newIndexById.set(p.id, INJECTED + accs.length + i));
+      args.forEach((p, i) =>
+        newIndexById.set(p.id, INJECTED + accs.length + i),
+      );
 
       const remap = new Map();
       oldInputs.forEach((p, i) => {
@@ -17629,7 +17676,9 @@ class BlueprintSystem {
         (entry) => entry.id === node.constantId,
       );
       if (!constant) {
-        throw new Error(`Constant ${node.constantId} not found for duplication`);
+        throw new Error(
+          `Constant ${node.constantId} not found for duplication`,
+        );
       }
       clone = this.createConstantNode(constant, x, y);
     } else {
@@ -22433,5 +22482,5 @@ if (!isHeadlessHost()) {
     // The experimental warning is a blocking acknowledgement, so it goes first.
     await showExperimentalDialog();
     blueprint.maybeShowWhatsNew();
-  }, 500);
+  }, 150);
 }

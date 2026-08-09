@@ -4,7 +4,7 @@ This file is the app's own changelog: it is bundled into the build and rendered
 by **Help > What's New**. Newest release first; each `##` heading starts one
 entry and its version must match `package.json`.
 
-## 1.0.0 — 2026-08-09
+## 1.0.0 released on 2026/08/09
 
 The first stable release.
 
@@ -86,10 +86,9 @@ New `csg` CLI tool that runs part of the app headlessly for automation
 
 ### Editing
 
-- Reworked variables UX; renaming a Set Variable retargets every matching Get
-  Variable in the same graph, and the pairing is drawn on the canvas when either
-  end is selected.
-- Double-click a comment body to edit it; comment text is always rendered.
+- Selecting a Get Variable/Set Variable node now shows a dotted wire to the linked nodes
+- Changing a variable name in Set Variable now updates all the linked Get Variable nodes
+- Double-click a comment body to edit it and comment text is always rendered.
 - Better copy/paste, including across subgraphs.
 - Undo/redo works across graphs and was made a bit more reliable.
 - Moving the camera moves attached HTML elements with it.
@@ -99,8 +98,6 @@ New `csg` CLI tool that runs part of the app headlessly for automation
 
 ### Housekeeping
 
-- The MCP bridge was removed, the CLI replaces it.
+- The MCP bridge was removed; the CLI replaces it.
 - Add Uniform, Add Custom Node, Add Function etc buttons were all moved to the bottom
   of their respective lists in the side bar
-- Selecting a Get Variable/Set Variable node now shows a dotted wire to the linked nodes
-- Changing a variable name in Set Variable now updates all the linked Get Variable nodes
