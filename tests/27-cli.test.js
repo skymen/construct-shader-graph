@@ -71,6 +71,7 @@ describe("create", () => {
       animated: true,
       usesDepth: true,
       extendBoxH: 12,
+      floatPrecision: "mediump",
     });
 
     const settings = JSON.parse(fs.readFileSync(file, "utf-8")).shaderSettings;
@@ -79,6 +80,7 @@ describe("create", () => {
     expect(settings.animated).toBe(true);
     expect(settings.usesDepth).toBe(true);
     expect(settings.extendBoxH).toBe(12);
+    expect(settings.floatPrecision).toBe("mediump");
     // Regression: createNewFile used to write a settings literal that was
     // missing these, so a new project could not round-trip them.
     expect(settings).toHaveProperty("mustPredraw");

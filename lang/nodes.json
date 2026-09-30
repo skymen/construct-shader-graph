@@ -201,5 +201,8 @@
   "texelSize": "texelSize",
   "worldPos": "worldPos",
   "zFar": "zFar",
-  "zNear": "zNear"
+  "zNear": "zNear",
+  "Barrel Distort": "Barrel Distort",
+  "Scanlines": "Scanlines",
+  "Phosphor Mask": "Phosphor Mask"
 }

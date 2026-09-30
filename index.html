@@ -1476,6 +1476,17 @@
                     />
                   </div>
                 </label>
+                <label>
+                  <span
+                    data-tooltip="Default GLSL precision for every float the shader declares without its own. lowp is 16-bit or less on phones; highp keeps UVs exact and falls back to mediump on devices without it. WebGPU always uses 32-bit floats."
+                    >Float Precision</span
+                  >
+                  <select id="settingFloatPrecision">
+                    <option value="lowp" selected>lowp</option>
+                    <option value="mediump">mediump</option>
+                    <option value="highp">highp</option>
+                  </select>
+                </label>
                 <div class="settings-subgroup">
                   <span
                     class="settings-subgroup-title"
