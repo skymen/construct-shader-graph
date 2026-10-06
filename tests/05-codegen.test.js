@@ -82,4 +82,36 @@ describe("generateAllShaders", () => {
     expect(shaders.webgl2).toContain("innerColor_");
     expect(shaders.webgpu).toContain("vec4<f32>");
   });
+
+  it("To Int's Round mode emits no round() on WebGL1, which GLSL ES 1.00 lacks", () => {
+    const output = blueprint.nodes.find((node) => node.nodeType === NODE_TYPES.output);
+    const value = blueprint.addNode(0, 0, NODE_TYPES.floatInput);
+    const toInt = blueprint.addNode(0, 0, NODE_TYPES.toInt);
+    const toFloat = blueprint.addNode(0, 0, NODE_TYPES.toFloat);
+    const toVec4 = blueprint.addNode(0, 0, NODE_TYPES.toVec4);
+    toInt.operation = "round";
+
+    const Wire = globalThis.__sgWire;
+    const connect = (from, to) => {
+      const wire = new Wire(from, to);
+      from.connections.push(wire);
+      to.connections.push(wire);
+      blueprint.wires.push(wire);
+      blueprint.resolveGenericsForConnection(from, to);
+    };
+    output.inputPorts[0].connections.forEach((w) => {
+      w.startPort.connections = w.startPort.connections.filter((c) => c !== w);
+      blueprint.wires = blueprint.wires.filter((c) => c !== w);
+    });
+    output.inputPorts[0].connections = [];
+    connect(value.outputPorts[0], toInt.inputPorts[0]);
+    connect(toInt.outputPorts[0], toFloat.inputPorts[0]);
+    connect(toFloat.outputPorts[0], toVec4.inputPorts[0]);
+    connect(toVec4.outputPorts[0], output.inputPorts[0]);
+
+    const shaders = blueprint.generateAllShaders();
+    expect(shaders.webgl1).not.toMatch(/\bround\(/);
+    expect(shaders.webgl1).toMatch(/int\(floor\(.+ \+ 0\.5\)\)/);
+    expect(shaders.webgl2).toMatch(/\bround\(/);
+  });
 });

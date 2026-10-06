@@ -23,6 +23,20 @@ function reserveGraphId(id) {
   __graphIdCounter = Math.max(__graphIdCounter, Number(match[1]) + 1);
 }
 
+// The values the floatPrecision shader setting accepts.
+export const FLOAT_PRECISIONS = ["lowp", "mediump", "highp"];
+
+// The qualifier the GLSL boilerplate gets for a floatPrecision value. highp is
+// written as the boilerplate's own `highmedp` macro: WebGL1 does not guarantee
+// highp in fragment shaders, and the macro falls back to mediump on a device
+// without it instead of failing to compile. Anything unknown keeps lowp, which
+// is what the boilerplate has always said.
+export function glslFloatPrecision(value) {
+  if (value === "highp") return "highmedp";
+  if (value === "mediump") return "mediump";
+  return "lowp";
+}
+
 export function makeDefaultShaderSettings() {
   return {
     name: "",
@@ -42,6 +56,10 @@ export function makeDefaultShaderSettings() {
     supports3DDirectRendering: false,
     extendBoxH: 0,
     extendBoxV: 0,
+    // The GLSL boilerplate's `precision X float;` line, inherited by every
+    // float declared without its own qualifier: node outputs, variables,
+    // uniforms, function parameters. One of FLOAT_PRECISIONS.
+    floatPrecision: "lowp",
     // Which shader languages this effect generates and ships. See
     // shader-targets.js for why these are three flat booleans rather than one
     // nested object.

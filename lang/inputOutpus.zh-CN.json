@@ -79,5 +79,15 @@
   "Z": "Z",
   "Aspect": "宽高比",
   "Period": "周期",
-  "Phase": "相位"
+  "Phase": "相位",
+  "Curvature": "曲率",
+  "Fill": "填充",
+  "Corner Radius": "圆角半径",
+  "Softness": "柔和度",
+  "Mask": "遮罩",
+  "Distance": "距离",
+  "Lines": "行数",
+  "Intensity": "强度",
+  "Beam": "光束",
+  "Cells": "单元格"
 }

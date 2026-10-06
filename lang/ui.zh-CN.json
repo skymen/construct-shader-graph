@@ -253,5 +253,6 @@
   "Boolean": "布尔值",
   "Vec2": "Vec2",
   "Vec3": "Vec3",
-  "Vec4": "Vec4"
+  "Vec4": "Vec4",
+  "Float Precision": "浮点精度"
 }

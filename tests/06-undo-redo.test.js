@@ -324,6 +324,16 @@ describe("edits do not leak into the next undo entry", () => {
       expected: "Ada",
     },
     {
+      name: "shader settings select",
+      act: () => {
+        const select = settingsEl("settingFloatPrecision");
+        select.value = "highp";
+        fire(select, "change");
+      },
+      read: () => blueprint.shaderSettings.floatPrecision,
+      expected: "highp",
+    },
+    {
       name: "uniform description",
       act: () => {
         api.uniforms.create({ name: "Amount", type: "float" });

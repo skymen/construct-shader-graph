@@ -36,6 +36,10 @@ export const ToIntNode = new NodeType(
         if (op === "truncate") {
           return `    int ${outputs[0]} = int(${value});`;
         }
+        // GLSL ES 1.00 has no round(); Round Node spells it the same way.
+        if (op === "round") {
+          return `    int ${outputs[0]} = int(floor(${value} + 0.5));`;
+        }
         return `    int ${outputs[0]} = int(${op}(${value}));`;
       },
     },

@@ -39,5 +39,8 @@
   "Round": "Round",
   "Raw": "Raw",
   "Clamp": "Clamp",
-  "Clip": "Clip"
+  "Clip": "Clip",
+  "Aperture Grille": "Aperture Grille",
+  "Slot Mask": "Slot Mask",
+  "Shadow Mask": "Shadow Mask"
 }

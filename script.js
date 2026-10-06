@@ -42,7 +42,11 @@ import {
 import JSZip from "jszip";
 import { HistoryManager } from "./HistoryManager.js";
 import { AutoLayoutEngine } from "./AutoLayoutEngine.js";
-import { Graph, makeDefaultShaderSettings } from "./Graph.js";
+import {
+  Graph,
+  makeDefaultShaderSettings,
+  glslFloatPrecision,
+} from "./Graph.js";
 import {
   PREVIEW_SETTINGS,
   makeDefaultPreviewSettings,
@@ -1595,6 +1599,10 @@ class BlueprintSystem {
       "Is Deprecated",
     );
     updateSidebarLabel("label:has(.extend-box-inputs) > span", "Extend Box");
+    updateSidebarLabel(
+      "label:has(#settingFloatPrecision) > span",
+      "Float Precision",
+    );
 
     // Extend box input placeholders
     const extendBoxH = document.getElementById("settingExtendBoxH");
@@ -3703,6 +3711,9 @@ class BlueprintSystem {
     const documentationInput = document.getElementById("settingDocumentation");
     const descriptionInput = document.getElementById("settingDescription");
     const categorySelect = document.getElementById("settingCategory");
+    const floatPrecisionSelect = document.getElementById(
+      "settingFloatPrecision",
+    );
     const blendsBackgroundCheckbox = document.getElementById(
       "settingBlendsBackground",
     );
@@ -3730,6 +3741,7 @@ class BlueprintSystem {
     documentationInput.value = this.shaderSettings.documentation;
     descriptionInput.value = this.shaderSettings.description;
     categorySelect.value = this.shaderSettings.category;
+    floatPrecisionSelect.value = this.shaderSettings.floatPrecision;
     blendsBackgroundCheckbox.checked = this.shaderSettings.blendsBackground;
     crossSamplingCheckbox.checked = this.shaderSettings.crossSampling;
     preservesOpaquenessCheckbox.checked =
@@ -3814,6 +3826,11 @@ class BlueprintSystem {
     categorySelect.addEventListener("change", () => {
       this.shaderSettings.category = categorySelect.value;
       this._commitShaderSetting("Edit shader category");
+    });
+
+    floatPrecisionSelect.addEventListener("change", () => {
+      this.shaderSettings.floatPrecision = floatPrecisionSelect.value;
+      this._commitShaderSetting("Edit float precision");
     });
 
     // Checkboxes
@@ -14219,6 +14236,14 @@ class BlueprintSystem {
 
     let boilerplate = boilerplates[target] || "";
 
+    // Default float precision. WGSL has no precision qualifiers.
+    if (target === "webgl1" || target === "webgl2") {
+      boilerplate = boilerplate.replace(
+        /precision lowp float;/,
+        `precision ${glslFloatPrecision(this.shaderSettings.floatPrecision)} float;`,
+      );
+    }
+
     // Add samplerBack and textureBack if blending background
     if (this.shaderSettings.blendsBackground) {
       if (target === "webgl1" || target === "webgl2") {
@@ -16595,13 +16620,13 @@ class BlueprintSystem {
     graph.selectedNodes.clear();
     graph.selectedRerouteNodes.clear();
 
-    // Restore shader settings
-    if (data.shaderSettings) {
-      graph.shaderSettings = {
-        ...graph.shaderSettings,
-        ...data.shaderSettings,
-      };
-    }
+    // Restore shader settings over fresh defaults, never over whatever the
+    // previous project had: a file saved before a setting existed must get
+    // that setting's default, not inherit it from the project open before.
+    graph.shaderSettings = {
+      ...makeDefaultShaderSettings(),
+      ...(data.shaderSettings || {}),
+    };
 
     // Uniforms are now host-level, not per-graph.
     // They are loaded in loadFromJSON before this method is called.
@@ -18609,6 +18634,7 @@ class BlueprintSystem {
       settingSupports3DDirectRendering: "supports3DDirectRendering",
       settingExtendBoxH: "extendBoxH",
       settingExtendBoxV: "extendBoxV",
+      settingFloatPrecision: "floatPrecision",
     };
 
     for (const [elementId, settingKey] of Object.entries(fields)) {

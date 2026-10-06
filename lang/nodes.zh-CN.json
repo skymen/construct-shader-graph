@@ -171,5 +171,8 @@
   "texelSize": "texelSize",
   "worldPos": "worldPos",
   "zFar": "zFar",
-  "zNear": "zNear"
+  "zNear": "zNear",
+  "Barrel Distort": "桶形畸变",
+  "Scanlines": "扫描线",
+  "Phosphor Mask": "荧光粉掩模"
 }

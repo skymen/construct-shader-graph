@@ -12,6 +12,7 @@ import {
 import { resolveConstantCount } from "./constant-fold.js";
 import { resolveLoopCap } from "./graph-kinds/loop-body-kind.js";
 import { CONSTANT_TYPES } from "./nodes/ConstantNode.js";
+import { FLOAT_PRECISIONS } from "./Graph.js";
 
 const API_VERSION = "1.0.0";
 const API_NAMESPACE = "shaderGraphAPI";
@@ -4155,7 +4156,8 @@ Rule of thumb:
 
 Construct Shader Graph is a Construct effect authoring tool, so the AI should understand a few Construct-specific ideas.
 
-- Important shader settings include \`blendsBackground\`, \`usesDepth\`, \`crossSampling\`, \`animated\`, \`mustPredraw\`, \`supports3DDirectRendering\`, \`extendBoxH\`, and \`extendBoxV\`.
+- Important shader settings include \`blendsBackground\`, \`usesDepth\`, \`crossSampling\`, \`animated\`, \`mustPredraw\`, \`supports3DDirectRendering\`, \`extendBoxH\`, \`extendBoxV\`, and \`floatPrecision\`.
+- \`floatPrecision\` (\`lowp\` | \`mediump\` | \`highp\`, default \`lowp\`) is the GLSL default precision for every float declared without its own qualifier. On phones lowp is 16-bit or less, which can band fine UV-driven patterns; \`highp\` is emitted as the \`highmedp\` macro, so it falls back to mediump where highp is missing. WebGPU is unaffected.
 - Background sampling only makes sense when \`blendsBackground\` is enabled.
 - Depth sampling only makes sense when \`usesDepth\` is enabled.
 - Construct uses premultiplied alpha, so many color workflows should use \`unpremultiply\` before edits and \`premultiply\` before output.
@@ -5846,6 +5848,13 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           );
           if (key === "version") {
             patch[key] = validateVersionString(patch[key]);
+          }
+          if (key === "floatPrecision") {
+            assertOneOf(
+              patch[key],
+              FLOAT_PRECISIONS,
+              `floatPrecision must be one of: ${FLOAT_PRECISIONS.join(", ")}`,
+            );
           }
           blueprint.shaderSettings[key] = cloneValue(patch[key]);
         });

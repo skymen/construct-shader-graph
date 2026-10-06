@@ -20,6 +20,7 @@ export const usage = `csg create <file.c3sg> [options]
   --uses-depth              --must-predraw
   --supports-3d             --deprecated
   --extend-box-h <n>        --extend-box-v <n>
+  --float-precision <p>     lowp (default), mediump or highp
 
   -f, --force         Overwrite the file if it already exists
 
@@ -47,6 +48,7 @@ const STRING_SETTINGS = [
   "version",
   "website",
   "documentation",
+  "floatPrecision",
 ];
 
 const BOOL_SETTINGS = {

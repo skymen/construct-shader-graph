@@ -32,3 +32,11 @@
 - [ ] Make node positions optional or omitted in the IR and rely on auto-layout by default
 - [ ] Make IR import deterministic so the same input produces the same graph structure every time
 - [ ] Include detailed validation errors in IR import results with node ref, port ref, expected type, and actual type
+
+## Precision
+
+Today there is one project-wide `floatPrecision` setting. Finer control, in the order it becomes useful:
+
+- [ ] Propagation: declare each node's result at the highest precision among its inputs (one codegen pass inserting qualifiers in front of output declarations; care with nodes that emit several declarations, custom nodes, and function/loop parameters)
+- [ ] Per-uniform and per-Set-Variable precision, as the sources propagation starts from
+- [ ] Per-port precision on function inputs/outputs and loop accumulators/arguments

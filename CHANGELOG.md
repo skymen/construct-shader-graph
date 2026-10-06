@@ -4,6 +4,34 @@ This file is the app's own changelog: it is bundled into the build and rendered
 by **Help > What's New**. Newest release first; each `##` heading starts one
 entry and its version must match `package.json`.
 
+## 1.1.0 released on 2026/10/06
+
+### Float precision
+
+- New **Float Precision** project setting (`lowp`, `mediump` or `highp`) that sets
+  the default precision for every float in the shader. `lowp` stays the default.
+  On phones `lowp` can be 16 bits or less, which makes fine UV-driven patterns band.
+- `highp` falls back to `mediump` on devices that don't support it instead
+  of failing to compile. WebGPU always uses 32-bit floats and is unaffected.
+- Also available from the API and as `csg create --float-precision`.
+
+### Nodes
+
+- **Barrel Distort** (new): CRT screen curvature, with a Fill amount that
+  zooms in just enough to hide the empty corners. It also outputs a
+  rounded-corner screen mask and its distance.
+- **Scanlines** (new): CRT scanlines shaped like an electron beam, which
+  widen on bright pixels.
+- **Phosphor Mask** (new): the CRT's RGB phosphor pattern, with Aperture
+  Grille, Slot Mask and Shadow Mask layouts.
+
+### Fixes
+
+- To Int's **Round** mode no longer fails to compile on WebGL 1, which has no
+  `round()`.
+- Opening a project no longer inherits shader settings from the project that
+  was open before it. Settings a file doesn't have get their defaults.
+
 ## 1.0.0 released on 2026/08/09
 
 The first stable release.

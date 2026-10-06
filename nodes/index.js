@@ -103,6 +103,7 @@ import { OffsetUVNode } from "./OffsetUVNode.js";
 import { TilingNode } from "./TilingNode.js";
 import { TwirlNode } from "./TwirlNode.js";
 import { BulgeNode } from "./BulgeNode.js";
+import { BarrelDistortNode } from "./BarrelDistortNode.js";
 import { FlipNode } from "./FlipNode.js";
 import { RemapNode } from "./RemapNode.js";
 import { DDXNode } from "./DDXNode.js";
@@ -180,6 +181,8 @@ import { SaturationNode } from "./SaturationNode.js";
 import { InvertNode } from "./InvertNode.js";
 import { PixellateNode } from "./PixellateNode.js";
 import { PosterizeNode } from "./PosterizeNode.js";
+import { ScanlinesNode } from "./ScanlinesNode.js";
+import { PhosphorMaskNode } from "./PhosphorMaskNode.js";
 import { BlendModeNode } from "./BlendModeNode.js";
 import { LuminosityNode } from "./LuminosityNode.js";
 import { AlphaOverNode } from "./AlphaOverNode.js";
@@ -425,6 +428,7 @@ export const NODE_TYPES = {
   tiling: TilingNode,
   twirl: TwirlNode,
   bulge: BulgeNode,
+  barrelDistort: BarrelDistortNode,
   flip: FlipNode,
   remap: RemapNode,
   ddx: DDXNode,
@@ -499,6 +503,8 @@ export const NODE_TYPES = {
   invert: InvertNode,
   pixellate: PixellateNode,
   posterize: PosterizeNode,
+  scanlines: ScanlinesNode,
+  phosphorMask: PhosphorMaskNode,
   blendMode: BlendModeNode,
   luminosity: LuminosityNode,
   alphaOver: AlphaOverNode,

@@ -142,7 +142,7 @@ Push targeting follows `_graphOverride` (see `targetGraphId()`), so a mutation p
 
 ### Tests
 
-`tests/` has 53 test files (bootstrap, history, codegen, serialization, multi-graph contracts, uniforms, subgraphs, preview settings, layout, CLI parity, versioning). `tests/setup.js` stubs Canvas 2D, IndexedDB, WebSocket, and RAF for jsdom.
+`tests/` has 55 test files (bootstrap, history, codegen, serialization, multi-graph contracts, uniforms, subgraphs, preview settings, layout, CLI parity, versioning, CRT nodes, float precision). `tests/setup.js` stubs Canvas 2D, IndexedDB, WebSocket, and RAF for jsdom.
 
 **Nothing may open a dialog on a timer at startup without a headless gate.** The tests and the CLI both boot by mounting `index.html` into jsdom and importing `script.js`, so a startup `setTimeout` that shows a modal shows it there too — and a modal left up makes `isAnyDialogOpen()` true for the rest of the run, silently disabling every keyboard test. The What's New / experimental block at the end of `script.js` is gated on `isHeadlessHost()` for exactly this reason.
 
@@ -164,6 +164,8 @@ Push targeting follows `_graphOverride` (see `targetGraphId()`), so a mutation p
 - **Constants**: host-level named compile-time values, emitted as `const` declarations. One `ConstantNode` serves every type via a `custom` output port plus `getCustomType`. Unlike uniforms they are not addon parameters, so there is no `paramId` and no deprecation tier
 - **Constant folding**: `constant-fold.js` answers "is the value at this port knowable at codegen time?". A node opts in with `NodeType.foldConstant`. It is consulted **only** where the target language demands a constant expression — today, WebGL1 loop bounds, because GLSL ES 1.00 Appendix A is a grammar rule the driver's own folding cannot satisfy. Everywhere else the shader compiler already folds better
 - **WebGL1 loop cap**: a loop whose Count does not fold runs to a constant cap and breaks early. Cap precedence: `callerNode.data.maxIterations` → the loop body's `graph.data.maxWebgl1Iterations` (sidebar field) → 64. `csg validate` warns whenever a loop is actually capped
+- **Float precision is one project setting**, `shaderSettings.floatPrecision` (`lowp` default, `mediump`, `highp`). `getBoilerplate()` rewrites the boilerplate's `precision lowp float;` line and nothing else, so it reaches every float declared without its own qualifier: node outputs, variables, uniforms, function parameters, loop accumulators. `highp` is written as the boilerplate's `highmedp` macro, so a WebGL1 device without fragment highp falls back to mediump instead of failing to compile. WGSL has no precision and is untouched. Per-uniform/per-variable precision and propagation are deliberately not built yet (see `TODO.md`): without propagation they would stop at the first node that stores a result
+- **The layout rect's sign differs by backend.** In Construct's WebGL renderers (1 and 2) `layoutEnd - layoutStart` has a *negative* height; on WebGPU it is positive (measured in the preview runtime while building `examples_wip/crt.c3sg`). An object-normalised position is unaffected, because remapping a layout position over the same rect cancels the flip, but anything that counts or divides by the layout size must `abs()` it first. `Aspect Correct`, `srcOriginSizePx` and `layoutPixelSize` already do. The symptom is subtle: anything symmetric looks right, and only parity-based patterns (the CRT's shadow mask rows) come out different on WebGL
 
 ### Vite Config Notes
 
