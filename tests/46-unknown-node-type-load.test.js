@@ -118,3 +118,55 @@ describe("unknown node types on load", () => {
     }
   });
 });
+
+// The same loss from the other direction: the node type resolves, but the file
+// was saved by a build where it had gained a port. Ports load by index, so a
+// wire into that port has nowhere to land. This is how the CRT example lost its
+// Flatness wire: opened and saved in a build whose Barrel Distort predates the
+// port, with nothing on screen to say so.
+function saveDataWithFuturePort() {
+  const data = blueprint._buildSaveData();
+  const wire = data.wires[0];
+  const end = data.nodes.find((n) => n.id === wire.endNodeId);
+  end.inputPorts.push({ name: "Future Port", portType: "float", value: 0 });
+  wire.endPortIndex = end.inputPorts.length - 1;
+  return { data, end };
+}
+
+describe("wires into ports this build does not have", () => {
+  it("names the node and port in a user-visible notification", async () => {
+    const { data, end } = saveDataWithFuturePort();
+    const seen = await captureNotifications(() =>
+      blueprint.loadFromJSON(fakeFile(data)),
+    );
+
+    const warning = seen.find((n) => n.type === "error");
+    expect(warning, JSON.stringify(seen)).toBeDefined();
+    expect(warning.message).toContain("Future Port");
+    expect(warning.message).toContain(end.title);
+    expect(warning.message).toContain("discard");
+  });
+
+  it("counts the wire and records the port in the load report", async () => {
+    const { data, end } = saveDataWithFuturePort();
+    await captureNotifications(() => blueprint.loadFromJSON(fakeFile(data)));
+
+    expect(blueprint.lastLoadReport.droppedWires).toBe(1);
+    expect(blueprint.lastLoadReport.missingPorts).toEqual([
+      `${end.title}: Future Port`,
+    ]);
+    expect(blueprint.wires.length).toBe(data.wires.length - 1);
+  });
+
+  it("is cleared by the next clean load", async () => {
+    const { data } = saveDataWithFuturePort();
+    await captureNotifications(() => blueprint.loadFromJSON(fakeFile(data)));
+    blueprint.createNewFile();
+    await captureNotifications(() =>
+      blueprint.loadFromJSON(fakeFile(blueprint._buildSaveData())),
+    );
+
+    expect(blueprint.lastLoadReport.missingPorts).toEqual([]);
+    expect(blueprint.lastLoadReport.droppedWires).toBe(0);
+  });
+});

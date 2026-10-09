@@ -40,3 +40,12 @@ Today there is one project-wide `floatPrecision` setting. Finer control, in the 
 - [ ] Propagation: declare each node's result at the highest precision among its inputs (one codegen pass inserting qualifiers in front of output declarations; care with nodes that emit several declarations, custom nodes, and function/loop parameters)
 - [ ] Per-uniform and per-Set-Variable precision, as the sources propagation starts from
 - [ ] Per-port precision on function inputs/outputs and loop accumulators/arguments
+
+## Off-Screen Reads
+
+A distortion that reads the background past the edge of the render target gets the edge column repeated as streaks: nothing was drawn there. `examples_wip/crt.c3sg` handles it in its Screen Sample function (Blend Distance, Edge Relax, Edge Black).
+
+- [ ] Make that an edge mode on Back Texture so any distortion shader can use it: Relax (slide the read toward the pixel's own position, complete at the edge) and Black (darken over the same band), each 0..1, plus a blend distance. A read still past the edge takes the pixel's own position, so no setting brings the streaks back
+- [ ] Decide the readable area: the screen (0..1 in dest space), or the object's rect cropped to the screen. On WebGPU, C3 copies only the object's own rect into the back texture (`CopyTextureToTexture` with `drawSurfaceRect`), so reads outside it but on screen may be stale; not yet observed in practice
+- [ ] Relax folds the picture when the blend distance is shorter than how far the warp moves pixels near the edge; widening the band to ~1.5x each pixel's displacement would rule that out
+- [ ] Apply to `uv background twirl`, `uv bulge` and `card holographic`

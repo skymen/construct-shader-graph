@@ -174,5 +174,7 @@
   "zNear": "zNear",
   "Barrel Distort": "Distorsion en barillet",
   "Scanlines": "Lignes de balayage",
-  "Phosphor Mask": "Masque de phosphore"
+  "Phosphor Mask": "Masque de phosphore",
+  "Depth Map Surface": "Surface depuis carte de profondeur",
+  "Point Light": "Lumière ponctuelle"
 }

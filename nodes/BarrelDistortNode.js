@@ -6,15 +6,20 @@ import { NODE_COLORS } from "./PortTypes.js";
 // r² is measured in aspect-correct space and normalised to exactly 1 at the
 // corners. On every edge r² <= 1, so dividing by (1 + k) - Fill = 1 - is the
 // smallest zoom that leaves no black anywhere, whatever the curvature.
+// Flatness raises r² to a power before it bends the picture: still 0 at the
+// centre and 1 at the corners, so Fill keeps its meaning, but the middle stays
+// flat and the bend gathers at the edges. At 0 the power is skipped, so the
+// result is exactly the classic barrel.
 //
 // Mask and Distance describe the curved screen edge. The box is scaled so its
 // shorter half-side is 1, which puts Corner Radius and Softness in fractions of
 // that half-side on any aspect ratio. Aspect only matters as a ratio: a raw size
 // and the output of Aspect Correct give the same result.
-const GLSL_DEPENDENCY = `highmedp vec2 barrelDistort(highmedp vec2 uv, highmedp float curvature, highmedp float fillAmount, highmedp vec2 aspect) {
+const GLSL_DEPENDENCY = `highmedp vec2 barrelDistort(highmedp vec2 uv, highmedp float curvature, highmedp float fillAmount, highmedp vec2 aspect, highmedp float flatness) {
     highmedp vec2 p = uv * 2.0 - 1.0;
     highmedp vec2 pa = p * aspect;
     highmedp float r2 = dot(pa, pa) / max(dot(aspect, aspect), 0.00001);
+    if (flatness > 0.0) r2 = pow(max(r2, 0.0), 1.0 + 3.0 * flatness);
     return p * (1.0 + curvature * r2) / (1.0 + curvature * fillAmount) * 0.5 + 0.5;
 }
 
@@ -25,7 +30,7 @@ highmedp float barrelScreenDistance(highmedp vec2 uv, highmedp vec2 aspect, high
 }`;
 
 const glslExecution = (inputs, outputs) =>
-  `    highmedp vec2 ${outputs[0]} = barrelDistort(${inputs[0]}, ${inputs[1]}, ${inputs[2]}, ${inputs[3]});
+  `    highmedp vec2 ${outputs[0]} = barrelDistort(${inputs[0]}, ${inputs[1]}, ${inputs[2]}, ${inputs[3]}, ${inputs[6]});
     highmedp float ${outputs[2]} = barrelScreenDistance(${outputs[0]}, ${inputs[3]}, ${inputs[4]});
     float ${outputs[1]} = 1.0 - smoothstep(-max(${inputs[5]}, 0.00001), 0.0, ${outputs[2]});`;
 
@@ -38,6 +43,8 @@ export const BarrelDistortNode = new NodeType(
     { name: "Aspect", type: "vec2", defaultValue: [1, 1] },
     { name: "Corner Radius", type: "float", defaultValue: 0.05 },
     { name: "Softness", type: "float", defaultValue: 0.006 },
+    // Appended after the first release: ports load by index, so new ones go last.
+    { name: "Flatness", type: "float", defaultValue: 0 },
   ],
   [
     { name: "UV", type: "vec2" },
@@ -55,10 +62,13 @@ export const BarrelDistortNode = new NodeType(
       execution: glslExecution,
     },
     webgpu: {
-      dependency: `fn barrelDistort(uv: vec2<f32>, curvature: f32, fillAmount: f32, aspect: vec2<f32>) -> vec2<f32> {
+      dependency: `fn barrelDistort(uv: vec2<f32>, curvature: f32, fillAmount: f32, aspect: vec2<f32>, flatness: f32) -> vec2<f32> {
     let p = uv * 2.0 - 1.0;
     let pa = p * aspect;
-    let r2 = dot(pa, pa) / max(dot(aspect, aspect), 0.00001);
+    var r2 = dot(pa, pa) / max(dot(aspect, aspect), 0.00001);
+    if (flatness > 0.0) {
+        r2 = pow(max(r2, 1e-10), 1.0 + 3.0 * flatness);
+    }
     return p * (1.0 + curvature * r2) / (1.0 + curvature * fillAmount) * 0.5 + 0.5;
 }
 
@@ -68,7 +78,7 @@ fn barrelScreenDistance(uv: vec2<f32>, aspect: vec2<f32>, radius: f32) -> f32 {
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }`,
       execution: (inputs, outputs) =>
-        `    var ${outputs[0]}: vec2<f32> = barrelDistort(${inputs[0]}, ${inputs[1]}, ${inputs[2]}, ${inputs[3]});
+        `    var ${outputs[0]}: vec2<f32> = barrelDistort(${inputs[0]}, ${inputs[1]}, ${inputs[2]}, ${inputs[3]}, ${inputs[6]});
     var ${outputs[2]}: f32 = barrelScreenDistance(${outputs[0]}, ${inputs[3]}, ${inputs[4]});
     var ${outputs[1]}: f32 = 1.0 - smoothstep(-max(${inputs[5]}, 0.00001), 0.0, ${outputs[2]});`,
     },
@@ -84,7 +94,8 @@ BarrelDistortNode.manual = {
     <h4>Formula</h4>
     <pre><code>p   = 2·UV − 1
 r²  = |p·Aspect|² / |Aspect|²          // 0 at the centre, 1 at the corners
-UV′ = (p · (1 + Curvature·r²) / (1 + Curvature·Fill)) / 2 + 0.5</code></pre>
+w   = r² ^ (1 + 3·Flatness)            // still 0 at the centre, 1 at the corners
+UV′ = (p · (1 + Curvature·w) / (1 + Curvature·Fill)) / 2 + 0.5</code></pre>
 
     <h4>Inputs</h4>
     <ul>
@@ -97,6 +108,9 @@ UV′ = (p · (1 + Curvature·r²) / (1 + Curvature·Fill)) / 2 + 0.5</code></pr
         or <code>Aspect Correct</code>.</li>
       <li><strong>Corner Radius</strong>, <strong>Softness</strong> — shape the screen edge, in fractions of half
         the shorter side.</li>
+      <li><strong>Flatness</strong> — 0 is the classic barrel, bending evenly out from the centre. Higher values
+        keep the middle flat and gather the bend near the edges; at 1 the centre barely moves. Fill keeps its
+        meaning at any Flatness.</li>
     </ul>
 
     <h4>Outputs</h4>

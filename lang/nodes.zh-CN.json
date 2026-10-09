@@ -174,5 +174,7 @@
   "zNear": "zNear",
   "Barrel Distort": "桶形畸变",
   "Scanlines": "扫描线",
-  "Phosphor Mask": "荧光粉掩模"
+  "Phosphor Mask": "荧光粉掩模",
+  "Depth Map Surface": "深度图表面",
+  "Point Light": "点光源"
 }

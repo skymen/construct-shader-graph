@@ -4712,6 +4712,7 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
         const report = blueprint.lastLoadReport || {
           unknownNodeTypes: [],
           droppedWires: 0,
+          missingPorts: [],
           newerFormatVersion: null,
         };
         return {
@@ -4720,6 +4721,9 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
           graphs: listGraphs(blueprint),
           unknownNodeTypes: report.unknownNodeTypes,
           droppedWires: report.droppedWires,
+          // Wires into ports this build's node types don't have, named
+          // "Node: Port". Same loss, different cause: a node gained a port.
+          missingPorts: report.missingPorts ?? [],
           // Set when the file declares a save format this build predates. Same
           // reasoning as the dropped node types above: writing it back would
           // strip whatever the newer build put there.
@@ -4811,6 +4815,16 @@ export function installGlobalConsoleApi(blueprint, helpers = {}) {
               `These were dropped on load; writing this project would discard them.`,
             source: "load",
             unknownNodeTypes: loadReport.unknownNodeTypes,
+          });
+        }
+        if (loadReport?.missingPorts?.length > 0) {
+          errors.push({
+            message:
+              `This build has no port ${loadReport.missingPorts.join(", ")}; ` +
+              `the connection${loadReport.missingPorts.length === 1 ? " to it was" : "s to them were"} ` +
+              `dropped on load. Writing this project would discard them.`,
+            source: "load",
+            missingPorts: loadReport.missingPorts,
           });
         }
 

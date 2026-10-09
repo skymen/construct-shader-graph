@@ -16215,6 +16215,7 @@ class BlueprintSystem {
     this.lastLoadReport = {
       unknownNodeTypes: [],
       droppedWires: 0,
+      missingPorts: [],
       newerFormatVersion: null,
     };
 
@@ -16612,6 +16613,10 @@ class BlueprintSystem {
     // afterwards makes the loss permanent.
     const unknownNodeTypes = new Set();
     let droppedWires = 0;
+    // Same for a wire into a port this build's node type doesn't have - a file
+    // saved by a build where the node had gained a port. Ports load by index,
+    // so the wire has nowhere to go.
+    const missingPorts = new Set();
 
     // Clear current state
     graph.nodes = [];
@@ -16793,6 +16798,16 @@ class BlueprintSystem {
         const endPort = endNode.inputPorts[wireData.endPortIndex];
         if (!startPort || !endPort) {
           console.warn("Wire references missing ports");
+          droppedWires++;
+          const [node, ports, index, kind] = startPort
+            ? [endNode, "inputPorts", wireData.endPortIndex, "input"]
+            : [startNode, "outputPorts", wireData.startPortIndex, "output"];
+          const saved = data.nodes
+            ?.find((n) => n.id === node.id)
+            ?.[ports]?.[index]?.name;
+          missingPorts.add(
+            `${node.title || node.nodeType.name}: ${saved ?? `${kind} ${index + 1}`}`,
+          );
           continue;
         }
         const wire = new Wire(startPort, endPort);
@@ -16830,7 +16845,11 @@ class BlueprintSystem {
     if (data.nodeIdCounter) graph.nodeIdCounter = data.nodeIdCounter;
     if (data.commentIdCounter) graph.commentIdCounter = data.commentIdCounter;
 
-    return { unknownNodeTypes: [...unknownNodeTypes], droppedWires };
+    return {
+      unknownNodeTypes: [...unknownNodeTypes],
+      droppedWires,
+      missingPorts: [...missingPorts],
+    };
   }
 
   async loadFromJSON(file) {
@@ -16843,6 +16862,7 @@ class BlueprintSystem {
     this.lastLoadReport = {
       unknownNodeTypes: [],
       droppedWires: 0,
+      missingPorts: [],
       newerFormatVersion: null,
     };
     try {
@@ -16998,6 +17018,9 @@ class BlueprintSystem {
         (sum, r) => sum + r.droppedWires,
         0,
       );
+      const missingPorts = [
+        ...new Set(dropReports.flatMap((r) => r.missingPorts)),
+      ];
       // Recorded on the instance so headless callers can see it too. The
       // notification below is a DOM affordance; the CLI has no DOM, and a
       // silent drop there is worse than in the app because the next `--write`
@@ -17005,6 +17028,7 @@ class BlueprintSystem {
       this.lastLoadReport = {
         unknownNodeTypes,
         droppedWires,
+        missingPorts,
         newerFormatVersion,
       };
       if (newerFormatVersion) {
@@ -17031,6 +17055,18 @@ class BlueprintSystem {
           message:
             `Unknown node type${unknownNodeTypes.length === 1 ? "" : "s"}: ` +
             `${unknownNodeTypes.join(", ")}.${wireNote} Saving will discard them.`,
+          duration: 10000,
+        });
+      }
+      if (missingPorts.length > 0) {
+        this.showNotification({
+          type: "error",
+          title: "Some connections could not be loaded",
+          message:
+            `This version has no port ${missingPorts.join(", ")}, so the ` +
+            `connection${missingPorts.length === 1 ? "" : "s"} to ` +
+            `${missingPorts.length === 1 ? "it was" : "them were"} dropped. ` +
+            `The file was probably saved by a newer version. Saving will discard them.`,
           duration: 10000,
         });
       }

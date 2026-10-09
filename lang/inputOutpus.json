@@ -89,5 +89,16 @@
   "Lines": "Lines",
   "Intensity": "Intensity",
   "Beam": "Beam",
-  "Cells": "Cells"
+  "Cells": "Cells",
+  "Flatness": "Flatness",
+  "FOV": "FOV",
+  "Weights": "Weights",
+  "Normal": "Normal",
+  "Height": "Height",
+  "Light Pos": "Light Pos",
+  "Light Color": "Light Color",
+  "Range": "Range",
+  "Shininess": "Shininess",
+  "Diffuse": "Diffuse",
+  "Specular": "Specular"
 }

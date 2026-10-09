@@ -30,6 +30,7 @@ export async function loadProject(host, file) {
   lastLoadLoss.set(host, {
     unknownNodeTypes: result?.unknownNodeTypes ?? [],
     droppedWires: result?.droppedWires ?? 0,
+    missingPorts: result?.missingPorts ?? [],
     newerFormatVersion: result?.newerFormatVersion ?? null,
   });
   if (result?.newerFormatVersion) {
@@ -59,6 +60,14 @@ export async function saveProject(host, file, flags = {}) {
       `refusing to write: loading dropped ${loss.unknownNodeTypes.length} node type${loss.unknownNodeTypes.length === 1 ? "" : "s"}${wireNote}\n` +
         `  unknown: ${loss.unknownNodeTypes.join(", ")}\n` +
         `  writing now would make that permanent - pass -f to do it anyway`,
+    );
+  }
+  if (loss && loss.missingPorts.length > 0 && !flags.force) {
+    const n = loss.missingPorts.length;
+    throw new CliError(
+      `refusing to write: loading dropped the connection${n === 1 ? "" : "s"} to ${n} port${n === 1 ? "" : "s"} this build does not have\n` +
+        `  missing: ${loss.missingPorts.join(", ")}\n` +
+        `  the file was probably saved by a newer build - pass -f to write anyway`,
     );
   }
   const data = await host.call("projects.getSaveData");

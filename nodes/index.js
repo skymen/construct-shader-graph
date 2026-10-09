@@ -158,6 +158,8 @@ import { UnpremultiplyNode } from "./UnpremultiplyNode.js";
 import { PremultiplyNode } from "./PremultiplyNode.js";
 import { LinearizeDepthNode } from "./LinearizeDepthNode.js";
 import { NormalFromDepthNode } from "./NormalFromDepthNode.js";
+import { DepthMapSurfaceNode } from "./DepthMapSurfaceNode.js";
+import { PointLightNode } from "./PointLightNode.js";
 import { DirectionalLightNode } from "./DirectionalLightNode.js";
 import { RimLightNode } from "./RimLightNode.js";
 import { HemisphereLightNode } from "./HemisphereLightNode.js";
@@ -480,6 +482,8 @@ export const NODE_TYPES = {
   premultiply: PremultiplyNode,
   linearizeDepth: LinearizeDepthNode,
   normalFromDepth: NormalFromDepthNode,
+  depthMapSurface: DepthMapSurfaceNode,
+  pointLight: PointLightNode,
   directionalLight: DirectionalLightNode,
   rimLight: RimLightNode,
   hemisphereLight: HemisphereLightNode,

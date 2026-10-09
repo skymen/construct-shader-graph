@@ -89,5 +89,16 @@
   "Lines": "行数",
   "Intensity": "强度",
   "Beam": "光束",
-  "Cells": "单元格"
+  "Cells": "单元格",
+  "Flatness": "平坦度",
+  "FOV": "视野",
+  "Weights": "权重",
+  "Normal": "法线",
+  "Height": "高度",
+  "Light Pos": "光源位置",
+  "Light Color": "光源颜色",
+  "Range": "范围",
+  "Shininess": "光泽度",
+  "Diffuse": "漫反射",
+  "Specular": "镜面反射"
 }

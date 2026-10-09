@@ -49,6 +49,20 @@ function brokenCopy(name) {
   return { file, nodes: data.nodes.length, wires: data.wires.length };
 }
 
+// Copy an example and point one wire at an input port its node doesn't have,
+// the way a file saved by a build where the node had gained a port looks here.
+function futurePortCopy(name) {
+  const data = JSON.parse(fs.readFileSync(SOURCE, "utf-8"));
+  const wire = data.wires[0];
+  const end = data.nodes.find((n) => n.id === wire.endNodeId);
+  end.inputPorts.push({ name: "Future Port", portType: "float", value: 0 });
+  wire.endPortIndex = end.inputPorts.length - 1;
+
+  const file = path.join(tmp, name);
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  return { file, wires: data.wires.length };
+}
+
 function counts(file) {
   const data = JSON.parse(fs.readFileSync(file, "utf-8"));
   return { nodes: data.nodes.length, wires: data.wires.length };
@@ -131,5 +145,33 @@ describe("writing a project that lost nodes on load", () => {
     const clean = path.join(tmp, "leak-clean.c3sg");
     fs.copyFileSync(SOURCE, clean);
     expect(await runCommand("arrange", [clean], { inPlace: true })).toBe(0);
+  });
+});
+
+describe("a project that lost a wire to a missing port on load", () => {
+  it("fails validation, naming the port", async () => {
+    const { file } = futurePortCopy("port-validate.c3sg");
+    expect(await runCommand("validate", [file])).toBe(1);
+
+    const result = await host.call("graph.validate");
+    const loadError = result.errors.find((e) => e.source === "load");
+    expect(loadError, JSON.stringify(result.errors)).toBeDefined();
+    expect(loadError.message).toContain("Future Port");
+  });
+
+  it("is refused for writing, and leaves the file untouched", async () => {
+    const { file, wires } = futurePortCopy("port-refused.c3sg");
+
+    await expect(
+      runCommand("arrange", [file], { inPlace: true }),
+    ).rejects.toThrow(/refusing to write[\s\S]*Future Port/i);
+    expect(counts(file).wires).toBe(wires);
+  });
+
+  it("goes through with -f, and the wire is gone", async () => {
+    const { file, wires } = futurePortCopy("port-forced.c3sg");
+
+    expect(await runCommand("arrange", [file], { inPlace: true, force: true })).toBe(0);
+    expect(counts(file).wires).toBe(wires - 1);
   });
 });

@@ -204,5 +204,7 @@
   "zNear": "zNear",
   "Barrel Distort": "Barrel Distort",
   "Scanlines": "Scanlines",
-  "Phosphor Mask": "Phosphor Mask"
+  "Phosphor Mask": "Phosphor Mask",
+  "Depth Map Surface": "Depth Map Surface",
+  "Point Light": "Point Light"
 }

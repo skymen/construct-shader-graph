@@ -74,7 +74,7 @@ const portNames = (ports) => ports.map((p) => p.name);
 describe("CRT nodes", () => {
   it("keep their port order", () => {
     expect(portNames(NODE_TYPES.barrelDistort.inputs)).toEqual([
-      "UV", "Curvature", "Fill", "Aspect", "Corner Radius", "Softness",
+      "UV", "Curvature", "Fill", "Aspect", "Corner Radius", "Softness", "Flatness",
     ]);
     expect(portNames(NODE_TYPES.barrelDistort.outputs)).toEqual(["UV", "Mask", "Distance"]);
     expect(portNames(NODE_TYPES.scanlines.inputs)).toEqual(["Color", "UV", "Lines", "Intensity"]);
@@ -89,6 +89,23 @@ describe("CRT nodes", () => {
     for (const fn of ["barrelDistort", "barrelScreenDistance", "crtScanlineBeam", "crtApertureGrille"]) {
       expect(declarations).toContain(`${keyword}${fn}(`);
       expect(main).toContain(`${fn}(`);
+    }
+  });
+
+  it("a Barrel Distort saved before Flatness existed loads with Flatness 0", async () => {
+    buildChain("aperture");
+    const saved = structuredClone(api.projects.getSaveData());
+    const barrel = saved.nodes.find((n) => n.nodeTypeKey === "barrelDistort");
+    expect(barrel.inputPorts.map((p) => p.name)).toContain("Flatness");
+    // What an older save holds: the six ports from before Flatness existed.
+    barrel.inputPorts = barrel.inputPorts.filter((p) => p.name !== "Flatness");
+    await api.projects.loadSaveData(saved);
+
+    const node = blueprint.nodes.find((n) => n.nodeType === NODE_TYPES.barrelDistort);
+    expect(node.inputPorts.find((p) => p.name === "Flatness").value).toBe(0);
+    for (const target of TARGETS) {
+      const { main } = split(blueprint.generateAllShaders()[target], target);
+      expect(main).toMatch(/barrelDistort\([^;]*, 0\.0\)/);
     }
   });
 
