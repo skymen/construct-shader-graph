@@ -16032,10 +16032,16 @@ class BlueprintSystem {
     const exportableUniforms = this.getExportableUniforms();
     if (exportableUniforms.length > 0) {
       const params = {};
-      exportableUniforms.forEach(({ uniform, exportName }) => {
+      // Prefix each description with the parameter's index - the number
+      // Construct's "Set effect parameter" action takes. Same order as
+      // addon.json's `parameters`. A hand-typed "[N]" is replaced, not doubled.
+      exportableUniforms.forEach(({ uniform, exportName }, index) => {
+        const desc = (uniform.description || "")
+          .replace(/^\[\d+\]\s*/, "")
+          .trim();
         params[uniform.paramId] = {
           name: exportName,
-          desc: uniform.description || "",
+          desc: desc ? `[${index}] ${desc}` : `[${index}]`,
         };
       });
       langData.text.effects[addonId].parameters = params;
